@@ -167,6 +167,114 @@ test("OIDC user without grants cannot administer the platform; CSRF and stale re
   expect((await outsider.request.get("/admin/v1/users")).status()).toBe(403);
   await context.close();
 });
+test("team editing preserves its original revision through background refreshes", async ({
+  page,
+}) => {
+  await login(page);
+  const users = (await (await page.request.get("/admin/v1/users")).json())
+    .items;
+  const owner = users.find((u: any) => u.oidc_subject === "tenant-admin");
+  const tenant = crypto.randomUUID(),
+    team = crypto.randomUUID();
+  const base = `/v1/tenants/${tenant}`;
+  const teamPath = `${base}/teams/${team}`;
+  expect(
+    (
+      await post(page, "/admin/v1/tenants", {
+        id: tenant,
+        slug: "team-edit-" + tenant,
+        display_name: "Concurrent team editing " + tenant,
+        plan_id: "10000000-0000-4000-8000-000000000001",
+        initial_admin_user_id: owner.id,
+      })
+    ).status,
+  ).toBe(201);
+  expect(
+    (
+      await post(page, `${base}/teams`, {
+        id: team,
+        slug: "review-team",
+        display_name: "Original team",
+      })
+    ).status,
+  ).toBe(201);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.locator("#tenant-context").selectOption(tenant);
+  await page
+    .getByRole("button", { name: "Access control", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Teams", exact: true }).click();
+  const initialLoad = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === teamPath + "/members",
+  );
+  await page
+    .getByRole("combobox", { name: "Team scope", exact: true })
+    .selectOption(team);
+  await initialLoad;
+  await expect(page.getByText("0 records", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit team", exact: true }).click();
+  const form = page.getByRole("form", { name: "Edit team", exact: true });
+  await form.getByLabel("Name", { exact: true }).fill("My draft rename");
+
+  // Another editor disables the team after this form captured revision 1.
+  expect(
+    (
+      await post(
+        page,
+        teamPath,
+        { display_name: "Concurrent rename", state: "disabled" },
+        "PATCH",
+        1,
+      )
+    ).status,
+  ).toBe(200);
+  const backgroundLoad = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === teamPath + "/members",
+  );
+  await page
+    .getByRole("textbox", { name: "Search records", exact: true })
+    .fill("refresh");
+  await backgroundLoad;
+  await expect(page.getByText("0 records", { exact: true })).toBeVisible();
+  await expect(form.getByLabel("Name", { exact: true })).toHaveValue(
+    "My draft rename",
+  );
+  await expect(form.getByLabel("State", { exact: true })).toHaveValue("active");
+
+  const save = page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname === teamPath &&
+      r.request().method() === "PATCH",
+  );
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  const stale = await save;
+  expect(stale.request().headers()["if-match"]).toBe("1");
+  expect(stale.status()).toBe(412);
+  await expect(form).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("This resource changed");
+  let current = await (await page.request.get(teamPath)).json();
+  expect(current).toMatchObject({
+    display_name: "Concurrent rename",
+    state: "disabled",
+    revision: 2,
+  });
+
+  await form.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Edit team", exact: true }).click();
+  await expect(form.getByLabel("State", { exact: true })).toHaveValue(
+    "disabled",
+  );
+  await form.getByLabel("Name", { exact: true }).fill("Reviewed rename");
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  current = await (await page.request.get(teamPath)).json();
+  expect(current).toMatchObject({
+    display_name: "Reviewed rename",
+    state: "disabled",
+    revision: 3,
+  });
+});
+
 test("management screens support existing database registration and Tenant access administration", async ({
   page,
 }) => {

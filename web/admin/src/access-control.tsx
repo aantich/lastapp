@@ -236,7 +236,7 @@ export function AccessControl({
             path,
             "PATCH",
             { display_name: values.display_name, state: values.state },
-            resource.revision,
+            editing.revision,
           );
         const id = crypto.randomUUID();
         await api(base + "/teams", "POST", {
@@ -369,6 +369,7 @@ export function AccessControl({
                 <>
                   <button
                     className="secondary"
+                    disabled={loading || resource.id !== target}
                     onClick={() => open("team", resource)}
                   >
                     Edit team

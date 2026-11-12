@@ -68,9 +68,25 @@ func (l *requestLimiter) allow(key string, now time.Time) bool {
 
 func (s *Server) limitRequest(w http.ResponseWriter, p Principal, r *http.Request) error {
 	now := time.Now()
-	if !s.limiter.allow("user:"+p.ID, now) || (r.PathValue("tenant") != "" && !s.limiter.allow("tenant:"+r.PathValue("tenant"), now)) {
-		w.Header().Set("Retry-After", "1")
-		return problem(429, "rate_limited", "Too many requests. Retry shortly.")
+	if !s.limiter.allow("user:"+p.ID, now) {
+		return rateLimited(w)
+	}
+	if tenant := r.PathValue("tenant"); tenant != "" {
+		// Bound unauthorized traffic per user, but never let an untrusted Tenant
+		// ID allocate or consume another Tenant's shared request budget.
+		if !p.Platform {
+			if e := s.member(r.Context(), s.DB, p, tenant, false); e != nil {
+				return e
+			}
+		}
+		if !s.limiter.allow("tenant:"+tenant, time.Now()) {
+			return rateLimited(w)
+		}
 	}
 	return nil
+}
+
+func rateLimited(w http.ResponseWriter) error {
+	w.Header().Set("Retry-After", "1")
+	return problem(429, "rate_limited", "Too many requests. Retry shortly.")
 }

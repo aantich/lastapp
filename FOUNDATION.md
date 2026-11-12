@@ -87,9 +87,13 @@ List endpoints support `page`, `limit` and `q`; the default limit is 100 and max
 
 Custom role/team/user changes and assignment deletion require `If-Match` for that resource’s current revision. Tenant membership PATCH uses its membership revision. Team member add/change/removal uses the containing team’s revision, obtained from GET team; membership changes increment it. Stale revisions return 412 and missing required revisions return 428. Unknown request fields, including direct `permission_code` grants and administrative `permissions` on custom roles, are rejected. The former `/access-grants` and `/groups` API routes are removed.
 
+The console retains the revision captured when a team editor opens. Background list refreshes cannot advance that form’s revision and silently overwrite another editor’s changes, including a team disable.
+
 ## Revocation and safety
 
 Authorization reads current user, membership, team, role and assignment state; it does not trust a browser role list or retain positive permission decisions. A business role never contributes control actions. Unknown actions fail closed even for platform administrators. Space/App managers can operate only in their authorized scopes; an App manager cannot appoint another App manager or change a sibling App.
+
+Per-user request limits apply before Tenant lookups. Only active Tenant members or platform administrators may allocate or spend that Tenant’s shared request budget; requests from outsiders or disabled members do not affect it. Endpoint authorization still checks each requested action and scope.
 
 Disabling a user, Tenant membership, team, team membership or custom role removes the relevant effective assignments. Re-enabling preserves them. Removing team membership deletes its team-scoped user assignments in the same transaction; rejoining does not restore those removed assignments. Team-recipient business roles apply again to any current active member, as intended. Tenant membership is disable-only.
 

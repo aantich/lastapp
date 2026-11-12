@@ -1,5 +1,20 @@
 # Lastapp verification
 
+## Review fixes — 12 November 2026
+
+Both review findings are fixed in the running local API and embedded console:
+
+- Tenant request budgets are charged only after active membership or platform authority is established. Per-user throttling remains first. The regression covers a 120-request outsider burst, nonexistent/arbitrary Tenant IDs, disabled membership, legitimate member traffic and platform access without membership.
+- Team editors submit their captured revision even when background queries refresh current metadata. Editing is disabled until the selected team is loaded. A real Chrome/API regression opens a draft, concurrently renames and disables the team, triggers a background refresh, and verifies that the stale save returns 412 without undoing the disable. Reopening and saving against the new revision succeeds.
+
+The new tests failed against the original implementation before the fixes. Final validation uses the same existing private MariaDB instance and pinned driver:
+
+- Full `go test -race -count=1 -v ./...` with local integration/security configs: **PASS**, control package **14.810 seconds**; only the explicit CI fixture-preparation helper skips locally.
+- `go vet ./...` and `git diff --check`: **PASS**.
+- TypeScript/Vite production build: **PASS**.
+- Complete installed-Chrome suite: **10/10 PASS in 36.3 seconds**.
+- Rebuilt API and embedded console restarted successfully; local readiness reports **ready**.
+
 ## Current identity roles and scopes foundation
 
 12 November 2026, macOS/arm64, using the existing private MariaDB 12.3.3, the pinned `aantich/go-mariadb` driver, Go 1.27.4, NVM Node 24.20.0 and installed Chrome. The API and console are running against `lastapp_foundation`; earlier local databases remain intact.
