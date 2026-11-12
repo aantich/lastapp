@@ -282,6 +282,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal
 		if str(role["domain"]) == authz.Control && in.Group != "" {
 			return bad("Administrative roles require individual users.")
 		}
+
 		if scope.Kind != authz.Platform {
 			if e = metadataQuota(r.Context(), tx, scope.Tenant, "access_grants"); e != nil {
 				return e
@@ -296,8 +297,23 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal
 				}
 			}
 		} else {
-			if _, e = row(r.Context(), tx, "SELECT id FROM users WHERE id=? AND state='active'", in.User); e != nil {
+			if _, e = row(r.Context(), tx, "SELECT id FROM users WHERE id=? AND state='active' FOR UPDATE", in.User); e != nil {
 				return e
+			}
+		}
+		if str(role["domain"]) == authz.Control {
+			if scope.Kind != authz.Platform {
+				platform, e := isPlatform(r.Context(), tx, in.User)
+				if e != nil {
+					return e
+				}
+				if platform {
+					return bad("Use a Tenant account for Tenant, team, Space and App roles.")
+				}
+			} else {
+				if e := platformCandidate(r.Context(), tx, in.User); e != nil {
+					return e
+				}
 			}
 		}
 		if scope.Kind == authz.Team {
@@ -314,6 +330,18 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal
 		return e
 	}
 	return result(w, r, s, "access_grants", scope.Tenant, in.ID, 201)
+}
+
+// The recipient user row must already be locked, including during bootstrap.
+func platformCandidate(ctx context.Context, q Queryer, user string) error {
+	var n int
+	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM access_grants WHERE user_id=? AND tenant_id IS NOT NULL AND domain='control'", user).Scan(&n); e != nil {
+		return e
+	}
+	if n > 0 {
+		return conflict("Remove this user's Tenant and team roles before granting platform administration.")
+	}
+	return nil
 }
 func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
@@ -372,11 +400,21 @@ func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p Principal
 }
 
 func assignInitialManager(ctx context.Context, tx *sql.Tx, p Principal, tenant, space, app, user, request string) error {
+	if e := metadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
+		return e
+	}
 	if e := id(user); e != nil {
 		return bad("Select an active Tenant member as initial manager.")
 	}
 	if e := activeTenantUser(ctx, tx, tenant, user); e != nil {
 		return e
+	}
+	platform, e := isPlatform(ctx, tx, user)
+	if e != nil {
+		return e
+	}
+	if platform {
+		return bad("Choose a Tenant account as initial manager.")
 	}
 	kind, role := authz.Space, authz.SpaceManagerRole
 	var scopeSpace any = space

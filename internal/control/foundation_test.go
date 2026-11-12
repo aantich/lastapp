@@ -79,8 +79,8 @@ func TestAuthorizationFoundation(t *testing.T) {
 		c.want("POST", "/admin/v1/tenants", Row{"id": id, "slug": "foundation-" + id, "display_name": "Foundation " + id, "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	}
 	base := "/v1/tenants/" + tenant
-	c.want("POST", base+"/memberships", Row{"user_id": joe}, 0, 201)
-	c.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
+	ownerClient.want("POST", base+"/memberships", Row{"user_id": joe}, 0, 201)
+	ownerClient.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
 	target, db := newID(), newID()
 	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Fixture','127.0.0.1',33317,'disabled')", target); e != nil {
 		t.Fatal(e)
@@ -95,19 +95,19 @@ func TestAuthorizationFoundation(t *testing.T) {
 	spaces := []string{newID(), newID()}
 	apps := []string{newID(), newID()}
 	for i, id := range spaces {
-		c.want("POST", base+"/spaces", Row{"id": id, "slug": "space-" + str(i), "display_name": "Space " + str(i), "initial_manager_user_id": owner, "database": Row{"resource_id": db}}, 0, 201)
+		ownerClient.want("POST", base+"/spaces", Row{"id": id, "slug": "space-" + str(i), "display_name": "Space " + str(i), "initial_manager_user_id": owner, "database": Row{"resource_id": db}}, 0, 201)
 	}
 	for i, id := range apps {
-		c.want("POST", base+"/spaces/"+spaces[0]+"/apps", Row{"id": id, "slug": "app-" + str(i), "display_name": "App " + str(i), "initial_manager_user_id": owner}, 0, 201)
+		ownerClient.want("POST", base+"/spaces/"+spaces[0]+"/apps", Row{"id": id, "slug": "app-" + str(i), "display_name": "App " + str(i), "initial_manager_user_id": owner}, 0, 201)
 	}
 	marketing, engineering := newID(), newID()
 	for i, id := range []string{marketing, engineering} {
-		c.want("POST", base+"/teams", Row{"id": id, "slug": "team-" + str(i), "display_name": []string{"Marketing", "Engineering"}[i]}, 0, 201)
+		ownerClient.want("POST", base+"/teams", Row{"id": id, "slug": "team-" + str(i), "display_name": []string{"Marketing", "Engineering"}[i]}, 0, 201)
 	}
 	teamPath := base + "/teams/" + marketing
-	c.want("POST", teamPath+"/members", Row{"user_id": joe}, 1, 200)
-	c.want("POST", teamPath+"/members", Row{"user_id": owner}, 2, 200)
-	c.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamReviewerRole}, 0, 201)
+	ownerClient.want("POST", teamPath+"/members", Row{"user_id": joe}, 1, 200)
+	ownerClient.want("POST", teamPath+"/members", Row{"user_id": owner}, 2, 200)
+	ownerClient.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamReviewerRole}, 0, 201)
 	roleContext := joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)
 	if !hasAssignment(roleContext["items"], authz.TeamReviewerRole) {
 		t.Fatal("true team Reviewer missing", roleContext)
@@ -123,33 +123,33 @@ func TestAuthorizationFoundation(t *testing.T) {
 	}
 	joeClient.want("GET", base+"/teams/"+engineering, nil, 0, 403)
 	joeClient.want("GET", teamPath+"/members", nil, 0, 403)
-	c.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamReviewerRole}, 0, 404)
-	c.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "group_id": marketing, "role_id": authz.TeamAdminRole}, 0, 400)
-	c.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": joe, "permission_code": "app.manage"}, 0, 400)
+	ownerClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamReviewerRole}, 0, 404)
+	ownerClient.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "group_id": marketing, "role_id": authz.TeamAdminRole}, 0, 400)
+	ownerClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": joe, "permission_code": "app.manage"}, 0, 400)
 	// Disabling preserves the assignment; leaving deletes it before its FK parent.
-	c.want("PATCH", teamPath+"/members/"+joe, Row{"state": "disabled"}, 3, 200)
+	ownerClient.want("PATCH", teamPath+"/members/"+joe, Row{"state": "disabled"}, 3, 200)
 	if hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], authz.TeamReviewerRole) {
 		t.Fatal("disabled team member retained role")
 	}
-	c.want("PATCH", teamPath+"/members/"+joe, Row{"state": "active"}, 4, 200)
+	ownerClient.want("PATCH", teamPath+"/members/"+joe, Row{"state": "active"}, 4, 200)
 	if !hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], authz.TeamReviewerRole) {
 		t.Fatal("membership enable lost preserved assignment")
 	}
-	c.want("DELETE", teamPath+"/members/"+joe, nil, 5, 200)
-	c.want("POST", teamPath+"/members", Row{"user_id": joe}, 6, 200)
+	ownerClient.want("DELETE", teamPath+"/members/"+joe, nil, 5, 200)
+	ownerClient.want("POST", teamPath+"/members", Row{"user_id": joe}, 6, 200)
 	if hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], authz.TeamReviewerRole) {
 		t.Fatal("rejoin restored deleted role")
 	}
 	// Team administrators can govern their team, never its Tenant or other scopes.
-	c.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamAdminRole}, 0, 201)
+	ownerClient.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamAdminRole}, 0, 201)
 	joeClient.want("POST", teamPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.TeamReviewerRole}, 0, 201)
 	joeClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": TenantAdminRole}, 0, 403)
 	joeClient.want("GET", base+"/memberships", nil, 0, 403)
 	// Custom business roles have stable scope ownership and no administrative powers.
 	scope := base + "/spaces/" + spaces[0]
 	role := newID()
-	c.want("POST", scope+"/roles", Row{"id": role, "code": "tenant-admin", "display_name": "Tenant administrator"}, 0, 201)
-	c.want("POST", scope+"/role-assignments", Row{"id": newID(), "group_id": marketing, "role_id": role}, 0, 201)
+	ownerClient.want("POST", scope+"/roles", Row{"id": role, "code": "tenant-admin", "display_name": "Tenant administrator"}, 0, 201)
+	ownerClient.want("POST", scope+"/role-assignments", Row{"id": newID(), "group_id": marketing, "role_id": role}, 0, 201)
 	if !hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], role) {
 		t.Fatal("team recipient did not confer business role")
 	}
@@ -157,24 +157,24 @@ func TestAuthorizationFoundation(t *testing.T) {
 	if caps["app.manage"].(map[string]any)["available"] != false {
 		t.Fatal("business role widened control authority")
 	}
-	c.want("POST", base+"/spaces/"+spaces[1]+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": role}, 0, 404)
-	c.want("POST", "/v1/tenants/"+other+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": TenantAdminRole}, 0, 400)
-	c.want("POST", scope+"/roles", Row{"id": newID(), "code": "escalate", "display_name": "Denied", "permissions": []string{"platform.admin"}}, 0, 400)
-	c.want("PATCH", scope+"/roles/"+authz.SpaceManagerRole, Row{"state": "disabled"}, 1, 403)
+	ownerClient.want("POST", base+"/spaces/"+spaces[1]+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": role}, 0, 404)
+	ownerClient.want("POST", "/v1/tenants/"+other+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": TenantAdminRole}, 0, 400)
+	ownerClient.want("POST", scope+"/roles", Row{"id": newID(), "code": "escalate", "display_name": "Denied", "permissions": []string{"platform.admin"}}, 0, 400)
+	ownerClient.want("PATCH", scope+"/roles/"+authz.SpaceManagerRole, Row{"state": "disabled"}, 1, 403)
 	// Membership changes immediately change team-recipient business roles.
-	c.want("PATCH", teamPath, Row{"state": "disabled"}, 7, 200)
+	ownerClient.want("PATCH", teamPath, Row{"state": "disabled"}, 7, 200)
 	if hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], role) {
 		t.Fatal("disabled team retained business role")
 	}
-	c.want("PATCH", teamPath, Row{"state": "active"}, 8, 200)
-	c.want("PATCH", scope+"/roles/"+role, Row{"state": "disabled"}, 1, 200)
+	ownerClient.want("PATCH", teamPath, Row{"state": "active"}, 8, 200)
+	ownerClient.want("PATCH", scope+"/roles/"+role, Row{"state": "disabled"}, 1, 200)
 	if hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], role) {
 		t.Fatal("disabled role retained access")
 	}
-	c.want("PATCH", scope+"/roles/"+role, Row{"state": "active"}, 2, 200)
+	ownerClient.want("PATCH", scope+"/roles/"+role, Row{"state": "active"}, 2, 200)
 	// App manager permissions cannot reach siblings or appoint another manager.
 	appPath := base + "/apps/" + apps[0]
-	c.want("POST", appPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.AppManagerRole}, 0, 201)
+	ownerClient.want("POST", appPath+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": authz.AppManagerRole}, 0, 201)
 	list := joeClient.want("GET", base+"/apps", nil, 0, 200)["items"].([]any)
 	if len(list) != 1 || str(list[0].(map[string]any)["id"]) != apps[0] {
 		t.Fatal("App management leaked sibling", list)
@@ -201,10 +201,10 @@ func TestAuthorizationFoundation(t *testing.T) {
 	if e = s.authorize(context.Background(), s.DB, Principal{ID: operator, Platform: true}, "deals.read", Resource{}, false); e == nil {
 		t.Fatal("unknown business action used platform bypass")
 	}
-	c.want("PATCH", base+"/memberships/"+joe, Row{"state": "disabled"}, 1, 200)
+	ownerClient.want("PATCH", base+"/memberships/"+joe, Row{"state": "disabled"}, 1, 200)
 	joeClient.want("GET", base+"/my-role-assignments", nil, 0, 404)
-	c.want("PATCH", base+"/memberships/"+joe, Row{"state": "active"}, 1, 412)
-	c.want("PATCH", base+"/memberships/"+joe, Row{"state": "active"}, 2, 200)
+	ownerClient.want("PATCH", base+"/memberships/"+joe, Row{"state": "active"}, 1, 412)
+	ownerClient.want("PATCH", base+"/memberships/"+joe, Row{"state": "active"}, 2, 200)
 	if !hasAssignment(joeClient.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"], role) {
 		t.Fatal("Tenant membership re-enable lost assignments")
 	}

@@ -37,6 +37,9 @@ type requestLimiter struct {
 // Per-process fairness, not a distributed billing quota. The bounded map evicts
 // idle entries; a full map rejects new keys instead of allocating without limit.
 func (l *requestLimiter) allow(key string, now time.Time) bool {
+	return l.allowRate(key, now, 120, 20)
+}
+func (l *requestLimiter) allowRate(key string, now time.Time, burst, refill float64) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.entries == nil {
@@ -54,9 +57,9 @@ func (l *requestLimiter) allow(key string, now time.Time) bool {
 				return false
 			}
 		}
-		v = rateEntry{tokens: 120, at: now}
+		v = rateEntry{tokens: burst, at: now}
 	}
-	v.tokens = min(120, v.tokens+now.Sub(v.at).Seconds()*20)
+	v.tokens = min(burst, v.tokens+now.Sub(v.at).Seconds()*refill)
 	v.at = now
 	allowed := v.tokens >= 1
 	if allowed {

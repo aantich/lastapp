@@ -111,3 +111,25 @@ func TestRedactedDiagnostics(t *testing.T) {
 		t.Fatal("platform bypass accepts an unknown action domain")
 	}
 }
+
+func TestPasswordWorkIsBounded(t *testing.T) {
+	s := &Server{passwordSlots: make(chan struct{}, 2)}
+	first, e := s.passwordWork()
+	if e != nil {
+		t.Fatal(e)
+	}
+	second, e := s.passwordWork()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.passwordWork(); e == nil {
+		t.Fatal("password work is not bounded")
+	}
+	first()
+	third, e := s.passwordWork()
+	if e != nil {
+		t.Fatal("password capacity was not released", e)
+	}
+	second()
+	third()
+}

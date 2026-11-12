@@ -10,8 +10,8 @@ import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-source = (ROOT / 'internal/control/migrations/00001_control.sql').read_text().split('-- +goose Down')[0]
-expected = '\n'.join(line for line in source.splitlines() if not line.startswith('-- +goose ')).strip()
+sources = [p.read_text().split('-- +goose Down')[0] for p in sorted((ROOT / 'internal/control/migrations').glob('*.sql'))]
+expected = '\n\n'.join('\n'.join(line for line in source.splitlines() if not line.startswith('-- +goose ')).strip() for source in sources)
 actual = (ROOT / 'design/control_plane.sql').read_text().strip()
 if actual != expected:
     raise SystemExit('Canonical design DDL differs from the executable bootstrap schema.')

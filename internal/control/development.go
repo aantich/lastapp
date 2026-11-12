@@ -103,7 +103,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		if e = s.allocateDatabase(ctx, tx, Principal{ID: operator, Platform: true}, tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, newID()); e != nil {
+		if e = s.allocateDatabase(ctx, tx, Principal{ID: owner}, tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, newID()); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET default_shared_database_id=? WHERE id=?", resource, tenant); e != nil {

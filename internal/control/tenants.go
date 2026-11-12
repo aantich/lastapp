@@ -108,7 +108,7 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) erro
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at FROM users ORDER BY display_name")
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin FROM users ORDER BY display_name", SuperRole)
 	if e == nil {
 		sendPage(w, r, v)
 	}
@@ -197,17 +197,18 @@ func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) 
 }
 func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
-		ID     string `json:"id"`
-		Slug   string `json:"slug"`
-		Name   string `json:"display_name"`
-		Plan   string `json:"plan_id"`
-		Admin  string `json:"initial_admin_user_id"`
-		Layout string `json:"default_layout"`
+		ID      string        `json:"id"`
+		Slug    string        `json:"slug"`
+		Name    string        `json:"display_name"`
+		Plan    string        `json:"plan_id"`
+		Admin   string        `json:"initial_admin_user_id"`
+		Account *accountInput `json:"initial_admin"`
+		Layout  string        `json:"default_layout"`
 	}
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	for _, v := range []string{in.ID, in.Plan, in.Admin} {
+	for _, v := range []string{in.ID, in.Plan} {
 		if e := id(v); e != nil {
 			return e
 		}
@@ -215,7 +216,30 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principa
 	if e := named(in.Slug, in.Name); e != nil {
 		return e
 	}
+	if (in.Admin == "") == (in.Account == nil) {
+		return bad("Select an existing administrator or supply a new administrator account.")
+	}
+	var account preparedAccount
+	if in.Account != nil {
+		if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+			return e
+		}
+		var e error
+		account, e = s.prepareAccount(*in.Account)
+		if e != nil {
+			return e
+		}
+	} else if e := id(in.Admin); e != nil {
+		return e
+	}
 	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		if in.Account != nil {
+			var e error
+			in.Admin, e = localAccount(r.Context(), tx, account, true)
+			if e != nil {
+				return e
+			}
+		}
 		policy, e := row(r.Context(), tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
 		if e != nil {
 			return e
@@ -226,6 +250,13 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principa
 		var user string
 		if e = tx.QueryRowContext(r.Context(), "SELECT id FROM users WHERE id=? AND state='active'", in.Admin).Scan(&user); e != nil {
 			return bad("Select an active registered administrator.")
+		}
+		platform, e := isPlatform(r.Context(), tx, in.Admin)
+		if e != nil {
+			return e
+		}
+		if platform {
+			return bad("Choose a Tenant administrator account without platform administration privileges.")
 		}
 		_, e = tx.ExecContext(r.Context(), "INSERT INTO tenants (id,slug,display_name,plan_id,default_layout,created_by) VALUES (?,?,?,?,?,?)", in.ID, in.Slug, in.Name, in.Plan, nullable(in.Layout), p.ID)
 		if e != nil {
@@ -353,7 +384,7 @@ func ensurePlatformAdmin(ctx context.Context, q Queryer) error {
 }
 func ensureTenantAdmin(ctx context.Context, q Queryer, tenant string) error {
 	var n int
-	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL", tenant, TenantAdminRole).Scan(&n)
+	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL AND NOT EXISTS (SELECT 1 FROM access_grants pg WHERE pg.user_id=g.user_id AND pg.role_id=?)", tenant, TenantAdminRole, SuperRole).Scan(&n)
 	if e != nil {
 		return e
 	}

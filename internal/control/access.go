@@ -11,7 +11,7 @@ func (s *Server) memberships(w http.ResponseWriter, r *http.Request, p Principal
 	if e := s.authorize(r.Context(), s.DB, p, "membership.read", Resource{Tenant: t}, false); e != nil {
 		return e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT m.user_id,m.state,m.revision,m.created_at,u.display_name,u.email,u.state AS user_state FROM tenant_memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=? ORDER BY u.display_name", t)
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT m.user_id,m.state,m.revision,m.created_at,u.display_name,u.email,u.state AS user_state,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin FROM tenant_memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=? ORDER BY u.display_name", SuperRole, t)
 	if e == nil {
 		sendPage(w, r, v)
 	}
@@ -19,18 +19,47 @@ func (s *Server) memberships(w http.ResponseWriter, r *http.Request, p Principal
 }
 func (s *Server) addMembership(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
-		User string `json:"user_id"`
+		User    string        `json:"user_id"`
+		Account *accountInput `json:"account"`
 	}
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if e := id(in.User); e != nil {
+	t := r.PathValue("tenant")
+	if (in.User == "") == (in.Account == nil) {
+		return bad("Select an existing user or supply an account.")
+	}
+	var account preparedAccount
+	if in.Account != nil {
+		if e := s.authorize(r.Context(), s.DB, p, "membership.manage", Resource{Tenant: t}, false); e != nil {
+			return e
+		}
+		if in.Account.Password != "" {
+			if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+				return e
+			}
+		}
+		var e error
+		account, e = s.prepareAccount(*in.Account)
+		if e != nil {
+			return e
+		}
+	} else if e := id(in.User); e != nil {
 		return e
 	}
-	t := r.PathValue("tenant")
 	e := s.mutate(r.Context(), p, "membership.manage", Resource{Tenant: t}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		if e := metadataQuota(r.Context(), tx, t, "tenant_memberships"); e != nil {
 			return e
+		}
+		if in.Account != nil {
+			platform, e := isPlatform(r.Context(), tx, p.ID)
+			if e != nil {
+				return e
+			}
+			in.User, e = localAccount(r.Context(), tx, account, platform)
+			if e != nil {
+				return e
+			}
 		}
 		var state string
 		if e := tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
@@ -274,7 +303,7 @@ func (s *Server) groupMembers(w http.ResponseWriter, r *http.Request, p Principa
 	if _, e := row(r.Context(), s.DB, "SELECT id FROM groups WHERE tenant_id=? AND id=?", t, g); e != nil {
 		return e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT gm.user_id,gm.state,u.display_name,u.state AS user_state,tm.state AS tenant_state FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", t, g)
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT gm.user_id,gm.state,u.display_name,u.state AS user_state,tm.state AS tenant_state,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", SuperRole, t, g)
 	if e == nil {
 		sendPage(w, r, v)
 	}
@@ -297,7 +326,7 @@ func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p Principal) err
 	if e := s.authorize(r.Context(), s.DB, p, "app.read", Resource{Tenant: t, App: a}, false); e != nil {
 		return e
 	}
-	v, e := row(r.Context(), s.DB, "SELECT id,space_id,slug,display_name,state,revision FROM apps WHERE tenant_id=? AND id=?", t, a)
+	v, e := row(r.Context(), s.DB, "SELECT a.id,a.space_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", t, a)
 	if e == nil {
 		send(w, 200, v)
 	}

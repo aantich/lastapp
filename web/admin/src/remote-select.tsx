@@ -12,6 +12,7 @@ export function RemoteSelect({
   labelKey = "display_name",
   excludeInactive = false,
   excludeControl = false,
+  excludePlatform = false,
 }: {
   path: string;
   label: string;
@@ -23,6 +24,7 @@ export function RemoteSelect({
   labelKey?: string;
   excludeInactive?: boolean;
   excludeControl?: boolean;
+  excludePlatform?: boolean;
 }) {
   const [query, setQuery] = useState(""),
     [page, setPage] = useState(1),
@@ -48,6 +50,7 @@ export function RemoteSelect({
               .filter(
                 (x: Record<string, any>) =>
                   (!excludeControl || x.domain !== "control") &&
+                  (!excludePlatform || !x.platform_admin) &&
                   (!excludeInactive ||
                     ((!x.state || x.state === "active") &&
                       (!x.user_state || x.user_state === "active") &&
@@ -72,7 +75,16 @@ export function RemoteSelect({
       active = false;
       clearTimeout(timer);
     };
-  }, [path, page, query, valueKey, labelKey, excludeInactive, excludeControl]);
+  }, [
+    path,
+    page,
+    query,
+    valueKey,
+    labelKey,
+    excludeInactive,
+    excludeControl,
+    excludePlatform,
+  ]);
   return (
     <span className="lookup-select">
       <input

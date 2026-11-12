@@ -1,10 +1,10 @@
 # Lastapp — provisioning and authorization foundation
 
-A Go API and React/Tailwind admin console with real MariaDB provisioning, shared identities/teams, fixed administrative roles and custom Space/App business roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. Business-object ACLs and the entity runtime are the next stage.
+A Go API and React/Tailwind console with separate Platform and Tenant workspaces, email/password accounts and optional OIDC, real MariaDB provisioning, shared identities/teams and scoped roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. Business-object ACLs and the entity runtime are the next stage.
 
 **Open locally:** http://127.0.0.1:8787/console/
 
-Choose **Platform operator**, password **`lastapp-local`**. The local issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space, Marketing/Engineering teams and two Apps; Joe has a role within Marketing and receives a Space business role through that team.
+Use **Sign in to Lastapp** to open development SSO, then choose **Platform operator**, password **`lastapp-local`**. The issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space, Marketing/Engineering teams and two Apps. The normal login form accepts the email/password accounts created by platform administrators through Tenant provisioning or **Users → Create account**.
 
 ## Run
 
@@ -34,26 +34,30 @@ make test                  # Go unit tests and compilation; DB tests skip by def
 make integration           # actual MariaDB + Chrome tests; run make dev first
 ```
 
-Do not delete `.local/config.json` while retaining its database: its encryption key is needed to read stored connection credentials. The development identity provider is explicitly loopback-only; production uses an external trusted OIDC issuer.
+Do not delete `.local/config.json` while retaining its database: its encryption key is needed to read stored connection credentials. The development identity provider is explicitly loopback-only. Production can use local accounts, trusted OIDC, or both.
 
 ## Review the UI
 
-1. **Tenants → Create Tenant:** select a plan and an existing signed-in identity as the initial Tenant administrator.
-2. Open that Tenant and **Create Space**, explicitly selecting its initial manager. Shared layout reuses the Tenant's default database; dedicated layout creates an exclusive database. Status updates while provisioning runs.
-3. **Apps → Create App**, select its initial manager, then **Micro-apps → Register micro-app**. These are registry records in this phase, not deployed business runtimes.
-4. **Databases → Add database:** request managed creation or register an existing database on a configured target with scoped credentials. Existing registration validates connectivity/version/CRUD grants and does not write to business tables. Failed resources can be retried; registered credentials can be replaced through the API.
-5. **Members / Access control:** manage Tenant membership; use Tenant, Teams, Spaces and Apps tabs for scoped role assignments. Tenant/team roles are fixed. Space/App business roles are custom and cannot grant administrative actions. Team membership is separate from a user's role within that team; protected manager roles accept users only. The last active Tenant administrator is protected.
-6. Select **Platform overview → Access control** to manage platform superadmin grants. **Plans**, **Users**, **Database targets** and **Activity** provide system management. The last active superadmin is protected.
+1. As **Platform operator**, open **Tenants → Create Tenant**. Choose a plan, enter the administrator's name/email/initial password (or generate one), or select an existing account. An existing account's password is never replaced.
+2. Sign out, then sign in with that email/password. Replace the initial password to unlock the workspace. Alternatively, use the development **Tenant administrator** SSO account to inspect the Northstar demo.
+3. Tenant **Home** shows recent Apps, resource counts/limits and provisioning issues. **View all Apps** opens the paginated, searchable App directory; App-only managers can reach every authorized App without access to its parent Space. The sidebar contains **Home, Spaces, People, Activity, Settings**. A Tenant switcher appears only for multiple memberships.
+4. **Spaces → Create Space:** choose its manager and managed creation or an existing database resource. Open the Space for **Overview, Apps, Database, Access, Settings**; create Apps inside its **Apps** tab.
+5. Open an App for **Overview, Micro-apps, Access, Settings**. Register micro-apps and manage App business roles. Registrations and compute preferences do not deploy or execute Apps.
+6. **People:** add an existing account by email or user ID, manage teams/memberships and assign fixed Tenant/team roles. Platform administrators create new global accounts; Tenant administrators cannot claim arbitrary global email identities. Space/App custom roles remain inside their owning Space/App. The last active Tenant administrator is protected.
+7. **Settings:** company name, read-only subscription limits, database resources and password changes. Existing database registration preserves business tables; verification/retries, credential replacement and retirement use the existing provisioning API.
+8. The **Platform workspace** manages Tenants, plans, targets, global users and platform roles/activity. **Users → Create account** provisions an email/password account without automatically granting any role or membership. Tenant details show operational inventory. Platform accounts cannot create/update Spaces, Apps, micro-apps or custom business roles, and cannot hold Tenant/team administrative roles. Last-superadmin protection remains enforced.
+
+Expired or revoked sessions return to login automatically, including when signing out an already-expired session. Incorrect login/current-password responses remain ordinary form errors. Starting a new password session or rotating credentials invalidates older request generations so a delayed old-session response cannot close the new session.
 
 The `Starter` plan allows one shared managed database, three Spaces and ten Apps. `Development` permits both layouts/methods, dedicated-compute preferences, 100 Spaces, 500 Apps and 100 database resources. Plans apply to future allocations; they do not migrate existing resources.
 
 ## Implementation
 
-- `internal/control`: explicit SQL/HTTP handlers, registry role resolution, encrypted credentials, OIDC sessions and provisioning. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
+- `internal/control`: explicit SQL/HTTP handlers, registry role resolution, encrypted database credentials, local/OIDC sessions and provisioning. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
 - `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
-- `design/control_plane.sql`: 17-table foundation schema. `internal/control/migrations/00001_control.sql` initializes a fresh registry; security constraints are consolidated there.
+- `design/control_plane.sql`: canonical 18-table registry schema. The second SQL bootstrap step adds global local-account credentials and the session authentication method without changing existing identities or database bindings.
 - `third_party/go-mariadb`: source snapshot of **[aantich/go-mariadb](https://github.com/aantich/go-mariadb)** from sibling `../go-mariadb`, including its compression implementation and license notices. `SNAPSHOT.json` records hashes. All connectivity uses its `mariadb` package and `database/sql` connector. No MySQL fallback driver is installed. The snapshot avoids silently changing Lastapp when another chat edits the driver; intentionally refresh/pin it when adopting a reviewed driver change.
 
 The hierarchy is **Tenant → Space → App → micro-app installation**. A Space has one fixed database binding. Spaces can share only within the same Tenant, and dedicated bindings are exclusive. All identities, memberships, groups, permission definitions, roles and grants live in the central registry.
@@ -68,7 +72,19 @@ A pinned MariaDB advisory lock elects one provisioning worker. It reconciles dur
 
 Copy `config.example.json` to a protected file and replace its placeholders. Use a separately privileged migration DSN with `lastapp migrate -config /path/to/migration.json`, then run `lastapp serve -config /path/to/runtime.json`. Bootstrap an exact issuer/subject identity using `lastapp bootstrap -config ... -issuer ... -subject ...`; email is never a privilege source.
 
-Production requires HTTPS public origin, trusted HTTPS OIDC, identity-verified database TLS and an operator-defined runtime account host/network policy. Terminate HTTPS at the trusted ingress. `allowed_networks` explicitly permits private database address ranges; public addresses are otherwise permitted. DNS results are checked again at connection time. Register each physical server under one canonical endpoint: equivalent DNS aliases are not automatically deduplicated.
+For local authentication without OIDC, leave the OIDC issuer/client fields empty and bootstrap a dedicated platform account with a private initial-password file:
+
+```sh
+lastapp bootstrap -config /path/to/runtime.json -name "Platform operator" -email operator@example.com -password-file /private/path/initial-password
+```
+
+The file contains only the initial password (15–128 characters); keep it private and remove it after bootstrap. The first login requires a new password. To grant an already-existing local account platform administration without resetting its password, omit `-password-file`. Platform and Tenant administrative accounts remain separate.
+
+Local passwords use random 16-byte salts and PBKDF2-HMAC-SHA256 with 600,000 iterations, matching the [OWASP PBKDF2 work-factor guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2). Passwords are never encrypted/recovered or included in API/audit output. Login has per-peer/per-email throttling and bounded hashing concurrency. Changing a password revokes old sessions and rotates the current session and CSRF token. OIDC identities are never automatically linked by email. Email recovery delivery and MFA are later work.
+
+Production requires an HTTPS public origin, trusted HTTPS OIDC when enabled, identity-verified database TLS and an operator-defined runtime account host/network policy. Terminate HTTPS at the trusted ingress. `allowed_networks` explicitly permits private database address ranges; public addresses are otherwise permitted. DNS results are checked again at connection time. Register each physical server under one canonical endpoint: equivalent DNS aliases are not automatically deduplicated.
+
+When a reverse proxy forwards client addresses, configure `trusted_proxies` with its exact connecting IPs or CIDRs (for example, `["10.0.0.10/32"]`). The default empty list ignores forwarded headers. Trusted ingress must overwrite `X-Forwarded-For` or append the actual connecting client; Lastapp walks the chain from right to left and stops at the first untrusted hop. Login budgets then distinguish clients behind that proxy while retaining the per-email limit. Untrusted peers cannot spoof a new budget through forwarding headers; malformed/oversized chains fall back to the direct peer. Do not add client networks to the proxy trust list.
 
 The deployment encryption key is a base64 32-byte key. This first version uses one configured key generation (`encryption_key_id`, default `primary-v1`); automatic key rotation/re-encryption is not implemented. Preserve keys with registry backups.
 

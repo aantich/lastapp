@@ -17,14 +17,19 @@ export function AccessControl({
   platform,
   caps,
   refresh,
+  scopeKind,
+  scopeId,
 }: {
   tenant: string;
   platform: boolean;
   caps: Item;
   refresh: () => void;
+  scopeKind?: Kind;
+  scopeId?: string;
 }) {
   const defaultKind = (): Kind =>
-    !tenant
+    scopeKind ||
+    (!tenant
       ? "platform"
       : platform || caps["authorization.read"]?.all
         ? "tenant"
@@ -32,9 +37,9 @@ export function AccessControl({
           ? "space"
           : caps["app.read"]?.available
             ? "app"
-            : "team";
+            : "team");
   const [kind, setKind] = useState<Kind>(defaultKind);
-  const [target, setTarget] = useState("");
+  const [target, setTarget] = useState(scopeId || "");
   const [view, setView] = useState("assignments");
   const [records, setRecords] = useState<Item[]>([]),
     [roles, setRoles] = useState<Item[]>([]),
@@ -88,13 +93,13 @@ export function AccessControl({
     setValues((v) => ({ ...v, [key]: value }));
   useEffect(() => {
     setKind(defaultKind());
-    setTarget("");
+    setTarget(scopeId || "");
     setForm("");
     setPage(1);
     setQuery("");
     setView("assignments");
     setResource({});
-  }, [tenant]);
+  }, [tenant, scopeKind, scopeId]);
   useEffect(() => {
     setForm("");
     setPage(1);
@@ -276,6 +281,11 @@ export function AccessControl({
             required
             valueKey={valueKey}
             excludeInactive
+            excludePlatform={
+              form === "assignment" &&
+              kind !== "platform" &&
+              roles.find((r) => r.id === values.role_id)?.domain === "control"
+            }
           />
         ) : (
           <input
@@ -296,7 +306,7 @@ export function AccessControl({
         relationships. Space/App business roles are reusable foundations;
         business-object ACLs will be added with the entity API.
       </p>
-      {tenant && (
+      {tenant && !scopeKind && (
         <div className="tabs">
           {scopes.map(([id, label]) => (
             <button
@@ -313,7 +323,7 @@ export function AccessControl({
           ))}
         </div>
       )}
-      {tenant && kind !== "tenant" && (
+      {tenant && kind !== "tenant" && !scopeId && (
         <div className="access-scope">
           <RemoteSelect
             key={kind + tenant}

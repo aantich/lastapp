@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"regexp"
@@ -47,18 +48,22 @@ type Config struct {
 	OIDCClientSecret    string   `json:"oidc_client_secret"`
 	Development         bool     `json:"development"`
 	AllowedNetworks     []string `json:"allowed_networks"`
+	TrustedProxies      []string `json:"trusted_proxies"`
 	RuntimeAccountHost  string   `json:"runtime_account_host"`
 }
 
 type Server struct {
-	limiter      requestLimiter
-	DB           *sql.DB
-	Config       Config
-	key          cipher.AEAD
-	registryName string
-	mux          *http.ServeMux
-	auth         *oidcAuth
-	Log          *slog.Logger
+	limiter        requestLimiter
+	loginLimiter   requestLimiter
+	passwordSlots  chan struct{}
+	trustedProxies []netip.Prefix
+	DB             *sql.DB
+	Config         Config
+	key            cipher.AEAD
+	registryName   string
+	mux            *http.ServeMux
+	auth           *oidcAuth
+	Log            *slog.Logger
 }
 type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -87,6 +92,10 @@ func LoadConfig(path string) (Config, error) {
 	return c, e
 }
 func Open(c Config) (*Server, error) {
+	proxies, e := parseTrustedProxies(c.TrustedProxies)
+	if e != nil {
+		return nil, e
+	}
 	if !validOrigin(c.PublicURL, c.Development) {
 		return nil, fmt.Errorf("public_url must be an origin (loopback in development)")
 	}
@@ -152,7 +161,7 @@ func Open(c Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed")
 	}
-	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux()}
+	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), trustedProxies: proxies}
 	return s, nil
 }
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -167,7 +176,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 }
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 1 {
+	if e != nil || v != 2 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
@@ -356,6 +365,9 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if ae == nil {
 		ae = &APIError{500, "internal_error", "The operation failed. See the server log with this request ID."}
 		slog.Error("request failed", append([]any{"request_id", r.Header.Get("X-Request-ID"), "operation", r.Method + " " + r.Pattern}, diagnostic(err)...)...)
+	}
+	if ae.Status == 429 {
+		w.Header().Set("Retry-After", "1")
 	}
 	send(w, ae.Status, Row{"error": Row{"code": ae.Code, "message": ae.Message, "request_id": r.Header.Get("X-Request-ID")}})
 }

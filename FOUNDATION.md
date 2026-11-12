@@ -2,6 +2,8 @@
 
 **Implemented 12 November 2026.** This stage provides centralized identity, memberships, teams, protected administrative roles, custom Space/App business roles and scoped assignments, with matching management APIs and React console screens. Business-object ACL definitions, SQL filtering, record sharing and the App SDK follow after their entity/API contract is designed.
 
+The Tenant workspace now includes email/password onboarding, forced initial-password replacement, Home, Spaces, People, Activity and Settings. Apps are managed inside Spaces; micro-app registrations inside Apps. The Platform workspace is operational and cannot author Tenant resources.
+
 ## Shared model
 
 One registry stores users, Tenant memberships, teams, role definitions and assignments. Tenant creation adds rows, not another authorization database. Spaces retain their database binding; Apps retain their Space ancestry. Those bindings cannot be changed by an ordinary update.
@@ -32,11 +34,19 @@ Each assignment has exactly one scope. Joe → Team Reviewer → Marketing is di
 
 Protected administrative roles require individual users. A team cannot hold a manager role. This prevents a team membership editor from indirectly appointing themselves a Space/App manager.
 
+Platform accounts and Tenant/team administrative accounts are separate. Creating a Tenant or assigning an initial Space/App manager rejects a platform account. Granting platform administration to a user with Tenant/team control roles is rejected until those roles are removed. Recipient user locks serialize these checks. Platform administrators manage Tenant lifecycle, initial accounts and Tenant-admin recovery, and inspect operational metadata; they cannot create/update Spaces, Apps, micro-apps, teams or custom business roles. This restriction is enforced by the API as well as the console. The last-Tenant-admin check counts accounts that can actually administer the Tenant.
+
 Space/App creation requires `initial_manager_user_id`, an active member of the Tenant. The manager assignment and creation audit commit together. Creating or managing a scope grants no business data role.
 
 ## APIs
 
-These management endpoints use the existing OIDC console session. Mutations require exact Origin and CSRF checks. Generated App bearer authentication and business-data endpoints are outside this stage.
+These management endpoints use local-password or OIDC console sessions. Mutations require exact Origin and CSRF checks. Generated App bearer authentication and business-data endpoints are outside this stage.
+
+`POST /auth/login/password` accepts email/password with an exact allowed Origin, generic invalid-credential responses and bounded per-client/per-email throttling. `trusted_proxies` defaults to empty; only explicitly configured proxy peers may supply `X-Forwarded-For`, traversed from right to left to the first untrusted hop. Local credential rows are global, reference `users`, and store salted password verifiers only. Local and OIDC identities are never implicitly linked by email. Initial-password sessions can call only `/v1/me`, password replacement and logout; ordinary management APIs reject them. `POST /auth/password` requires the current password and CSRF, locks the user/credential revision, revokes existing sessions and issues a new session/CSRF pair.
+
+`POST /admin/v1/tenants` accepts either `initial_admin_user_id` or `initial_admin: {display_name,email,password}`. Account, Tenant, membership and initial role commit atomically. For another Tenant, an existing local account may be referenced with `initial_admin: {email}`; supplying a password for an existing email returns a conflict and never resets it. `POST /admin/v1/users` creates a global email/password account without granting memberships or roles. Both creation paths require platform administration. Until verified invitations are implemented, Tenant administrators cannot create global credentials: membership creation accepts an existing `user_id` or `account: {email}` only. Platform administrators may also supply a new account while creating a membership; account and membership commit atomically. Account-creation authority is rechecked inside the transaction. Trusted local platform bootstrap supports `-email` and `-password-file`; OIDC is optional.
+
+Tenant Home uses `GET /v1/tenants/{t}/overview` for scoped resource counts, recent Apps, provisioning attention and plan limits. `PATCH /v1/tenants/{t}` lets a Tenant administrator update the company name with `If-Match`; subscription/lifecycle changes remain platform operations. Space/App detail endpoints load their stored ancestry and scoped metadata.
 
 | Endpoint | Behavior |
 | --- | --- |
@@ -103,7 +113,11 @@ Composite foreign keys and explicit non-null scope checks protect ancestry, reci
 
 ## Console and local demonstration
 
-Open **Access control** for the platform or a selected Tenant. The Tenant, Teams, Spaces and Apps tabs keep assignment scopes distinct. Fixed roles show their control actions. Team screens distinguish membership from team roles and support disable/enable/removal. Space/App screens create/edit business roles and assign them to users or teams; there is no custom Tenant role editor or direct permission-grant control. Tables, member lists and selectors support server paging/search and retain the shared themes.
+The Tenant sidebar is **Home, Spaces, People, Activity, Settings**. Home links to **View all Apps**, a scoped, searchable and paginated directory independent of parent-Space visibility. People adds existing accounts by email or user ID and contains Members, Teams and fixed Tenant roles as permitted by the caller. Platform **Users → Create account** provisions new global identities. A Space contains Overview, Apps, Database, Access and Settings; an App contains Overview, Micro-apps, Access and Settings. Scoped Access panels reuse the same role/assignment editor without a second hierarchy selector. Refreshes preserve open editors and captured revisions. Shared forms, themes, paging/search and mobile navigation serve both workspaces. Unimplemented entity/rule editors, integrations, design libraries and runtime launchers are not exposed.
+
+The shared API client distinguishes an expired/revoked session (`401 unauthenticated`) from incorrect login/current-password credentials (`401 invalid_credentials`). Expiry clears workspace state and shows login; already-expired logout also succeeds locally. Request generations prevent old-session failures from invalidating a newly authenticated session.
+
+Platform **Access control** manages platform grants or a selected Tenant's fixed administrator assignments. Platform Tenant details show operational counts and subscription/status; authoring screens and actions are absent. Team screens distinguish membership from team roles and support disable/enable/removal. Space/App business roles cannot contain administrative actions; there is no custom Tenant role editor or direct permission-grant control.
 
 `make dev` initializes a fresh development registry named `lastapp_foundation`. The previous `lastapp_control` database is retained, and the previous configuration is saved privately before switching registries. No deployed installation or legacy grant conversion is involved.
 

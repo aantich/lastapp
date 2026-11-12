@@ -57,7 +57,7 @@ func TestPrepareFixture(t *testing.T) {
 		"GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'%'",
 		"GRANT CREATE,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'%' WITH GRANT OPTION",
 	}
-	for _, table := range []string{"users", "sessions", "plans", "tenants", "tenant_memberships", "database_targets", "database_resources", "spaces", "apps", "microapp_installations", "groups", "group_memberships", "roles", "role_permissions", "access_grants"} {
+	for _, table := range []string{"users", "sessions", "plans", "tenants", "tenant_memberships", "database_targets", "database_resources", "spaces", "apps", "microapp_installations", "groups", "group_memberships", "local_accounts", "roles", "role_permissions", "access_grants"} {
 		statements = append(statements, "GRANT UPDATE,DELETE ON `lastapp_control`."+table+" TO 'lastapp_control'@'%'")
 	}
 	for _, statement := range statements {

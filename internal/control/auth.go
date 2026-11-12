@@ -17,8 +17,10 @@ import (
 )
 
 type Principal struct {
-	ID, Name, Email string
-	Platform        bool
+	ID, Name, Email        string
+	Platform               bool
+	AuthMethod             string
+	PasswordChangeRequired bool
 }
 type Resource struct{ Tenant, Team, Space, App string }
 type oidcAuth struct {
@@ -37,7 +39,7 @@ type scopeSet struct {
 
 func (s *Server) InitAuth(ctx context.Context) error {
 	if s.Config.OIDCIssuer == "" {
-		return fmt.Errorf("oidc_issuer is required")
+		return nil // Local email/password accounts do not require an OIDC provider.
 	}
 	if !s.Config.Development && !secureEndpoint(s.Config.OIDCIssuer) {
 		return fmt.Errorf("OIDC issuer requires HTTPS")
@@ -66,6 +68,10 @@ func (s *Server) cookie(w http.ResponseWriter, name, value string, age int, http
 }
 func hash(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		writeError(w, r, problem(404, "oidc_unavailable", "Single sign-on is not configured."))
+		return
+	}
 	origin := r.URL.Query().Get("return_origin")
 	if origin != "" && !s.allowedOrigin(origin) {
 		writeError(w, r, bad("Invalid return origin."))
@@ -81,6 +87,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.auth.config.AuthCodeURL(flow.State, oidc.Nonce(flow.Nonce), oauth2.S256ChallengeOption(flow.Verifier)), http.StatusFound)
 }
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		writeError(w, r, problem(404, "oidc_unavailable", "Single sign-on is not configured."))
+		return
+	}
 	cookie, e := r.Cookie(s.cookieName("lastapp_flow"))
 	if e != nil {
 		writeError(w, r, problem(400, "login_expired", "Start login again."))
@@ -168,7 +178,7 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 	if e != nil {
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
-	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,'') FROM sessions se JOIN users u ON u.id=se.user_id WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active'", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email)
+	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,''),se.auth_method,COALESCE(la.must_change_password,0) FROM sessions se JOIN users u ON u.id=se.user_id LEFT JOIN local_accounts la ON la.user_id=u.id AND se.auth_method='password' WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active' AND (se.auth_method='oidc' OR la.user_id IS NOT NULL)", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email, &p.AuthMethod, &p.PasswordChangeRequired)
 	if e == sql.ErrNoRows {
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
@@ -225,7 +235,7 @@ func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, act
 		return scopeSet{}, e
 	}
 	if global {
-		return scopeSet{All: true}, nil
+		return scopeSet{All: strings.HasSuffix(action, ".read")}, nil
 	}
 	if e = s.member(ctx, q, p, tenant, false); e != nil {
 		return scopeSet{}, e
@@ -263,7 +273,7 @@ func (s *Server) effectiveScopes(ctx context.Context, q Queryer, p Principal, te
 	out := map[string]scopeSet{}
 	for _, code := range authz.Actions() {
 		if code != "platform.admin" {
-			out[code] = scopeSet{All: global, Spaces: []string{}, Apps: []string{}, Teams: []string{}}
+			out[code] = scopeSet{All: global && platformControlAction(code, Resource{Tenant: tenant}, strings.HasSuffix(code, ".manage")), Spaces: []string{}, Apps: []string{}, Teams: []string{}}
 		}
 	}
 	if global {
@@ -343,7 +353,10 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 		return e
 	}
 	if global {
-		return nil
+		if platformControlAction(action, res, mutating) {
+			return nil
+		}
+		return problem(403, "tenant_authority_required", "Tenant administrators and delegated managers manage Tenant resources.")
 	}
 	if action == "platform.admin" || res.Tenant == "" {
 		return problem(403, "forbidden", "Platform administrator permission is required.")
@@ -375,6 +388,18 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 		}
 	}
 	return problem(403, "forbidden", "This action is not permitted in this scope.")
+}
+
+// Platform operators administer the service and Tenant account recovery. They
+// can inspect operational metadata, but never author Tenant Spaces/Apps or policy.
+func platformControlAction(action string, res Resource, mutating bool) bool {
+	if action == "platform.admin" {
+		return true
+	}
+	if !mutating && strings.HasSuffix(action, ".read") {
+		return true
+	}
+	return res.Tenant != "" && res.Team == "" && res.Space == "" && res.App == "" && (action == "membership.manage" || action == "authorization.manage")
 }
 func scopeSQL(sc scopeSet, spaceColumn, appColumn string) (string, []any) {
 	if sc.All {
@@ -419,6 +444,9 @@ func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email str
 		return "", e
 	}
 	if !ok {
+		if e = platformCandidate(ctx, tx, uid); e != nil {
+			return "", e
+		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", newID(), uid, SuperRole)
 		if e != nil {
 			return "", e

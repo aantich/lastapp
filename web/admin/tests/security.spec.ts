@@ -1,14 +1,22 @@
 import { test, expect, Page } from "@playwright/test";
+import { selectTenant } from "./helpers";
 
-async function signIn(page: Page, origin = "http://127.0.0.1:8787") {
+async function signIn(
+  page: Page,
+  origin = "http://127.0.0.1:8787",
+  subject = "operator",
+) {
   await page.goto(origin + "/console/");
   await page.getByRole("link", { name: "Sign in to Lastapp" }).click();
-  await page.locator("select[name=subject]").selectOption("operator");
+  await page.locator("select[name=subject]").selectOption(subject);
   await page.getByLabel("Password").fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(origin + "/console/");
   await expect(
-    page.getByRole("heading", { name: "Overview", exact: true }),
+    page.getByRole("heading", {
+      name: subject === "operator" ? "Overview" : "Home",
+      exact: true,
+    }),
   ).toBeVisible();
 }
 
@@ -47,6 +55,9 @@ test("server paging, search and option pickers reach records beyond the first pa
       (u: any) => u.oidc_subject === "tenant-admin",
     ).id,
   });
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await signIn(page, "http://127.0.0.1:8787", "tenant-admin");
+  await selectTenant(page, tenant);
   const space = crypto.randomUUID();
   await create(page, `/v1/tenants/${tenant}/spaces`, {
     id: space,
@@ -72,18 +83,13 @@ test("server paging, search and option pickers reach records beyond the first pa
       display_name: `PageRole ${String(i).padStart(3, "0")}`,
     });
   }
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await page.locator("#tenant-context").selectOption(tenant);
+  await page.getByRole("button", { name: "Spaces", exact: true }).click();
   await page
-    .getByRole("button", { name: "Access control", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "Paging" })
+    .getByRole("button", { name: "Open", exact: true })
     .click();
-  await page
-    .locator(".access-foundation > .tabs")
-    .getByRole("button", { name: "Spaces", exact: true })
-    .click();
-  await page
-    .getByRole("combobox", { name: "Space scope", exact: true })
-    .selectOption(space);
+  await page.getByRole("button", { name: "Access", exact: true }).click();
   await page.getByRole("button", { name: "Roles", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "PageRole 100" }),
@@ -124,6 +130,9 @@ test("Vite login returns to the development UI and authenticated writes succeed"
     .getByRole("button", { name: "Create Tenant", exact: true })
     .click();
   const suffix = Date.now().toString();
+  await page
+    .getByLabel("Administrator account", { exact: true })
+    .selectOption("existing");
   await page.getByLabel("Name", { exact: true }).fill("AAA Proxy " + suffix);
   await page.getByLabel("Slug", { exact: true }).fill("proxy-" + suffix);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();

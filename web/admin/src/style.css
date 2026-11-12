@@ -1,6 +1,272 @@
 @import "tailwindcss";
 @import "./themes.css";
 
+.login-form {
+  display: grid;
+  gap: 16px;
+  margin: 22px 0;
+  width: 100%;
+}
+.login-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 500;
+}
+.login-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+}
+.login-form .primary {
+  min-height: 42px;
+}
+.sso-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 12px;
+}
+.password-welcome {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+.password-welcome .welcome-card {
+  width: min(100%, 560px);
+}
+.account-password .welcome-card {
+  padding: 24px;
+  width: min(100%, 540px);
+}
+.form-input-group {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.tenant-console .sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 24px;
+}
+.tenant-console .sidebar-brand strong {
+  font-size: 23px;
+}
+.tenant-console .sidebar-brand strong span {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ui-muted);
+}
+.tenant-switch {
+  margin: 0 18px 22px;
+  padding: 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+}
+.tenant-switch .company-name {
+  display: block;
+  padding-top: 8px;
+  overflow-wrap: anywhere;
+}
+.tenant-switch .lookup-select {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 7px;
+  margin-top: 8px;
+}
+.tenant-switch input,
+.tenant-switch select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+}
+.tenant-switch .lookup-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 10px;
+}
+.tenant-switch .lookup-controls button {
+  min-width: 0;
+  padding: 3px 5px;
+}
+.tenant-console .profile-button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+.profile-button > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+.profile-button small {
+  color: var(--ui-muted);
+}
+.tenant-console .page-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin: 22px 0;
+}
+.tenant-console .page-heading h2 {
+  font-size: 20px;
+  margin: 0 0 7px;
+}
+.tenant-console .page-heading p {
+  margin: 0;
+  color: var(--ui-muted);
+}
+.workspace-tabs {
+  margin-bottom: 18px;
+  overflow-x: auto;
+}
+.tenant-console .pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--ui-border);
+}
+.workspace-section {
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.workspace-section h3 {
+  margin: 0 0 14px;
+  font-size: 16px;
+}
+.workspace-facts {
+  display: grid;
+  grid-template-columns: minmax(110px, 180px) minmax(0, 1fr);
+  gap: 14px;
+  margin: 22px 0;
+}
+.workspace-facts dt {
+  color: var(--ui-muted);
+}
+.workspace-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.first-space {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px;
+  margin-bottom: 22px;
+}
+.first-space > div {
+  flex: 1;
+}
+.first-space h2 {
+  margin: 0 0 8px;
+}
+.first-space p {
+  margin: 0;
+  color: var(--ui-muted);
+}
+.tenant-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.tenant-stat {
+  padding: 22px;
+  display: grid;
+  gap: 10px;
+}
+.tenant-stat > svg {
+  color: var(--ui-primary);
+}
+.tenant-stat strong {
+  font-size: 30px;
+}
+.tenant-stat small {
+  color: var(--ui-muted);
+}
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.app-card {
+  display: grid;
+  justify-content: start;
+  text-align: left;
+  gap: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  padding: 20px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+}
+.app-card svg {
+  color: var(--ui-primary);
+}
+.app-card small {
+  color: var(--ui-muted);
+}
+.attention-row {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  justify-content: space-between;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  background: transparent;
+  color: inherit;
+}
+.attention-row > span:first-of-type {
+  flex: 1;
+}
+.tenant-console.sidebar-collapsed .tenant-switch,
+.tenant-console.sidebar-collapsed .sidebar-brand strong {
+  display: none;
+}
+@media (max-width: 800px) {
+  .tenant-console .profile-button > span:last-child {
+    display: none;
+  }
+  .tenant-console .page-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+  .first-space {
+    flex-wrap: wrap;
+    padding: 20px;
+  }
+  .tenant-stats,
+  .app-grid {
+    grid-template-columns: 1fr;
+  }
+  .workspace-facts {
+    grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
+  }
+  .workspace-section {
+    padding: 18px;
+  }
+}
+
 @font-face {
   font-family: "Inter";
   src: url("./assets/InterVariable.woff2") format("woff2");
@@ -1948,23 +2214,96 @@ tbody tr:hover {
 }
 
 /* Bounded server-backed collection and option paging. */
-.lookup-select { display: grid; gap: 0.4rem; }
-.lookup-controls { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.lookup-controls button { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
-.context-picker input { width: 100%; min-width: 0; margin-bottom: 0.4rem; }
-.table-footer button { padding: 0.25rem 0.5rem; }
+.lookup-select {
+  display: grid;
+  gap: 0.4rem;
+}
+.lookup-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.lookup-controls button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+.context-picker input {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 0.4rem;
+}
+.table-footer button {
+  padding: 0.25rem 0.5rem;
+}
 
 /* Scoped authorization reuses the console theme variables. */
-.access-foundation { padding: 20px; }
-.access-intro { line-height: 1.6; max-width: 85ch; margin-bottom: 18px; }
-.access-scope { display: flex; align-items: flex-end; gap: 14px; margin: 18px 0; }
-.access-scope > .lookup-select { width: min(100%, 450px); }
-.access-editor { padding: 20px; margin: 16px 0; border: 1px solid var(--ui-border); border-radius: 10px; background: var(--ui-surface); }
-.access-editor h3 { margin: 0 0 18px; }
-.access-editor .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; margin-bottom: 18px; }
-.access-editor label { display: grid; gap: 8px; min-width: 0; }
-.access-editor input, .access-editor select { width: 100%; }
-.access-toolbar, .access-members { margin-top: 20px; }
-.access-foundation .pagination { display: flex; justify-content: flex-end; gap: 14px; padding: 14px 0; align-items: center; }
-.access-foundation td small { display: block; margin-top: 4px; }
-@media (max-width:800px) { .access-scope,.access-toolbar { flex-wrap:wrap; } .access-editor .form-grid { grid-template-columns:1fr; } .access-foundation {padding:14px;} }
+.access-foundation {
+  padding: 20px;
+}
+.access-intro {
+  line-height: 1.6;
+  max-width: 85ch;
+  margin-bottom: 18px;
+}
+.access-scope {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin: 18px 0;
+}
+.access-scope > .lookup-select {
+  width: min(100%, 450px);
+}
+.access-editor {
+  padding: 20px;
+  margin: 16px 0;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  background: var(--ui-surface);
+}
+.access-editor h3 {
+  margin: 0 0 18px;
+}
+.access-editor .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.access-editor label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.access-editor input,
+.access-editor select {
+  width: 100%;
+}
+.access-toolbar,
+.access-members {
+  margin-top: 20px;
+}
+.access-foundation .pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 14px 0;
+  align-items: center;
+}
+.access-foundation td small {
+  display: block;
+  margin-top: 4px;
+}
+@media (max-width: 800px) {
+  .access-scope,
+  .access-toolbar {
+    flex-wrap: wrap;
+  }
+  .access-editor .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .access-foundation {
+    padding: 14px;
+  }
+}

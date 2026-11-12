@@ -5,12 +5,18 @@ export class Failure extends Error {
     this.status = status;
   }
 }
+export const sessionExpiredEvent = "lastapp:session-expired";
+let sessionGeneration = 0;
+export function resetSessionRequests() {
+  sessionGeneration++;
+}
 export async function api(
   path: string,
   method = "GET",
   body?: any,
   revision?: number,
 ) {
+  const started = sessionGeneration;
   const csrf =
     document.cookie
       .split("; ")
@@ -30,6 +36,16 @@ export async function api(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const json = await res.json().catch(() => ({}));
+  if (
+    res.status === 401 &&
+    json.error?.code === "unauthenticated" &&
+    started === sessionGeneration
+  ) {
+    resetSessionRequests();
+    window.dispatchEvent(new Event(sessionExpiredEvent));
+  }
+  if (res.ok && (path === "/auth/login/password" || path === "/auth/password"))
+    resetSessionRequests();
   if (!res.ok)
     throw new Failure(
       res.status,

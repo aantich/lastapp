@@ -24,6 +24,9 @@ func (s *Server) api(pattern string, fn endpoint) {
 		if e == nil {
 			e = s.limitRequest(w, p, r)
 		}
+		if e == nil && p.PasswordChangeRequired && r.URL.Path != "/v1/me" && r.URL.Path != "/auth/password" && r.URL.Path != "/auth/logout" {
+			e = problem(403, "password_change_required", "Change your initial password before using this account.")
+		}
 		if e == nil && r.Method != "GET" && r.Method != "HEAD" {
 			e = s.csrf(ctx, r)
 		}
@@ -47,10 +50,12 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf")})
+		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf")})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
+	s.mux.HandleFunc("POST /auth/login/password", s.passwordLogin)
+	s.api("POST /auth/password", s.changePassword)
 	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p Principal) error {
 		c, _ := r.Cookie(s.cookieName("lastapp_session"))
 		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", hash(c.Value))
@@ -67,7 +72,7 @@ func (s *Server) Handler() http.Handler {
 		if e != nil {
 			return e
 		}
-		send(w, 200, Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
+		send(w, 200, Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "auth_method": p.AuthMethod, "password_change_required": p.PasswordChangeRequired, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
 		return nil
 	})
 	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -82,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	s.api("GET /v1/tenants/{tenant}/capabilities", s.capabilities)
 	s.api("GET /admin/v1/overview", s.overview)
 	s.api("GET /admin/v1/users", s.users)
+	s.api("POST /admin/v1/users", s.createLocalUser)
 	s.api("PATCH /admin/v1/users/{id}", s.updateUser)
 	s.api("GET /admin/v1/plans", s.plans)
 	s.api("POST /admin/v1/plans", s.createPlan)
@@ -90,6 +96,8 @@ func (s *Server) Handler() http.Handler {
 	s.api("POST /admin/v1/tenants", s.createTenant)
 	s.api("PATCH /admin/v1/tenants/{id}", s.updateTenant)
 	s.api("GET /v1/tenants/{tenant}", s.getTenant)
+	s.api("PATCH /v1/tenants/{tenant}", s.updateTenantProfile)
+	s.api("GET /v1/tenants/{tenant}/overview", s.tenantOverview)
 	s.api("GET /admin/v1/database-targets", s.targets)
 	s.api("POST /admin/v1/database-targets", s.createTarget)
 	s.api("PATCH /admin/v1/database-targets/{id}", s.updateTarget)
@@ -100,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	s.api("POST /v1/tenants/{tenant}/database-resources/{id}/retry", s.retryDatabase)
 	s.api("PATCH /v1/tenants/{tenant}/database-resources/{id}", s.updateDatabase)
 	s.api("GET /v1/tenants/{tenant}/spaces", s.spaces)
+	s.api("GET /v1/tenants/{tenant}/spaces/{space}", s.getSpace)
 	s.api("POST /v1/tenants/{tenant}/spaces", s.createSpace)
 	s.api("PATCH /v1/tenants/{tenant}/spaces/{id}", s.updateSpace)
 	s.api("GET /v1/tenants/{tenant}/apps", s.apps)

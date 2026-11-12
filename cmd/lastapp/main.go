@@ -26,6 +26,7 @@ func main() {
 	name := flags.String("name", "Platform operator", "bootstrap name")
 	email := flags.String("email", "", "bootstrap email")
 	provisionerFile := flags.String("provisioner-file", "", "local development provisioning credential file")
+	passwordFile := flags.String("password-file", "", "initial password file for a local bootstrap account")
 	flags.Parse(os.Args[2:])
 	c, e := control.LoadConfig(*config)
 	if e != nil {
@@ -42,6 +43,24 @@ func main() {
 	case "migrate":
 		e = control.Migrate(ctx, s.DB)
 	case "bootstrap":
+		if *passwordFile != "" || (*issuer == "" && *subject == "" && *email != "") {
+			if *issuer != "" || *subject != "" {
+				log.Fatal("choose local account or OIDC bootstrap, not both")
+			}
+			var secret []byte
+			if *passwordFile != "" {
+				secret, e = os.ReadFile(*passwordFile)
+				if e != nil {
+					break
+				}
+			}
+			var uid string
+			uid, e = s.BootstrapLocal(ctx, *name, *email, strings.TrimRight(string(secret), "\r\n"))
+			if e == nil {
+				fmt.Println("Superadmin identity:", uid)
+			}
+			break
+		}
 		if *issuer == "" || *subject == "" {
 			log.Fatal("issuer and subject are required")
 		}

@@ -145,7 +145,9 @@ test("mobile workspace navigation and theme drawer remain accessible without pag
     .getByRole("button", { name: "Open navigation", exact: true })
     .click();
   const nav = page.getByRole("dialog", { name: "Main navigation" });
-  await expect(nav.getByLabel("WORKSPACE", { exact: true })).toBeVisible();
+  await expect(
+    nav.getByRole("button", { name: "Tenants", exact: true }),
+  ).toBeVisible();
   await nav.getByRole("button", { name: "Tenants", exact: true }).click();
   await expect(nav).toHaveCount(0);
   await expect(
@@ -159,7 +161,7 @@ test("mobile workspace navigation and theme drawer remain accessible without pag
   expect(tenant).toBeTruthy();
   await context.selectOption(tenant!);
   await expect(
-    page.getByRole("heading", { name: "Spaces", exact: true }),
+    page.getByRole("heading", { name: "Tenant details", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Customize appearance" }).click();
   const drawer = page.getByRole("dialog", { name: "Appearance", exact: true });

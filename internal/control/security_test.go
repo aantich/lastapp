@@ -98,10 +98,12 @@ func TestSecurityRegressions(t *testing.T) {
 		t.Fatal(e)
 	}
 	h := s.Handler()
-	var operator, owner string
+	var operator, owner, outsideUser string
 	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='operator'").Scan(&operator)
 	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='tenant-admin'").Scan(&owner)
+	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='outsider'").Scan(&outsideUser)
 	c := (testClient{t: t, s: s, h: h}).as(operator)
+	ownerClient := c.as(owner)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done = make(chan struct{})
@@ -137,14 +139,14 @@ func TestSecurityRegressions(t *testing.T) {
 	})
 	businessScope := func(tenant string) string {
 		space := newID()
-		c.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "initial_manager_user_id": owner, "slug": "scope-" + space, "display_name": "Role fixture", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		ownerClient.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "initial_manager_user_id": owner, "slug": "scope-" + space, "display_name": "Role fixture", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
 		return "/v1/tenants/" + tenant + "/spaces/" + space
 	}
 	t.Run("MetadataCeilingsAndBoundedGroupMembers", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		group := newID()
-		c.want("POST", base+"/teams", Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
+		ownerClient.want("POST", base+"/teams", Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
 		for i := 0; i < 12; i++ {
 			user := newID()
 			if _, e = s.DB.Exec("INSERT INTO users (id,oidc_issuer,oidc_subject,display_name) VALUES (?,?,?,?)", user, cfg.OIDCIssuer, user, fmt.Sprintf("Member %02d", i)); e != nil {
@@ -157,11 +159,11 @@ func TestSecurityRegressions(t *testing.T) {
 				t.Fatal(e)
 			}
 		}
-		first := c.want("GET", base+"/teams/"+group+"/members?limit=10", nil, 0, 200)
+		first := ownerClient.want("GET", base+"/teams/"+group+"/members?limit=10", nil, 0, 200)
 		if len(first["items"].([]any)) != 10 || first["pagination"].(map[string]any)["has_more"] != true {
 			t.Fatal("unbounded team members", first)
 		}
-		later := c.want("GET", base+"/teams/"+group+"/members?page=2&limit=10", nil, 0, 200)["items"].([]any)
+		later := ownerClient.want("GET", base+"/teams/"+group+"/members?page=2&limit=10", nil, 0, 200)["items"].([]any)
 		if len(later) != 2 {
 			t.Fatal("group member pagination incomplete", later)
 		}
@@ -170,14 +172,14 @@ func TestSecurityRegressions(t *testing.T) {
 				t.Fatal(e)
 			}
 		}
-		c.want("POST", base+"/teams", Row{"id": newID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
+		ownerClient.want("POST", base+"/teams", Row{"id": newID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
 	})
 	t.Run("SecurityRoleAuditHasBeforeAndAfter", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := businessScope(tenant)
 		role := newID()
-		c.want("POST", base+"/roles", Row{"id": role, "code": "audited", "display_name": "Audited"}, 0, 201)
-		c.want("PATCH", base+"/roles/"+role, Row{"state": "disabled"}, 1, 200)
+		ownerClient.want("POST", base+"/roles", Row{"id": role, "code": "audited", "display_name": "Audited"}, 0, 201)
+		ownerClient.want("PATCH", base+"/roles/"+role, Row{"state": "disabled"}, 1, 200)
 		var raw string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='role.updated'", role).Scan(&raw); e != nil {
 			t.Fatal(e)
@@ -365,10 +367,10 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("GrantAuditRetainsPrincipalAndScope", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		c.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
+		ownerClient.want("POST", base+"/memberships", Row{"user_id": outsideUser}, 0, 201)
 		grant := newID()
-		c.want("POST", base+"/role-assignments", Row{"id": grant, "user_id": operator, "role_id": TenantAdminRole}, 0, 201)
-		c.want("DELETE", base+"/role-assignments/"+grant, nil, 1, 200)
+		ownerClient.want("POST", base+"/role-assignments", Row{"id": grant, "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
+		ownerClient.want("DELETE", base+"/role-assignments/"+grant, nil, 1, 200)
 		var details string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='grant.deleted'", grant).Scan(&details); e != nil {
 			t.Fatal(e)
@@ -380,7 +382,7 @@ func TestSecurityRegressions(t *testing.T) {
 			}
 			After any
 		}
-		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != operator || change.Before.Role != TenantAdminRole || change.After != nil {
+		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != outsideUser || change.Before.Role != TenantAdminRole || change.After != nil {
 			t.Fatalf("incomplete revocation audit: %s", details)
 		}
 	})
@@ -409,9 +411,9 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("BoundedCollectionsAndUniqueGrants", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		c.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
-		c.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 201)
-		c.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 409)
+		ownerClient.want("POST", base+"/memberships", Row{"user_id": outsideUser}, 0, 201)
+		ownerClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
+		ownerClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 409)
 		scope := businessScope(tenant)
 		space := scope[strings.LastIndex(scope, "/")+1:]
 		for i := 0; i < 105; i++ {
@@ -432,21 +434,21 @@ func TestSecurityRegressions(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		space := newID()
-		c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "review-space", "display_name": "Review", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "review-space", "display_name": "Review", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
 		app := newID()
-		c.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
+		ownerClient.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
 		current := c.want("GET", base, nil, 0, 200)
 		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"plan_id": starter}, integer(current["revision"]), 200)
-		c.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename", "compute_mode": "dedicated"}, 1, 200)
-		c.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename again"}, 2, 200)
-		c.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "shared"}, 3, 200)
-		c.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "dedicated"}, 4, 403)
+		ownerClient.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename", "compute_mode": "dedicated"}, 1, 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename again"}, 2, 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "shared"}, 3, 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "dedicated"}, 4, 403)
 	})
 	t.Run("DisabledRoleCreation", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := businessScope(tenant)
 		role := newID()
-		c.want("POST", base+"/roles", Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled"}, 0, 201)
+		ownerClient.want("POST", base+"/roles", Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled"}, 0, 201)
 		var state string
 		if e = s.DB.QueryRow("SELECT state FROM roles WHERE id=?", role).Scan(&state); e != nil {
 			t.Fatal(e)
@@ -454,18 +456,18 @@ func TestSecurityRegressions(t *testing.T) {
 		if state != "disabled" {
 			t.Fatalf("disabled role became %s", state)
 		}
-		c.want("POST", base+"/roles", Row{"id": newID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
+		ownerClient.want("POST", base+"/roles", Row{"id": newID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
 	})
 	t.Run("SuspensionBlocksAllNewInventory", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		space, app := newID(), newID()
-		c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
-		c.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
+		ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		ownerClient.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
 		current := c.want("GET", base, nil, 0, 200)
 		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"state": "suspended"}, integer(current["revision"]), 200)
-		c.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "still-created", "display_name": "Still created"}, 0, 409)
-		c.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "blocked", "display_name": "Blocked"}, 0, 409)
+		ownerClient.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "still-created", "display_name": "Still created"}, 0, 403)
+		ownerClient.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "blocked", "display_name": "Blocked"}, 0, 403)
 	})
 
 	fmt.Println("Review fixture registry and all its managed databases/accounts are removed by test cleanup.")

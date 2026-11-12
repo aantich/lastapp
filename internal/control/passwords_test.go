@@ -1,0 +1,199 @@
+package control
+
+import (
+	"bytes"
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+func passwordSignIn(c testClient, email, password string, want int) testClient {
+	c.t.Helper()
+	b, _ := json.Marshal(Row{"email": email, "password": password})
+	r := httptest.NewRequest("POST", "/auth/login/password", bytes.NewReader(b))
+	r.Header.Set("Origin", c.s.Config.PublicURL)
+	w := httptest.NewRecorder()
+	c.h.ServeHTTP(w, r)
+	if w.Code != want {
+		c.t.Fatalf("password login: got %d want %d", w.Code, want)
+	}
+	if want == 200 {
+		for _, cookie := range w.Result().Cookies() {
+			if cookie.Name == c.s.cookieName("lastapp_session") {
+				c.session = cookie.Value
+			}
+			if cookie.Name == c.s.cookieName("lastapp_csrf") {
+				c.csrf = cookie.Value
+			}
+		}
+	}
+	return c
+}
+
+func TestLocalBootstrapAndLoginGuards(t *testing.T) {
+	s, c, _, _, _ := foundationFixture(t)
+	s.Config.OIDCIssuer = ""
+	if e := s.InitAuth(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	email, password := "local-"+newID()+"@example.test", "Local bootstrap account password!"
+	user, e := s.BootstrapLocal(context.Background(), "Local operator", email, password)
+	if e != nil {
+		t.Fatal(e)
+	}
+	admin := passwordSignIn(c, email, password, 200)
+	me := admin.want("GET", "/v1/me", nil, 0, 200)
+	if me["platform_admin"] != true || me["password_change_required"] != true {
+		t.Fatal("local bootstrap authority", me)
+	}
+	if _, e = s.BootstrapLocal(context.Background(), "Local operator", email, ""); e != nil {
+		t.Fatal("idempotent local bootstrap", e)
+	}
+	if _, e = s.DB.Exec("UPDATE local_accounts SET password_iterations=1 WHERE user_id=?", user); e == nil {
+		t.Fatal("unsafe password cost accepted")
+	}
+	for _, origin := range []string{"", "https://untrusted.example"} {
+		b, _ := json.Marshal(Row{"email": email, "password": password})
+		r := httptest.NewRequest("POST", "/auth/login/password", bytes.NewReader(b))
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		c.h.ServeHTTP(w, r)
+		if w.Code != 403 || len(w.Result().Cookies()) != 0 {
+			t.Fatal("login origin guard failed", w.Code)
+		}
+	}
+	// Exhaust just the email budget at a fixed timestamp, without expensive hashes.
+	for range 8 {
+		s.loginLimiter.allowRate("email:"+hex.EncodeToString(hash("limited@example.test")), time.Now(), 8, 1.0/30)
+	}
+	passwordSignIn(c, "limited@example.test", password, 429)
+	wrong := httptest.NewRequest("GET", "/auth/login", nil)
+	w := httptest.NewRecorder()
+	c.h.ServeHTTP(w, wrong)
+	if w.Code != 404 {
+		t.Fatal("SSO route available without a provider", w.Code)
+	}
+}
+
+func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
+	s, platform, operator, oidcOwner, _ := foundationFixture(t)
+	tenant, email := newID(), "owner-"+newID()+"@example.test"
+	temporary, personal := "Temporary account password 2026!", "A personal passphrase for Lastapp!"
+	create := Row{"id": tenant, "slug": "accounts-" + tenant, "display_name": "Account workspace", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": Row{"display_name": "Account owner", "email": email, "password": temporary}}
+	platform.want("POST", "/admin/v1/tenants", create, 0, 201)
+	base := "/v1/tenants/" + tenant
+	members := platform.want("GET", base+"/memberships", nil, 0, 200)["items"].([]any)
+	user := str(members[0].(map[string]any)["user_id"])
+	passwordSignIn(platform, email, "Wrong password", 401)
+	passwordSignIn(platform, "unknown@example.test", temporary, 401)
+	admin := passwordSignIn(platform, email, temporary, 200)
+	me := admin.want("GET", "/v1/me", nil, 0, 200)
+	if me["password_change_required"] != true || me["platform_admin"] != false {
+		t.Fatal("initial local account has wrong authority", me)
+	}
+	admin.want("GET", base+"/overview", nil, 0, 403)
+	admin.want("POST", base+"/spaces", Row{}, 0, 403)
+	oldSession := passwordSignIn(platform, email, temporary, 200)
+	admin.want("POST", "/auth/password", Row{"current_password": "wrong", "new_password": personal}, 0, 401)
+	// The successful password change rotates the current session and revokes all others.
+	b, _ := json.Marshal(Row{"current_password": temporary, "new_password": personal})
+	r := httptest.NewRequest("POST", "/auth/password", bytes.NewReader(b))
+	r.Header.Set("Origin", s.Config.PublicURL)
+	r.Header.Set("X-CSRF-Token", admin.csrf)
+	r.AddCookie(&http.Cookie{Name: s.cookieName("lastapp_session"), Value: admin.session})
+	w := httptest.NewRecorder()
+	admin.h.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("password change failed: %d", w.Code)
+	}
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == s.cookieName("lastapp_session") {
+			admin.session = cookie.Value
+		}
+		if cookie.Name == s.cookieName("lastapp_csrf") {
+			admin.csrf = cookie.Value
+		}
+	}
+	oldSession.want("GET", "/v1/me", nil, 0, 401)
+	if admin.want("GET", "/v1/me", nil, 0, 200)["password_change_required"] != false {
+		t.Fatal("password change requirement persisted")
+	}
+	passwordSignIn(platform, email, temporary, 401)
+	passwordSignIn(platform, email, personal, 200)
+	admin.want("GET", base+"/overview", nil, 0, 200)
+	admin.want("GET", "/admin/v1/users", nil, 0, 403)
+	platform.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
+	platform.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 400)
+	platform.want("POST", "/admin/v1/role-assignments", Row{"id": newID(), "user_id": user, "role_id": SuperRole}, 0, 409)
+	// Creation of another Tenant never replaces this global user's password.
+	another := newID()
+	create["id"], create["slug"] = another, "existing-"+another
+	platform.want("POST", "/admin/v1/tenants", create, 0, 409)
+	create["initial_admin"] = Row{"email": email}
+	platform.want("POST", "/admin/v1/tenants", create, 0, 201)
+	var sameUser string
+	if e := s.DB.QueryRow("SELECT user_id FROM tenant_memberships WHERE tenant_id=?", another).Scan(&sameUser); e != nil || sameUser != user {
+		t.Fatal("existing account was not reused", e)
+	}
+	// Fixture metadata is enough to exercise resource authority without provisioning a new server.
+	target, db, space, app := newID(), newID(), newID(), newID()
+	platform.want("POST", "/admin/v1/database-targets", Row{"id": target, "display_name": "Account fixture", "canonical_host": "127.0.0.1", "port": 33317, "tls_mode": "disabled"}, 0, 201)
+	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: token(32)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES (?,?,?,?,'registered','shared','ready',?)", db, tenant, target, "fixture_"+db, enc); e != nil {
+		t.Fatal(e)
+	}
+	body := Row{"id": space, "slug": "sales", "display_name": "Sales", "initial_manager_user_id": user, "database": Row{"resource_id": db}}
+	platform.want("POST", base+"/spaces", body, 0, 403)
+	admin.want("POST", base+"/spaces", body, 0, 201)
+	body = Row{"id": app, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": user}
+	platform.want("POST", base+"/spaces/"+space+"/apps", body, 0, 403)
+	admin.want("POST", base+"/spaces/"+space+"/apps", body, 0, 201)
+	platform.want("PATCH", base+"/apps/"+app, Row{"display_name": "Forbidden"}, 1, 403)
+	platform.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	platform.want("POST", base+"/spaces/"+space+"/roles", Row{"id": newID(), "code": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	platform.want("POST", base+"/teams", Row{"id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	admin.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "deals", "display_name": "Deals"}, 0, 201)
+	admin.want("PATCH", base, Row{"display_name": "My company"}, 1, 200)
+	admin.want("PATCH", base, Row{"plan_id": "10000000-0000-4000-8000-000000000002"}, 2, 400)
+	// Account creation/membership is atomic and credential data never enters audit.
+	memberEmail := "member-" + newID() + "@example.test"
+	memberAccount := Row{"display_name": "New member", "email": memberEmail, "password": temporary}
+	admin.want("POST", base+"/memberships", Row{"account": memberAccount}, 0, 403)
+	admin.want("POST", "/admin/v1/users", memberAccount, 0, 403)
+	var n int
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM local_accounts WHERE login_email=?", memberEmail).Scan(&n); e != nil || n != 0 {
+		t.Fatal("Tenant administrator claimed a global identity", e)
+	}
+	// Only the trusted platform provisions global credentials. Tenant administrators
+	// can reuse that identity without knowing or replacing its password.
+	member := platform.want("POST", "/admin/v1/users", memberAccount, 0, 201)
+	platform.want("POST", "/admin/v1/users", memberAccount, 0, 409)
+	admin.want("POST", base+"/memberships", Row{"account": Row{"email": memberEmail}}, 0, 201)
+	admin.want("POST", "/v1/tenants/"+another+"/memberships", Row{"account": memberAccount}, 0, 403)
+	added := admin.want("POST", "/v1/tenants/"+another+"/memberships", Row{"account": Row{"email": memberEmail}}, 0, 201)
+	if added["user_id"] != member["id"] {
+		t.Fatal("trusted global account not reused")
+	}
+	passwordSignIn(platform, memberEmail, temporary, 200)
+	if strings.Contains(str(member), temporary) || strings.Contains(str(member), "password_hash") {
+		t.Fatal("user creation exposed credentials")
+	}
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE CAST(details_json AS CHAR) LIKE ?", "%"+temporary+"%").Scan(&n); e != nil || n != 0 {
+		t.Fatal("password entered audit history", e)
+	}
+	platform.as(oidcOwner).want("POST", "/auth/password", Row{"current_password": temporary, "new_password": personal}, 0, 400)
+	badID := newID()
+	create["id"], create["slug"], create["plan_id"], create["initial_admin"] = badID, "rollback-"+badID, newID(), Row{"display_name": "Rollback", "email": "rollback-" + badID + "@example.test", "password": temporary}
+	platform.want("POST", "/admin/v1/tenants", create, 0, 404)
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM local_accounts WHERE login_email=?", "rollback-"+badID+"@example.test").Scan(&n); e != nil || n != 0 {
+		t.Fatal("failed Tenant create left an account", e)
+	}
+}

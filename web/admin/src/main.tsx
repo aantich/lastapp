@@ -1,3 +1,6 @@
+import { FormModal, type Field, type Modal } from "./form-modal";
+import { LoginScreen, PasswordScreen } from "./login";
+import { TenantWorkspace } from "./tenant-workspace";
 import { AccessControl } from "./access-control";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -34,31 +37,13 @@ import {
   PanelLeftClose,
 } from "lucide-react";
 import "./style.css";
-import { api } from "./api";
+import { api, resetSessionRequests, sessionExpiredEvent } from "./api";
 import { RemoteSelect } from "./remote-select";
 import { AppearancePanel, useAppearance, useDialogFocus } from "./appearance";
 import { OverviewDashboard } from "./dashboard";
 import { NavigationSearch } from "./navigation-search";
 import { readPreference, savePreference } from "./preferences";
 type Item = Record<string, any>;
-type Field = {
-  key: string;
-  label: string;
-  type?: string;
-  options?: Item[];
-  required?: boolean;
-  hint?: string;
-  lookup?: string;
-  value?: any;
-};
-type Modal = {
-  title: string;
-  description?: string;
-  fields: Field[];
-  initial: Item;
-  save: (v: Item) => Promise<any>;
-  submit?: string;
-};
 const text = (v: any) => (v === null || v === undefined ? "—" : String(v));
 const short = (v: any) => String(v || "").slice(0, 8);
 const stateBadge = (v: any) => (
@@ -90,6 +75,12 @@ const nameFields: Field[] = [
 const pages: Item[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard, platform: true },
   { id: "tenants", label: "Tenants", icon: Building2, platform: true },
+  {
+    id: "tenant-detail",
+    label: "Tenant details",
+    icon: Building2,
+    hidden: true,
+  },
   { id: "spaces", label: "Spaces", icon: FolderOpen, permission: "space.read" },
   { id: "apps", label: "Apps", icon: AppWindow, permission: "app.read" },
   {
@@ -126,220 +117,6 @@ const pages: Item[] = [
     permission: "audit.read",
   },
 ];
-function FormModal({
-  modal,
-  close,
-  done,
-  lookups,
-}: {
-  modal: Modal;
-  close: () => void;
-  done: () => void;
-  lookups: Record<string, string>;
-}) {
-  const [values, setValues] = useState<Item>(modal.initial);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const dialogRef = useDialogFocus(() => {
-    if (!busy) close();
-  });
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await modal.save(values);
-      done();
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
-  }
-  return (
-    <div
-      className="overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) close();
-      }}
-    >
-      <section
-        ref={dialogRef}
-        className="modal"
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
-      >
-        <header>
-          <div>
-            <h2 id="modal-title">{modal.title}</h2>
-            {modal.description && <p>{modal.description}</p>}
-          </div>
-          <button
-            className="icon"
-            aria-label="Close dialog"
-            disabled={busy}
-            onClick={close}
-          >
-            <X size={19} />
-          </button>
-        </header>
-        <form onSubmit={submit}>
-          <div className="fields">
-            {modal.fields.map((f, i) => (
-              <label
-                className={
-                  f.type === "permissions" || f.type === "note" ? "wide" : ""
-                }
-                key={f.key}
-              >
-                {f.type !== "checkbox" && (
-                  <span>
-                    {f.label}
-                    {f.required && <b aria-hidden="true"> *</b>}
-                  </span>
-                )}
-                {f.type === "note" ? (
-                  <p className="hint">{f.hint}</p>
-                ) : f.type === "checkbox" ? (
-                  <span className="check-label">
-                    <input
-                      type="checkbox"
-                      checked={!!values[f.key]}
-                      onChange={(e) =>
-                        setValues({ ...values, [f.key]: e.target.checked })
-                      }
-                    />
-                    {f.label}
-                  </span>
-                ) : f.type === "permissions" ? (
-                  <div className="permission-list">
-                    {f.options?.map((o) => (
-                      <label key={o.value}>
-                        <input
-                          type="checkbox"
-                          checked={(values[f.key] || []).includes(o.value)}
-                          onChange={(e) =>
-                            setValues({
-                              ...values,
-                              [f.key]: e.target.checked
-                                ? [...(values[f.key] || []), o.value]
-                                : (values[f.key] || []).filter(
-                                    (x: string) => x !== o.value,
-                                  ),
-                            })
-                          }
-                        />
-                        <span>{o.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                ) : f.type === "select" && (f.lookup || lookups[f.key]) ? (
-                  <RemoteSelect
-                    label={f.label}
-                    required={f.required}
-                    value={values[f.key] ?? ""}
-                    initial={(f.options || []).map((o) => ({
-                      value: o.value,
-                      label: o.label,
-                    }))}
-                    path={f.lookup || lookups[f.key]}
-                    valueKey={
-                      (f.lookup || lookups[f.key]).endsWith("memberships") ||
-                      (f.lookup || lookups[f.key]).endsWith("/members")
-                        ? "user_id"
-                        : "id"
-                    }
-                    labelKey={
-                      f.key === "resource_id" ? "database_name" : "display_name"
-                    }
-                    excludeInactive={[
-                      "user_id",
-                      "initial_admin_user_id",
-                    ].includes(f.key)}
-                    onChange={(value) =>
-                      setValues({ ...values, [f.key]: value })
-                    }
-                  />
-                ) : f.type === "select" ? (
-                  <select
-                    aria-label={f.label}
-                    required={f.required}
-                    value={values[f.key] ?? ""}
-                    onChange={(e) =>
-                      setValues({ ...values, [f.key]: e.target.value })
-                    }
-                  >
-                    <option value="">Choose…</option>
-                    {f.options?.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    aria-label={f.label}
-                    autoFocus={i === 0}
-                    required={f.required}
-                    min={f.type === "number" ? 0 : undefined}
-                    type={f.type || "text"}
-                    autoComplete={
-                      f.type === "password" ? "new-password" : "off"
-                    }
-                    value={values[f.key] ?? ""}
-                    onChange={(e) => {
-                      const v: Item = { ...values, [f.key]: e.target.value };
-                      if (
-                        f.key === "display_name" &&
-                        (!values.slug ||
-                          values.slug ===
-                            String(values.display_name || "")
-                              .toLowerCase()
-                              .replace(/[^a-z0-9]+/g, "-")
-                              .slice(0, 63)) &&
-                        modal.fields.some((f) => f.key === "slug")
-                      )
-                        v.slug = e.target.value
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .slice(0, 63);
-                      setValues(v);
-                    }}
-                  />
-                )}
-                {f.hint && f.type !== "note" && <small>{f.hint}</small>}
-              </label>
-            ))}
-          </div>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
-          <footer>
-            <button
-              type="button"
-              className="secondary"
-              disabled={busy}
-              onClick={close}
-            >
-              Cancel
-            </button>
-            <button className="primary" disabled={busy}>
-              {busy ? (
-                <LoaderCircle className="spin" size={16} />
-              ) : (
-                <Check size={16} />
-              )}{" "}
-              {busy ? "Saving…" : modal.submit || "Save changes"}
-            </button>
-          </footer>
-        </form>
-      </section>
-    </div>
-  );
-}
 function App() {
   const {
     appearance,
@@ -368,7 +145,9 @@ function App() {
     return () => media.removeEventListener("change", resize);
   }, []);
   const [me, setMe] = useState<Item | null>(null),
-    [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
+    [auth, setAuth] = useState<"loading" | "in" | "out" | "change-password">(
+      "loading",
+    );
   const [tenants, setTenants] = useState<Item[]>([]),
     [plans, setPlans] = useState<Item[]>([]),
     [users, setUsers] = useState<Item[]>([]);
@@ -400,6 +179,29 @@ function App() {
   const [moreTenants, setMoreTenants] = useState(false);
   const [modal, setModal] = useState<Modal | null>(null),
     [reload, setReload] = useState(0);
+  function endSession() {
+    resetSessionRequests();
+    setAuth("out");
+    setMe(null);
+    setTenant("");
+    setCaps({});
+    setModal(null);
+    setCollection({ key: "", items: [] });
+    setOverview({});
+    setSupport({});
+    setTenants([]);
+    setPlans([]);
+    setUsers([]);
+    setError("");
+    setToast("");
+    setPage("overview");
+    savePreference("lastapp-tenant", "");
+    savePreference("lastapp-page", "overview");
+  }
+  useEffect(() => {
+    window.addEventListener(sessionExpiredEvent, endSession);
+    return () => window.removeEventListener(sessionExpiredEvent, endSession);
+  }, []);
   const collectionKey =
     page + ":" + tenant + ":" + tab + ":" + recordPage + ":" + query;
   const data = collection.key === collectionKey ? collection.items : [];
@@ -410,9 +212,14 @@ function App() {
   const currentTenant = tenants.find((t) => t.id === tenant);
   const platform = !!me?.platform_admin;
   const tenantPage =
-    ["spaces", "apps", "microapps", "databases", "memberships"].includes(
-      page,
-    ) ||
+    [
+      "spaces",
+      "apps",
+      "microapps",
+      "databases",
+      "memberships",
+      "tenant-detail",
+    ].includes(page) ||
     (["access", "audit"].includes(page) && !!tenant);
   const can = (permission: string) => platform || !!caps[permission]?.available;
   const all = (permission: string) => platform || !!caps[permission]?.all;
@@ -427,6 +234,7 @@ function App() {
     setError("");
   }
   function selectTenant(id: string) {
+    setModal(null);
     setRecordPage(1);
     setData([]);
     setTenant(id);
@@ -435,11 +243,11 @@ function App() {
       id &&
       ["overview", "tenants", "targets", "plans", "users"].includes(page)
     )
-      go("spaces");
+      go(platform ? "tenant-detail" : "spaces");
     if (!id && tenantPage) go(platform ? "overview" : "spaces");
   }
   useEffect(() => {
-    if (auth !== "in") return;
+    if (auth !== "in" || !platform) return;
     let active = true;
     const timer = setTimeout(
       () =>
@@ -466,7 +274,25 @@ function App() {
   async function loadGlobals() {
     const who = await api("/v1/me");
     setMe(who);
+    if (who.password_change_required) {
+      setAuth("change-password");
+      return;
+    }
     setAuth("in");
+    if (!who.platform_admin) return;
+    if (
+      ![
+        "overview",
+        "tenants",
+        "targets",
+        "plans",
+        "users",
+        "access",
+        "audit",
+        "tenant-detail",
+      ].includes(page)
+    )
+      go("overview");
     const [ts, ps, us] = await Promise.all([
       api(
         (who.platform_admin ? "/admin/v1/tenants" : "/v1/my-tenants") +
@@ -516,7 +342,7 @@ function App() {
     };
   }, [auth, tenant, reload]);
   useEffect(() => {
-    if (auth !== "in") return;
+    if (auth !== "in" || !platform) return;
     let active = true;
     setLoading(true);
     setError("");
@@ -531,6 +357,11 @@ function App() {
       switch (page) {
         case "overview": {
           const v = await api("/admin/v1/overview");
+          if (active) setOverview(v);
+          break;
+        }
+        case "tenant-detail": {
+          const v = await api(base + "/overview");
           if (active) setOverview(v);
           break;
         }
@@ -669,7 +500,10 @@ function App() {
             initial: {
               ...init,
               plan_id: plans[0]?.id,
-              initial_admin_user_id: me?.id,
+              account_mode: "new",
+              initial_admin_user_id: users.find(
+                (u) => u.oidc_subject === "tenant-admin",
+              )?.id,
             },
             fields: [
               ...nameFields,
@@ -681,282 +515,64 @@ function App() {
                 required: true,
               },
               {
+                key: "account_mode",
+                label: "Administrator account",
+                type: "select",
+                required: true,
+                options: [
+                  { value: "new", label: "Create an email/password account" },
+                  { value: "existing", label: "Use an existing account" },
+                ],
+              },
+              {
+                key: "admin_name",
+                label: "Administrator name",
+                required: true,
+                when: (v) => v.account_mode === "new",
+              },
+              {
+                key: "admin_email",
+                label: "Administrator email",
+                type: "email",
+                required: true,
+                when: (v) => v.account_mode === "new",
+              },
+              {
+                key: "admin_password",
+                label: "Initial password",
+                type: "password",
+                required: true,
+                generate: true,
+                hint: "15–128 characters. The administrator must change it at first login.",
+                when: (v) => v.account_mode === "new",
+              },
+              {
                 key: "initial_admin_user_id",
                 label: "Initial Tenant administrator",
                 type: "select",
                 options: choose(users.filter((u) => u.state === "active")),
                 required: true,
-              },
-            ],
-            save: (v) => api("/admin/v1/tenants", "POST", v),
-          });
-          break;
-        case "spaces": {
-          const [targets, dbs, managers] = await Promise.all([
-            api(base + "/database-targets"),
-            api(base + "/database-resources"),
-            api(base + "/memberships"),
-          ]);
-          setModal({
-            title: "Create a Space",
-            description:
-              "Create a managed database or bind an existing resource.",
-            initial: {
-              ...init,
-              initial_manager_user_id:
-                managers.items.find(
-                  (m: Item) => m.user_id === me?.id && m.state === "active",
-                )?.user_id ||
-                managers.items.find((m: Item) => m.state === "active")?.user_id,
-              mode: "managed",
-              layout: "shared",
-              target_id: targets.items.find((t: Item) => t.managed_enabled)?.id,
-            },
-            fields: [
-              ...nameFields,
-              {
-                key: "initial_manager_user_id",
-                label: "Initial Space manager",
-                type: "select",
-                options: choose(
-                  managers.items.filter(
-                    (m: Item) =>
-                      m.state === "active" && m.user_state === "active",
-                  ),
-                  "display_name",
-                  "user_id",
-                ),
-                required: true,
-              },
-              {
-                key: "resource_id",
-                label: "Existing database (optional)",
-                type: "select",
-                options: dbs.items
-                  .filter((d: Item) => d.state !== "retired")
-                  .map((d: Item) => ({
-                    value: d.id,
-                    label: `${d.database_name} · ${d.layout}`,
-                  })),
-                hint: "If selected, the fields below are ignored.",
-              },
-              {
-                key: "layout",
-                label: "New database layout",
-                type: "select",
-                options: [
-                  { value: "shared", label: "Shared within this Tenant" },
-                  { value: "dedicated", label: "Dedicated to this Space" },
-                ],
-                required: true,
-              },
-              {
-                key: "target_id",
-                label: "Managed database target",
-                type: "select",
-                options: choose(
-                  targets.items.filter((t: Item) => t.managed_enabled),
-                ),
-                hint: "Shared Spaces reuse the Tenant’s default database.",
+                when: (v) => v.account_mode === "existing",
               },
             ],
             save: (v) =>
-              api(base + "/spaces", "POST", {
+              api("/admin/v1/tenants", "POST", {
                 id: v.id,
                 slug: v.slug,
                 display_name: v.display_name,
-                initial_manager_user_id: v.initial_manager_user_id,
-                database: {
-                  resource_id: v.resource_id || "",
-                  mode: "managed",
-                  layout: v.layout,
-                  target_id: v.target_id || "",
-                },
-              }),
-          });
-          break;
-        }
-        case "apps": {
-          const eligible = all("membership.read")
-            ? (await api(base + "/memberships")).items.filter(
-                (m: Item) => m.state === "active" && m.user_state === "active",
-              )
-            : [];
-          setModal({
-            title: "Create an App",
-            description: "An API deployment unit within a Space.",
-            initial: {
-              ...init,
-              initial_manager_user_id:
-                eligible.find((m: Item) => m.user_id === me?.id)?.user_id ||
-                eligible[0]?.user_id ||
-                (!all("membership.read") ? me?.id : ""),
-              space_id: support.spaces?.[0]?.id,
-              compute_mode: "shared",
-            },
-            fields: [
-              ...nameFields,
-              {
-                key: "initial_manager_user_id",
-                label: "Initial App manager",
-                ...(all("membership.read")
-                  ? {
-                      type: "select",
-                      options: choose(eligible, "display_name", "user_id"),
-                    }
-                  : {}),
-                required: true,
-                hint: "An active member of this Tenant; no business data role is assigned.",
-              },
-              {
-                key: "space_id",
-                label: "Space",
-                type: "select",
-                options: choose(
-                  (support.spaces || []).filter(
-                    (s: Item) => s.state === "active",
-                  ),
-                ),
-                required: true,
-              },
-              {
-                key: "compute_mode",
-                label: "Compute preference",
-                type: "select",
-                options: [
-                  { value: "shared", label: "Shared" },
-                  { value: "dedicated", label: "Dedicated" },
-                ],
-                required: true,
-              },
-            ],
-            save: (v) =>
-              api(base + `/spaces/${v.space_id}/apps`, "POST", {
-                id: v.id,
-                slug: v.slug,
-                display_name: v.display_name,
-                initial_manager_user_id: v.initial_manager_user_id,
-                compute_mode: v.compute_mode,
-              }),
-          });
-          break;
-        }
-        case "microapps":
-          setModal({
-            title: "Register a micro-app",
-            description: "Record a client micro-app installation under an App.",
-            initial: {
-              ...init,
-              app_id: support.apps?.[0]?.id,
-              navigation_order: 0,
-            },
-            fields: [
-              ...nameFields,
-              {
-                key: "app_id",
-                label: "App",
-                type: "select",
-                options: choose(
-                  (support.apps || []).filter(
-                    (a: Item) => a.state === "active",
-                  ),
-                ),
-                required: true,
-              },
-              {
-                key: "artifact_ref",
-                label: "Artifact reference",
-                hint: "A library reference or bundle URL; metadata only in this phase.",
-              },
-              {
-                key: "navigation_order",
-                label: "Navigation order",
-                type: "number",
-              },
-            ],
-            save: (v) =>
-              api(base + `/apps/${v.app_id}/microapps`, "POST", {
-                id: v.id,
-                slug: v.slug,
-                display_name: v.display_name,
-                artifact_ref: v.artifact_ref || "",
-                navigation_order: Number(v.navigation_order || 0),
-              }),
-          });
-          break;
-        case "databases": {
-          const ts = platform
-            ? (await api("/admin/v1/database-targets")).items
-            : (await api(base + "/database-targets")).items;
-          setModal({
-            title: "Add a database",
-            description:
-              "Provision a new database or validate an existing one without changing its data.",
-            initial: {
-              ...init,
-              management_mode: "managed",
-              layout: "dedicated",
-              target_id: ts[0]?.id,
-            },
-            fields: [
-              {
-                key: "management_mode",
-                label: "Method",
-                type: "select",
-                required: true,
-                options: [
-                  { value: "managed", label: "Create managed database" },
-                  { value: "registered", label: "Register existing database" },
-                ],
-              },
-              {
-                key: "target_id",
-                label: "Database target",
-                type: "select",
-                options: choose(ts),
-                required: true,
-              },
-              {
-                key: "layout",
-                label: "Layout",
-                type: "select",
-                options: [
-                  { value: "dedicated", label: "Dedicated to one Space" },
-                  { value: "shared", label: "Shared within Tenant" },
-                ],
-                required: true,
-              },
-              {
-                key: "database_name",
-                label: "Existing database name",
-                hint: "For registration only. Managed names are generated.",
-              },
-              { key: "username", label: "Existing database username" },
-              {
-                key: "password",
-                label: "Existing database password",
-                type: "password",
-              },
-            ],
-            save: (v) =>
-              api(base + "/database-resources", "POST", {
-                id: v.id,
-                management_mode: v.management_mode,
-                target_id: v.target_id,
-                layout: v.layout,
-                ...(v.management_mode === "registered"
-                  ? {
-                      database_name: v.database_name,
-                      credentials: {
-                        username: v.username,
-                        password: v.password,
+                plan_id: v.plan_id,
+                ...(v.account_mode === "existing"
+                  ? { initial_admin_user_id: v.initial_admin_user_id }
+                  : {
+                      initial_admin: {
+                        display_name: v.admin_name,
+                        email: v.admin_email,
+                        password: v.admin_password,
                       },
-                    }
-                  : {}),
+                    }),
               }),
           });
           break;
-        }
         case "targets":
           setModal({
             title: "Add a database target",
@@ -1016,32 +632,29 @@ function App() {
               }),
           });
           break;
-        case "memberships":
-          setModal({
-            title: "Add a Tenant member",
-            description:
-              "Users sign in once before they can be added. Access is assigned separately.",
-            initial: {},
-            fields: [
-              {
-                key: "user_id",
-                label: "User",
-                ...(platform
-                  ? {
-                      type: "select",
-                      options: choose(
-                        users.filter((u) => u.state === "active"),
-                      ),
-                    }
-                  : { hint: "Existing user UUID" }),
-                required: true,
-              },
-            ],
-            save: (v) => api(base + "/memberships", "POST", v),
-          });
-          break;
         case "plans":
           planModal();
+          break;
+        case "users":
+          setModal({
+            title: "Create account",
+            description:
+              "Create a global email/password account. Tenant administrators can then add this person by email or user ID.",
+            initial: {},
+            fields: [
+              { key: "display_name", label: "Name", required: true },
+              { key: "email", label: "Email", type: "email", required: true },
+              {
+                key: "password",
+                label: "Initial password",
+                type: "password",
+                required: true,
+                generate: true,
+                hint: "15–128 characters. The person must change it at first login.",
+              },
+            ],
+            save: (v) => api("/admin/v1/users", "POST", v),
+          });
           break;
       }
     } catch (e) {
@@ -1139,24 +752,29 @@ function App() {
       access: "authorization.manage",
     } as Item
   )[page];
-  const editable = platform || (managedPermission && can(managedPermission));
+  const editable = platform
+    ? ["tenants", "targets", "plans", "users", "memberships"].includes(page)
+    : managedPermission && can(managedPermission);
   const canOn = (permission: string, space: string, app: string) =>
-    platform ||
+    (platform &&
+      ["tenants", "targets", "plans", "memberships"].includes(page)) ||
     all(permission) ||
     (caps[permission]?.spaces || []).includes(space) ||
     (caps[permission]?.apps || []).includes(app);
-  const creatable =
-    platform ||
-    (managedPermission &&
+  const creatable = platform
+    ? ["tenants", "targets", "plans", "users", "memberships"].includes(page)
+    : managedPermission &&
       (all(managedPermission) ||
         (page === "apps" &&
           (caps[managedPermission]?.spaces || []).length > 0) ||
-        (page === "microapps" && can(managedPermission))));
+        (page === "microapps" && can(managedPermission)));
   const filtered = data;
-  const visiblePages = pages.filter((p) =>
-    p.platform
-      ? platform
-      : !p.permission || platform || (tenant && can(p.permission)),
+  const visiblePages = pages.filter(
+    (p) =>
+      !p.hidden &&
+      (platform
+        ? p.platform || ["access", "audit"].includes(p.id)
+        : !p.platform && (!p.permission || (tenant && can(p.permission)))),
   );
   const pageInfo = pages.find((p) => p.id === page) || pages[0];
   function rowActions(d: Item) {
@@ -1230,154 +848,6 @@ function App() {
             >
               <MoreHorizontal size={18} />
             </button>
-          </>
-        );
-      case "spaces":
-      case "apps":
-      case "microapps":
-        return (
-          <button
-            className="text-button"
-            onClick={() => {
-              const collection = page;
-              const fields: Field[] = [
-                { key: "display_name", label: "Name", required: true },
-                {
-                  key: "state",
-                  label: "State",
-                  type: "select",
-                  options: states,
-                  required: true,
-                },
-              ];
-              if (page === "apps")
-                fields.push({
-                  key: "compute_mode",
-                  label: "Compute preference",
-                  type: "select",
-                  options: [
-                    { value: "shared", label: "Shared" },
-                    { value: "dedicated", label: "Dedicated" },
-                  ],
-                });
-              if (page === "microapps")
-                fields.push(
-                  { key: "artifact_ref", label: "Artifact reference" },
-                  {
-                    key: "navigation_order",
-                    label: "Navigation order",
-                    type: "number",
-                  },
-                );
-              setModal({
-                title: "Edit " + d.display_name,
-                initial: {
-                  display_name: d.display_name,
-                  state: d.state,
-                  ...(page === "apps" ? { compute_mode: d.compute_mode } : {}),
-                  ...(page === "microapps"
-                    ? {
-                        artifact_ref: d.artifact_ref || "",
-                        navigation_order: d.navigation_order,
-                      }
-                    : {}),
-                },
-                fields,
-                save: (v) =>
-                  api(
-                    base + "/" + collection + "/" + d.id,
-                    "PATCH",
-                    {
-                      ...v,
-                      ...(collection === "microapps"
-                        ? { navigation_order: Number(v.navigation_order) }
-                        : {}),
-                    },
-                    d.revision,
-                  ),
-              });
-            }}
-          >
-            Manage <ChevronRight size={14} />
-          </button>
-        );
-      case "databases":
-        return (
-          <>
-            {d.management_mode === "registered" &&
-              ["failed", "ready"].includes(d.state) && (
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    setModal({
-                      title: "Update database credentials",
-                      description:
-                        "Credentials are kept on the server. Saving queues a fresh verification.",
-                      initial: {},
-                      fields: [
-                        { key: "username", label: "Username", required: true },
-                        {
-                          key: "password",
-                          label: "Password",
-                          type: "password",
-                          required: true,
-                        },
-                      ],
-                      save: (v) =>
-                        api(
-                          base + "/database-resources/" + d.id,
-                          "PATCH",
-                          { credentials: v },
-                          d.revision,
-                        ),
-                    })
-                  }
-                >
-                  Credentials
-                </button>
-              )}
-            {["failed", "ready"].includes(d.state) && (
-              <button
-                className="text-button"
-                onClick={() =>
-                  action(() =>
-                    api(
-                      base + `/database-resources/${d.id}/retry`,
-                      "POST",
-                      {},
-                      d.revision,
-                    ),
-                  )
-                }
-              >
-                <RefreshCw size={13} />
-                {d.state === "failed" ? "Retry" : "Verify"}
-              </button>
-            )}
-            {["failed", "ready"].includes(d.state) && (
-              <button
-                className="text-button muted"
-                onClick={() =>
-                  setModal({
-                    title: "Retire database resource?",
-                    description:
-                      "This only retires an unbound registry entry. Physical data and database quota are retained. Bound and default resources cannot be retired.",
-                    initial: {},
-                    fields: [],
-                    submit: "Retire resource",
-                    save: () =>
-                      api(
-                        base + "/database-resources/" + d.id,
-                        "PATCH",
-                        { state: "retired" },
-                        d.revision,
-                      ),
-                  })
-                }
-              >
-                Retire
-              </button>
-            )}
           </>
         );
       case "plans":
@@ -1454,26 +924,6 @@ function App() {
             {d.state === "active" ? "Disable" : "Enable"}
           </button>
         );
-      case "memberships":
-        return (
-          <button
-            className="text-button"
-            onClick={() =>
-              action(() =>
-                api(
-                  base + "/memberships/" + d.user_id,
-                  "PATCH",
-                  {
-                    state: d.state === "active" ? "disabled" : "active",
-                  },
-                  d.revision,
-                ),
-              )
-            }
-          >
-            {d.state === "active" ? "Disable" : "Enable"}
-          </button>
-        );
       default:
         return null;
     }
@@ -1500,97 +950,6 @@ function App() {
           ["Spaces", (d) => d.space_count],
           ["Apps", (d) => d.app_count],
           ["Status", (d) => stateBadge(d.state)],
-        ];
-      case "spaces":
-        return [
-          [
-            "Space",
-            (d) => (
-              <>
-                <strong>{d.display_name}</strong>
-                <small>{d.slug}</small>
-              </>
-            ),
-          ],
-          [
-            "Database",
-            (d) => (
-              <>
-                <code>{short(d.database_resource_id)}</code>
-                <small>{d.database_layout}</small>
-              </>
-            ),
-          ],
-          ["Database status", (d) => stateBadge(d.database_state)],
-          ["Apps", (d) => d.app_count],
-          ["Status", (d) => stateBadge(d.state)],
-        ];
-      case "apps":
-        return [
-          [
-            "App",
-            (d) => (
-              <>
-                <strong>{d.display_name}</strong>
-                <small>{d.slug}</small>
-              </>
-            ),
-          ],
-          ["Space", (d) => d.space_name],
-          ["Compute", (d) => <span className="tag">{d.compute_mode}</span>],
-          ["Micro-apps", (d) => d.microapp_count],
-          ["Status", (d) => stateBadge(d.state)],
-        ];
-      case "microapps":
-        return [
-          [
-            "Micro-app",
-            (d) => (
-              <>
-                <strong>{d.display_name}</strong>
-                <small>{d.slug}</small>
-              </>
-            ),
-          ],
-          ["App", (d) => d.app_name],
-          [
-            "Artifact",
-            (d) => (
-              <code title={d.artifact_ref}>
-                {d.artifact_ref || "Not linked"}
-              </code>
-            ),
-          ],
-          ["Order", (d) => d.navigation_order],
-          ["Status", (d) => stateBadge(d.state)],
-        ];
-      case "databases":
-        return [
-          [
-            "Database",
-            (d) => (
-              <>
-                <code title={d.database_name}>{d.database_name}</code>
-                <small>{short(d.id)}</small>
-              </>
-            ),
-          ],
-          ["Method", (d) => <span className="tag">{d.management_mode}</span>],
-          ["Layout", (d) => d.layout],
-          [
-            "Status",
-            (d) => (
-              <>
-                {stateBadge(d.state)}
-                {d.last_error_message && (
-                  <small className="failure-note" title={d.last_error_message}>
-                    {d.last_error_message}
-                  </small>
-                )}
-              </>
-            ),
-          ],
-          ["Attempts", (d) => d.attempts],
         ];
       case "targets":
         return [
@@ -1683,42 +1042,30 @@ function App() {
         <LoaderCircle className="spin" /> Opening Lastapp…
       </div>
     );
-  if (auth === "out")
+  function signOut() {
+    api("/auth/logout", "POST", {})
+      .then(endSession)
+      .catch((e) => {
+        if (e.status === 401) endSession();
+        else setError(e.message);
+      });
+  }
+  if (auth === "change-password")
+    return <PasswordScreen required done={loadGlobals} signOut={signOut} />;
+  if (auth === "out") return <LoginScreen done={loadGlobals} />;
+  if (!platform)
     return (
-      <div className="welcome">
-        <div className="welcome-card">
-          <span className="brand-mark">
-            <Layers3 size={30} />
-          </span>
-          <span className="eyebrow">LASTAPP CONTROL PLANE</span>
-          <h1>
-            Your platform.
-            <br />
-            One place to manage it.
-          </h1>
-          <p>
-            Provision Tenants, connect databases and organize every Space and
-            App.
-          </p>
-          {error && <div className="error">{error}</div>}
-          <a
-            className="primary"
-            href={
-              "/auth/login?return_origin=" + encodeURIComponent(location.origin)
-            }
-          >
-            Sign in to Lastapp <ArrowUpRight size={18} />
-          </a>
-          <small>Local development environment</small>
-        </div>
-        <div className="welcome-art">
-          <div className="orbit o1" />
-          <div className="orbit o2" />
-          <div className="orbit o3" />
-          <Layers3 size={100} />
-          <span className="art-label">A foundation for every app.</span>
-        </div>
-      </div>
+      <TenantWorkspace
+        me={me!}
+        appearanceControls={{
+          appearance,
+          setAppearance,
+          isDark,
+          reset: resetAppearance,
+        }}
+        signOut={signOut}
+        refreshMe={loadGlobals}
+      />
     );
   const subtitle = (
     {
@@ -1984,12 +1331,7 @@ function App() {
               className="icon"
               aria-label="Sign out"
               title="Sign out"
-              onClick={() =>
-                api("/auth/logout", "POST", {}).then(() => {
-                  setAuth("out");
-                  setMe(null);
-                })
-              }
+              onClick={signOut}
             >
               <LogOut size={17} />
             </button>
@@ -2034,6 +1376,7 @@ function App() {
                   "databases",
                   "targets",
                   "plans",
+                  "users",
                   "memberships",
                 ].includes(page) &&
                 (!tenantPage || tenant) && (
@@ -2049,6 +1392,7 @@ function App() {
                           databases: "Add database",
                           targets: "Add target",
                           plans: "Create plan",
+                          users: "Create account",
                           memberships: "Add member",
                           access:
                             tab === "groups"
@@ -2088,15 +1432,33 @@ function App() {
                 </button>
               )}
             </div>
+          ) : page === "tenant-detail" ? (
+            <section className="panel workspace-section">
+              <h3>{overview.tenant?.display_name}</h3>
+              <p>
+                Tenant operations and inventory. Tenant administrators manage
+                their Spaces and Apps.
+              </p>
+              <dl className="workspace-facts">
+                <dt>Plan</dt>
+                <dd>{overview.tenant?.plan_name}</dd>
+                <dt>Status</dt>
+                <dd>{overview.tenant?.state}</dd>
+                <dt>Spaces</dt>
+                <dd>{overview.spaces}</dd>
+                <dt>Apps</dt>
+                <dd>{overview.apps}</dd>
+                <dt>Databases</dt>
+                <dd>{overview.databases}</dd>
+              </dl>
+            </section>
           ) : page === "overview" ? (
             <OverviewDashboard
               overview={overview}
               name={me?.display_name || "there"}
               refresh={() => setReload((v) => v + 1)}
               navigate={(dest) => {
-                if (dest !== "tenants" && !tenant && tenants.length)
-                  selectTenant(tenants[0].id);
-                go(dest);
+                go("tenants");
               }}
             />
           ) : page === "access" ? (
@@ -2106,6 +1468,7 @@ function App() {
               platform={platform}
               caps={caps}
               refresh={() => setReload((v) => v + 1)}
+              scopeKind={tenant ? "tenant" : undefined}
             />
           ) : (
             <section className="panel list-panel">
