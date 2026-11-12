@@ -1,0 +1,13 @@
+{
+  "address": "0.0.0.0:8787",
+  "public_url": "https://admin.example.com",
+  "registry_dsn": "lastapp_control:REPLACE@tcp(registry.example.com:3306)/lastapp_control?tls=true",
+  "encryption_key": "REPLACE_WITH_BASE64_32_BYTE_KEY",
+  "encryption_key_id": "production-v1",
+  "oidc_issuer": "https://identity.example.com",
+  "oidc_client_id": "REPLACE",
+  "oidc_client_secret": "REPLACE",
+  "development": false,
+  "allowed_networks": ["10.0.0.0/8"],
+  "runtime_account_host": "%"
+}

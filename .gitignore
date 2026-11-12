@@ -1,0 +1,23 @@
+.local/
+.cache/
+.env
+node_modules/
+web/admin/dist/*
+!web/admin/dist/.keep
+bin/
+test-results/
+playwright-report/
+*.log
+
+artifacts/
+__pycache__/
+*.pyc
+*.tsbuildinfo
+
+# Local credentials and editor files
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+.DS_Store

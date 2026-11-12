@@ -1,0 +1,81 @@
+# Lastapp — provisioning control plane
+
+A running first slice of Lastapp: a Go API, a React/Tailwind admin console, centralized authorization and real MariaDB provisioning.
+
+**Open locally:** http://127.0.0.1:8787/console/
+
+Choose **Platform operator**, password **`lastapp-local`**. The local OIDC issuer also offers **Tenant administrator** and **Outside user**, with the same development password. These identities are separate: signing in does not grant platform administration. Existing test Tenants and intentional failed provisioning fixtures are retained for inspection.
+
+## Run
+
+Requirements: Go 1.25+, a working Node/npm, and MariaDB 10.11+ server/client/install tools. Verified on this Mac with Go 1.27.4, Node 24.20.0 and MariaDB 12.3.3. MariaDB 10.11 compatibility remains to be checked on that server version.
+
+```sh
+git clone https://github.com/aantich/lastapp.git
+cd lastapp
+make dev
+```
+
+`make dev` builds the frontend and embeds it in the Go binary, applies migrations, seeds development identities/plans, and starts three detached local processes:
+
+| Service | Address |
+| --- | --- |
+| Admin UI and API | `127.0.0.1:8787` |
+| Development OIDC issuer | `127.0.0.1:8788` |
+| Private MariaDB | `127.0.0.1:33317` |
+
+Data, keys, credentials, process IDs and logs are in the ignored `.local/` directory, with private configuration files. The script initializes its own MariaDB data directory and does not use an existing system database. It refuses occupied ports belonging to another process. Running it again rebuilds/restarts the app and issuer while preserving databases and keys. To start already-built binaries, use `python3 scripts/dev.py --skip-build`.
+
+When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/v24.20.0/bin`; it does not change global Node or Homebrew. `make` also accepts `NODE_BIN=/path/to/node/bin`.
+
+```sh
+make stop                  # stop these local services; preserve data
+make test                  # Go unit tests and compilation; DB tests skip by default
+make integration           # actual MariaDB + Chrome tests; run make dev first
+```
+
+Do not delete `.local/config.json` while retaining its database: its encryption key is needed to read stored connection credentials. The development identity provider is explicitly loopback-only; production uses an external trusted OIDC issuer.
+
+## Review the UI
+
+1. **Tenants → Create Tenant:** select a plan and an existing signed-in identity as the initial Tenant administrator.
+2. Open that Tenant and **Create Space**. Shared layout reuses the Tenant's default database; dedicated layout creates an exclusive database. Status updates while the worker provisions.
+3. **Apps → Create App**, then **Micro-apps → Register micro-app**. These are registry records in this phase, not deployed business runtimes.
+4. **Databases → Add database:** request managed creation or register an existing database on a configured target with scoped credentials. Existing registration validates connectivity/version/CRUD grants and does not write to business tables. Failed resources can be retried; registered credentials can be replaced through the API.
+5. **Members / Access control:** add memberships, create groups and custom roles, assign direct or role-based grants at Tenant, Space or App scope. Built-in roles are protected. The last direct active Tenant administrator cannot be disabled or revoked.
+6. Select **Platform overview → Access control** to manage platform superadmin grants. **Plans**, **Users**, **Database targets** and **Activity** provide system management. The last active superadmin is protected.
+
+The `Starter` plan allows one shared managed database, three Spaces and ten Apps. `Development` permits both layouts/methods, dedicated-compute preferences, 100 Spaces, 500 Apps and 100 database resources. Plans apply to future allocations; they do not migrate existing resources.
+
+## Implementation
+
+- `internal/control`: explicit SQL and HTTP handlers, authorization, migrations, encrypted credentials, OIDC/session handling and the worker. No ORM or policy service.
+- `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`.
+- `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
+- `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
+- `design/control_plane.sql`: 17-table registry design. `internal/control/migrations` is its versioned executable migration.
+- `third_party/go-mariadb`: source snapshot of **[aantich/go-mariadb](https://github.com/aantich/go-mariadb)** from sibling `../go-mariadb`, including its compression implementation and license notices. `SNAPSHOT.json` records hashes. All connectivity uses its `mariadb` package and `database/sql` connector. No MySQL fallback driver is installed. The snapshot avoids silently changing Lastapp when another chat edits the driver; intentionally refresh/pin it when adopting a reviewed driver change.
+
+The hierarchy is **Tenant → Space → App → micro-app installation**. A Space has one fixed database binding. Spaces can share only within the same Tenant, and dedicated bindings are exclusive. All identities, memberships, groups, permission definitions, roles and grants live in the central registry.
+
+Session tokens are hashed at rest; writes require CSRF and exact Origin checks. Authorization reads current grants on each request. List queries apply scope predicates before selecting rows. Cross-Tenant references have composite foreign keys as a second guard. Revisions prevent stale overwrites. Client-generated UUIDs make duplicate creation detectable; retries must reuse the original UUID.
+
+Credentials use AES-GCM with random nonces, key IDs and authenticated owner/Tenant context. API responses and audit events omit secrets. Migration credentials, registry runtime credentials and target provisioning credentials are separate; the development registry account can append/read audit events but cannot update/delete them.
+
+A pinned MariaDB advisory lock elects one provisioning worker. It reconciles durable resource rows; a separate target resource lock prevents simultaneous external DDL. Generated names, stored passwords and database ownership comments make retries stable. Unknown databases/accounts are refused. Retiring registry entries never drops physical data. Schema rollback is deliberately not destructive: restore a backup for rollback.
+
+## Production configuration
+
+Copy `config.example.json` to a protected file and replace its placeholders. Use a separately privileged migration DSN with `lastapp migrate -config /path/to/migration.json`, then run `lastapp serve -config /path/to/runtime.json`. Bootstrap an exact issuer/subject identity using `lastapp bootstrap -config ... -issuer ... -subject ...`; email is never a privilege source.
+
+Production requires HTTPS public origin, trusted HTTPS OIDC, identity-verified database TLS and an operator-defined runtime account host/network policy. Terminate HTTPS at the trusted ingress. `allowed_networks` explicitly permits private database address ranges; public addresses are otherwise permitted. DNS results are checked again at connection time. Register each physical server under one canonical endpoint: equivalent DNS aliases are not automatically deduplicated.
+
+The deployment encryption key is a base64 32-byte key. This first version uses one configured key generation (`encryption_key_id`, default `primary-v1`); automatic key rotation/re-encryption is not implemented. Preserve keys with registry backups.
+
+## Scope of this phase
+
+Implemented: centralized inventory, access management, plan quotas, lifecycle management, managed database provisioning, existing registration, retries/recovery, auditing and the admin UI.
+
+Later: business entity definitions/API compilation, entity/record/field ACLs, micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs support optional bounded offset pagination (`?page=1&limit=100`, limit at most 200), with scope predicates applied in SQL before pagination. The initial console loads complete metadata collections and filters them in the browser, with the latest 150 audit events; switch the console itself to paged loading before using it for large directories.
+
+See [PROVISIONING_PLAN.md](PROVISIONING_PLAN.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md).

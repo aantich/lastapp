@@ -1,0 +1,415 @@
+package control
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"database/sql"
+	"fmt"
+	mariadb "github.com/aantich/go-mariadb"
+	"net"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type credentials struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	AccountHost string `json:"account_host"`
+}
+type databaseInput struct {
+	ID          string      `json:"id"`
+	Mode        string      `json:"management_mode"`
+	Layout      string      `json:"layout"`
+	Target      string      `json:"target_id"`
+	Database    string      `json:"database_name"`
+	Credentials credentials `json:"credentials"`
+}
+
+const targetColumns = "id,display_name,canonical_host,port,tls_mode,state,managed_enabled,revision,created_at"
+const dbColumns = "id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at"
+
+func (s *Server) targets(w http.ResponseWriter, r *http.Request, p Principal) error {
+	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+		return e
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+targetColumns+" FROM database_targets ORDER BY display_name")
+	if e == nil {
+		send(w, 200, Row{"items": v})
+	}
+	return e
+}
+func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p Principal) error {
+	if e := s.authorize(r.Context(), s.DB, p, "database.manage", Resource{Tenant: r.PathValue("tenant")}, false); e != nil {
+		return e
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active' ORDER BY display_name")
+	if e == nil {
+		send(w, 200, Row{"items": v})
+	}
+	return e
+}
+
+type targetInput struct {
+	ID          string       `json:"id"`
+	Name        string       `json:"display_name"`
+	Host        string       `json:"canonical_host"`
+	Port        int          `json:"port"`
+	TLS         string       `json:"tls_mode"`
+	State       string       `json:"state"`
+	Managed     bool         `json:"managed_enabled"`
+	Credentials *credentials `json:"credentials"`
+}
+
+var hostRE = regexp.MustCompile(`^[a-zA-Z0-9.:\-]+$`)
+
+func (s *Server) validateTarget(in *targetInput) error {
+	in.Host = strings.ToLower(strings.TrimSuffix(in.Host, "."))
+	if !hostRE.MatchString(in.Host) || len(in.Host) > 253 || in.Port < 1 || in.Port > 65535 {
+		return bad("Invalid database endpoint.")
+	}
+	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
+		return bad("Invalid target name.")
+	}
+	if in.TLS != "verify_identity" && !(in.TLS == "disabled" && s.Config.Development) {
+		return bad("TLS must verify the server identity; disabled is allowed only in local development.")
+	}
+	if in.State == "" {
+		in.State = "active"
+	}
+	if in.State != "active" && in.State != "disabled" {
+		return bad("Invalid target state.")
+	}
+	return nil
+}
+func (s *Server) createTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in targetInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	if e := id(in.ID); e != nil {
+		return e
+	}
+	if e := s.validateTarget(&in); e != nil {
+		return e
+	}
+	if in.Managed && (in.Credentials == nil || in.Credentials.Username == "" || in.Credentials.Password == "") {
+		return bad("Managed targets require provisioning credentials.")
+	}
+	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		var enc any
+		if in.Credentials != nil {
+			b, e := s.seal("target", in.ID, "", in.Credentials)
+			if e != nil {
+				return e
+			}
+			enc = b
+		}
+		_, e := tx.ExecContext(r.Context(), "INSERT INTO database_targets (id,display_name,canonical_host,port,tls_mode,state,managed_enabled,provisioning_credentials_enc) VALUES (?,?,?,?,?,?,?,?)", in.ID, in.Name, in.Host, in.Port, in.TLS, in.State, in.Managed, enc)
+		if e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, "", p.ID, "target.created", "database_target", in.ID, r.Header.Get("X-Request-ID"), Row{})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "database_targets", "", in.ID, 201)
+}
+func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in struct {
+		Name        *string      `json:"display_name"`
+		State       *string      `json:"state"`
+		Managed     *bool        `json:"managed_enabled"`
+		Credentials *credentials `json:"credentials"`
+	}
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	rev, e := expectedRevision(r)
+	if e != nil {
+		return e
+	}
+	record := r.PathValue("id")
+	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		old, e := lockRecord(r.Context(), tx, "database_targets", "", record)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+			return e
+		}
+		sets := []string{"revision=revision+1"}
+		args := []any{}
+		if in.Name != nil {
+			if strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160 {
+				return bad("Invalid name.")
+			}
+			sets = append(sets, "display_name=?")
+			args = append(args, *in.Name)
+		}
+		if in.State != nil {
+			if *in.State != "active" && *in.State != "disabled" {
+				return bad("Invalid state.")
+			}
+			sets = append(sets, "state=?")
+			args = append(args, *in.State)
+		}
+		if in.Managed != nil {
+			sets = append(sets, "managed_enabled=?")
+			args = append(args, *in.Managed)
+		}
+		if in.Credentials != nil {
+			if in.Credentials.Username == "" || in.Credentials.Password == "" {
+				return bad("Credentials cannot be empty.")
+			}
+			b, e := s.seal("target", record, "", in.Credentials)
+			if e != nil {
+				return e
+			}
+			sets = append(sets, "provisioning_credentials_enc=?")
+			args = append(args, b)
+		}
+		args = append(args, record)
+		if _, e = tx.ExecContext(r.Context(), "UPDATE database_targets SET "+strings.Join(sets, ",")+" WHERE id=?", args...); e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, "", p.ID, "target.updated", "database_target", record, r.Header.Get("X-Request-ID"), Row{})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "database_targets", "", record, 200)
+}
+func (s *Server) databases(w http.ResponseWriter, r *http.Request, p Principal) error {
+	tenant := r.PathValue("tenant")
+	if e := s.authorize(r.Context(), s.DB, p, "database.read", Resource{Tenant: tenant}, false); e != nil {
+		return e
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
+	if e == nil {
+		send(w, 200, Row{"items": v})
+	}
+	return e
+}
+func (s *Server) getDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	tenant := r.PathValue("tenant")
+	if e := s.authorize(r.Context(), s.DB, p, "database.read", Resource{Tenant: tenant}, false); e != nil {
+		return e
+	}
+	v, e := row(r.Context(), s.DB, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, r.PathValue("id"))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, tenant string, in databaseInput, policy Row, request string) error {
+	if e := s.authorize(ctx, tx, p, "database.manage", Resource{Tenant: tenant}, true); e != nil {
+		return e
+	}
+	if e := id(in.ID); e != nil {
+		return e
+	}
+	if e := id(in.Target); e != nil {
+		return e
+	}
+	if e := layoutAllowed(policy, in.Layout); e != nil {
+		return e
+	}
+	if in.Mode != "managed" && in.Mode != "registered" {
+		return bad("Select managed or registered database mode.")
+	}
+	if integer(policy["allow_"+in.Mode+"_database"]) != 1 {
+		return problem(403, "plan_restriction", "This database method is not included in the plan.")
+	}
+	if e := quota(ctx, tx, tenant, "database_resources", "max_databases", policy); e != nil {
+		return e
+	}
+	target, e := row(ctx, tx, "SELECT state,managed_enabled FROM database_targets WHERE id=?", in.Target)
+	if e != nil {
+		return e
+	}
+	if str(target["state"]) != "active" {
+		return conflict("The database target is disabled.")
+	}
+	var ownership any
+	cred := in.Credentials
+	if in.Mode == "managed" {
+		if integer(target["managed_enabled"]) != 1 {
+			return bad("Target does not support managed creation.")
+		}
+		in.Database = "la_" + strings.ReplaceAll(in.ID, "-", "")
+		cred = credentials{Username: in.Database, Password: token(32), AccountHost: s.Config.RuntimeAccountHost}
+		if cred.AccountHost == "" {
+			return bad("Runtime database account host is not configured.")
+		}
+		b := make([]byte, 16)
+		if _, e = rand.Read(b); e != nil {
+			return e
+		}
+		ownership = b
+	} else {
+		if !regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`).MatchString(in.Database) || strings.EqualFold(in.Database, s.registryName) {
+			return bad("Invalid or protected database name.")
+		}
+		if cred.Username == "" || cred.Password == "" {
+			return bad("Existing database credentials are required.")
+		}
+	}
+	enc, e := s.seal("database", in.ID, tenant, cred)
+	if e != nil {
+		return e
+	}
+	_, e = tx.ExecContext(ctx, "INSERT INTO database_resources (id,tenant_id,target_id,database_name,management_mode,layout,runtime_credentials_enc,ownership_token) VALUES (?,?,?,?,?,?,?,?)", in.ID, tenant, in.Target, in.Database, in.Mode, in.Layout, enc, ownership)
+	if e != nil {
+		return e
+	}
+	return audit(ctx, tx, tenant, p.ID, "database.requested", "database", in.ID, request, Row{"management_mode": in.Mode, "layout": in.Layout})
+}
+func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in databaseInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	tenant := r.PathValue("tenant")
+	e := s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		policy, e := policyFor(r.Context(), tx, tenant)
+		if e != nil {
+			return e
+		}
+		return s.allocateDatabase(r.Context(), tx, p, tenant, in, policy, r.Header.Get("X-Request-ID"))
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "database_resources", tenant, in.ID, 202)
+}
+func (s *Server) retryDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	return s.changeDatabase(w, r, p, true)
+}
+func (s *Server) updateDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	return s.changeDatabase(w, r, p, false)
+}
+func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Principal, retry bool) error {
+	var in struct {
+		State       string       `json:"state"`
+		Credentials *credentials `json:"credentials"`
+	}
+	if !retry {
+		if e := decode(w, r, &in); e != nil {
+			return e
+		}
+	}
+	rev, e := expectedRevision(r)
+	if e != nil {
+		return e
+	}
+	tenant, record := r.PathValue("tenant"), r.PathValue("id")
+	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		old, e := row(r.Context(), tx, "SELECT revision,state,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+			return e
+		}
+		state := str(old["state"])
+		if state == "provisioning" || state == "pending" || state == "retired" {
+			return conflict("Wait for provisioning to finish; retired resources cannot be changed.")
+		}
+		next := "pending"
+		if !retry && in.Credentials == nil {
+			if in.State != "retired" {
+				return bad("Only retirement or registered credential replacement is supported.")
+			}
+			var n int
+			if e = tx.QueryRowContext(r.Context(), "SELECT (SELECT COUNT(*) FROM spaces WHERE database_resource_id=?)+(SELECT COUNT(*) FROM tenants WHERE default_shared_database_id=?)", record, record).Scan(&n); e != nil {
+				return e
+			}
+			if n > 0 {
+				return conflict("A bound or default database cannot be retired.")
+			}
+			next = "retired"
+		}
+		if in.Credentials != nil {
+			if str(old["management_mode"]) != "registered" || in.Credentials.Username == "" || in.Credentials.Password == "" {
+				return bad("Only registered database credentials can be replaced.")
+			}
+			enc, e := s.seal("database", record, tenant, in.Credentials)
+			if e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET runtime_credentials_enc=? WHERE id=?", enc, record); e != nil {
+				return e
+			}
+		}
+		_, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET state=?,last_error_code=NULL,last_error_message=NULL,revision=revision+1 WHERE id=?", next, record)
+		if e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, tenant, p.ID, "database."+next, "database", record, r.Header.Get("X-Request-ID"), Row{})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "database_resources", tenant, record, 202)
+}
+func (s *Server) targetDB(ctx context.Context, target Row, cred credentials, name string) (*sql.DB, error) {
+	host := str(target["canonical_host"])
+	port := strconv.Itoa(int(integer(target["port"])))
+	cfg := mariadb.NewConfig()
+	cfg.User = cred.Username
+	cfg.Passwd = cred.Password
+	cfg.Net = "tcp"
+	cfg.Addr = net.JoinHostPort(host, port)
+	cfg.DBName = name
+	cfg.ParseTime = true
+	cfg.Timeout = 5 * time.Second
+	cfg.ReadTimeout = 15 * time.Second
+	cfg.WriteTimeout = 15 * time.Second
+	if str(target["tls_mode"]) == "verify_identity" {
+		cfg.TLS = &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	} else if !s.Config.Development {
+		return nil, fmt.Errorf("TLS is required")
+	}
+	cfg.DialFunc = func(c context.Context, network, address string) (net.Conn, error) {
+		ips, e := net.DefaultResolver.LookupIPAddr(c, host)
+		if e != nil {
+			return nil, e
+		}
+		for _, ip := range ips {
+			allowed := !ip.IP.IsPrivate() && !ip.IP.IsLoopback() && !ip.IP.IsUnspecified() && !ip.IP.IsLinkLocalUnicast() && !ip.IP.IsMulticast()
+			if s.Config.Development {
+				allowed = ip.IP.IsLoopback()
+			}
+			for _, cidr := range s.Config.AllowedNetworks {
+				_, sub, _ := net.ParseCIDR(cidr)
+				if sub != nil && sub.Contains(ip.IP) {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return nil, fmt.Errorf("database address is not allowed")
+			}
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no database address")
+		}
+		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(c, network, net.JoinHostPort(ips[0].IP.String(), port))
+	}
+	connector, e := mariadb.NewConnector(cfg)
+	if e != nil {
+		return nil, e
+	}
+	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if e = db.PingContext(ctx); e != nil {
+		db.Close()
+		return nil, e
+	}
+	return db, nil
+}

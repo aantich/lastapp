@@ -1,0 +1,88 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"github.com/aantich/lastapp/internal/control"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		log.Fatal("usage: lastapp serve|migrate|bootstrap|seed-development -config path")
+	}
+	command := os.Args[1]
+	flags := flag.NewFlagSet(command, flag.ExitOnError)
+	config := flags.String("config", ".local/config.json", "server configuration file")
+	issuer := flags.String("issuer", "", "bootstrap identity issuer")
+	subject := flags.String("subject", "", "bootstrap immutable identity subject")
+	name := flags.String("name", "Platform operator", "bootstrap name")
+	email := flags.String("email", "", "bootstrap email")
+	provisionerFile := flags.String("provisioner-file", "", "local development provisioning credential file")
+	flags.Parse(os.Args[2:])
+	c, e := control.LoadConfig(*config)
+	if e != nil {
+		log.Fatal(e)
+	}
+	s, e := control.Open(c)
+	if e != nil {
+		log.Fatal(e)
+	}
+	defer s.DB.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	switch command {
+	case "migrate":
+		e = control.Migrate(ctx, s.DB)
+	case "bootstrap":
+		if *issuer == "" || *subject == "" {
+			log.Fatal("issuer and subject are required")
+		}
+		var uid string
+		uid, e = s.Bootstrap(ctx, *issuer, *subject, *name, *email)
+		if e == nil {
+			fmt.Println("Superadmin identity:", uid)
+		}
+	case "seed-development":
+		var secret []byte
+		if *provisionerFile != "" {
+			secret, e = os.ReadFile(*provisionerFile)
+			if e != nil {
+				break
+			}
+		}
+		e = s.SeedDevelopment(ctx, strings.TrimSpace(string(secret)))
+	case "serve":
+		if e = control.CheckSchema(ctx, s.DB); e != nil {
+			break
+		}
+		if e = s.InitAuth(ctx); e != nil {
+			break
+		}
+		go s.RunWorker(ctx)
+		server := &http.Server{Addr: c.Address, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+		go func() {
+			<-ctx.Done()
+			shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			server.Shutdown(shutdown)
+		}()
+		log.Printf("Lastapp listening at %s/console/", c.PublicURL)
+		e = server.ListenAndServe()
+		if e == http.ErrServerClosed {
+			e = nil
+		}
+	default:
+		e = fmt.Errorf("unknown command %q", command)
+	}
+	if e != nil {
+		log.Fatal(e)
+	}
+}

@@ -1,0 +1,364 @@
+package control
+
+import (
+	"context"
+	"database/sql"
+	"net/http"
+	"strings"
+)
+
+const planColumns = "id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at"
+
+type planInput struct {
+	ID         string  `json:"id"`
+	Code       string  `json:"code"`
+	Name       string  `json:"display_name"`
+	Shared     bool    `json:"allow_shared_database"`
+	Dedicated  bool    `json:"allow_dedicated_database"`
+	Managed    bool    `json:"allow_managed_database"`
+	Registered bool    `json:"allow_registered_database"`
+	Compute    bool    `json:"allow_dedicated_compute"`
+	Default    string  `json:"default_layout"`
+	Spaces     *uint32 `json:"max_spaces"`
+	Apps       *uint32 `json:"max_apps"`
+	Databases  *uint32 `json:"max_databases"`
+}
+
+func (in planInput) validate() error {
+	if e := named(in.Code, in.Name); e != nil {
+		return e
+	}
+	if !in.Managed && !in.Registered {
+		return bad("Select at least one provisioning method.")
+	}
+	if (in.Default == "shared" && in.Shared) || (in.Default == "dedicated" && in.Dedicated) {
+		return nil
+	}
+	return bad("The default layout must be allowed by this plan.")
+}
+func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) error {
+	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+		return e
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+	if e == nil {
+		send(w, 200, Row{"items": v})
+	}
+	return e
+}
+func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in planInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	if e := id(in.ID); e != nil {
+		return e
+	}
+	if e := in.validate(); e != nil {
+		return e
+	}
+	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		_, e := tx.ExecContext(r.Context(), "INSERT INTO plans (id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", in.ID, in.Code, in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases)
+		if e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, "", p.ID, "plan.created", "plan", in.ID, r.Header.Get("X-Request-ID"), Row{"code": in.Code})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "plans", "", in.ID, 201)
+}
+func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in planInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	if e := in.validate(); e != nil {
+		return e
+	}
+	rev, e := expectedRevision(r)
+	if e != nil {
+		return e
+	}
+	record := r.PathValue("id")
+	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		old, e := row(r.Context(), tx, "SELECT id,revision,code FROM plans WHERE id=? FOR UPDATE", record)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+			return e
+		}
+		if str(old["code"]) != in.Code {
+			return bad("Plan codes are immutable.")
+		}
+		_, e = tx.ExecContext(r.Context(), "UPDATE plans SET display_name=?,allow_shared_database=?,allow_dedicated_database=?,allow_managed_database=?,allow_registered_database=?,allow_dedicated_compute=?,default_layout=?,max_spaces=?,max_apps=?,max_databases=?,revision=revision+1 WHERE id=?", in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases, record)
+		if e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, "", p.ID, "plan.updated", "plan", record, r.Header.Get("X-Request-ID"), Row{"affects": "future allocations"})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "plans", "", record, 200)
+}
+func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) error {
+	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+		return e
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at FROM users ORDER BY display_name")
+	if e == nil {
+		send(w, 200, Row{"items": v})
+	}
+	return e
+}
+func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in struct {
+		State string `json:"state"`
+	}
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	if in.State != "active" && in.State != "disabled" {
+		return bad("State must be active or disabled.")
+	}
+	rev, e := expectedRevision(r)
+	if e != nil {
+		return e
+	}
+	record := r.PathValue("id")
+	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		ts, e := rows(r.Context(), tx, "SELECT tenant_id FROM tenant_memberships WHERE user_id=? ORDER BY tenant_id", record)
+		if e != nil {
+			return e
+		}
+		for _, t := range ts {
+			var v string
+			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t["tenant_id"]).Scan(&v); e != nil {
+				return e
+			}
+		}
+		old, e := lockRecord(r.Context(), tx, "users", "", record)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+			return e
+		}
+		_, e = tx.ExecContext(r.Context(), "UPDATE users SET state=?,revision=revision+1 WHERE id=?", in.State, record)
+		if e != nil {
+			return e
+		}
+		if e = ensurePlatformAdmin(r.Context(), tx); e != nil {
+			return e
+		}
+		for _, t := range ts {
+			if e = ensureTenantAdmin(r.Context(), tx, str(t["tenant_id"])); e != nil {
+				return e
+			}
+		}
+		if in.State == "disabled" {
+			if _, e = tx.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", record); e != nil {
+				return e
+			}
+		}
+		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"state": in.State})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "users", "", record, 200)
+}
+
+const tenantColumns = "t.id,t.slug,t.display_name,t.state,t.plan_id,t.default_layout,t.default_shared_database_id,t.revision,t.created_at,p.display_name AS plan_name"
+
+func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) error {
+	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+		return e
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
+	if e == nil {
+		send(w, 200, Row{"items": v})
+	}
+	return e
+}
+func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+	tenant := r.PathValue("tenant")
+	if e := s.authorize(r.Context(), s.DB, p, "tenant.read", Resource{Tenant: tenant}, false); e != nil {
+		return e
+	}
+	v, e := row(r.Context(), s.DB, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in struct {
+		ID     string `json:"id"`
+		Slug   string `json:"slug"`
+		Name   string `json:"display_name"`
+		Plan   string `json:"plan_id"`
+		Admin  string `json:"initial_admin_user_id"`
+		Layout string `json:"default_layout"`
+	}
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	for _, v := range []string{in.ID, in.Plan, in.Admin} {
+		if e := id(v); e != nil {
+			return e
+		}
+	}
+	if e := named(in.Slug, in.Name); e != nil {
+		return e
+	}
+	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		policy, e := row(r.Context(), tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
+		if e != nil {
+			return e
+		}
+		if e = layoutAllowed(policy, in.Layout); e != nil {
+			return e
+		}
+		var user string
+		if e = tx.QueryRowContext(r.Context(), "SELECT id FROM users WHERE id=? AND state='active'", in.Admin).Scan(&user); e != nil {
+			return bad("Select an active registered administrator.")
+		}
+		_, e = tx.ExecContext(r.Context(), "INSERT INTO tenants (id,slug,display_name,plan_id,default_layout,created_by) VALUES (?,?,?,?,?,?)", in.ID, in.Slug, in.Name, in.Plan, nullable(in.Layout), p.ID)
+		if e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(r.Context(), "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", in.ID, in.Admin); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(r.Context(), "INSERT INTO access_grants (id,tenant_id,kind,user_id,role_id,role_owner_key) VALUES (?,?,'tenant',?,?,'platform')", newID(), in.ID, in.Admin, TenantAdminRole); e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, in.ID, p.ID, "tenant.created", "tenant", in.ID, r.Header.Get("X-Request-ID"), Row{"initial_admin_user_id": in.Admin})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "tenants", "", in.ID, 201)
+}
+func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in struct {
+		Name   *string `json:"display_name"`
+		State  *string `json:"state"`
+		Plan   *string `json:"plan_id"`
+		Layout *string `json:"default_layout"`
+	}
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	rev, e := expectedRevision(r)
+	if e != nil {
+		return e
+	}
+	record := r.PathValue("id")
+	e = s.mutate(r.Context(), p, "platform.admin", Resource{Tenant: record}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		old, e := row(r.Context(), tx, "SELECT id,display_name,state,plan_id,default_layout,revision FROM tenants WHERE id=?", record)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+			return e
+		}
+		name, state, plan, layout := str(old["display_name"]), str(old["state"]), str(old["plan_id"]), str(old["default_layout"])
+		if in.Name != nil {
+			name = *in.Name
+			if strings.TrimSpace(name) == "" || len(name) > 160 {
+				return bad("Invalid name.")
+			}
+		}
+		if in.State != nil {
+			state = *in.State
+			if !validState(state) {
+				return bad("Invalid state.")
+			}
+		}
+		if in.Plan != nil {
+			plan = *in.Plan
+		}
+		policy, e := row(r.Context(), tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
+		if e != nil {
+			return e
+		}
+		if in.Layout != nil {
+			layout = *in.Layout
+			if e = layoutAllowed(policy, layout); e != nil {
+				return e
+			}
+		}
+		_, e = tx.ExecContext(r.Context(), "UPDATE tenants SET display_name=?,state=?,plan_id=?,default_layout=?,revision=revision+1 WHERE id=?", name, state, plan, nullable(layout), record)
+		if e != nil {
+			return e
+		}
+		return audit(r.Context(), tx, record, p.ID, "tenant.updated", "tenant", record, r.Header.Get("X-Request-ID"), Row{"state": state, "plan_id": plan})
+	})
+	if e != nil {
+		return e
+	}
+	return result(w, r, s, "tenants", "", record, 200)
+}
+func layoutAllowed(policy Row, layout string) error {
+	if layout == "" {
+		return nil
+	}
+	if (layout == "shared" && integer(policy["allow_shared_database"]) == 1) || (layout == "dedicated" && integer(policy["allow_dedicated_database"]) == 1) {
+		return nil
+	}
+	return problem(403, "plan_restriction", "This database layout is not permitted by the selected plan.")
+}
+func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
+	v, e := row(ctx, q, "SELECT p.*,t.state AS tenant_state,t.default_layout AS tenant_default_layout,t.default_shared_database_id FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=? FOR UPDATE", tenant)
+	if e != nil {
+		return nil, e
+	}
+	if str(v["tenant_state"]) != "active" {
+		return nil, conflict("The Tenant must be active to allocate resources.")
+	}
+	return v, nil
+}
+func quota(ctx context.Context, q Queryer, tenant, table, column string, policy Row) error {
+	if policy[column] == nil {
+		return nil
+	}
+	var n int
+	state := "state<>'archived'"
+	if table == "database_resources" {
+		state = "state<>'retired'"
+	}
+	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE tenant_id=? AND "+state, tenant).Scan(&n); e != nil {
+		return e
+	}
+	if int64(n) >= integer(policy[column]) {
+		return problem(409, "quota_exceeded", "The Tenant's "+strings.TrimPrefix(column, "max_")+" limit has been reached.")
+	}
+	return nil
+}
+func ensurePlatformAdmin(ctx context.Context, q Queryer) error {
+	var n int
+	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.kind='platform' AND g.role_id=?", SuperRole).Scan(&n)
+	if e != nil {
+		return e
+	}
+	if n < 1 {
+		return conflict("Keep at least one active platform administrator.")
+	}
+	return nil
+}
+func ensureTenantAdmin(ctx context.Context, q Queryer, tenant string) error {
+	var n int
+	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL", tenant, TenantAdminRole).Scan(&n)
+	if e != nil {
+		return e
+	}
+	if n < 1 {
+		return conflict("Keep at least one active, directly assigned Tenant administrator.")
+	}
+	return nil
+}
