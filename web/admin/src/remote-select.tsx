@@ -11,6 +11,7 @@ export function RemoteSelect({
   valueKey = "id",
   labelKey = "display_name",
   excludeInactive = false,
+  excludeControl = false,
 }: {
   path: string;
   label: string;
@@ -21,6 +22,7 @@ export function RemoteSelect({
   valueKey?: string;
   labelKey?: string;
   excludeInactive?: boolean;
+  excludeControl?: boolean;
 }) {
   const [query, setQuery] = useState(""),
     [page, setPage] = useState(1),
@@ -35,14 +37,21 @@ export function RemoteSelect({
     let active = true;
     const timer = setTimeout(() => {
       setBusy(true);
-      api(path + `?page=${page}&limit=50&q=${encodeURIComponent(query)}`)
+      api(
+        path +
+          `${path.includes("?") ? "&" : "?"}page=${page}&limit=50&q=${encodeURIComponent(query)}`,
+      )
         .then((v) => {
           if (!active) return;
           setOptions(
             v.items
               .filter(
                 (x: Record<string, any>) =>
-                  !excludeInactive || !x.state || x.state === "active",
+                  (!excludeControl || x.domain !== "control") &&
+                  (!excludeInactive ||
+                    ((!x.state || x.state === "active") &&
+                      (!x.user_state || x.user_state === "active") &&
+                      (!x.tenant_state || x.tenant_state === "active"))),
               )
               .map((x: Record<string, any>) => ({
                 value: x[valueKey],
@@ -63,7 +72,7 @@ export function RemoteSelect({
       active = false;
       clearTimeout(timer);
     };
-  }, [path, page, query, valueKey, labelKey, excludeInactive]);
+  }, [path, page, query, valueKey, labelKey, excludeInactive, excludeControl]);
   return (
     <span className="lookup-select">
       <input

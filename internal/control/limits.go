@@ -11,7 +11,7 @@ import (
 // safety ceilings, independent of a subscription's usually smaller resource quotas.
 var metadataLimits = map[string]int{
 	"tenant_memberships": 1000, "groups": 200, "group_memberships": 10000,
-	"roles": 200, "access_grants": 2000, "microapp_installations": 1000,
+	"roles": 2000, "access_grants": 10000, "microapp_installations": 1000,
 }
 
 func metadataQuota(ctx context.Context, q Queryer, tenant, table string) error {

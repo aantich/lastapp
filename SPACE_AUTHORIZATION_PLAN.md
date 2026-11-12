@@ -1,12 +1,14 @@
 # Lastapp Space and Authorization Design
 
-**Reviewed final proposal for Anton’s approval — 12 November 2026**
+**Foundation approved and implemented — 12 November 2026. Entity/ACL runtime and App SDK deferred.**
+
+The implemented scope and exact management API are documented in [FOUNDATION.md](FOUNDATION.md). Following the discussion, this delivery covers global identities, memberships, teams, fixed administrative roles, scoped Space/App business-role definitions/assignments and the console. The entity policy language, authorized query compiler, record ACLs, App credentials/runner and SDK below remain later-stage design direction, to be finalized with their developer API before implementation.
 
 Make the Space the reusable business backend. A Space owns its database binding, entity definitions, invariants, business permissions and shared roles. Apps normally inherit this backend and assemble browser experiences from it. App-specific permissions, roles and entities are optional extensions governed by the Space.
 
 Identity and authorization remain shared platform capabilities. One registry, one set of identity and role tables, one policy representation and one Go enforcement library serve all Tenants and Apps. Tenant and team roles come from a fixed platform catalog. Custom business roles belong to a Space or App. Each role assignment has one scope; there is no arbitrary scope-combination language.
 
-This proposal covers the corrections to the existing provisioning code, the reusable authorization APIs, a first generic MariaDB entity backend, and console/SDK support needed to demonstrate the model. Source implementation starts after approval. Existing provisioning, security corrections and UI work must be preserved.
+The broader direction includes a generic MariaDB entity backend and console/SDK support. The approved foundation corrects the existing roles/scopes and preserves provisioning, security corrections and UI work; it does not implement that entity runtime yet.
 
 Lastapp is in local development and has no deployed installations. Implement the corrected model directly; there are no production grants to convert, legacy clients to support or deployment cutovers to coordinate.
 

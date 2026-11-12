@@ -45,7 +45,9 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 		columns, order = "id,display_name,slug,state", "display_name,id"
 	case "database-resources":
 		columns, order = "id,database_name,state", "created_at DESC,id"
-	case "access-grants":
+	case "my-role-assignments":
+		columns, order = "id,display_name,code,scope_kind,scope_team_id,space_id,app_id", "scope_kind,id"
+	case "role-assignments":
 		columns, order = "id,principal_name,access_name,scope_name", "created_at DESC,id"
 	case "memberships":
 		columns, order = "user_id,display_name,email,state", "display_name,user_id"
@@ -59,7 +61,7 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 		columns, order = "id,display_name,slug,state", "created_at DESC,id"
 	case "microapps":
 		columns, order = "id,display_name,slug,state", "navigation_order,created_at DESC,id"
-	case "groups":
+	case "teams":
 		columns = "id,display_name,slug,state"
 	case "users":
 		columns = "id,display_name,email,oidc_issuer,oidc_subject,state"

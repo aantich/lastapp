@@ -1,3 +1,4 @@
+import { AccessControl } from "./access-control";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -370,8 +371,7 @@ function App() {
     [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [tenants, setTenants] = useState<Item[]>([]),
     [plans, setPlans] = useState<Item[]>([]),
-    [users, setUsers] = useState<Item[]>([]),
-    [permissions, setPermissions] = useState<Item[]>([]);
+    [users, setUsers] = useState<Item[]>([]);
   const [tenant, setTenant] = useState(() => readPreference("lastapp-tenant"));
   const [page, setPage] = useState(() =>
     readPreference("lastapp-page", "overview"),
@@ -388,8 +388,11 @@ function App() {
     [toast, setToast] = useState(""),
     [search, setSearch] = useState(""),
     [tab, setTab] = useState("grants");
-  const [query,setQuery] = useState("");
-  useEffect(()=>{const timer=setTimeout(()=>setQuery(search),250);return ()=>clearTimeout(timer);},[search]);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
   const [recordPage, setRecordPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [tenantSearch, setTenantSearch] = useState("");
@@ -464,28 +467,24 @@ function App() {
     const who = await api("/v1/me");
     setMe(who);
     setAuth("in");
-    const [ts, ps, us, perms] = await Promise.all([
-      api((who.platform_admin ? "/admin/v1/tenants" : "/v1/my-tenants") +
-        `?page=${tenantPageNumber}&q=${encodeURIComponent(tenantSearch)}`),
+    const [ts, ps, us] = await Promise.all([
+      api(
+        (who.platform_admin ? "/admin/v1/tenants" : "/v1/my-tenants") +
+          `?page=${tenantPageNumber}&q=${encodeURIComponent(tenantSearch)}`,
+      ),
       who.platform_admin
         ? api("/admin/v1/plans")
         : Promise.resolve({ items: [] }),
       who.platform_admin
         ? api("/admin/v1/users")
         : Promise.resolve({ items: [] }),
-      api("/v1/permissions"),
     ]);
     setTenants(ts.items);
     setMoreTenants(!!ts.pagination?.has_more);
     setPlans(ps.items);
     setUsers(us.items);
-    setPermissions(perms.items);
     if (!who.platform_admin && auth === "loading") go("spaces");
-    if (
-      !who.platform_admin &&
-      !tenant &&
-      ts.items.length
-    ) {
+    if (!who.platform_admin && !tenant && ts.items.length) {
       setTenant(ts.items[0].id);
       go("spaces");
     }
@@ -566,11 +565,6 @@ function App() {
           path = base + "/memberships";
           break;
         case "access":
-          if (!tenant) {
-            path = "/admin/v1/access-grants";
-            break;
-          }
-          path = base + "/" + (tab === "grants" ? "access-grants" : tab);
           break;
         case "audit":
           path = tenant ? base + "/audit-events" : "/admin/v1/audit-events";
@@ -698,9 +692,10 @@ function App() {
           });
           break;
         case "spaces": {
-          const [targets, dbs] = await Promise.all([
+          const [targets, dbs, managers] = await Promise.all([
             api(base + "/database-targets"),
             api(base + "/database-resources"),
+            api(base + "/memberships"),
           ]);
           setModal({
             title: "Create a Space",
@@ -708,12 +703,31 @@ function App() {
               "Create a managed database or bind an existing resource.",
             initial: {
               ...init,
+              initial_manager_user_id:
+                managers.items.find(
+                  (m: Item) => m.user_id === me?.id && m.state === "active",
+                )?.user_id ||
+                managers.items.find((m: Item) => m.state === "active")?.user_id,
               mode: "managed",
               layout: "shared",
               target_id: targets.items.find((t: Item) => t.managed_enabled)?.id,
             },
             fields: [
               ...nameFields,
+              {
+                key: "initial_manager_user_id",
+                label: "Initial Space manager",
+                type: "select",
+                options: choose(
+                  managers.items.filter(
+                    (m: Item) =>
+                      m.state === "active" && m.user_state === "active",
+                  ),
+                  "display_name",
+                  "user_id",
+                ),
+                required: true,
+              },
               {
                 key: "resource_id",
                 label: "Existing database (optional)",
@@ -751,6 +765,7 @@ function App() {
                 id: v.id,
                 slug: v.slug,
                 display_name: v.display_name,
+                initial_manager_user_id: v.initial_manager_user_id,
                 database: {
                   resource_id: v.resource_id || "",
                   mode: "managed",
@@ -761,17 +776,38 @@ function App() {
           });
           break;
         }
-        case "apps":
+        case "apps": {
+          const eligible = all("membership.read")
+            ? (await api(base + "/memberships")).items.filter(
+                (m: Item) => m.state === "active" && m.user_state === "active",
+              )
+            : [];
           setModal({
             title: "Create an App",
             description: "An API deployment unit within a Space.",
             initial: {
               ...init,
+              initial_manager_user_id:
+                eligible.find((m: Item) => m.user_id === me?.id)?.user_id ||
+                eligible[0]?.user_id ||
+                (!all("membership.read") ? me?.id : ""),
               space_id: support.spaces?.[0]?.id,
               compute_mode: "shared",
             },
             fields: [
               ...nameFields,
+              {
+                key: "initial_manager_user_id",
+                label: "Initial App manager",
+                ...(all("membership.read")
+                  ? {
+                      type: "select",
+                      options: choose(eligible, "display_name", "user_id"),
+                    }
+                  : {}),
+                required: true,
+                hint: "An active member of this Tenant; no business data role is assigned.",
+              },
               {
                 key: "space_id",
                 label: "Space",
@@ -799,10 +835,12 @@ function App() {
                 id: v.id,
                 slug: v.slug,
                 display_name: v.display_name,
+                initial_manager_user_id: v.initial_manager_user_id,
                 compute_mode: v.compute_mode,
               }),
           });
           break;
+        }
         case "microapps":
           setModal({
             title: "Register a micro-app",
@@ -1002,130 +1040,6 @@ function App() {
             save: (v) => api(base + "/memberships", "POST", v),
           });
           break;
-        case "access":
-          if (!tenant) {
-            setModal({
-              title: "Grant platform administration",
-              description:
-                "This grants full control over the platform management APIs.",
-              initial: { ...init },
-              fields: [
-                {
-                  key: "user_id",
-                  label: "User",
-                  type: "select",
-                  options: choose(users.filter((u) => u.state === "active")),
-                  required: true,
-                },
-              ],
-              save: (v) =>
-                api("/admin/v1/access-grants", "POST", {
-                  id: v.id,
-                  user_id: v.user_id,
-                  role_id: "00000000-0000-4000-8000-000000000001",
-                }),
-            });
-            break;
-          }
-          if (tab === "groups") {
-            setModal({
-              title: "Create a group",
-              initial: init,
-              fields: nameFields,
-              save: (v) => api(base + "/groups", "POST", v),
-            });
-          } else if (tab === "roles") {
-            roleModal();
-          } else {
-            setModal({
-              title: "Grant access",
-              description:
-                "Permissions are additive. Leave scope empty for the whole Tenant.",
-              initial: {
-                ...init,
-                principal_kind: "user",
-                access_kind: "role",
-                scope: "tenant",
-              },
-              fields: [
-                {
-                  key: "principal_kind",
-                  label: "Principal type",
-                  type: "select",
-                  options: [
-                    { value: "user", label: "User" },
-                    { value: "group", label: "Group" },
-                  ],
-                  required: true,
-                },
-                {
-                  key: "user_id",
-                  label: "User",
-                  type: "select",
-                  options: choose(
-                    support.members || [],
-                    "display_name",
-                    "user_id",
-                  ),
-                },
-                {
-                  key: "group_id",
-                  label: "Group",
-                  type: "select",
-                  options: choose(support.groups || []),
-                },
-                {
-                  key: "access_kind",
-                  label: "Access type",
-                  type: "select",
-                  options: [
-                    { value: "role", label: "Role bundle" },
-                    { value: "permission", label: "Direct permission" },
-                  ],
-                  required: true,
-                },
-                {
-                  key: "role_id",
-                  label: "Role",
-                  type: "select",
-                  options: choose(support.roles || []),
-                },
-                {
-                  key: "permission_code",
-                  label: "Permission",
-                  type: "select",
-                  options: permissions
-                    .filter((x) => x.kind === "tenant")
-                    .map((x) => ({ value: x.code, label: x.code })),
-                },
-                {
-                  key: "space_id",
-                  label: "Space scope (optional)",
-                  type: "select",
-                  options: choose(support.spaces || []),
-                },
-                {
-                  key: "app_id",
-                  label: "App scope (optional)",
-                  type: "select",
-                  options: choose(support.apps || []),
-                },
-              ],
-              save: (v) =>
-                api(base + "/access-grants", "POST", {
-                  id: v.id,
-                  ...(v.principal_kind === "group"
-                    ? { group_id: v.group_id }
-                    : { user_id: v.user_id }),
-                  ...(v.access_kind === "permission"
-                    ? { permission_code: v.permission_code }
-                    : { role_id: v.role_id }),
-                  space_id: v.space_id || "",
-                  app_id: v.app_id || "",
-                }),
-            });
-          }
-          break;
         case "plans":
           planModal();
           break;
@@ -1133,47 +1047,6 @@ function App() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }
-  function roleModal(role?: Item) {
-    setModal({
-      title: role ? "Edit role" : "Create a role",
-      initial: role
-        ? {
-            display_name: role.display_name,
-            state: role.state,
-            permissions: role.permissions,
-          }
-        : { ...initialId(), permissions: [] },
-      fields: [
-        { key: "display_name", label: "Name", required: true },
-        ...(role
-          ? [
-              {
-                key: "state",
-                label: "State",
-                type: "select",
-                options: membershipStates,
-                required: true,
-              },
-            ]
-          : [{ key: "code", label: "Code", required: true }]),
-        {
-          key: "permissions",
-          label: "Permissions",
-          type: "permissions",
-          options: permissions
-            .filter((x) => x.kind === "tenant")
-            .map((x) => ({ value: x.code, label: x.code })),
-        },
-      ],
-      save: (v) =>
-        api(
-          base + "/roles" + (role ? "/" + role.id : ""),
-          role ? "PATCH" : "POST",
-          v,
-          role?.revision,
-        ),
-    });
   }
   function planModal(plan?: Item) {
     setModal({
@@ -1254,22 +1127,6 @@ function App() {
           plan?.revision,
         );
       },
-    });
-  }
-  function groupMember(g: Item) {
-    setModal({
-      title: `Add member to ${g.display_name}`,
-      initial: {},
-      fields: [
-        {
-          key: "user_id",
-          label: "Tenant member",
-          type: "select",
-          options: choose(support.members || [], "display_name", "user_id"),
-          required: true,
-        },
-      ],
-      save: (v) => api(base + `/groups/${g.id}/members`, "POST", v, g.revision),
     });
   }
   const managedPermission = (
@@ -1603,70 +1460,18 @@ function App() {
             className="text-button"
             onClick={() =>
               action(() =>
-                api(base + "/memberships/" + d.user_id, "PATCH", {
-                  state: d.state === "active" ? "disabled" : "active",
-                }),
+                api(
+                  base + "/memberships/" + d.user_id,
+                  "PATCH",
+                  {
+                    state: d.state === "active" ? "disabled" : "active",
+                  },
+                  d.revision,
+                ),
               )
             }
           >
             {d.state === "active" ? "Disable" : "Enable"}
-          </button>
-        );
-      case "access":
-        if (tenant && tab === "roles")
-          return d.protected ? (
-            <span className="muted">Built-in</span>
-          ) : (
-            <button className="text-button" onClick={() => roleModal(d)}>
-              Edit role
-            </button>
-          );
-        if (tenant && tab === "groups")
-          return (
-            <>
-              <button className="text-button" onClick={() => groupMember(d)}>
-                Add member
-              </button>
-              <button
-                className="text-button"
-                onClick={() =>
-                  edit(d, base + "/groups/" + d.id, "Edit group", [
-                    { key: "display_name", label: "Name", required: true },
-                    {
-                      key: "state",
-                      label: "State",
-                      type: "select",
-                      options: membershipStates,
-                      required: true,
-                    },
-                  ])
-                }
-              >
-                Edit
-              </button>
-            </>
-          );
-        return (
-          <button
-            className="text-button danger"
-            onClick={() =>
-              setModal({
-                title: "Revoke access?",
-                description: `Remove ${d.access_name} from ${d.principal_name}.`,
-                initial: {},
-                fields: [],
-                submit: "Revoke access",
-                save: () =>
-                  api(
-                    (tenant ? base : "/admin/v1") + "/access-grants/" + d.id,
-                    "DELETE",
-                    undefined,
-                    d.revision,
-                  ),
-              })
-            }
-          >
-            Revoke
           </button>
         );
       default:
@@ -1848,121 +1653,6 @@ function App() {
           ["Status", (d) => stateBadge(d.state)],
           ["Registered", (d) => new Date(d.created_at).toLocaleDateString()],
         ];
-      case "access":
-        if (tenant && tab === "roles")
-          return [
-            [
-              "Role",
-              (d) => (
-                <>
-                  <strong>{d.display_name}</strong>
-                  <small>{d.code}</small>
-                </>
-              ),
-            ],
-            [
-              "Permissions",
-              (d) => (
-                <span className="wrap-tags">
-                  {d.permissions.map((p: string) => (
-                    <code key={p}>{p}</code>
-                  ))}
-                </span>
-              ),
-            ],
-            ["Status", (d) => stateBadge(d.state)],
-          ];
-        if (tenant && tab === "groups")
-          return [
-            [
-              "Group",
-              (d) => (
-                <>
-                  <strong>{d.display_name}</strong>
-                  <small>{d.slug}</small>
-                </>
-              ),
-            ],
-            [
-              "Members",
-              (d) => (
-                <div className="wrap-tags">
-                  {d.members_count > d.members.length && (
-                    <button
-                      className="tiny"
-                      onClick={() =>
-                        setModal({
-                          title: `Remove member from ${d.display_name}`,
-                          initial: {},
-                          fields: [
-                            {
-                              key: "group_member",
-                              label: "Group member",
-                              type: "select",
-                              options: [],
-                              required: true,
-                              lookup: base + `/groups/${d.id}/members`,
-                            },
-                          ],
-                          save: (v) =>
-                            api(
-                              base +
-                                `/groups/${d.id}/members/${v.group_member}`,
-                              "DELETE",
-                              undefined,
-                              d.revision,
-                            ),
-                          submit: "Remove member",
-                        })
-                      }
-                    >
-                      Manage all {d.members_count} members
-                    </button>
-                  )}
-                  {d.members.length
-                    ? d.members.map((m: Item) => (
-                        <span className="tag" key={m.user_id}>
-                          {m.display_name}
-                          {editable && (
-                            <button
-                              className="tiny"
-                              aria-label={"Remove " + m.display_name}
-                              onClick={() =>
-                                action(() =>
-                                  api(
-                                    base +
-                                      `/groups/${d.id}/members/${m.user_id}`,
-                                    "DELETE",
-                                    undefined,
-                                    d.revision,
-                                  ),
-                                )
-                              }
-                            >
-                              <X size={11} />
-                            </button>
-                          )}
-                        </span>
-                      ))
-                    : "No members"}
-                </div>
-              ),
-            ],
-            ["Status", (d) => stateBadge(d.state)],
-          ];
-        return [
-          [
-            "Principal",
-            (d) => (
-              <>
-                <strong>{d.principal_name}</strong>
-                <small>{d.group_id ? "Group" : "User"}</small>
-              </>
-            ),
-          ],
-          ["Access", (d) => d.access_name],
-          ["Scope", (d) => (tenant ? d.scope_name : "Entire platform")],
-        ];
       case "audit":
         return [
           [
@@ -2042,7 +1732,8 @@ function App() {
       plans: "Database layouts, provisioning options and resource limits.",
       users: "Platform identities from your identity provider.",
       memberships: "Who belongs to this Tenant. Access is assigned separately.",
-      access: "Shared roles, groups and scoped permission grants.",
+      access:
+        "Fixed administration roles, team relationships and scoped business roles.",
       audit: "A record of administrative changes and provisioning events.",
     } as Item
   )[page];
@@ -2344,7 +2035,6 @@ function App() {
                   "targets",
                   "plans",
                   "memberships",
-                  "access",
                 ].includes(page) &&
                 (!tenantPage || tenant) && (
                   <button className="primary" onClick={create}>
@@ -2409,28 +2099,16 @@ function App() {
                 go(dest);
               }}
             />
+          ) : page === "access" ? (
+            <AccessControl
+              key={tenant}
+              tenant={tenant}
+              platform={platform}
+              caps={caps}
+              refresh={() => setReload((v) => v + 1)}
+            />
           ) : (
             <section className="panel list-panel">
-              {page === "access" && tenant && (
-                <div className="tabs">
-                  {["grants", "roles", "groups"].map((t) => (
-                    <button
-                      className={tab === t ? "active" : ""}
-                      key={t}
-                      onClick={() => {
-                        setData([]);
-                        setTab(t);
-                        setRecordPage(1);
-                        setSearch("");
-                      }}
-                    >
-                      {t === "grants"
-                        ? "Access grants"
-                        : t[0].toUpperCase() + t.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              )}
               <div className="toolbar">
                 <div className="search">
                   <Search size={16} />
@@ -2568,8 +2246,8 @@ function App() {
             app_id: base + "/apps",
             resource_id: base + "/database-resources",
             target_id: base + "/database-targets",
-            group_id: base + "/groups",
-            role_id: base + "/roles",
+            group_id: base + "/teams",
+            initial_manager_user_id: base + "/memberships",
           }}
           key={modal.title}
           modal={modal}

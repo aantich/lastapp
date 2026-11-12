@@ -1,6 +1,6 @@
 # Lastapp Authorization Plan Review
 
-**12 November 2026 — final proposal pending Anton’s approval**
+**12 November 2026 — design review record.** The subsequently approved identity/roles/scopes foundation is implemented in [FOUNDATION.md](../../FOUNDATION.md). Entity ACLs, the data runtime and SDK remain deferred; code descriptions below record the state reviewed before implementation.
 
 The architecture is coherent: one global identity/authorization registry, fixed Tenant/team roles, Space-owned business definitions, and Apps that inherit or narrow Space authority. The review corrected ambiguities in permission composition, delegation, publication and implementation order. Lastapp is undeployed; the plan therefore updates the development schema and fixtures directly. The [revised implementation plan](../../SPACE_AUTHORIZATION_PLAN.md) is the canonical proposal.
 

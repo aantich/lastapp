@@ -25,12 +25,15 @@ CREATE TABLE sessions (
     token_hash BINARY(32) NOT NULL,
     user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     csrf_hash BINARY(32) NOT NULL,
+    purpose VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'console',
+    state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     expires_at DATETIME(6) NOT NULL,
     PRIMARY KEY (token_hash),
     KEY ix_sessions_user (user_id),
     KEY ix_sessions_expiry (expires_at),
     CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users (id),
+    CONSTRAINT ck_sessions_purpose CHECK (purpose = 'console' AND state = 'active'),
     CONSTRAINT ck_sessions_expiry CHECK (expires_at > created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -93,12 +96,14 @@ CREATE TABLE tenant_memberships (
     tenant_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
+    revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (tenant_id, user_id),
     KEY ix_memberships_user (user_id, state, tenant_id),
     CONSTRAINT fk_memberships_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     CONSTRAINT fk_memberships_user FOREIGN KEY (user_id) REFERENCES users (id),
-    CONSTRAINT ck_memberships_state CHECK (state IN ('active', 'disabled'))
+    CONSTRAINT ck_memberships_state CHECK (state IN ('active', 'disabled')),
+    CONSTRAINT ck_memberships_revision CHECK (revision>0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE database_targets (
@@ -203,6 +208,7 @@ CREATE TABLE apps (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uq_apps_tenant (tenant_id, id),
+    UNIQUE KEY uq_apps_space (tenant_id, space_id, id),
     UNIQUE KEY uq_apps_slug (space_id, slug),
     KEY ix_apps_inventory (tenant_id, state, id),
     CONSTRAINT fk_apps_space FOREIGN KEY (tenant_id, space_id) REFERENCES spaces (tenant_id, id),
@@ -269,6 +275,8 @@ CREATE TABLE group_memberships (
     tenant_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     group_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
+    CONSTRAINT ck_group_membership_state CHECK (state IN ('active','disabled')),
     PRIMARY KEY (tenant_id, group_id, user_id),
     KEY ix_group_memberships_user (tenant_id, user_id, group_id),
     CONSTRAINT fk_group_memberships_group FOREIGN KEY (tenant_id, group_id)
@@ -278,123 +286,102 @@ CREATE TABLE group_memberships (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE permissions (
+    id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    domain VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'control',
     description VARCHAR(160) NOT NULL,
-    PRIMARY KEY (code),
-    UNIQUE KEY uq_permissions_kind (code, kind),
-    CONSTRAINT ck_permissions_kind CHECK (kind IN ('platform', 'tenant'))
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_permissions_code (code),
+    UNIQUE KEY uq_permissions_domain (id, domain),
+    CONSTRAINT ck_permissions_domain CHECK (domain='control')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE roles (
     id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     tenant_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
-    -- 'platform' owns shared built-ins; 't:<tenant UUID>' owns custom roles.
-    -- Explicit and checked so ordinary composite FKs can enforce grant ownership.
+    space_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    app_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     owner_key VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    scope_kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    domain VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     code VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     display_name VARCHAR(160) NOT NULL,
     state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
     revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
-    UNIQUE KEY uq_roles_code (owner_key, code),
-    UNIQUE KEY uq_roles_kind (id, kind),
-    UNIQUE KEY uq_roles_owner_kind (owner_key, id, kind),
-    CONSTRAINT fk_roles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
-    CONSTRAINT ck_roles_kind CHECK (kind IN ('platform', 'tenant')),
+    UNIQUE KEY uq_roles_code (owner_key,code),
+    UNIQUE KEY uq_roles_domain (id,domain),
+    UNIQUE KEY uq_roles_binding (owner_key,id,scope_kind,domain),
+    CONSTRAINT fk_roles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    CONSTRAINT fk_roles_space FOREIGN KEY (tenant_id,space_id) REFERENCES spaces(tenant_id,id),
+    CONSTRAINT fk_roles_app FOREIGN KEY (tenant_id,space_id,app_id) REFERENCES apps(tenant_id,space_id,id),
+    CONSTRAINT ck_roles_scope CHECK (scope_kind IN ('platform','tenant','team','space','app')),
+    CONSTRAINT ck_roles_domain CHECK (domain IN ('control','data')),
     CONSTRAINT ck_roles_owner CHECK (
-        (tenant_id IS NULL AND owner_key = 'platform')
-        OR (tenant_id IS NOT NULL AND owner_key = CONCAT('t:', RTRIM(tenant_id)) AND kind = 'tenant')
+      (domain='control' AND owner_key='builtin' AND tenant_id IS NULL AND space_id IS NULL AND app_id IS NULL)
+      OR (domain='data' AND tenant_id IS NOT NULL AND space_id IS NOT NULL AND
+          ((scope_kind='space' AND app_id IS NULL AND owner_key=CONCAT('s:',RTRIM(space_id)))
+           OR (scope_kind='app' AND app_id IS NOT NULL AND owner_key=CONCAT('a:',RTRIM(app_id)))))
     ),
-    CONSTRAINT ck_roles_state CHECK (state IN ('active', 'disabled')),
-    CONSTRAINT ck_roles_revision CHECK (revision > 0)
+    CONSTRAINT ck_roles_state CHECK (state IN ('active','disabled')),
+    CONSTRAINT ck_roles_revision CHECK (revision>0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE role_permissions (
     role_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    permission_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    PRIMARY KEY (role_id, permission_code),
-    CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id, kind) REFERENCES roles (id, kind),
-    CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_code, kind)
-        REFERENCES permissions (code, kind)
+    permission_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    domain VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (role_id,permission_id),
+    CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id,domain) REFERENCES roles(id,domain),
+    CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id,domain) REFERENCES permissions(id,domain)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- A grant assigns either a role bundle OR a direct permission to one user/group.
--- NULL space/app means the whole Tenant; one child ID narrows the scope.
+-- One recipient, one role, one typed assignment scope. No direct permissions.
 CREATE TABLE access_grants (
     id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     tenant_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
-    kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    scope_kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    domain VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     group_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    scope_team_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     space_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     app_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
-    role_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
-    role_owner_key VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NULL,
-    permission_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    role_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    role_owner_key VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    equivalence_key VARCHAR(400) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS
-      (CONCAT_WS('|',kind,COALESCE(RTRIM(tenant_id),''),COALESCE(RTRIM(user_id),''),COALESCE(RTRIM(group_id),''),COALESCE(RTRIM(space_id),''),COALESCE(RTRIM(app_id),''),COALESCE(RTRIM(role_id),''),COALESCE(permission_code,''))) PERSISTENT,
-    UNIQUE KEY uq_grant_equivalence (equivalence_key),
+    equivalence_key VARCHAR(400) CHARACTER SET ascii COLLATE ascii_bin
+      GENERATED ALWAYS AS (CONCAT_WS('|',scope_kind,COALESCE(RTRIM(tenant_id),''),COALESCE(RTRIM(user_id),''),COALESCE(RTRIM(group_id),''),COALESCE(RTRIM(scope_team_id),''),COALESCE(RTRIM(space_id),''),COALESCE(RTRIM(app_id),''),RTRIM(role_id))) PERSISTENT,
     PRIMARY KEY (id),
-    KEY ix_grants_user (user_id, tenant_id),
-    KEY ix_grants_group (tenant_id, group_id),
-    CONSTRAINT fk_grants_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
-    CONSTRAINT fk_grants_user FOREIGN KEY (user_id) REFERENCES users (id),
-    CONSTRAINT fk_grants_member FOREIGN KEY (tenant_id, user_id)
-        REFERENCES tenant_memberships (tenant_id, user_id),
-    CONSTRAINT fk_grants_group FOREIGN KEY (tenant_id, group_id) REFERENCES groups (tenant_id, id),
-    CONSTRAINT fk_grants_space FOREIGN KEY (tenant_id, space_id) REFERENCES spaces (tenant_id, id),
-    CONSTRAINT fk_grants_app FOREIGN KEY (tenant_id, app_id) REFERENCES apps (tenant_id, id),
-    CONSTRAINT fk_grants_role FOREIGN KEY (role_owner_key, role_id, kind)
-        REFERENCES roles (owner_key, id, kind),
-    CONSTRAINT fk_grants_permission FOREIGN KEY (permission_code, kind)
-        REFERENCES permissions (code, kind),
-    CONSTRAINT ck_grants_subject CHECK (
-        (user_id IS NOT NULL AND group_id IS NULL) OR (user_id IS NULL AND group_id IS NOT NULL)
-    ),
+    UNIQUE KEY uq_grant_equivalence (equivalence_key),
+    KEY ix_grants_user (user_id,tenant_id),
+    KEY ix_grants_group (tenant_id,group_id),
+    KEY ix_grants_scope (tenant_id,scope_kind,scope_team_id,space_id,app_id),
+    CONSTRAINT fk_grants_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    CONSTRAINT fk_grants_user FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT fk_grants_member FOREIGN KEY (tenant_id,user_id) REFERENCES tenant_memberships(tenant_id,user_id),
+    CONSTRAINT fk_grants_group FOREIGN KEY (tenant_id,group_id) REFERENCES groups(tenant_id,id),
+    CONSTRAINT fk_grants_team_member FOREIGN KEY (tenant_id,scope_team_id,user_id) REFERENCES group_memberships(tenant_id,group_id,user_id),
+    CONSTRAINT fk_grants_space FOREIGN KEY (tenant_id,space_id) REFERENCES spaces(tenant_id,id),
+    CONSTRAINT fk_grants_app FOREIGN KEY (tenant_id,app_id) REFERENCES apps(tenant_id,id),
+    CONSTRAINT fk_grants_role FOREIGN KEY (role_owner_key,role_id,scope_kind,domain) REFERENCES roles(owner_key,id,scope_kind,domain),
+    CONSTRAINT ck_grants_subject CHECK ((user_id IS NOT NULL AND group_id IS NULL) OR (user_id IS NULL AND group_id IS NOT NULL)),
+    CONSTRAINT ck_grants_control_subject CHECK (domain='data' OR (domain='control' AND user_id IS NOT NULL AND group_id IS NULL)),
     CONSTRAINT ck_grants_scope CHECK (
-        (kind = 'platform' AND tenant_id IS NULL AND user_id IS NOT NULL
-            AND group_id IS NULL AND space_id IS NULL AND app_id IS NULL)
-        OR (kind = 'tenant' AND tenant_id IS NOT NULL AND (space_id IS NULL OR app_id IS NULL))
+      (scope_kind='platform' AND tenant_id IS NULL AND user_id IS NOT NULL AND group_id IS NULL AND scope_team_id IS NULL AND space_id IS NULL AND app_id IS NULL)
+      OR (scope_kind='tenant' AND tenant_id IS NOT NULL AND scope_team_id IS NULL AND space_id IS NULL AND app_id IS NULL)
+      OR (scope_kind='team' AND tenant_id IS NOT NULL AND user_id IS NOT NULL AND group_id IS NULL AND scope_team_id IS NOT NULL AND space_id IS NULL AND app_id IS NULL)
+      OR (scope_kind='space' AND tenant_id IS NOT NULL AND scope_team_id IS NULL AND space_id IS NOT NULL AND app_id IS NULL)
+      OR (scope_kind='app' AND tenant_id IS NOT NULL AND scope_team_id IS NULL AND space_id IS NULL AND app_id IS NOT NULL)
     ),
-    CONSTRAINT ck_grants_target CHECK (
-        (role_id IS NOT NULL AND permission_code IS NULL AND role_owner_key IS NOT NULL
-            AND (role_owner_key = 'platform'
-                OR (tenant_id IS NOT NULL AND role_owner_key = CONCAT('t:', RTRIM(tenant_id)))))
-        OR (role_id IS NULL AND role_owner_key IS NULL AND permission_code IS NOT NULL)
+    CONSTRAINT ck_grants_owner CHECK (
+      (domain='control' AND role_owner_key='builtin')
+      OR (domain='data' AND ((scope_kind='space' AND role_owner_key=CONCAT('s:',RTRIM(space_id))) OR (scope_kind='app' AND role_owner_key=CONCAT('a:',RTRIM(app_id)))))
     ),
-    CONSTRAINT ck_grants_revision CHECK (revision > 0)
+    CONSTRAINT ck_grants_revision CHECK (revision>0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Protected catalog and role definitions: runtime Tenant APIs cannot edit these.
-INSERT INTO permissions (code, kind, description) VALUES
-    ('platform.admin', 'platform', 'Administer the platform control plane'),
-    ('tenant.read', 'tenant', 'Read Tenant metadata'),
-    ('tenant.manage', 'tenant', 'Manage Tenant metadata'),
-    ('membership.read', 'tenant', 'Read Tenant memberships'),
-    ('membership.manage', 'tenant', 'Manage Tenant memberships'),
-    ('authorization.read', 'tenant', 'Read groups, roles and grants'),
-    ('authorization.manage', 'tenant', 'Manage groups, custom roles and grants'),
-    ('database.read', 'tenant', 'Read database resource metadata'),
-    ('database.manage', 'tenant', 'Request and manage database resources'),
-    ('space.read', 'tenant', 'Read Space metadata'),
-    ('space.manage', 'tenant', 'Create and manage Spaces'),
-    ('app.read', 'tenant', 'Read App metadata'),
-    ('app.manage', 'tenant', 'Create and manage Apps'),
-    ('microapp.read', 'tenant', 'Read micro-app installations'),
-    ('microapp.manage', 'tenant', 'Create and manage micro-app installations'),
-    ('audit.read', 'tenant', 'Read Tenant audit history');
-
-INSERT INTO roles (id, tenant_id, owner_key, kind, code, display_name) VALUES
-    ('00000000-0000-4000-8000-000000000001', NULL, 'platform', 'platform', 'superadmin', 'Platform superadmin'),
-    ('00000000-0000-4000-8000-000000000002', NULL, 'platform', 'tenant', 'tenant_admin', 'Tenant administrator');
-
-INSERT INTO role_permissions (role_id, kind, permission_code)
-    SELECT '00000000-0000-4000-8000-000000000001', kind, code FROM permissions WHERE kind = 'platform';
-INSERT INTO role_permissions (role_id, kind, permission_code)
-    SELECT '00000000-0000-4000-8000-000000000002', kind, code FROM permissions WHERE kind = 'tenant';
+-- The fixed control catalog is installed from internal/authz/catalog.go by the
+-- trusted bootstrap command. Custom data roles cannot reference control actions.

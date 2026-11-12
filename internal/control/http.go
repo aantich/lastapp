@@ -77,17 +77,8 @@ func (s *Server) Handler() http.Handler {
 		}
 		return e
 	})
-	s.api("GET /v1/permissions", func(w http.ResponseWriter, r *http.Request, p Principal) error {
-		query := "SELECT code,kind,description FROM permissions"
-		if !p.Platform {
-			query += " WHERE kind='tenant'"
-		}
-		v, e := rows(r.Context(), s.DB, query+" ORDER BY kind,code")
-		if e == nil {
-			sendPage(w, r, v)
-		}
-		return e
-	})
+	s.api("GET /v1/roles/catalog", s.roleCatalog)
+	s.api("GET /v1/tenants/{tenant}/my-role-assignments", s.myRoles)
 	s.api("GET /v1/tenants/{tenant}/capabilities", s.capabilities)
 	s.api("GET /admin/v1/overview", s.overview)
 	s.api("GET /admin/v1/users", s.users)
@@ -112,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 	s.api("POST /v1/tenants/{tenant}/spaces", s.createSpace)
 	s.api("PATCH /v1/tenants/{tenant}/spaces/{id}", s.updateSpace)
 	s.api("GET /v1/tenants/{tenant}/apps", s.apps)
+	s.api("GET /v1/tenants/{tenant}/apps/{app}", s.getApp)
 	s.api("POST /v1/tenants/{tenant}/spaces/{space}/apps", s.createApp)
 	s.api("PATCH /v1/tenants/{tenant}/apps/{id}", s.updateApp)
 	s.api("GET /v1/tenants/{tenant}/microapps", s.microapps)
@@ -120,21 +112,27 @@ func (s *Server) Handler() http.Handler {
 	s.api("GET /v1/tenants/{tenant}/memberships", s.memberships)
 	s.api("POST /v1/tenants/{tenant}/memberships", s.addMembership)
 	s.api("PATCH /v1/tenants/{tenant}/memberships/{user}", s.updateMembership)
-	s.api("GET /v1/tenants/{tenant}/groups", s.groups)
-	s.api("POST /v1/tenants/{tenant}/groups", s.createGroup)
-	s.api("PATCH /v1/tenants/{tenant}/groups/{id}", s.updateGroup)
-	s.api("GET /v1/tenants/{tenant}/groups/{id}/members", s.groupMembers)
-	s.api("POST /v1/tenants/{tenant}/groups/{id}/members", s.addGroupMember)
-	s.api("DELETE /v1/tenants/{tenant}/groups/{id}/members/{user}", s.removeGroupMember)
-	s.api("GET /v1/tenants/{tenant}/roles", s.roles)
-	s.api("POST /v1/tenants/{tenant}/roles", s.createRole)
-	s.api("PATCH /v1/tenants/{tenant}/roles/{id}", s.updateRole)
-	s.api("GET /v1/tenants/{tenant}/access-grants", s.grants)
-	s.api("POST /v1/tenants/{tenant}/access-grants", s.createGrant)
-	s.api("DELETE /v1/tenants/{tenant}/access-grants/{id}", s.deleteGrant)
-	s.api("GET /admin/v1/access-grants", s.platformGrants)
-	s.api("POST /admin/v1/access-grants", s.createPlatformGrant)
-	s.api("DELETE /admin/v1/access-grants/{id}", s.deletePlatformGrant)
+	s.api("GET /v1/tenants/{tenant}/teams", s.groups)
+	s.api("GET /v1/tenants/{tenant}/teams/{id}", s.getGroup)
+	s.api("POST /v1/tenants/{tenant}/teams", s.createGroup)
+	s.api("PATCH /v1/tenants/{tenant}/teams/{id}", s.updateGroup)
+	s.api("GET /v1/tenants/{tenant}/teams/{id}/members", s.groupMembers)
+	s.api("POST /v1/tenants/{tenant}/teams/{id}/members", s.addGroupMember)
+	s.api("DELETE /v1/tenants/{tenant}/teams/{id}/members/{user}", s.removeGroupMember)
+	for _, path := range []string{"/v1/tenants/{tenant}", "/v1/tenants/{tenant}/teams/{team}", "/v1/tenants/{tenant}/spaces/{space}", "/v1/tenants/{tenant}/apps/{app}"} {
+		s.api("GET "+path+"/roles", s.roles)
+		if strings.Contains(path, "{space}") || strings.Contains(path, "{app}") {
+			s.api("POST "+path+"/roles", s.createRole)
+			s.api("PATCH "+path+"/roles/{id}", s.updateRole)
+		}
+		s.api("GET "+path+"/role-assignments", s.grants)
+		s.api("POST "+path+"/role-assignments", s.createGrant)
+		s.api("DELETE "+path+"/role-assignments/{id}", s.deleteGrant)
+	}
+	s.api("GET /admin/v1/role-assignments", s.grants)
+	s.api("POST /admin/v1/role-assignments", s.createGrant)
+	s.api("DELETE /admin/v1/role-assignments/{id}", s.deleteGrant)
+	s.api("PATCH /v1/tenants/{tenant}/teams/{id}/members/{user}", s.updateGroupMember)
 	s.api("GET /v1/tenants/{tenant}/audit-events", s.audits)
 	s.api("GET /admin/v1/audit-events", s.audits)
 	assets, _ := fs.Sub(admin.Files, "dist")
@@ -191,7 +189,7 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	out := Row{}
 	for code, sc := range scopes {
-		out[code] = Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps) > 0, "spaces": sc.Spaces, "apps": sc.Apps}
+		out[code] = Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps)+len(sc.Teams) > 0, "spaces": sc.Spaces, "apps": sc.Apps, "teams": sc.Teams}
 	}
 	send(w, 200, Row{"permissions": out})
 	return nil

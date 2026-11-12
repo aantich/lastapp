@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
@@ -19,7 +20,7 @@ type Principal struct {
 	ID, Name, Email string
 	Platform        bool
 }
-type Resource struct{ Tenant, Space, App string }
+type Resource struct{ Tenant, Team, Space, App string }
 type oidcAuth struct {
 	config   oauth2.Config
 	verifier *oidc.IDTokenVerifier
@@ -30,8 +31,8 @@ type loginFlow struct {
 	Issued                 int64
 }
 type scopeSet struct {
-	All          bool
-	Spaces, Apps []string
+	All                 bool
+	Spaces, Apps, Teams []string
 }
 
 func (s *Server) InitAuth(ctx context.Context) error {
@@ -167,7 +168,7 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 	if e != nil {
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
-	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,'') FROM sessions se JOIN users u ON u.id=se.user_id WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND u.state='active'", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email)
+	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,'') FROM sessions se JOIN users u ON u.id=se.user_id WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active'", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email)
 	if e == sql.ErrNoRows {
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
@@ -190,7 +191,7 @@ func (s *Server) csrf(ctx context.Context, r *http.Request) error {
 		return problem(403, "csrf_failed", "Missing CSRF token.")
 	}
 	var expected []byte
-	e = s.DB.QueryRowContext(ctx, "SELECT csrf_hash FROM sessions WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6)", hash(cookie.Value)).Scan(&expected)
+	e = s.DB.QueryRowContext(ctx, "SELECT csrf_hash FROM sessions WHERE token_hash=? AND purpose='console' AND state='active' AND expires_at>UTC_TIMESTAMP(6)", hash(cookie.Value)).Scan(&expected)
 	if e != nil || subtle.ConstantTimeCompare(expected, hash(value)) != 1 {
 		return problem(403, "csrf_failed", "Invalid CSRF token.")
 	}
@@ -198,10 +199,7 @@ func (s *Server) csrf(ctx context.Context, r *http.Request) error {
 }
 func isPlatform(ctx context.Context, q Queryer, user string) (bool, error) {
 	var n int
-	e := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM access_grants g JOIN users u ON u.id=g.user_id
- LEFT JOIN roles ro ON ro.id=g.role_id AND ro.state='active' LEFT JOIN role_permissions rp ON rp.role_id=ro.id
- WHERE g.kind='platform' AND g.user_id=? AND u.state='active'
- AND ((g.role_id IS NULL AND g.permission_code='platform.admin') OR rp.permission_code='platform.admin')`, user).Scan(&n)
+	e := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN roles ro ON ro.id=g.role_id AND ro.state='active' WHERE g.scope_kind='platform' AND g.domain='control' AND g.user_id=? AND g.role_id=?`, user, SuperRole).Scan(&n)
 	return n > 0, e
 }
 func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant string, mutating bool) error {
@@ -237,55 +235,93 @@ func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, act
 	return all[action], e
 }
 
+// effectiveAssignments is shared by management checks and the caller context.
+// Data roles are relationships only in this foundation, never management grants.
+const effectiveAssignmentSQL = `SELECT g.id,g.scope_kind,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.group_id,ro.code,ro.display_name,ro.domain
+ FROM access_grants g JOIN roles ro ON ro.id=g.role_id AND ro.state='active'
+ JOIN users u ON u.id=? AND u.state='active'
+ JOIN tenant_memberships tm ON tm.tenant_id=g.tenant_id AND tm.user_id=u.id AND tm.state='active'
+ JOIN tenants t ON t.id=g.tenant_id
+ LEFT JOIN groups recipient ON recipient.id=g.group_id AND recipient.tenant_id=g.tenant_id AND recipient.state='active'
+ LEFT JOIN groups scoped ON scoped.id=g.scope_team_id AND scoped.tenant_id=g.tenant_id AND scoped.state='active'
+ LEFT JOIN group_memberships scoped_member ON scoped_member.tenant_id=g.tenant_id AND scoped_member.group_id=scoped.id AND scoped_member.user_id=u.id AND scoped_member.state='active'
+ LEFT JOIN apps a ON a.id=g.app_id AND a.tenant_id=g.tenant_id
+ LEFT JOIN spaces sp ON sp.id=COALESCE(g.space_id,a.space_id) AND sp.tenant_id=g.tenant_id
+ WHERE g.tenant_id=? AND (g.user_id=u.id OR (recipient.id IS NOT NULL AND EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.tenant_id=g.tenant_id AND gm.group_id=recipient.id AND gm.user_id=u.id AND gm.state='active')))
+ AND (g.scope_kind<>'team' OR scoped_member.user_id IS NOT NULL)
+ AND (ro.domain='control' OR (t.state='active' AND sp.state='active' AND (g.app_id IS NULL OR a.state='active')))
+ ORDER BY g.scope_kind,g.id`
+
+func effectiveAssignments(ctx context.Context, q Queryer, user, tenant string) ([]Row, error) {
+	return rows(ctx, q, effectiveAssignmentSQL, user, tenant)
+}
 func (s *Server) effectiveScopes(ctx context.Context, q Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
-	out := map[string]scopeSet{}
-	for _, code := range []string{"tenant.read", "tenant.manage", "membership.read", "membership.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read"} {
-		out[code] = scopeSet{All: p.Platform, Spaces: []string{}, Apps: []string{}}
-	}
-	if p.Platform {
-		return out, nil
-	}
-	rs, e := rows(ctx, q, `SELECT DISTINCT COALESCE(g.permission_code,rp.permission_code) AS code,g.space_id,g.app_id FROM access_grants g
- LEFT JOIN roles ro ON ro.id=g.role_id AND ro.state='active'
- LEFT JOIN role_permissions rp ON rp.role_id=ro.id
- LEFT JOIN groups team ON team.id=g.group_id AND team.state='active'
- WHERE g.tenant_id=? AND g.kind='tenant'
- AND (g.user_id=? OR (team.id IS NOT NULL AND EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.tenant_id=g.tenant_id AND gm.group_id=g.group_id AND gm.user_id=?)))
- AND (g.role_id IS NULL OR ro.id IS NOT NULL)`, tenant, p.ID, p.ID)
+	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
 		return nil, e
 	}
-	seen := map[string]bool{}
-	for _, r := range rs {
-		code, space, app := str(r["code"]), str(r["space_id"]), str(r["app_id"])
-		sc, ok := out[code]
+	out := map[string]scopeSet{}
+	for _, code := range authz.Actions() {
+		if code != "platform.admin" {
+			out[code] = scopeSet{All: global, Spaces: []string{}, Apps: []string{}, Teams: []string{}}
+		}
+	}
+	if global {
+		return out, nil
+	}
+	assignments, e := effectiveAssignments(ctx, q, p.ID, tenant)
+	if e != nil {
+		return nil, e
+	}
+	// The control catalog is closed and platform-owned; custom data roles cannot
+	// contribute actions, even if their display names imitate protected roles.
+	for _, g := range assignments {
+		if str(g["domain"]) != authz.Control {
+			continue
+		}
+		role, ok := authz.Builtin(str(g["role_id"]))
 		if !ok {
 			continue
 		}
-		if space == "" && app == "" {
-			sc.All = true
-		}
-		key := code + "/" + space + "/" + app
-		if !seen[key] {
-			if space != "" {
-				sc.Spaces = append(sc.Spaces, space)
+		for _, code := range role.Permissions {
+			sc, ok := out[code]
+			if !ok {
+				continue
 			}
-			if app != "" {
-				sc.Apps = append(sc.Apps, app)
+			switch authz.Kind(str(g["scope_kind"])) {
+			case authz.Tenant:
+				sc.All = true
+			case authz.Team:
+				sc.Teams = appendUnique(sc.Teams, str(g["scope_team_id"]))
+			case authz.Space:
+				sc.Spaces = appendUnique(sc.Spaces, str(g["space_id"]))
+			case authz.App:
+				sc.Apps = appendUnique(sc.Apps, str(g["app_id"]))
 			}
-			seen[key] = true
+			out[code] = sc
 		}
-		out[code] = sc
 	}
 	return out, nil
 }
-
+func appendUnique(values []string, value string) []string {
+	for _, v := range values {
+		if v == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
 func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action string, res Resource, mutating bool) error {
-	// This is exclusively the inventory/control-plane policy boundary. Unknown
-	// domains fail closed even for superadmins; business APIs must use their own
-	// membership- and active-resource-bound policy, never this bypass.
 	if !controlAction(action) {
 		return problem(403, "unknown_action", "Unsupported control-plane action.")
+	}
+	if res.Team != "" {
+		if res.Space != "" || res.App != "" {
+			return bad("Team scope cannot be combined with Space or App scope.")
+		}
+		if _, e := row(ctx, q, "SELECT id FROM groups WHERE tenant_id=? AND id=?", res.Tenant, res.Team); e != nil {
+			return e
+		}
 	}
 	if res.App != "" {
 		parent, e := row(ctx, q, "SELECT space_id FROM apps WHERE tenant_id=? AND id=?", res.Tenant, res.App)
@@ -315,12 +351,18 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 	if e = s.member(ctx, q, p, res.Tenant, mutating); e != nil {
 		return e
 	}
-	allowed, e := s.scopes(ctx, q, p, res.Tenant, action)
+	all, e := s.effectiveScopes(ctx, q, p, res.Tenant)
 	if e != nil {
 		return e
 	}
+	allowed := all[action]
 	if allowed.All {
 		return nil
+	}
+	for _, v := range allowed.Teams {
+		if res.Team != "" && res.Team == v {
+			return nil
+		}
 	}
 	for _, v := range allowed.Spaces {
 		if res.Space != "" && res.Space == v {
@@ -377,7 +419,7 @@ func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email str
 		return "", e
 	}
 	if !ok {
-		_, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,kind,user_id,role_id,role_owner_key) VALUES (?,'platform',?,?,'platform')", newID(), uid, SuperRole)
+		_, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", newID(), uid, SuperRole)
 		if e != nil {
 			return "", e
 		}

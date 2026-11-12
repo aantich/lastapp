@@ -47,16 +47,29 @@ test("server paging, search and option pickers reach records beyond the first pa
       (u: any) => u.oidc_subject === "tenant-admin",
     ).id,
   });
+  const space = crypto.randomUUID();
+  await create(page, `/v1/tenants/${tenant}/spaces`, {
+    id: space,
+    slug: "paging",
+    display_name: "Paging",
+    initial_manager_user_id: users.items.find(
+      (u: any) => u.oidc_subject === "tenant-admin",
+    ).id,
+    database: {
+      mode: "managed",
+      layout: "shared",
+      target_id: "20000000-0000-4000-8000-000000000001",
+    },
+  });
   let lastRole = "";
   for (let i = 0; i < 101; i++) {
     // Populate at the documented administrative request rate.
     if (i > 0 && i % 20 === 0) await page.waitForTimeout(1000);
     lastRole = crypto.randomUUID();
-    await create(page, `/v1/tenants/${tenant}/roles`, {
+    await create(page, `/v1/tenants/${tenant}/spaces/${space}/roles`, {
       id: lastRole,
       code: `paged-${i}`,
       display_name: `PageRole ${String(i).padStart(3, "0")}`,
-      permissions: ["app.read"],
     });
   }
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
@@ -64,6 +77,13 @@ test("server paging, search and option pickers reach records beyond the first pa
   await page
     .getByRole("button", { name: "Access control", exact: true })
     .click();
+  await page
+    .locator(".access-foundation > .tabs")
+    .getByRole("button", { name: "Spaces", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Space scope", exact: true })
+    .selectOption(space);
   await page.getByRole("button", { name: "Roles", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "PageRole 100" }),
@@ -85,9 +105,9 @@ test("server paging, search and option pickers reach records beyond the first pa
     page.getByRole("button", { name: "Next records", exact: true }),
   ).toBeDisabled();
   await page
-    .getByRole("button", { name: "Access grants", exact: true })
+    .getByRole("button", { name: "Role assignments", exact: true })
     .click();
-  await page.getByRole("button", { name: "Grant access", exact: true }).click();
+  await page.getByRole("button", { name: "Assign role", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Search Role", exact: true })
     .fill("PageRole 100");

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	mariadb "github.com/aantich/go-mariadb"
+	"github.com/aantich/lastapp/internal/authz"
 	"net"
 )
 
@@ -28,10 +29,4 @@ func diagnostic(err error) []any {
 	return fields
 }
 
-func controlAction(action string) bool {
-	switch action {
-	case "platform.admin", "tenant.read", "tenant.manage", "membership.read", "membership.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read":
-		return true
-	}
-	return false
-}
+func controlAction(action string) bool { return authz.IsControlAction(action) }

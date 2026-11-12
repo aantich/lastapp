@@ -2,6 +2,7 @@
 """Build and start an isolated, persistent loopback Lastapp development stack."""
 import argparse, base64, json, os, pathlib, secrets, shutil, socket, subprocess, sys, time, urllib.request
 ROOT=pathlib.Path(__file__).resolve().parents[1]
+REGISTRY='lastapp_foundation'
 LOCAL=ROOT/'.local'; LOCAL.mkdir(mode=0o700,exist_ok=True)
 ENV=os.environ.copy();ENV['GOCACHE']=str(LOCAL/'go-cache')
 node=pathlib.Path.home()/'.nvm/versions/node/v24.20.0/bin'
@@ -52,13 +53,17 @@ def main():
   try:sql('SELECT 1;');break
   except subprocess.CalledProcessError:time.sleep(.2)
  else:raise RuntimeError('Private MariaDB failed to start')
- sql(f"CREATE DATABASE IF NOT EXISTS lastapp_control CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'lastapp_control'@'127.0.0.1' IDENTIFIED BY '{state['registry_password']}'; GRANT SELECT,INSERT,UPDATE,DELETE ON lastapp_control.* TO 'lastapp_control'@'127.0.0.1'; CREATE USER IF NOT EXISTS 'lastapp_provisioner'@'127.0.0.1' IDENTIFIED BY '{state['provisioner_password']}'; GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'127.0.0.1'; GRANT CREATE,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'127.0.0.1' WITH GRANT OPTION; CREATE DATABASE IF NOT EXISTS legacy_demo; CREATE TABLE IF NOT EXISTS legacy_demo.contacts (id INT PRIMARY KEY,name VARCHAR(100)); INSERT IGNORE INTO legacy_demo.contacts VALUES (1,'Existing customer'); CREATE USER IF NOT EXISTS 'legacy_runtime'@'127.0.0.1' IDENTIFIED BY '{state['legacy_password']}'; GRANT SELECT,INSERT,UPDATE,DELETE ON `legacy\\_demo`.* TO 'legacy_runtime'@'127.0.0.1';")
+ sql(f"CREATE DATABASE IF NOT EXISTS {REGISTRY} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'lastapp_control'@'127.0.0.1' IDENTIFIED BY '{state['registry_password']}'; GRANT SELECT,INSERT ON {REGISTRY}.* TO 'lastapp_control'@'127.0.0.1'; REVOKE UPDATE,DELETE ON {REGISTRY}.* FROM 'lastapp_control'@'127.0.0.1'; CREATE USER IF NOT EXISTS 'lastapp_provisioner'@'127.0.0.1' IDENTIFIED BY '{state['provisioner_password']}'; GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'127.0.0.1'; GRANT CREATE,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'127.0.0.1' WITH GRANT OPTION; CREATE DATABASE IF NOT EXISTS legacy_demo; CREATE TABLE IF NOT EXISTS legacy_demo.contacts (id INT PRIMARY KEY,name VARCHAR(100)); INSERT IGNORE INTO legacy_demo.contacts VALUES (1,'Existing customer'); CREATE USER IF NOT EXISTS 'legacy_runtime'@'127.0.0.1' IDENTIFIED BY '{state['legacy_password']}'; GRANT SELECT,INSERT,UPDATE,DELETE ON `legacy\\_demo`.* TO 'legacy_runtime'@'127.0.0.1';")
  configfile=LOCAL/'config.json'
  if configfile.exists():config=json.loads(configfile.read_text())
  else:
-  config={'address':'127.0.0.1:8787','public_url':'http://127.0.0.1:8787','registry_dsn':f"lastapp_control:{state['registry_password']}@tcp(127.0.0.1:33317)/lastapp_control",'encryption_key':base64.b64encode(secrets.token_bytes(32)).decode(),'oidc_issuer':'http://127.0.0.1:8788','oidc_client_id':'lastapp-local','development':True,'allowed_networks':['127.0.0.0/8'],'runtime_account_host':'127.0.0.1'};write(configfile,json.dumps(config,indent=2))
+  config={'address':'127.0.0.1:8787','public_url':'http://127.0.0.1:8787','registry_dsn':f"lastapp_control:{state['registry_password']}@tcp(127.0.0.1:33317)/{REGISTRY}",'encryption_key':base64.b64encode(secrets.token_bytes(32)).decode(),'oidc_issuer':'http://127.0.0.1:8788','oidc_client_id':'lastapp-local','development':True,'allowed_networks':['127.0.0.0/8'],'runtime_account_host':'127.0.0.1'};write(configfile,json.dumps(config,indent=2))
+ if config['registry_dsn'].rsplit('/',1)[-1] != REGISTRY:
+  previous=LOCAL/'config-before-foundation.json'
+  if not previous.exists():write(previous,json.dumps(config,indent=2))
+  config['registry_dsn']=config['registry_dsn'].rsplit('/',1)[0]+'/'+REGISTRY
  config.setdefault('development_ui_origin','http://127.0.0.1:5173');write(configfile,json.dumps(config,indent=2))
- migrate=dict(config);migrate['registry_dsn']=f'root@unix({sock})/lastapp_control';write(LOCAL/'migrate.json',json.dumps(migrate));write(LOCAL/'provisioner.secret',state['provisioner_password'])
+ migrate=dict(config);migrate['registry_dsn']=f'root@unix({sock})/{REGISTRY}';write(LOCAL/'migrate.json',json.dumps(migrate));write(LOCAL/'provisioner.secret',state['provisioner_password'])
  if not args.skip_build:
   if not (ROOT/'web/admin/node_modules').exists():run(['npm','ci'],cwd=ROOT/'web/admin')
   run(['npm','run','build'],cwd=ROOT/'web/admin')
@@ -71,9 +76,8 @@ def main():
    if not listening(8787) and not listening(8788):break
    time.sleep(.1)
  run([LOCAL/'lastapp','migrate','-config',LOCAL/'migrate.json']);# Runtime credentials can append/read audit history but cannot change it.
- sql("REVOKE UPDATE,DELETE ON lastapp_control.* FROM 'lastapp_control'@'127.0.0.1';")
  for table in ['users','sessions','plans','tenants','tenant_memberships','database_targets','database_resources','spaces','apps','microapp_installations','groups','group_memberships','roles','role_permissions','access_grants']:
-  sql(f"GRANT UPDATE,DELETE ON lastapp_control.`{table}` TO 'lastapp_control'@'127.0.0.1';")
+  sql(f"GRANT UPDATE,DELETE ON {REGISTRY}.`{table}` TO 'lastapp_control'@'127.0.0.1';")
  run([LOCAL/'lastapp','seed-development','-config',configfile,'-provisioner-file',LOCAL/'provisioner.secret'])
  start('devoidc',[LOCAL/'devoidc']);wait_url('http://127.0.0.1:8788/.well-known/openid-configuration')
  start('lastapp',[LOCAL/'lastapp','serve','-config',configfile]);wait_url('http://127.0.0.1:8787/readyz')

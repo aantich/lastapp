@@ -2,7 +2,7 @@
 
 **Final proposal — updated 12 November 2026**
 
-The proposed next phase is [Space and authorization design](SPACE_AUTHORIZATION_PLAN.md), pending approval. It replaces this phase’s Tenant-owned custom-role model with fixed Tenant/team roles, Space/App-owned business roles and Space-owned entity definitions. This document continues to describe the delivered provisioning foundation.
+The implemented [identity/roles/scopes foundation](FOUNDATION.md) supersedes this phase’s Tenant custom-role model with fixed Tenant/team roles and scoped Space/App business roles. The [broader Space authorization plan](SPACE_AUTHORIZATION_PLAN.md) records future entity/ACL direction. This document preserves the earlier provisioning specification; use FOUNDATION.md and README.md for current behavior.
 
 Build one Go application containing the management API, a provisioning worker and a small React administration console. One central MariaDB database records Tenants, Spaces, their databases, Apps and micro-app installations, together with shared identities and authorization metadata. Tenant business data stays in the databases bound to Spaces.
 

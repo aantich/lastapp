@@ -1953,3 +1953,18 @@ tbody tr:hover {
 .lookup-controls button { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
 .context-picker input { width: 100%; min-width: 0; margin-bottom: 0.4rem; }
 .table-footer button { padding: 0.25rem 0.5rem; }
+
+/* Scoped authorization reuses the console theme variables. */
+.access-foundation { padding: 20px; }
+.access-intro { line-height: 1.6; max-width: 85ch; margin-bottom: 18px; }
+.access-scope { display: flex; align-items: flex-end; gap: 14px; margin: 18px 0; }
+.access-scope > .lookup-select { width: min(100%, 450px); }
+.access-editor { padding: 20px; margin: 16px 0; border: 1px solid var(--ui-border); border-radius: 10px; background: var(--ui-surface); }
+.access-editor h3 { margin: 0 0 18px; }
+.access-editor .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; margin-bottom: 18px; }
+.access-editor label { display: grid; gap: 8px; min-width: 0; }
+.access-editor input, .access-editor select { width: 100%; }
+.access-toolbar, .access-members { margin-top: 20px; }
+.access-foundation .pagination { display: flex; justify-content: flex-end; gap: 14px; padding: 14px 0; align-items: center; }
+.access-foundation td small { display: block; margin-top: 4px; }
+@media (max-width:800px) { .access-scope,.access-toolbar { flex-wrap:wrap; } .access-editor .form-grid { grid-template-columns:1fr; } .access-foundation {padding:14px;} }

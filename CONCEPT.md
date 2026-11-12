@@ -2,7 +2,7 @@
 
 **Draft for Anton’s review — updated 12 November 2026**
 
-The proposed [Space and authorization implementation plan](SPACE_AUTHORIZATION_PLAN.md) specifies the latest ownership and role model. Its implementation is pending approval; the current provisioning behavior is described separately in [PROVISIONING_PLAN.md](PROVISIONING_PLAN.md).
+The [Space and authorization plan](SPACE_AUTHORIZATION_PLAN.md) specifies the ownership model. The global identity/roles/scopes foundation and matching console are implemented in [FOUNDATION.md](FOUNDATION.md); entity ACLs, the data runtime and App SDK are deferred. The provisioning plan records the earlier foundation, whose Tenant custom-role model is superseded.
 
 Lastapp is a framework for creating arbitrary business applications from a shared business entity backend and generated client code. A company organizes its data in Spaces, which own reusable business-object APIs, rules and permissions. Apps inherit this backend and compose client micro-apps. Many client micro-apps reuse those App APIs. The client software runs in the browser and can be distributed as files through static hosting and a CDN.
 

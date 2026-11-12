@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/pressly/goose/v3"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -116,54 +115,36 @@ func TestSecurityRegressions(t *testing.T) {
 	starter := "10000000-0000-4000-8000-000000000002"
 	development := "10000000-0000-4000-8000-000000000001"
 	target := "20000000-0000-4000-8000-000000000001"
-	t.Run("UpgradePreservesIdentitiesAndCoalescesGrants", func(t *testing.T) {
-		name := "lastapp_review_" + strings.ReplaceAll(newID(), "-", "")
-		if _, e := admin.DB.Exec("CREATE DATABASE `" + name + "`"); e != nil {
-			t.Fatal(e)
-		}
-		defer admin.DB.Exec("DROP DATABASE `" + name + "`")
-		oldCfg := cfg
-		slash := strings.LastIndex(adminCfg.RegistryDSN, "/")
-		oldCfg.RegistryDSN = adminCfg.RegistryDSN[:slash+1] + name
-		old, e := Open(oldCfg)
+	t.Run("FreshSchemaPreservesExactIdentityAndRejectsDuplicateGrants", func(t *testing.T) {
+		user, e := s.Bootstrap(context.Background(), "https://foundation.example", "immutable-subject", "Original", "")
 		if e != nil {
 			t.Fatal(e)
 		}
-		defer old.DB.Close()
-		if e = goose.UpToContext(context.Background(), old.DB, "migrations", 1); e != nil {
-			t.Fatal(e)
+		_, e = s.DB.Exec("INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", newID(), user, SuperRole)
+		if e == nil {
+			t.Fatal("duplicate grant accepted")
 		}
-		user, e := old.Bootstrap(context.Background(), "https://upgrade.example", "immutable-subject", "Original", "")
-		if e != nil {
-			t.Fatal(e)
-		}
-		if _, e = old.DB.Exec("INSERT INTO access_grants (id,kind,user_id,role_id,role_owner_key) VALUES (?,'platform',?,?,'platform')", newID(), user, SuperRole); e != nil {
-			t.Fatal(e)
-		}
-		if e = Migrate(context.Background(), old.DB); e != nil {
+		if e = Migrate(context.Background(), s.DB); e != nil {
 			t.Fatal(e)
 		}
 		var found string
-		var count int
-		if e = old.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject=?", "https://upgrade.example", "immutable-subject").Scan(&found); e != nil || found != user {
-			t.Fatal("upgrade changed identity", e)
+		if e = s.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject=?", "https://foundation.example", "immutable-subject").Scan(&found); e != nil || found != user {
+			t.Fatal("identity changed", e)
 		}
-		if e = old.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE user_id=?", user).Scan(&count); e != nil || count != 1 {
-			t.Fatal("duplicate grants not coalesced", e)
-		}
-		if e = old.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE action='grant.coalesced'").Scan(&count); e != nil || count != 1 {
-			t.Fatal("deduplication lost audit evidence", e)
-		}
-		other, e := old.Bootstrap(context.Background(), "https://upgrade.example ", "immutable-subject", "Distinct", "")
-		if e != nil || other == user {
-			t.Fatal("issuer comparison still pads strings", e)
+		if e = CheckSchema(context.Background(), s.DB); e != nil {
+			t.Fatal(e)
 		}
 	})
+	businessScope := func(tenant string) string {
+		space := newID()
+		c.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "initial_manager_user_id": owner, "slug": "scope-" + space, "display_name": "Role fixture", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		return "/v1/tenants/" + tenant + "/spaces/" + space
+	}
 	t.Run("MetadataCeilingsAndBoundedGroupMembers", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		group := newID()
-		c.want("POST", base+"/groups", Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
+		c.want("POST", base+"/teams", Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
 		for i := 0; i < 12; i++ {
 			user := newID()
 			if _, e = s.DB.Exec("INSERT INTO users (id,oidc_issuer,oidc_subject,display_name) VALUES (?,?,?,?)", user, cfg.OIDCIssuer, user, fmt.Sprintf("Member %02d", i)); e != nil {
@@ -176,12 +157,11 @@ func TestSecurityRegressions(t *testing.T) {
 				t.Fatal(e)
 			}
 		}
-		groups := c.want("GET", base+"/groups", nil, 0, 200)["items"].([]any)
-		g := groups[0].(map[string]any)
-		if len(g["members"].([]any)) != 10 || integer(g["members_count"]) != 12 {
-			t.Fatal("group preview unbounded", g)
+		first := c.want("GET", base+"/teams/"+group+"/members?limit=10", nil, 0, 200)
+		if len(first["items"].([]any)) != 10 || first["pagination"].(map[string]any)["has_more"] != true {
+			t.Fatal("unbounded team members", first)
 		}
-		later := c.want("GET", base+"/groups/"+group+"/members?page=2&limit=10", nil, 0, 200)["items"].([]any)
+		later := c.want("GET", base+"/teams/"+group+"/members?page=2&limit=10", nil, 0, 200)["items"].([]any)
 		if len(later) != 2 {
 			t.Fatal("group member pagination incomplete", later)
 		}
@@ -190,14 +170,14 @@ func TestSecurityRegressions(t *testing.T) {
 				t.Fatal(e)
 			}
 		}
-		c.want("POST", base+"/groups", Row{"id": newID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
+		c.want("POST", base+"/teams", Row{"id": newID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
 	})
 	t.Run("SecurityRoleAuditHasBeforeAndAfter", func(t *testing.T) {
 		tenant := createTenant(development)
-		base := "/v1/tenants/" + tenant
+		base := businessScope(tenant)
 		role := newID()
-		c.want("POST", base+"/roles", Row{"id": role, "code": "audited", "display_name": "Audited", "permissions": []string{"app.read"}}, 0, 201)
-		c.want("PATCH", base+"/roles/"+role, Row{"state": "disabled", "permissions": []string{"space.read"}}, 1, 200)
+		c.want("POST", base+"/roles", Row{"id": role, "code": "audited", "display_name": "Audited"}, 0, 201)
+		c.want("PATCH", base+"/roles/"+role, Row{"state": "disabled"}, 1, 200)
 		var raw string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='role.updated'", role).Scan(&raw); e != nil {
 			t.Fatal(e)
@@ -208,7 +188,7 @@ func TestSecurityRegressions(t *testing.T) {
 				Permissions []string
 			}
 		}
-		if e = json.Unmarshal([]byte(raw), &details); e != nil || details.Before.State != "active" || details.After.State != "disabled" || strings.Join(details.Before.Permissions, ",") != "app.read" || strings.Join(details.After.Permissions, ",") != "space.read" {
+		if e = json.Unmarshal([]byte(raw), &details); e != nil || details.Before.State != "active" || details.After.State != "disabled" || len(details.Before.Permissions) != 0 || len(details.After.Permissions) != 0 {
 			t.Fatalf("role audit incomplete: %s", raw)
 		}
 	})
@@ -385,21 +365,22 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("GrantAuditRetainsPrincipalAndScope", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
+		c.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
 		grant := newID()
-		c.want("POST", base+"/access-grants", Row{"id": grant, "user_id": owner, "permission_code": "space.read"}, 0, 201)
-		c.want("DELETE", base+"/access-grants/"+grant, nil, 1, 200)
+		c.want("POST", base+"/role-assignments", Row{"id": grant, "user_id": operator, "role_id": TenantAdminRole}, 0, 201)
+		c.want("DELETE", base+"/role-assignments/"+grant, nil, 1, 200)
 		var details string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='grant.deleted'", grant).Scan(&details); e != nil {
 			t.Fatal(e)
 		}
 		var change struct {
 			Before struct {
-				User       string `json:"user_id"`
-				Permission string `json:"permission_code"`
+				User string `json:"user_id"`
+				Role string `json:"role_id"`
 			}
 			After any
 		}
-		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != owner || change.Before.Permission != "space.read" || change.After != nil {
+		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != operator || change.Before.Role != TenantAdminRole || change.After != nil {
 			t.Fatalf("incomplete revocation audit: %s", details)
 		}
 	})
@@ -428,33 +409,32 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("BoundedCollectionsAndUniqueGrants", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		c.want("POST", base+"/access-grants", Row{"id": newID(), "user_id": owner, "permission_code": "app.read"}, 0, 201)
-		c.want("POST", base+"/access-grants", Row{"id": newID(), "user_id": owner, "permission_code": "app.read"}, 0, 409)
-		// Legitimately distinct roles exercise paging beyond the default bound.
+		c.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
+		c.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 201)
+		c.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 409)
+		scope := businessScope(tenant)
+		space := scope[strings.LastIndex(scope, "/")+1:]
 		for i := 0; i < 105; i++ {
-			_, e = s.DB.Exec("INSERT INTO roles (id,tenant_id,owner_key,kind,code,display_name) VALUES (?,?,?,'tenant',?,?)", newID(), tenant, "t:"+tenant, fmt.Sprintf("paged-%03d", i), fmt.Sprintf("Paged %03d", i))
-			if e != nil {
+			if _, e = s.DB.Exec("INSERT INTO roles(id,tenant_id,space_id,owner_key,scope_kind,domain,code,display_name) VALUES (?,?,?,?,'space','data',?,?)", newID(), tenant, space, "s:"+space, fmt.Sprintf("paged-%03d", i), fmt.Sprintf("Paged %03d", i)); e != nil {
 				t.Fatal(e)
 			}
 		}
-		first := c.want("GET", base+"/roles", nil, 0, 200)
-		second := c.want("GET", base+"/roles?page=2", nil, 0, 200)
+		first := c.want("GET", scope+"/roles", nil, 0, 200)
+		second := c.want("GET", scope+"/roles?page=2", nil, 0, 200)
 		if len(first["items"].([]any)) != 100 || first["pagination"].(map[string]any)["has_more"] != true || len(second["items"].([]any)) != 6 {
-			t.Fatalf("unbounded/incomplete pagination: %d %d", len(first["items"].([]any)), len(second["items"].([]any)))
+			t.Fatal("unbounded/incomplete role pagination")
 		}
-		found := c.want("GET", base+"/roles?q=Paged%20104", nil, 0, 200)["items"].([]any)
-		if len(found) != 1 {
-			t.Fatalf("search did not reach later pages: %v", found)
+		if len(c.want("GET", scope+"/roles?q=Paged%20104", nil, 0, 200)["items"].([]any)) != 1 {
+			t.Fatal("search did not reach later pages")
 		}
-
 	})
 	t.Run("DedicatedAppGrandfathering", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		space := newID()
-		c.want("POST", base+"/spaces", Row{"id": space, "slug": "review-space", "display_name": "Review", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "review-space", "display_name": "Review", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
 		app := newID()
-		c.want("POST", base+"/spaces/"+space+"/apps", Row{"id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
+		c.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
 		current := c.want("GET", base, nil, 0, 200)
 		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"plan_id": starter}, integer(current["revision"]), 200)
 		c.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename", "compute_mode": "dedicated"}, 1, 200)
@@ -464,8 +444,9 @@ func TestSecurityRegressions(t *testing.T) {
 	})
 	t.Run("DisabledRoleCreation", func(t *testing.T) {
 		tenant := createTenant(development)
+		base := businessScope(tenant)
 		role := newID()
-		c.want("POST", "/v1/tenants/"+tenant+"/roles", Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled", "permissions": []string{"app.manage"}}, 0, 201)
+		c.want("POST", base+"/roles", Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled"}, 0, 201)
 		var state string
 		if e = s.DB.QueryRow("SELECT state FROM roles WHERE id=?", role).Scan(&state); e != nil {
 			t.Fatal(e)
@@ -473,18 +454,18 @@ func TestSecurityRegressions(t *testing.T) {
 		if state != "disabled" {
 			t.Fatalf("disabled role became %s", state)
 		}
-		c.want("POST", "/v1/tenants/"+tenant+"/roles", Row{"id": newID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
+		c.want("POST", base+"/roles", Row{"id": newID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
 	})
 	t.Run("SuspensionBlocksAllNewInventory", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		space, app := newID(), newID()
-		c.want("POST", base+"/spaces", Row{"id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
-		c.want("POST", base+"/spaces/"+space+"/apps", Row{"id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
+		c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		c.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
 		current := c.want("GET", base, nil, 0, 200)
 		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"state": "suspended"}, integer(current["revision"]), 200)
 		c.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "still-created", "display_name": "Still created"}, 0, 409)
-		c.want("POST", base+"/spaces/"+space+"/apps", Row{"id": newID(), "slug": "blocked", "display_name": "Blocked"}, 0, 409)
+		c.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "blocked", "display_name": "Blocked"}, 0, 409)
 	})
 
 	fmt.Println("Review fixture registry and all its managed databases/accounts are removed by test cleanup.")

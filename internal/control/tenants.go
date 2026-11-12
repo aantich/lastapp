@@ -130,6 +130,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	record := r.PathValue("id")
 	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		old, e := lockRecord(r.Context(), tx, "users", "", record)
+		if e != nil {
+			return e
+		}
 		ts, e := rows(r.Context(), tx, "SELECT tenant_id FROM tenant_memberships WHERE user_id=? ORDER BY tenant_id", record)
 		if e != nil {
 			return e
@@ -139,10 +143,6 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t["tenant_id"]).Scan(&v); e != nil {
 				return e
 			}
-		}
-		old, e := lockRecord(r.Context(), tx, "users", "", record)
-		if e != nil {
-			return e
 		}
 		if e = checkRevision(integer(old["revision"]), rev); e != nil {
 			return e
@@ -234,7 +234,7 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principa
 		if _, e = tx.ExecContext(r.Context(), "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", in.ID, in.Admin); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(r.Context(), "INSERT INTO access_grants (id,tenant_id,kind,user_id,role_id,role_owner_key) VALUES (?,?,'tenant',?,?,'platform')", newID(), in.ID, in.Admin, TenantAdminRole); e != nil {
+		if _, e = tx.ExecContext(r.Context(), "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", newID(), in.ID, in.Admin, TenantAdminRole); e != nil {
 			return e
 		}
 		return audit(r.Context(), tx, in.ID, p.ID, "tenant.created", "tenant", in.ID, r.Header.Get("X-Request-ID"), Row{"initial_admin_user_id": in.Admin})
@@ -342,7 +342,7 @@ func quota(ctx context.Context, q Queryer, tenant, table, column string, policy 
 }
 func ensurePlatformAdmin(ctx context.Context, q Queryer) error {
 	var n int
-	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.kind='platform' AND g.role_id=?", SuperRole).Scan(&n)
+	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.scope_kind='platform' AND g.role_id=?", SuperRole).Scan(&n)
 	if e != nil {
 		return e
 	}

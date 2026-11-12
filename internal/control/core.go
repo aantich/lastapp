@@ -23,12 +23,13 @@ import (
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 )
 
-const SuperRole = "00000000-0000-4000-8000-000000000001"
-const TenantAdminRole = "00000000-0000-4000-8000-000000000002"
+const SuperRole = authz.SuperRole
+const TenantAdminRole = authz.TenantAdminRole
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
@@ -159,12 +160,18 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if e := goose.SetDialect("mysql"); e != nil {
 		return e
 	}
-	return goose.UpContext(ctx, db, "migrations")
+	if e := goose.UpContext(ctx, db, "migrations"); e != nil {
+		return e
+	}
+	return seedControlCatalog(ctx, db)
 }
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 2 {
+	if e != nil || v != 1 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
+	}
+	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
+		return fmt.Errorf("registry uses an earlier development schema; initialize a fresh registry")
 	}
 	return nil
 }

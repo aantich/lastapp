@@ -36,6 +36,7 @@ func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) err
 func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		namedInput
+		Manager  string `json:"initial_manager_user_id"`
 		Database struct {
 			Resource string `json:"resource_id"`
 			Mode     string `json:"mode"`
@@ -124,6 +125,9 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 		if e != nil {
 			return e
 		}
+		if e := assignInitialManager(r.Context(), tx, p, tenant, in.ID, "", in.Manager, r.Header.Get("X-Request-ID")); e != nil {
+			return e
+		}
 		return audit(r.Context(), tx, tenant, p.ID, "space.created", "space", in.ID, r.Header.Get("X-Request-ID"), Row{"database_resource_id": resource})
 	})
 	if e != nil {
@@ -153,6 +157,7 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		namedInput
+		Manager string `json:"initial_manager_user_id"`
 		Compute string `json:"compute_mode"`
 	}
 	if e := decode(w, r, &in); e != nil {
@@ -191,6 +196,9 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 		}
 		_, e = tx.ExecContext(r.Context(), "INSERT INTO apps (id,tenant_id,space_id,slug,display_name,compute_mode) VALUES (?,?,?,?,?,?)", in.ID, tenant, space, in.Slug, in.Name, in.Compute)
 		if e != nil {
+			return e
+		}
+		if e := assignInitialManager(r.Context(), tx, p, tenant, space, in.ID, in.Manager, r.Header.Get("X-Request-ID")); e != nil {
 			return e
 		}
 		return audit(r.Context(), tx, tenant, p.ID, "app.created", "app", in.ID, r.Header.Get("X-Request-ID"), Row{"space_id": space})

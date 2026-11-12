@@ -1,14 +1,14 @@
-# Lastapp — provisioning control plane
+# Lastapp — provisioning and authorization foundation
 
-A running first slice of Lastapp: a Go API, a React/Tailwind admin console, centralized authorization and real MariaDB provisioning.
+A Go API and React/Tailwind admin console with real MariaDB provisioning, shared identities/teams, fixed administrative roles and custom Space/App business roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. Business-object ACLs and the entity runtime are the next stage.
 
 **Open locally:** http://127.0.0.1:8787/console/
 
-Choose **Platform operator**, password **`lastapp-local`**. The local OIDC issuer also offers **Tenant administrator** and **Outside user**, with the same development password. These identities are separate: signing in does not grant platform administration. Existing test Tenants and intentional failed provisioning fixtures are retained for inspection.
+Choose **Platform operator**, password **`lastapp-local`**. The local issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space, Marketing/Engineering teams and two Apps; Joe has a role within Marketing and receives a Space business role through that team.
 
 ## Run
 
-Requirements: Go 1.25+, a working Node/npm, and MariaDB 10.11+ server/client/install tools. Verified on this Mac with Go 1.27.4, Node 24.20.0 and MariaDB 12.3.3. MariaDB 10.11 compatibility remains to be checked on that server version.
+Requirements: Go 1.25+, working Node/npm, and MariaDB server/client/install tools. Verified on this Mac with Go 1.27.4, Node 24.20.0 and MariaDB 12.3.3.
 
 ```sh
 git clone https://github.com/aantich/lastapp.git
@@ -24,7 +24,7 @@ make dev
 | Development OIDC issuer | `127.0.0.1:8788` |
 | Private MariaDB | `127.0.0.1:33317` |
 
-Data, keys, credentials, process IDs and logs are in the ignored `.local/` directory, with private configuration files. The script initializes its own MariaDB data directory and does not use an existing system database. It refuses occupied ports belonging to another process. Running it again rebuilds/restarts the app and issuer while preserving databases and keys. To start already-built binaries, use `python3 scripts/dev.py --skip-build`.
+Data, keys, credentials, process IDs and logs are in ignored `.local/`. The script uses its own MariaDB data directory, refuses unrelated processes on its ports, and rebuilds/restarts the app and issuer while preserving data/keys. This undeployed foundation initializes `lastapp_foundation`; the earlier `lastapp_control` registry remains intact, with its previous configuration saved privately. There is no legacy-grant migration. To start already-built binaries, use `python3 scripts/dev.py --skip-build`.
 
 When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/v24.20.0/bin`; it does not change global Node or Homebrew. `make` also accepts `NODE_BIN=/path/to/node/bin`.
 
@@ -39,21 +39,21 @@ Do not delete `.local/config.json` while retaining its database: its encryption 
 ## Review the UI
 
 1. **Tenants → Create Tenant:** select a plan and an existing signed-in identity as the initial Tenant administrator.
-2. Open that Tenant and **Create Space**. Shared layout reuses the Tenant's default database; dedicated layout creates an exclusive database. Status updates while the worker provisions.
-3. **Apps → Create App**, then **Micro-apps → Register micro-app**. These are registry records in this phase, not deployed business runtimes.
+2. Open that Tenant and **Create Space**, explicitly selecting its initial manager. Shared layout reuses the Tenant's default database; dedicated layout creates an exclusive database. Status updates while provisioning runs.
+3. **Apps → Create App**, select its initial manager, then **Micro-apps → Register micro-app**. These are registry records in this phase, not deployed business runtimes.
 4. **Databases → Add database:** request managed creation or register an existing database on a configured target with scoped credentials. Existing registration validates connectivity/version/CRUD grants and does not write to business tables. Failed resources can be retried; registered credentials can be replaced through the API.
-5. **Members / Access control:** add memberships, create groups and custom roles, assign direct or role-based grants at Tenant, Space or App scope. Built-in roles are protected. The last direct active Tenant administrator cannot be disabled or revoked.
+5. **Members / Access control:** manage Tenant membership; use Tenant, Teams, Spaces and Apps tabs for scoped role assignments. Tenant/team roles are fixed. Space/App business roles are custom and cannot grant administrative actions. Team membership is separate from a user's role within that team; protected manager roles accept users only. The last active Tenant administrator is protected.
 6. Select **Platform overview → Access control** to manage platform superadmin grants. **Plans**, **Users**, **Database targets** and **Activity** provide system management. The last active superadmin is protected.
 
 The `Starter` plan allows one shared managed database, three Spaces and ten Apps. `Development` permits both layouts/methods, dedicated-compute preferences, 100 Spaces, 500 Apps and 100 database resources. Plans apply to future allocations; they do not migrate existing resources.
 
 ## Implementation
 
-- `internal/control`: explicit SQL and HTTP handlers, authorization, migrations, encrypted credentials, OIDC/session handling and the worker. No ORM or policy service.
+- `internal/control`: explicit SQL/HTTP handlers, registry role resolution, encrypted credentials, OIDC sessions and provisioning. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
 - `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
-- `design/control_plane.sql`: 17-table registry design. `internal/control/migrations` is its versioned executable migration.
+- `design/control_plane.sql`: 17-table foundation schema. `internal/control/migrations/00001_control.sql` initializes a fresh registry; security constraints are consolidated there.
 - `third_party/go-mariadb`: source snapshot of **[aantich/go-mariadb](https://github.com/aantich/go-mariadb)** from sibling `../go-mariadb`, including its compression implementation and license notices. `SNAPSHOT.json` records hashes. All connectivity uses its `mariadb` package and `database/sql` connector. No MySQL fallback driver is installed. The snapshot avoids silently changing Lastapp when another chat edits the driver; intentionally refresh/pin it when adopting a reviewed driver change.
 
 The hierarchy is **Tenant → Space → App → micro-app installation**. A Space has one fixed database binding. Spaces can share only within the same Tenant, and dedicated bindings are exclusive. All identities, memberships, groups, permission definitions, roles and grants live in the central registry.
@@ -74,11 +74,11 @@ The deployment encryption key is a base64 32-byte key. This first version uses o
 
 ## Scope of this phase
 
-Implemented: centralized inventory, access management, plan quotas, lifecycle management, managed database provisioning, existing registration, retries/recovery, auditing and the admin UI.
+Implemented: centralized identity/inventory, scoped role management, fixed Tenant/team catalogs, custom Space/App business roles and assignments, plan quotas, lifecycle management, real database provisioning/registration, retries/recovery, auditing and the matching admin UI.
 
 Later: business entity definitions/API compilation, entity/record/field ACLs, micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs always return bounded pages (`?page=1&limit=100&q=search`, maximum limit 200) with `pagination: {page, limit, has_more}`. Scope predicates apply before search and pagination. The console pages and searches collections and selection lists on the server; audit history and group members are paged too.
 
-See [PROVISIONING_PLAN.md](PROVISIONING_PLAN.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md).
+See [FOUNDATION.md](FOUNDATION.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md). The provisioning plan describes the earlier implementation; its Tenant custom-role model is superseded by the foundation.
 
 ## Admin themes
 

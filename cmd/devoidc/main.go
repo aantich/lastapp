@@ -67,7 +67,7 @@ func main() {
 	mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "local", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
 	})
-	page := template.Must(template.New("login").Parse(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in · Lastapp</title><style>body{background:#f5f6f9;font:15px system-ui;color:#192234;display:grid;place-items:center;min-height:95vh}main{background:white;padding:44px;width:340px;border:1px solid #e2e5ed;border-radius:18px;box-shadow:0 16px 50px #15284709}small{color:#7b65ca;letter-spacing:.1em}h1{font-size:26px;margin-bottom:8px}p{color:#748095;line-height:1.6}label{display:block;margin-top:22px;font-size:13px}select,input,button{box-sizing:border-box;width:100%;padding:12px;margin-top:8px;border:1px solid #d9dfe9;border-radius:8px;font:inherit}button{background:#6551d9;color:white;border:0;cursor:pointer;margin-top:26px}footer{margin-top:26px;font-size:12px;color:#8390a4}</style></head><body><main><small>LASTAPP / DEVELOPMENT</small><h1>Welcome back.</h1><p>Sign in to your local control plane.</p>{{if .Error}}<p style="color:#b42318">{{.Error}}</p>{{end}}<form method="post"><label>Account<select name="subject"><option value="operator">Platform operator</option><option value="tenant-admin">Tenant administrator</option><option value="outsider">Outside user</option></select></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button>Sign in</button></form><footer>Local development identity provider · loopback only</footer></main></body></html>`))
+	page := template.Must(template.New("login").Parse(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in · Lastapp</title><style>body{background:#f5f6f9;font:15px system-ui;color:#192234;display:grid;place-items:center;min-height:95vh}main{background:white;padding:44px;width:340px;border:1px solid #e2e5ed;border-radius:18px;box-shadow:0 16px 50px #15284709}small{color:#7b65ca;letter-spacing:.1em}h1{font-size:26px;margin-bottom:8px}p{color:#748095;line-height:1.6}label{display:block;margin-top:22px;font-size:13px}select,input,button{box-sizing:border-box;width:100%;padding:12px;margin-top:8px;border:1px solid #d9dfe9;border-radius:8px;font:inherit}button{background:#6551d9;color:white;border:0;cursor:pointer;margin-top:26px}footer{margin-top:26px;font-size:12px;color:#8390a4}</style></head><body><main><small>LASTAPP / DEVELOPMENT</small><h1>Welcome back.</h1><p>Sign in to your local control plane.</p>{{if .Error}}<p style="color:#b42318">{{.Error}}</p>{{end}}<form method="post"><label>Account<select name="subject"><option value="operator">Platform operator</option><option value="tenant-admin">Tenant administrator</option><option value="outsider">Outside user</option><option value="joe">Joe (Marketing Reviewer)</option></select></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button>Sign in</button></form><footer>Local development identity provider · loopback only</footer></main></body></html>`))
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if q.Get("client_id") != "lastapp-local" || q.Get("redirect_uri") != *origin+"/auth/callback" || q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || q.Get("state") == "" || q.Get("nonce") == "" {
@@ -91,7 +91,7 @@ func main() {
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
 		r.ParseForm()
 		sub := r.PostForm.Get("subject")
-		if (sub != "operator" && sub != "tenant-admin" && sub != "outsider") || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("password")), []byte(*password)) != 1 {
+		if (sub != "operator" && sub != "tenant-admin" && sub != "outsider" && sub != "joe") || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("password")), []byte(*password)) != 1 {
 			page.Execute(w, map[string]string{"Error": "Invalid credentials."})
 			return
 		}
@@ -128,7 +128,7 @@ func main() {
 			reply(w, map[string]string{"error": "invalid_grant"})
 			return
 		}
-		names := map[string]string{"operator": "Platform operator", "tenant-admin": "Tenant administrator", "outsider": "Outside user"}
+		names := map[string]string{"operator": "Platform operator", "tenant-admin": "Tenant administrator", "outsider": "Outside user", "joe": "Joe (Marketing Reviewer)"}
 		payload := map[string]any{"iss": issuer, "sub": flow.Subject, "aud": "lastapp-local", "iat": time.Now().Unix(), "exp": time.Now().Add(5 * time.Minute).Unix(), "nonce": flow.Nonce, "name": names[flow.Subject], "email": flow.Subject + "@lastapp.local"}
 		unsigned := encode(map[string]string{"alg": "RS256", "kid": "local", "typ": "JWT"}) + "." + encode(payload)
 		digest := sha256.Sum256([]byte(unsigned))

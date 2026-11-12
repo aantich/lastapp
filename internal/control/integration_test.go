@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/aantich/lastapp/internal/authz"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,6 +37,9 @@ func (c testClient) req(method, path string, body any, revision int64) (int, Row
 	c.h.ServeHTTP(w, r)
 	var out Row
 	if e := json.Unmarshal(w.Body.Bytes(), &out); e != nil {
+		if w.Code >= 400 {
+			return w.Code, Row{"message": w.Body.String()}
+		}
 		c.t.Fatalf("invalid response %d %s", w.Code, w.Body.String())
 	}
 	return w.Code, out
@@ -112,7 +116,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	out := c.as(outsider)
 	out.want("GET", base+"/spaces", nil, 0, 404)
 	ownerClient.want("GET", "/admin/v1/tenants", nil, 0, 403)
-	ownerClient.want("PATCH", base+"/memberships/"+owner, Row{"state": "disabled"}, 0, 409)
+	ownerClient.want("PATCH", base+"/memberships/"+owner, Row{"state": "disabled"}, 1, 409)
 	target := "20000000-0000-4000-8000-000000000001"
 	spaceIDs := []string{newID(), newID()}
 	var wg sync.WaitGroup
@@ -121,7 +125,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			statuses[i], _ = ownerClient.req("POST", base+"/spaces", Row{"id": spaceIDs[i], "slug": "shared-" + str(i), "display_name": "Shared " + str(i), "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0)
+			statuses[i], _ = ownerClient.req("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": spaceIDs[i], "slug": "shared-" + str(i), "display_name": "Shared " + str(i), "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0)
 		}(i)
 	}
 	wg.Wait()
@@ -140,7 +144,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	ready := c.waitDB(tenant, shared, "ready")
 	t.Log("concurrent shared reuse and real provisioning passed")
 	// Idempotency must not allocate an orphan database on a duplicate parent ID.
-	c.want("POST", base+"/spaces", Row{"id": spaceIDs[0], "slug": "duplicate", "display_name": "Duplicate", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 409)
+	c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": spaceIDs[0], "slug": "duplicate", "display_name": "Duplicate", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 409)
 	var n int
 	s.DB.QueryRow("SELECT COUNT(*) FROM database_resources WHERE tenant_id=?", tenant).Scan(&n)
 	if n != 1 {
@@ -151,7 +155,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	c.waitDB(tenant, shared, "ready")
 	// Dedicated binding is exclusive, even within a Tenant.
 	dedicated := newID()
-	c.want("POST", base+"/spaces", Row{"id": dedicated, "slug": "dedicated", "display_name": "Dedicated", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 201)
+	c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": dedicated, "slug": "dedicated", "display_name": "Dedicated", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 201)
 	sp = c.want("GET", base+"/spaces", nil, 0, 200)["items"].([]any)
 	dedDB := ""
 	for _, v := range sp {
@@ -161,16 +165,14 @@ func TestMariaDBControlPlane(t *testing.T) {
 		}
 	}
 	c.waitDB(tenant, dedDB, "ready")
-	c.want("POST", base+"/spaces", Row{"id": newID(), "slug": "illegal-reuse", "display_name": "Illegal reuse", "database": Row{"resource_id": dedDB}}, 0, 409)
+	c.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "illegal-reuse", "display_name": "Illegal reuse", "database": Row{"resource_id": dedDB}}, 0, 409)
 	// App-scoped grants filter collection reads and deny sibling writes.
 	apps := []string{newID(), newID()}
 	for i, app := range apps {
-		c.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", Row{"id": app, "slug": "app-" + str(i), "display_name": "App " + str(i)}, 0, 201)
+		c.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "app-" + str(i), "display_name": "App " + str(i)}, 0, 201)
 	}
 	c.want("POST", base+"/memberships", Row{"user_id": outsider}, 0, 201)
-	for _, permission := range []string{"app.read", "app.manage"} {
-		c.want("POST", base+"/access-grants", Row{"id": newID(), "user_id": outsider, "permission_code": permission, "app_id": apps[0]}, 0, 201)
-	}
+	c.want("POST", base+"/apps/"+apps[0]+"/role-assignments", Row{"id": newID(), "user_id": outsider, "role_id": authz.AppManagerRole}, 0, 201)
 	list := out.want("GET", base+"/apps", nil, 0, 200)["items"].([]any)
 	if len(list) != 1 || str(list[0].(map[string]any)["id"]) != apps[0] {
 		t.Fatal("App scope leaked a sibling")
@@ -186,21 +188,28 @@ func TestMariaDBControlPlane(t *testing.T) {
 	out.want("PATCH", base+"/apps/"+apps[1], Row{"display_name": "Forbidden"}, 1, 403)
 	out.want("PATCH", base+"/apps/"+apps[0], Row{"display_name": "Allowed"}, 1, 200)
 	out.want("PATCH", base+"/apps/"+apps[0], Row{"display_name": "Stale"}, 1, 412)
-	out.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", Row{"id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	out.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
 	group := newID()
-	c.want("POST", base+"/groups", Row{"id": group, "slug": "reviewers", "display_name": "Reviewers"}, 0, 201)
-	c.want("POST", base+"/groups/"+group+"/members", Row{"user_id": outsider}, 1, 200)
-	c.want("POST", base+"/access-grants", Row{"id": newID(), "group_id": group, "permission_code": "app.read", "space_id": spaceIDs[0]}, 0, 201)
-	list = out.want("GET", base+"/apps", nil, 0, 200)["items"].([]any)
-	if len(list) != 2 {
-		t.Fatal("group grant not inherited")
+	c.want("POST", base+"/teams", Row{"id": group, "slug": "reviewers", "display_name": "Reviewers"}, 0, 201)
+	c.want("POST", base+"/teams/"+group+"/members", Row{"user_id": outsider}, 1, 200)
+	role := newID()
+	rolePath := base + "/spaces/" + spaceIDs[0] + "/roles"
+	c.want("POST", rolePath, Row{"id": role, "code": "reviewer", "display_name": "Business Reviewer"}, 0, 201)
+	c.want("POST", base+"/spaces/"+spaceIDs[0]+"/role-assignments", Row{"id": newID(), "group_id": group, "role_id": role}, 0, 201)
+	inherited := out.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"].([]any)
+	if len(inherited) != 2 {
+		t.Fatal("team business role not inherited", inherited)
 	}
-	c.want("PATCH", base+"/groups/"+group, Row{"state": "disabled"}, 2, 200)
 	list = out.want("GET", base+"/apps", nil, 0, 200)["items"].([]any)
 	if len(list) != 1 {
-		t.Fatal("disabled group retained access")
+		t.Fatal("business role granted management access")
 	}
-	c.want("POST", base+"/roles", Row{"id": newID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 400)
+	c.want("PATCH", base+"/teams/"+group, Row{"state": "disabled"}, 2, 200)
+	inherited = out.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"].([]any)
+	if len(inherited) != 1 {
+		t.Fatal("disabled team retained business role")
+	}
+	c.want("POST", rolePath, Row{"id": newID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 400)
 	t.Log("scope filtering, stale revision, role isolation and group revocation passed")
 	// Existing registration validates grants and does not modify business tables.
 	var state struct {
@@ -329,12 +338,12 @@ func TestMariaDBControlPlane(t *testing.T) {
 	c.want("POST", sb+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 202)
 	c.want("POST", sb+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 409)
 	// Cross-Tenant references are rejected by the relational constraints.
-	c.want("POST", sb+"/spaces", Row{"id": newID(), "slug": "cross-tenant", "display_name": "Cross tenant", "database": Row{"resource_id": shared}}, 0, 404)
+	c.want("POST", sb+"/spaces", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "cross-tenant", "display_name": "Cross tenant", "database": Row{"resource_id": shared}}, 0, 404)
 	out.want("GET", sb+"/apps", nil, 0, 404)
 	// Suspended Tenant is readable but cannot allocate new resources.
 	tenantRow := c.want("GET", base, nil, 0, 200)
 	c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"state": "suspended"}, integer(tenantRow["revision"]), 200)
-	ownerClient.want("POST", base+"/spaces", Row{"id": newID(), "slug": "suspended", "display_name": "Suspended", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 403)
+	ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "suspended", "display_name": "Suspended", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 403)
 	c.want("POST", base+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 409)
 	t.Log("plan quotas, cross-Tenant isolation and suspended lifecycle passed")
 	// Encryption AAD is checked independently of SQL ownership constraints.

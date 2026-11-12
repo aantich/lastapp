@@ -124,14 +124,14 @@ test("OIDC user without grants cannot administer the platform; CSRF and stale re
   });
   expect(denied).toBe(403);
   const supergrants = await (
-    await page.request.get("/admin/v1/access-grants")
+    await page.request.get("/admin/v1/role-assignments")
   ).json();
   const own = supergrants.items.find((g: any) => g.user_id === me.id);
   expect(
     (
       await post(
         page,
-        "/admin/v1/access-grants/" + own.id,
+        "/admin/v1/role-assignments/" + own.id,
         undefined,
         "DELETE",
         own.revision,
@@ -179,19 +179,13 @@ test("management screens support existing database registration and Tenant acces
   const dbName = "ui_" + suffix;
   const password = randomBytes(24).toString("hex");
   const accountHost = process.env.CI ? "%" : "127.0.0.1";
-  const databaseArgs = process.env.CI ? ["--protocol=TCP","--host=127.0.0.1","--port=33317"] : ["--protocol=SOCKET","--socket=../../.local/mariadb.sock"];
-  execFileSync(
-    "mariadb",
-    [
-      "--no-defaults",
-      ...databaseArgs,
-      "-uroot",
-    ],
-    {
-      input: `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data (id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES (7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+  const databaseArgs = process.env.CI
+    ? ["--protocol=TCP", "--host=127.0.0.1", "--port=33317"]
+    : ["--protocol=SOCKET", "--socket=../../.local/mariadb.sock"];
+  execFileSync("mariadb", ["--no-defaults", ...databaseArgs, "-uroot"], {
+    input: `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data (id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES (7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   await login(page);
   const users = (await (await page.request.get("/admin/v1/users")).json())
     .items;
@@ -251,51 +245,167 @@ test("management screens support existing database registration and Tenant acces
     .getByRole("button", { name: "Access control", exact: true })
     .click();
   await page.getByRole("button", { name: "Roles", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Create role", exact: true }),
+  ).toHaveCount(0);
+  const resources = (
+    await (
+      await page.request.get(`/v1/tenants/${tenant}/database-resources`)
+    ).json()
+  ).items;
+  const space = crypto.randomUUID(),
+    app = crypto.randomUUID();
+  expect(
+    (
+      await post(page, `/v1/tenants/${tenant}/spaces`, {
+        id: space,
+        slug: "sales",
+        display_name: "Sales",
+        initial_manager_user_id: owner.id,
+        database: {
+          resource_id: resources.find((r: any) => r.database_name === dbName)
+            .id,
+        },
+      })
+    ).status,
+  ).toBe(201);
+  expect(
+    (
+      await post(page, `/v1/tenants/${tenant}/spaces/${space}/apps`, {
+        id: app,
+        slug: "crm",
+        display_name: "CRM",
+        initial_manager_user_id: owner.id,
+      })
+    ).status,
+  ).toBe(201);
+  await page.getByRole("button", { name: "Teams", exact: true }).click();
+  await page.getByRole("button", { name: "Create team", exact: true }).click();
+  let form = page.getByRole("form", { name: "Create team", exact: true });
+  await form.getByLabel("Name", { exact: true }).fill("Sales team");
+  await form.getByLabel("Slug", { exact: true }).fill("sales-team");
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Add team member", exact: true })
+    .click();
+  form = page.getByRole("form", { name: "Add team member", exact: true });
+  await form
+    .getByRole("combobox", { name: "Tenant member", exact: true })
+    .selectOption(outsider.id);
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(
+    page
+      .locator(".access-members")
+      .getByRole("row")
+      .filter({ hasText: "Outside user" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Assign role", exact: true }).click();
+  form = page.getByRole("form", { name: "Assign role", exact: true });
+  await form
+    .getByRole("combobox", { name: "Role", exact: true })
+    .selectOption("00000000-0000-4000-8000-000000000004");
+  await form
+    .getByRole("combobox", { name: "User", exact: true })
+    .selectOption(outsider.id);
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(
+    page.getByRole("row").filter({ hasText: "Team Reviewer" }),
+  ).toContainText("Outside user");
+  const member = page
+    .locator(".access-members")
+    .getByRole("row")
+    .filter({ hasText: "Outside user" });
+  await member.getByRole("button", { name: "Disable", exact: true }).click();
+  await expect(
+    member.getByRole("button", { name: "Enable", exact: true }),
+  ).toBeVisible();
+  await member.getByRole("button", { name: "Enable", exact: true }).click();
+  await expect(
+    member.getByRole("button", { name: "Disable", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".access-foundation > .tabs")
+    .getByRole("button", { name: "Spaces", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Space scope", exact: true })
+    .selectOption(space);
+  await page.getByRole("button", { name: "Roles", exact: true }).click();
   await page.getByRole("button", { name: "Create role", exact: true }).click();
-  await page.getByLabel("Name", { exact: true }).fill("Space observer");
-  await page.getByLabel("Code", { exact: true }).fill("space-observer");
-  await page.getByLabel("space.read", { exact: true }).check();
-  await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  form = page.getByRole("form", { name: "Create role", exact: true });
+  await form.getByLabel("Name", { exact: true }).fill("Space observer");
+  await form.getByLabel("Code", { exact: true }).fill("space-observer");
+  await expect(form.getByRole("checkbox")).toHaveCount(0);
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
   await expect(
     page.getByRole("row").filter({ hasText: "Space observer" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Groups", exact: true }).click();
-  await page.getByRole("button", { name: "Create group", exact: true }).click();
-  await page.getByLabel("Name", { exact: true }).fill("Sales team");
-  await page.getByLabel("Slug", { exact: true }).fill("sales-team");
-  await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const definitions = (
+    await (
+      await page.request.get(`/v1/tenants/${tenant}/spaces/${space}/roles`)
+    ).json()
+  ).items;
+  const custom = definitions.find((r: any) => r.code === "space-observer");
   await page
-    .getByRole("row")
-    .filter({ hasText: "Sales team" })
-    .getByRole("button", { name: "Add member" })
+    .getByRole("button", { name: "Role assignments", exact: true })
     .click();
-  await page
-    .getByLabel("Tenant member", { exact: true })
-    .selectOption(outsider.id);
-  await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Access grants", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Grant access", exact: true }).click();
-  await page
-    .getByLabel("Principal type", { exact: true })
-    .selectOption("group");
-  await page
-    .getByLabel("Group", { exact: true })
+  await page.getByRole("button", { name: "Assign role", exact: true }).click();
+  form = page.getByRole("form", { name: "Assign role", exact: true });
+  await form
+    .getByRole("combobox", { name: "Role", exact: true })
+    .selectOption(custom.id);
+  await form
+    .getByRole("combobox", { name: "Recipient type", exact: true })
+    .selectOption("team");
+  await form
+    .getByRole("combobox", { name: "Recipient team", exact: true })
     .selectOption({ label: "Sales team" });
-  await page
-    .getByLabel("Role", { exact: true })
-    .selectOption({ label: "Space observer" });
-  await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
   await expect(
     page.getByRole("row").filter({ hasText: "Sales team" }),
   ).toContainText("Space observer");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
   await page.screenshot({
-    path: "../../artifacts/admin-access.png",
+    path: "../../artifacts/foundation-space-roles.png",
+    fullPage: true,
+  });
+  await page
+    .locator(".access-foundation > .tabs")
+    .getByRole("button", { name: "Apps", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "App scope", exact: true })
+    .selectOption(app);
+  await page.getByRole("button", { name: "Roles", exact: true }).click();
+  await page.getByRole("button", { name: "Create role", exact: true }).click();
+  form = page.getByRole("form", { name: "Create role", exact: true });
+  await form.getByLabel("Name", { exact: true }).fill("Forecast analyst");
+  await form.getByLabel("Code", { exact: true }).fill("forecast-analyst");
+  await form.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(
+    page.getByRole("row").filter({ hasText: "Forecast analyst" }),
+  ).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.screenshot({
+    path: "../../artifacts/foundation-app-roles.png",
     fullPage: true,
   });
   await page.locator("#tenant-context").selectOption("");

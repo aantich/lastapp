@@ -5,9 +5,9 @@ import "context"
 // Explicit safe columns: never snapshot encrypted credential columns or sessions.
 func securitySnapshot(ctx context.Context, q Queryer, table, tenant, record string) (Row, error) {
 	columns := map[string]string{
-		"roles":         "id,display_name,state,revision",
+		"roles":         "id,tenant_id,space_id,app_id,scope_kind,domain,code,display_name,state,revision",
 		"groups":        "id,display_name,state,revision",
-		"access_grants": "id,tenant_id,kind,user_id,group_id,space_id,app_id,role_id,permission_code,revision",
+		"access_grants": "id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,revision",
 	}
 	where, args := "id=?", []any{record}
 	if tenant != "" {
@@ -19,7 +19,7 @@ func securitySnapshot(ctx context.Context, q Queryer, table, tenant, record stri
 		return nil, e
 	}
 	if table == "roles" {
-		ps, e := rows(ctx, q, "SELECT permission_code FROM role_permissions WHERE role_id=? ORDER BY permission_code", record)
+		ps, e := rows(ctx, q, "SELECT p.code AS permission_code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? ORDER BY p.code", record)
 		if e != nil {
 			return nil, e
 		}
