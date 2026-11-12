@@ -1,0 +1,132 @@
+/* Runtime design tokens. Components and Tailwind utilities share this contract. */
+:root {
+  color-scheme: light;
+  --ui-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ui-canvas: #ffffff;
+  --ui-surface: #ffffff;
+  --ui-subtle: #f6f7fb;
+  --ui-hover: #f8f9fc;
+  --ui-text: #4c4d5a;
+  --ui-muted: #737e8d;
+  --ui-faint: #929caa;
+  --ui-border: #e2e7ec;
+  --ui-sidebar: #f6f7fb;
+  --ui-sidebar-text: #6c757d;
+  --ui-sidebar-active: #eaecf3;
+  --ui-sidebar-active-text: #283a40;
+  --ui-primary: #4f7fb3;
+  --ui-primary-hover: #3b6696;
+  --ui-on-primary: #ffffff;
+  --ui-primary-soft: #edf2f8;
+  --ui-success: #367e68;
+  --ui-success-soft: #edf7f3;
+  --ui-warning: #946f24;
+  --ui-warning-soft: #fcf7e9;
+  --ui-danger: #b45d64;
+  --ui-danger-soft: #fcf0f1;
+  --ui-chart-primary: #4f7fb3;
+  --ui-chart-success: #6fbfa5;
+  --ui-chart-warning: #e6c06f;
+  --ui-chart-danger: #e38c8c;
+  --ui-radius: 4px;
+  --ui-card-border: dashed;
+  --ui-shadow: none;
+  --ui-button-shadow: 0 2px 3px rgb(34 40 50 / 7%);
+  --ui-overlay: rgb(23 30 42 / 36%);
+  --ui-sidebar-width: 244px;
+}
+
+:root[data-theme="studio"] {
+  --ui-canvas: #f6f7fb;
+  --ui-sidebar: #ffffff;
+  --ui-sidebar-active: #eeebfb;
+  --ui-sidebar-active-text: #6550aa;
+  --ui-primary: #7059b5;
+  --ui-primary-hover: #5e479d;
+  --ui-primary-soft: #f1edfa;
+  --ui-chart-primary: #8b78c5;
+  --ui-radius: 10px;
+  --ui-card-border: solid;
+  --ui-shadow: 0 3px 12px rgb(40 38 66 / 4%);
+}
+
+:root[data-theme="evergreen"] {
+  --ui-canvas: #f7f9f8;
+  --ui-sidebar: #edf3f0;
+  --ui-sidebar-active: #dce9e2;
+  --ui-sidebar-active-text: #2b5b48;
+  --ui-primary: #33775c;
+  --ui-primary-hover: #255d47;
+  --ui-primary-soft: #eaf3ee;
+  --ui-chart-primary: #54947b;
+  --ui-radius: 6px;
+  --ui-card-border: solid;
+}
+
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --ui-canvas: #17181e;
+  --ui-surface: #1e2028;
+  --ui-subtle: #252832;
+  --ui-hover: #272b36;
+  --ui-text: #d4d9e3;
+  --ui-muted: #a3adbd;
+  --ui-faint: #8d99ac;
+  --ui-border: #343944;
+  --ui-sidebar: #1d1f27;
+  --ui-sidebar-text: #a0aabc;
+  --ui-sidebar-active: #2b303d;
+  --ui-sidebar-active-text: #e0e7f1;
+  --ui-primary: #8bb3df;
+  --ui-primary-hover: #a3c6ed;
+  --ui-on-primary: #16283a;
+  --ui-primary-soft: #273647;
+  --ui-success: #8bd0b6;
+  --ui-success-soft: #223a33;
+  --ui-warning: #e4c176;
+  --ui-warning-soft: #3c3526;
+  --ui-danger: #eca1a8;
+  --ui-danger-soft: #402b32;
+  --ui-shadow: none;
+  --ui-button-shadow: none;
+  --ui-overlay: rgb(0 0 0 / 58%);
+}
+
+:root[data-theme="studio"][data-mode="dark"] {
+  --ui-primary: #b5a2ec;
+  --ui-primary-hover: #c8b9f6;
+  --ui-on-primary: #2c2145;
+  --ui-primary-soft: #342c47;
+  --ui-sidebar-active: #342c47;
+  --ui-sidebar-active-text: #d5c5fc;
+}
+
+:root[data-theme="evergreen"][data-mode="dark"] {
+  --ui-primary: #8bc9a8;
+  --ui-primary-hover: #a6dfc0;
+  --ui-on-primary: #173328;
+  --ui-primary-soft: #253c32;
+  --ui-sidebar-active: #253c32;
+  --ui-sidebar-active-text: #b6e0c9;
+}
+
+/* `inline` resolves the runtime variable on the element using the utility. */
+@theme inline {
+  --font-sans: var(--ui-font);
+  --color-canvas: var(--ui-canvas);
+  --color-surface: var(--ui-surface);
+  --color-subtle: var(--ui-subtle);
+  --color-ink: var(--ui-text);
+  --color-muted: var(--ui-muted);
+  --color-line: var(--ui-border);
+  --color-primary: var(--ui-primary);
+  --color-primary-soft: var(--ui-primary-soft);
+  --color-on-primary: var(--ui-on-primary);
+  --color-success: var(--ui-success);
+  --color-danger: var(--ui-danger);
+  --color-warning: var(--ui-warning);
+  --radius-panel: var(--ui-radius);
+  --shadow-panel: var(--ui-shadow);
+}
+
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));

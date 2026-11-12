@@ -2,19 +2,21 @@
 
 **Draft for Anton’s review — updated 12 November 2026**
 
-Lastapp is a framework for creating arbitrary business applications from a shared business entity backend and generated client code. A company organizes its data in Spaces and defines business-object APIs, rules and permissions in Apps. Many client micro-apps reuse those App APIs. The client software runs in the browser and can be distributed as files through static hosting and a CDN.
+The proposed [Space and authorization implementation plan](SPACE_AUTHORIZATION_PLAN.md) specifies the latest ownership and role model. Its implementation is pending approval; the current provisioning behavior is described separately in [PROVISIONING_PLAN.md](PROVISIONING_PLAN.md).
+
+Lastapp is a framework for creating arbitrary business applications from a shared business entity backend and generated client code. A company organizes its data in Spaces, which own reusable business-object APIs, rules and permissions. Apps inherit this backend and compose client micro-apps. Many client micro-apps reuse those App APIs. The client software runs in the browser and can be distributed as files through static hosting and a CDN.
 
 The central design principle is **a stable backend contract with freely programmable clients**. App authors and agents can generate executable UI, navigation, actions and computations without rebuilding the backend for every application. The framework should stay small enough that this flexibility does not require a proprietary UI language or a large application runtime.
 
 ## Requirements established in the discussion
 
 - A company is a Tenant. A Tenant contains Spaces; a Space contains Apps; an App contains client micro-apps.
-- A Space supplies a database binding. An App defines the business objects, rules, permissions, connectors and API exposed to its micro-apps.
+- A Space supplies a database binding and owns shared business objects, invariants, permissions and roles. Apps normally inherit these and expose client experiences; App extensions are advanced and bounded by Space authority.
 - Go is the selected backend language. The initial backend runs trusted platform code enforcing authentication, permissions and business rules; arbitrary generated backend code is outside the initial scope.
 - Apps are the logical units of backend deployment and scaling. Small Apps can share runtime containers; larger Apps can have dedicated containers and multiple replicas.
 - Database layout is configurable: Spaces may share a database within their Tenant or use separate databases, subject to configuration and subscription policy. Both managed database creation and registration of existing databases must be supported.
 - Initially, platform superadmins create Tenants; tenant administrators manage their own Spaces and Apps.
-- Identity and authorization are shared platform capabilities. Global users and Tenant-scoped memberships, teams, custom roles and grants live in shared system tables; each App runtime uses the same backend authorization implementation. Tenant creation adds rows, not another identity/permission schema.
+- Identity and authorization are shared platform capabilities. Global users, Tenant memberships, teams, fixed Tenant/team role definitions, Space/App custom roles and scoped assignments live in shared system tables; each App runtime uses the same backend authorization implementation. Tenant creation adds rows, not another identity/permission schema.
 - The framework will be open source.
 - Apps can address arbitrary business needs. CRM examples illustrate the model; they do not define its limits.
 - Client code is real executable code, with React and CSS as the initial UI direction. Tailwind is a possible styling tool.
@@ -32,13 +34,13 @@ The central design principle is **a stable backend contract with freely programm
 Tenant — a company
 └── Spaces
     └── Space
-        ├── Database binding and business data
-        ├── Space access boundary
+        ├── Database binding, entities, business rules and shared permissions
+        ├── Space roles and authoritative access boundary
         ├── Reusable external connections — proposed default scope
         └── Apps
             └── App
-                ├── Business objects, rules and permissions
-                ├── Connector bindings and backend API
+                ├── Inherited Space APIs and optional access restrictions
+                ├── Optional Space-authorized extensions and connector bindings
                 ├── Shared or dedicated backend placement
                 ├── Navigation and micro-app composition
                 ├── Shared design and component versions
@@ -49,16 +51,16 @@ Tenant — a company
 | Concept | Responsibility |
 |---|---|
 | Tenant | Company boundary, users, groups and administration |
-| Space | Database binding and access boundary within a Tenant |
-| App | Business object API, rules, permissions, connector bindings, backend placement and client micro-app composition |
+| Space | Database binding, shared entities, invariants, permissions, roles and access boundary |
+| App | Reuses the Space backend; owns client composition, connector bindings, serving placement and optional bounded extensions |
 | Micro-app | A focused client experience containing one or more pages, arbitrary code and any UI flow it needs |
 | Library | Reusable entity templates, component packages and versioned app or micro-app code |
 
-A team or group is a permission principal within a Tenant. It is not another mandatory level between Space and App. Users may belong to several groups.
+A team or group is a Tenant structure that can receive Space/App role assignments and can itself be the scope of a user’s fixed team role. It is not another mandatory level between Space and App. Users may belong to several groups.
 
-Built-in platform and Tenant administrator roles and Tenant custom roles use one authorization model. Roles bundle actions; scoped grants assign a role or direct permission to a user/team. The control plane initially supports Tenant, Space and App scopes. The business-object layer extends this same model to entities and records; placement of large record ACL datasets follows its query/storage design. See the [shared authorization plan](PROVISIONING_PLAN.md#shared-identity-and-authorization).
+Fixed platform, Tenant and team roles and Space/App custom business roles use one global authorization model. Role assignments have one scope. Space permissions and invariants apply across Apps; optional App permissions narrow the Space authority. Team roles can be referenced by business ACLs without copying role assignments into every App. See the proposed [Space and authorization plan](SPACE_AUTHORIZATION_PLAN.md).
 
-For example, a company could create a Sales Space backed by a database. A Sales Operations App exposes Company, Contact, Lead and Deal objects and contains lead qualification, deal review and forecasting micro-apps. Another App in that Space can bind to the same stored data. Definitions and invariants for shared data need coordination across the Apps that access it.
+For example, a company creates a Sales Space with Company, Contact, Lead and Deal entities and shared permissions. Sales Operations and Forecasting Apps both consume these same definitions, using focused micro-apps. Changes to the shared backend do not require duplicate entity/policy edits in each App.
 
 An App is one logical application with backend configuration and a collection of client micro-apps. This refinement does not introduce a second App hierarchy.
 
@@ -85,7 +87,7 @@ Browser App host
           └── Authorized integration requests → Connection service → External APIs
 ```
 
-These are responsibilities, not a requirement for separate services. Go is the backend implementation language. A common runtime loads versioned App definitions as data and can serve many Apps in a shared pool or one App in a dedicated pool. Dedicated pools can add replicas without changing the App API or its Space database binding.
+These are responsibilities, not a requirement for separate services. Go is the backend implementation language. A common runtime loads versioned Space definitions and App bindings as data and can serve many Apps in a shared pool or one App in a dedicated pool. Dedicated pools can add replicas without changing the App API or its Space database binding.
 
 A management service records App definitions and runtime placement. Containers serving business APIs do not need infrastructure provisioning privileges. The first implementation phase is the control plane described in the [provisioning plan](PROVISIONING_PLAN.md).
 
@@ -95,7 +97,7 @@ The host provides the same context and API contract to either execution mode. Th
 
 ### Entity definitions
 
-An App's backend definition declares entities, field types, validation, relationships, identifiers, business rules and access policies over its Space database binding. Reusable entity templates help tenants begin with common objects while allowing their own extensions. Rules that must hold for data shared across Apps require enforcement across every writing path.
+A Space's backend definition declares entities, field types, validation, relationships, identifiers, business rules and access policies over its database binding. Apps reuse these definitions by default; advanced App-owned entities are still registered and governed through the Space. Reusable entity templates help tenants begin with common objects while allowing their own extensions. Rules that must hold for data shared across Apps require enforcement across every writing path.
 
 **Working proposal:** use JSON Schema for data shape and validation, with a small, explicitly defined set of platform metadata for relationships, policy references and query capabilities. JSON Schema is a useful foundation for describing objects; it is not by itself the specification for storage mappings, permissions or business operations. [JSON Schema object reference](https://json-schema.org/understanding-json-schema/reference/object)
 
@@ -125,7 +127,7 @@ Search belongs behind the App API so clients can remain independent of the stora
 
 ### Permissions and backend rules
 
-ACL-based access uses the [shared authorization foundation](PROVISIONING_PLAN.md#shared-identity-and-authorization): roles bundle supported actions, and scoped grants assign a role or direct permission to a user/team. Initial management scopes follow Tenant → Space → App ancestry, with additive allows and default deny. Entity, record and field granularity and the installed App's capability limits remain to be defined with the business-object runtime. A separate policy language is not selected.
+ACL-based access extends the deployed provisioning foundation through the proposed [Space and authorization design](SPACE_AUTHORIZATION_PLAN.md). Tenant/team roles are platform-defined; Space/App business roles can be authored within their scope. Space policies reference ownership, team roles and explicit role assignments. Entity/record/field checks and optional App ceilings compile into the data operation; default deny and additive grants apply beneath mandatory guards. Large record-ACL datasets may live beside business records while identities and policy definitions remain centrally managed.
 
 The backend enforces every operation, including bulk requests. A hidden button or a client-side flow cannot authorize a mutation. Where Apps receive restricted capabilities, effective access is the intersection of the user’s permissions and the installed App’s grants.
 

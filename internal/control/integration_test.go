@@ -31,7 +31,7 @@ func (c testClient) req(method, path string, body any, revision int64) (int, Row
 	if revision > 0 {
 		r.Header.Set("If-Match", str(revision))
 	}
-	r.AddCookie(&http.Cookie{Name: "lastapp_session", Value: c.session})
+	r.AddCookie(&http.Cookie{Name: c.s.cookieName("lastapp_session"), Value: c.session})
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
 	var out Row
@@ -200,7 +200,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatal("disabled group retained access")
 	}
-	c.want("POST", base+"/roles", Row{"id": newID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 409)
+	c.want("POST", base+"/roles", Row{"id": newID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 400)
 	t.Log("scope filtering, stale revision, role isolation and group revocation passed")
 	// Existing registration validates grants and does not modify business tables.
 	var state struct {
@@ -228,10 +228,10 @@ func TestMariaDBControlPlane(t *testing.T) {
 		t.Fatal(e)
 	}
 	adminServer.DB.Exec("INSERT INTO `" + fixtureDB + "`.contacts VALUES (1,'Existing customer')")
-	if _, e = adminServer.DB.Exec("CREATE USER '" + fixtureDB + "'@'127.0.0.1' IDENTIFIED BY '" + state.Legacy + "'"); e != nil {
+	if _, e = adminServer.DB.Exec("CREATE USER '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY '" + state.Legacy + "'"); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = adminServer.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(fixtureDB, "_", `\_`) + "`.* TO '" + fixtureDB + "'@'127.0.0.1'"); e != nil {
+	if _, e = adminServer.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(fixtureDB, "_", `\_`) + "`.* TO '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
 		t.Fatal(e)
 	}
 	registered := newID()
@@ -284,7 +284,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	}
 	accountCollision := newID()
 	accountName := "la_" + strings.ReplaceAll(accountCollision, "-", "")
-	if _, e = adminServer.DB.Exec("CREATE USER '" + accountName + "'@'127.0.0.1' IDENTIFIED BY 'unrelated-account-password'"); e != nil {
+	if _, e = adminServer.DB.Exec("CREATE USER '" + accountName + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY 'unrelated-account-password'"); e != nil {
 		t.Fatal(e)
 	}
 	c.want("POST", base+"/database-resources", Row{"id": accountCollision, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)

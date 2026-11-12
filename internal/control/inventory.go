@@ -29,7 +29,7 @@ func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) err
 	args = append([]any{tenant}, args...)
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT sp.id,sp.tenant_id,sp.slug,sp.display_name,sp.database_resource_id,sp.database_layout,sp.state,sp.revision,sp.created_at,d.database_name,d.state AS database_state,(SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND "+filter+" ORDER BY sp.created_at DESC", args...)
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -146,7 +146,7 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error
 	}
 	v, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY a.created_at DESC", args...)
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -215,7 +215,7 @@ func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	v, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -244,6 +244,12 @@ func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	res := Resource{Tenant: tenant, Space: str(parent["space_id"]), App: app}
 	e = s.mutate(r.Context(), p, "microapp.manage", res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		if _, e := policyFor(r.Context(), tx, tenant); e != nil {
+			return e
+		}
+		if e := metadataQuota(r.Context(), tx, tenant, "microapp_installations"); e != nil {
+			return e
+		}
 		a, e := row(r.Context(), tx, "SELECT a.state,sp.state AS space_state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", app, tenant)
 		if e != nil {
 			return e
@@ -347,7 +353,11 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 			if *in.Compute != "shared" && *in.Compute != "dedicated" {
 				return bad("Invalid compute mode.")
 			}
-			if *in.Compute == "dedicated" {
+			var previous string
+			if e = tx.QueryRowContext(r.Context(), "SELECT compute_mode FROM apps WHERE id=? AND tenant_id=?", record, res.Tenant).Scan(&previous); e != nil {
+				return e
+			}
+			if *in.Compute == "dedicated" && previous != *in.Compute {
 				policy, e := policyFor(r.Context(), tx, res.Tenant)
 				if e != nil {
 					return e

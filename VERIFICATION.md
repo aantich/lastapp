@@ -48,3 +48,42 @@ The earlier standalone DDL validation report, [design/VALIDATION.md](design/VALI
 These checks verify the provisioning stage, not production load, multi-region operation, every external OIDC provider, or business-entity APIs. MariaDB 10.11 remains a compatibility-matrix task; the executed server version was 12.3.3. Automatic key rotation, large-directory console paging, production packaging/deployment and App scheduling are not claimed as implemented.
 
 Test-owned database resources, including intentional failures, are retained locally for inspection. Tests create isolated IDs/names and do not drop existing databases or user accounts. `make stop` stops services without deleting data.
+
+## Admin design and themes — 12 November 2026
+
+The Paces Neo-inspired redesign passes the frontend TypeScript/Vite production
+build and Go compilation through `make dev`. The final complete Chrome run
+passes **7/7 scenarios in 35.0 seconds**, using the existing local API, OIDC
+issuer and MariaDB. The original three provisioning/access scenarios still pass.
+The four additional scenarios verify:
+
+- Sidebar collapse/expand; actual light/dark surface changes; preset persistence
+  across reloads, tables and edit forms; reset; Escape and focus restoration.
+- System color-mode changes, preference synchronization between tabs and
+  recovery from invalid stored values.
+- Mobile workspace selection and navigation, theme controls, focus containment,
+  Enter-key navigation search, and no horizontal page overflow at 390px.
+- Console navigation and theme switching when browser storage throws.
+
+The authenticated appearance scenario also checks for browser console and
+uncaught page errors. The initial signed-out `/v1/me` probe intentionally returns
+401 and is outside its console-error assertion. Earlier checks caught and led
+to fixes for the radio hit area and Enter-key search reopening; screenshot and
+color assertions now account for finite CSS transitions.
+
+Desktop Neo, Studio dark forms and the mobile Evergreen dark appearance drawer
+were visually inspected. Additional local captures are in
+`artifacts/admin-neo-overview.png`, `artifacts/admin-studio-dark-form.png` and
+`artifacts/admin-mobile-appearance.png`. Design observations, raw local reference
+locations and theme extension instructions are recorded in
+[the design reference](design/references/paces-neo.md).
+
+This design pass changes the frontend and its documentation/tests. It does not
+rerun or relabel the earlier Go race/integration results above.
+
+
+## Security corrections — 12 November 2026
+
+All ten findings in the initial security review are corrected; see [the remediation and verification record](review/security-2026-11-12/FIXES.md). The existing registry is on migration 2. The full Go/API suite passes with `-race`; `go vet` passes; the TypeScript/Vite build passes; and the final Chrome run passes **9/9 scenarios in 34.2 seconds**, including server paging/search and Vite login plus authenticated writes. `govulncheck` reports no vulnerabilities after the go-jose patch, and all 42 driver snapshot hashes match.
+
+This supersedes the earlier limitations about unpaged collection loading and the latest-150-only audit view. Security regression fixtures are disposable and clean up only their own verified resources; the original integration/browser inspection fixtures retain their existing behavior. The new CI workflow is configured but has not been run remotely. Business-data policy enforcement and generated-app execution remain outside the provisioning phase; their required boundaries are recorded in the provisioning plan.

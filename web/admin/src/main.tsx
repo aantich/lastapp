@@ -25,8 +25,20 @@ import {
   MoreHorizontal,
   FolderOpen,
   KeyRound,
+  Menu,
+  Palette,
+  Moon,
+  Sun,
+  ChevronDown,
+  PanelLeftClose,
 } from "lucide-react";
 import "./style.css";
+import { api } from "./api";
+import { RemoteSelect } from "./remote-select";
+import { AppearancePanel, useAppearance, useDialogFocus } from "./appearance";
+import { OverviewDashboard } from "./dashboard";
+import { NavigationSearch } from "./navigation-search";
+import { readPreference, savePreference } from "./preferences";
 type Item = Record<string, any>;
 type Field = {
   key: string;
@@ -35,6 +47,7 @@ type Field = {
   options?: Item[];
   required?: boolean;
   hint?: string;
+  lookup?: string;
   value?: any;
 };
 type Modal = {
@@ -45,42 +58,6 @@ type Modal = {
   save: (v: Item) => Promise<any>;
   submit?: string;
 };
-class Failure extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-async function api(
-  path: string,
-  method = "GET",
-  body?: any,
-  revision?: number,
-) {
-  const csrf =
-    document.cookie
-      .split("; ")
-      .find((x) => x.startsWith("lastapp_csrf="))
-      ?.split("=")[1] || "";
-  const res = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": csrf,
-      ...(revision ? { "If-Match": String(revision) } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok)
-    throw new Failure(
-      res.status,
-      json.error?.message || `Request failed (${res.status})`,
-    );
-  return json;
-}
 const text = (v: any) => (v === null || v === undefined ? "—" : String(v));
 const short = (v: any) => String(v || "").slice(0, 8);
 const stateBadge = (v: any) => (
@@ -152,21 +129,19 @@ function FormModal({
   modal,
   close,
   done,
+  lookups,
 }: {
   modal: Modal;
   close: () => void;
   done: () => void;
+  lookups: Record<string, string>;
 }) {
   const [values, setValues] = useState<Item>(modal.initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) close();
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [busy, close]);
+  const dialogRef = useDialogFocus(() => {
+    if (!busy) close();
+  });
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -187,7 +162,9 @@ function FormModal({
       }}
     >
       <section
+        ref={dialogRef}
         className="modal"
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -256,6 +233,33 @@ function FormModal({
                       </label>
                     ))}
                   </div>
+                ) : f.type === "select" && (f.lookup || lookups[f.key]) ? (
+                  <RemoteSelect
+                    label={f.label}
+                    required={f.required}
+                    value={values[f.key] ?? ""}
+                    initial={(f.options || []).map((o) => ({
+                      value: o.value,
+                      label: o.label,
+                    }))}
+                    path={f.lookup || lookups[f.key]}
+                    valueKey={
+                      (f.lookup || lookups[f.key]).endsWith("memberships") ||
+                      (f.lookup || lookups[f.key]).endsWith("/members")
+                        ? "user_id"
+                        : "id"
+                    }
+                    labelKey={
+                      f.key === "resource_id" ? "database_name" : "display_name"
+                    }
+                    excludeInactive={[
+                      "user_id",
+                      "initial_admin_user_id",
+                    ].includes(f.key)}
+                    onChange={(value) =>
+                      setValues({ ...values, [f.key]: value })
+                    }
+                  />
                 ) : f.type === "select" ? (
                   <select
                     aria-label={f.label}
@@ -336,17 +340,41 @@ function FormModal({
   );
 }
 function App() {
+  const {
+    appearance,
+    setAppearance,
+    isDark,
+    reset: resetAppearance,
+  } = useAppearance();
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [navigationSearch, setNavigationSearch] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [mobile, setMobile] = useState(
+    () => matchMedia("(max-width: 800px)").matches,
+  );
+  const sidebarRef = useDialogFocus(
+    () => setNavigationOpen(false),
+    mobile && navigationOpen,
+  );
+  useEffect(() => {
+    const media = matchMedia("(max-width: 800px)");
+    const resize = () => {
+      setMobile(media.matches);
+      setNavigationOpen(false);
+    };
+    media.addEventListener("change", resize);
+    return () => media.removeEventListener("change", resize);
+  }, []);
   const [me, setMe] = useState<Item | null>(null),
     [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [tenants, setTenants] = useState<Item[]>([]),
     [plans, setPlans] = useState<Item[]>([]),
     [users, setUsers] = useState<Item[]>([]),
     [permissions, setPermissions] = useState<Item[]>([]);
-  const [tenant, setTenant] = useState(
-    localStorage.getItem("lastapp-tenant") || "",
-  );
-  const [page, setPage] = useState(
-    localStorage.getItem("lastapp-page") || "overview",
+  const [tenant, setTenant] = useState(() => readPreference("lastapp-tenant"));
+  const [page, setPage] = useState(() =>
+    readPreference("lastapp-page", "overview"),
   );
   const [caps, setCaps] = useState<Item>({});
   const [collection, setCollection] = useState<{ key: string; items: Item[] }>({
@@ -360,9 +388,17 @@ function App() {
     [toast, setToast] = useState(""),
     [search, setSearch] = useState(""),
     [tab, setTab] = useState("grants");
+  const [query,setQuery] = useState("");
+  useEffect(()=>{const timer=setTimeout(()=>setQuery(search),250);return ()=>clearTimeout(timer);},[search]);
+  const [recordPage, setRecordPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [tenantSearch, setTenantSearch] = useState("");
+  const [tenantPageNumber, setTenantPageNumber] = useState(1);
+  const [moreTenants, setMoreTenants] = useState(false);
   const [modal, setModal] = useState<Modal | null>(null),
     [reload, setReload] = useState(0);
-  const collectionKey = page + ":" + tenant + ":" + tab;
+  const collectionKey =
+    page + ":" + tenant + ":" + tab + ":" + recordPage + ":" + query;
   const data = collection.key === collectionKey ? collection.items : [];
   function setData(items: Item[]) {
     setCollection({ key: collectionKey, items });
@@ -378,16 +414,20 @@ function App() {
   const can = (permission: string) => platform || !!caps[permission]?.available;
   const all = (permission: string) => platform || !!caps[permission]?.all;
   function go(id: string) {
+    setRecordPage(1);
+    setNavigationOpen(false);
+    setNavigationSearch(false);
     setData([]);
     setPage(id);
-    localStorage.setItem("lastapp-page", id);
+    savePreference("lastapp-page", id);
     setSearch("");
     setError("");
   }
   function selectTenant(id: string) {
+    setRecordPage(1);
     setData([]);
     setTenant(id);
-    localStorage.setItem("lastapp-tenant", id);
+    savePreference("lastapp-tenant", id);
     if (
       id &&
       ["overview", "tenants", "targets", "plans", "users"].includes(page)
@@ -395,14 +435,38 @@ function App() {
       go("spaces");
     if (!id && tenantPage) go(platform ? "overview" : "spaces");
   }
+  useEffect(() => {
+    if (auth !== "in") return;
+    let active = true;
+    const timer = setTimeout(
+      () =>
+        api(
+          (platform ? "/admin/v1/tenants" : "/v1/my-tenants") +
+            `?page=${tenantPageNumber}&q=${encodeURIComponent(tenantSearch)}`,
+        )
+          .then((v) => {
+            if (active) {
+              setTenants(v.items);
+              setMoreTenants(!!v.pagination?.has_more);
+            }
+          })
+          .catch((e) => {
+            if (active) setError(e.message);
+          }),
+      200,
+    );
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [auth, platform, tenantSearch, tenantPageNumber]);
   async function loadGlobals() {
     const who = await api("/v1/me");
     setMe(who);
     setAuth("in");
     const [ts, ps, us, perms] = await Promise.all([
-      who.platform_admin
-        ? api("/admin/v1/tenants")
-        : Promise.resolve({ items: who.tenants }),
+      api((who.platform_admin ? "/admin/v1/tenants" : "/v1/my-tenants") +
+        `?page=${tenantPageNumber}&q=${encodeURIComponent(tenantSearch)}`),
       who.platform_admin
         ? api("/admin/v1/plans")
         : Promise.resolve({ items: [] }),
@@ -412,13 +476,14 @@ function App() {
       api("/v1/permissions"),
     ]);
     setTenants(ts.items);
+    setMoreTenants(!!ts.pagination?.has_more);
     setPlans(ps.items);
     setUsers(us.items);
     setPermissions(perms.items);
     if (!who.platform_admin && auth === "loading") go("spaces");
     if (
       !who.platform_admin &&
-      (!tenant || !ts.items.some((t: Item) => t.id === tenant)) &&
+      !tenant &&
       ts.items.length
     ) {
       setTenant(ts.items[0].id);
@@ -506,27 +571,19 @@ function App() {
             break;
           }
           path = base + "/" + (tab === "grants" ? "access-grants" : tab);
-          if (all("authorization.read")) {
-            const [roles, groups] = await Promise.all([
-              api(base + "/roles"),
-              api(base + "/groups"),
-            ]);
-            aux.roles = roles.items;
-            aux.groups = groups.items;
-          }
-          if (all("membership.read"))
-            aux.members = (await api(base + "/memberships")).items;
-          if (can("space.read"))
-            aux.spaces = (await api(base + "/spaces")).items;
-          if (can("app.read")) aux.apps = (await api(base + "/apps")).items;
           break;
         case "audit":
           path = tenant ? base + "/audit-events" : "/admin/v1/audit-events";
           break;
       }
       if (path) {
-        const v = await api(path);
-        if (active) setData(v.items);
+        const v = await api(
+          path + `?page=${recordPage}&q=${encodeURIComponent(query)}`,
+        );
+        if (active) {
+          setData(v.items);
+          setHasMore(!!v.pagination?.has_more);
+        }
       }
       if (active) {
         setSupport(aux);
@@ -543,7 +600,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [auth, page, tenant, tab, reload]);
+  }, [auth, page, tenant, tab, reload, recordPage, query]);
   useEffect(() => {
     if (
       auth !== "in" ||
@@ -596,7 +653,15 @@ function App() {
           required: true,
         },
       ],
-      save: (v) => api(resource, "PATCH", v, entity.revision),
+      save: (v) =>
+        api(
+          resource,
+          "PATCH",
+          Object.fromEntries(
+            Object.entries(v).filter(([key, value]) => value !== entity[key]),
+          ),
+          entity.revision,
+        ),
     });
   }
   async function create() {
@@ -610,8 +675,7 @@ function App() {
             initial: {
               ...init,
               plan_id: plans[0]?.id,
-              initial_admin_user_id:
-                users.find((u) => u.id === me?.id)?.id || users[0]?.id,
+              initial_admin_user_id: me?.id,
             },
             fields: [
               ...nameFields,
@@ -1231,12 +1295,7 @@ function App() {
         (page === "apps" &&
           (caps[managedPermission]?.spaces || []).length > 0) ||
         (page === "microapps" && can(managedPermission))));
-  const filtered = data.filter((d) =>
-    Object.values(d).some(
-      (v) =>
-        typeof v === "string" && v.toLowerCase().includes(search.toLowerCase()),
-    ),
-  );
+  const filtered = data;
   const visiblePages = pages.filter((p) =>
     p.platform
       ? platform
@@ -1445,7 +1504,7 @@ function App() {
                   setModal({
                     title: "Retire database resource?",
                     description:
-                      "This only retires an unbound registry entry. Physical data is preserved. Bound and default resources cannot be retired.",
+                      "This only retires an unbound registry entry. Physical data and database quota are retained. Bound and default resources cannot be retired.",
                     initial: {},
                     fields: [],
                     submit: "Retire resource",
@@ -1828,6 +1887,38 @@ function App() {
               "Members",
               (d) => (
                 <div className="wrap-tags">
+                  {d.members_count > d.members.length && (
+                    <button
+                      className="tiny"
+                      onClick={() =>
+                        setModal({
+                          title: `Remove member from ${d.display_name}`,
+                          initial: {},
+                          fields: [
+                            {
+                              key: "group_member",
+                              label: "Group member",
+                              type: "select",
+                              options: [],
+                              required: true,
+                              lookup: base + `/groups/${d.id}/members`,
+                            },
+                          ],
+                          save: (v) =>
+                            api(
+                              base +
+                                `/groups/${d.id}/members/${v.group_member}`,
+                              "DELETE",
+                              undefined,
+                              d.revision,
+                            ),
+                          submit: "Remove member",
+                        })
+                      }
+                    >
+                      Manage all {d.members_count} members
+                    </button>
+                  )}
                   {d.members.length
                     ? d.members.map((m: Item) => (
                         <span className="tag" key={m.user_id}>
@@ -1920,7 +2011,12 @@ function App() {
             App.
           </p>
           {error && <div className="error">{error}</div>}
-          <a className="primary" href="/auth/login">
+          <a
+            className="primary"
+            href={
+              "/auth/login?return_origin=" + encodeURIComponent(location.origin)
+            }
+          >
             Sign in to Lastapp <ArrowUpRight size={18} />
           </a>
           <small>Local development environment</small>
@@ -1951,21 +2047,83 @@ function App() {
     } as Item
   )[page];
   return (
-    <div className="shell">
-      <aside>
-        <a
-          className="brand"
-          onClick={() => go(platform ? "overview" : "spaces")}
-        >
-          <span className="brand-mark">
-            <Layers3 size={23} />
-          </span>
-          <b>
-            lastapp<span>CONTROL PLANE</span>
-          </b>
-        </a>
+    <div
+      className={
+        "shell" +
+        (sidebarCollapsed ? " sidebar-collapsed" : "") +
+        (navigationOpen ? " navigation-open" : "")
+      }
+    >
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
+      {mobile && navigationOpen && (
+        <div
+          className="navigation-backdrop"
+          onClick={() => setNavigationOpen(false)}
+        />
+      )}
+      <aside
+        className="sidebar"
+        id="main-navigation"
+        ref={sidebarRef}
+        inert={mobile && !navigationOpen}
+        role={mobile && navigationOpen ? "dialog" : undefined}
+        aria-modal={mobile && navigationOpen ? true : undefined}
+        aria-label="Main navigation"
+        tabIndex={-1}
+      >
+        <div className="brand-row">
+          <button
+            className="brand"
+            aria-label="Lastapp home"
+            onClick={() => go(platform ? "overview" : "spaces")}
+          >
+            <span className="brand-mark">
+              <Layers3 size={24} />
+            </span>
+            <b>
+              lastapp<span>CONTROL PLANE</span>
+            </b>
+          </button>
+          <button
+            className="icon sidebar-toggle"
+            aria-label={mobile ? "Close navigation" : "Collapse sidebar"}
+            onClick={() =>
+              mobile ? setNavigationOpen(false) : setSidebarCollapsed(true)
+            }
+          >
+            {mobile ? <X size={18} /> : <PanelLeftClose size={17} />}
+          </button>
+        </div>
         <div className="context-picker">
           <label htmlFor="tenant-context">WORKSPACE</label>
+          <input
+            aria-label="Search Tenants"
+            value={tenantSearch}
+            placeholder="Search Tenants…"
+            onChange={(e) => {
+              setTenantSearch(e.target.value);
+              setTenantPageNumber(1);
+            }}
+          />
+          <div className="lookup-controls">
+            <button
+              disabled={tenantPageNumber === 1}
+              onClick={() => setTenantPageNumber((p) => p - 1)}
+              aria-label="Previous Tenants"
+            >
+              Previous
+            </button>
+            <small>Page {tenantPageNumber}</small>
+            <button
+              disabled={!moreTenants}
+              onClick={() => setTenantPageNumber((p) => p + 1)}
+              aria-label="Next Tenants"
+            >
+              Next
+            </button>
+          </div>
           <select
             id="tenant-context"
             value={tenant}
@@ -1975,6 +2133,9 @@ function App() {
             {!platform && !tenants.length && (
               <option value="">No Tenant access</option>
             )}
+            {tenant && !tenants.some((t) => t.id === tenant) && (
+              <option value={tenant}>{tenant}</option>
+            )}
             {tenants.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.display_name}
@@ -1982,30 +2143,62 @@ function App() {
             ))}
           </select>
         </div>
-        <nav>
-          {visiblePages.map((p) => {
-            const Icon = p.icon;
-            const disabled =
-              !!p.permission && !["audit", "access"].includes(p.id) && !tenant;
-            return (
-              <button
-                key={p.id}
-                className={
-                  (page === p.id ? "selected " : "") +
-                  (disabled ? "nav-disabled" : "")
-                }
-                onClick={() => {
-                  if (disabled && tenants.length) {
-                    selectTenant(tenants[0].id);
-                  }
-                  go(p.id);
-                }}
-              >
-                <Icon size={18} />
-                <span>{p.label}</span>
-                {page === p.id && <i />}
-              </button>
+        <nav aria-label="Console screens">
+          {[
+            { label: "MAIN", ids: ["overview", "tenants"] },
+            {
+              label: "WORKSPACE",
+              ids: ["spaces", "apps", "microapps", "databases"],
+            },
+            {
+              label: "ADMINISTRATION",
+              ids: [
+                "memberships",
+                "access",
+                "targets",
+                "plans",
+                "users",
+                "audit",
+              ],
+            },
+          ].map((group) => {
+            const entries = visiblePages.filter((p) =>
+              group.ids.includes(p.id),
             );
+            return entries.length ? (
+              <div className="nav-group" key={group.label}>
+                <div className="nav-label">{group.label}</div>
+                {entries.map((p) => {
+                  const Icon = p.icon;
+                  const disabled =
+                    !!p.permission &&
+                    !["audit", "access"].includes(p.id) &&
+                    !tenant;
+                  return (
+                    <button
+                      key={p.id}
+                      className={
+                        (page === p.id ? "selected " : "") +
+                        (disabled ? "nav-disabled" : "")
+                      }
+                      aria-current={page === p.id ? "page" : undefined}
+                      title={p.label}
+                      onClick={() => {
+                        if (disabled && tenants.length)
+                          selectTenant(tenants[0].id);
+                        go(p.id);
+                      }}
+                    >
+                      <Icon size={19} />
+                      <span>{p.label}</span>
+                      {page === p.id && (
+                        <ChevronRight size={14} className="nav-chevron" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null;
           })}
         </nav>
         <div className="sidebar-bottom">
@@ -2013,17 +2206,93 @@ function App() {
             <i />
             Local development
           </span>
-          <div className="profile">
-            <span className="avatar person">{me?.display_name[0]}</span>
-            <div>
-              <strong>{me?.display_name}</strong>
-              <small>
-                {platform ? "Platform superadmin" : "Tenant member"}
-              </small>
+          <div className="sidebar-version">
+            Lastapp control plane <span>v0.1</span>
+          </div>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="icon menu-toggle"
+              aria-label={
+                mobile
+                  ? "Open navigation"
+                  : sidebarCollapsed
+                    ? "Expand sidebar"
+                    : "Collapse sidebar"
+              }
+              aria-controls="main-navigation"
+              aria-expanded={mobile ? navigationOpen : !sidebarCollapsed}
+              onClick={() =>
+                mobile
+                  ? setNavigationOpen(true)
+                  : setSidebarCollapsed(!sidebarCollapsed)
+              }
+            >
+              <Menu size={21} />
+            </button>
+            <button
+              className="quick-search"
+              aria-label="Quick navigation"
+              onClick={() => setNavigationSearch(true)}
+            >
+              <Search size={17} />
+              <span>Quick navigation…</span>
+              <kbd>⌕</kbd>
+            </button>
+            <span className="topbar-workspace">
+              {tenantPage
+                ? currentTenant?.display_name || "Choose a Tenant"
+                : "Platform workspace"}
+              <ChevronDown size={13} />
+            </span>
+          </div>
+          <div className="topbar-actions">
+            <button
+              className="icon mode-toggle"
+              aria-label={
+                isDark ? "Switch to light mode" : "Switch to dark mode"
+              }
+              title="Toggle color mode"
+              onClick={() =>
+                setAppearance({
+                  ...appearance,
+                  mode: isDark ? "light" : "dark",
+                })
+              }
+            >
+              {isDark ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <button
+              className="icon appearance-trigger"
+              aria-label="Customize appearance"
+              title="Customize appearance"
+              onClick={() => setAppearanceOpen(true)}
+            >
+              <Palette size={20} />
+              <span className="settings-dot" />
+            </button>
+            <div className="topbar-profile">
+              <span className="avatar person">
+                {me?.display_name
+                  ?.split(" ")
+                  .map((part: string) => part[0])
+                  .slice(0, 2)
+                  .join("")}
+              </span>
+              <div>
+                <strong>{me?.display_name}</strong>
+                <small>
+                  {platform ? "Platform superadmin" : "Tenant member"}
+                </small>
+              </div>
             </div>
             <button
               className="icon"
               aria-label="Sign out"
+              title="Sign out"
               onClick={() =>
                 api("/auth/logout", "POST", {}).then(() => {
                   setAuth("out");
@@ -2031,33 +2300,27 @@ function App() {
                 })
               }
             >
-              <LogOut size={16} />
+              <LogOut size={17} />
             </button>
           </div>
-        </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div>
-            <span>
-              {tenantPage
-                ? currentTenant?.display_name || "Choose a Tenant"
-                : "Platform"}
-            </span>
-            <ChevronRight size={13} />
-            <strong>{pageInfo.label}</strong>
-          </div>
-          <span className="version">
-            Lastapp <span>v0.1</span>
-          </span>
         </header>
-        <section className="content">
+        <section className="content" id="main-content" tabIndex={-1}>
+          <div className="page-title-row">
+            <h1>{pageInfo.label}</h1>
+            <div className="breadcrumbs">
+              <span>Lastapp</span>
+              <ChevronRight size={12} />
+              <span>
+                {tenantPage
+                  ? currentTenant?.display_name || "Workspace"
+                  : "Platform"}
+              </span>
+              <ChevronRight size={12} />
+              <span>{pageInfo.label}</span>
+            </div>
+          </div>
           <div className="heading">
             <div>
-              <div className="eyebrow">
-                {tenantPage ? "TENANT WORKSPACE" : "PLATFORM MANAGEMENT"}
-              </div>
-              <h1>{pageInfo.label}</h1>
               <p>{subtitle}</p>
             </div>
             <div className="heading-actions">
@@ -2136,141 +2399,16 @@ function App() {
               )}
             </div>
           ) : page === "overview" ? (
-            <>
-              <div className="stats">
-                {[
-                  {
-                    key: "tenants",
-                    label: "Tenants",
-                    icon: Building2,
-                    page: "tenants",
-                  },
-                  {
-                    key: "spaces",
-                    label: "Spaces",
-                    icon: FolderOpen,
-                    page: "spaces",
-                  },
-                  { key: "apps", label: "Apps", icon: AppWindow, page: "apps" },
-                  {
-                    key: "database_resources",
-                    label: "Databases",
-                    icon: Database,
-                    page: "databases",
-                  },
-                ].map(({ key, label, icon: Icon, page: dest }) => (
-                  <button
-                    className="stat"
-                    key={key}
-                    onClick={() => {
-                      if (dest !== "tenants" && !tenant && tenants.length)
-                        selectTenant(tenants[0].id);
-                      go(dest);
-                    }}
-                  >
-                    <span>
-                      {label}
-                      <Icon size={18} />
-                    </span>
-                    <strong>{overview[key] ?? "—"}</strong>
-                    <small>
-                      View {label.toLowerCase()} <ArrowUpRight size={13} />
-                    </small>
-                  </button>
-                ))}
-              </div>
-              <div className="overview-grid">
-                <section className="panel quick-start">
-                  <div className="panel-heading">
-                    <h2>Your next building block</h2>
-                    <span className="tag purple">Getting started</span>
-                  </div>
-                  <p>
-                    Start with a Tenant. Give it a Space, connect a database,
-                    then organize the Apps your teams will use.
-                  </p>
-                  <div className="hierarchy">
-                    <div>
-                      <Building2 size={19} />
-                      <b>Tenant</b>
-                      <small>The company</small>
-                    </div>
-                    <ChevronRight size={16} />
-                    <div>
-                      <FolderOpen size={19} />
-                      <b>Space</b>
-                      <small>Data & rules</small>
-                    </div>
-                    <ChevronRight size={16} />
-                    <div>
-                      <AppWindow size={19} />
-                      <b>App</b>
-                      <small>API & clients</small>
-                    </div>
-                  </div>
-                  <button className="text-button" onClick={() => go("tenants")}>
-                    Manage your Tenants <ArrowUpRight size={15} />
-                  </button>
-                </section>
-                <section className="panel health">
-                  <div className="panel-heading">
-                    <h2>Database health</h2>
-                    <Database size={18} />
-                  </div>
-                  {["ready", "pending", "provisioning", "failed"].map(
-                    (state) => (
-                      <div className="health-row" key={state}>
-                        {stateBadge(state)}
-                        <strong>
-                          {overview.database_states?.find(
-                            (s: Item) => s.state === state,
-                          )?.count || 0}
-                        </strong>
-                      </div>
-                    ),
-                  )}
-                </section>
-              </div>
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h2>Recent database resources</h2>
-                    <p>Provisioning status across the platform</p>
-                  </div>
-                  <span className="tag">Live updates</span>
-                </div>
-                {overview.recent_databases?.length ? (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Database</th>
-                          <th>Tenant</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {overview.recent_databases.map((d: Item) => (
-                          <tr key={d.id}>
-                            <td>
-                              <code>{d.database_name}</code>
-                            </td>
-                            <td>{d.tenant_name}</td>
-                            <td>{stateBadge(d.state)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="empty compact">
-                    <Database size={28} />
-                    <h3>No databases yet</h3>
-                    <p>Create your first Tenant and Space to provision one.</p>
-                  </div>
-                )}
-              </section>
-            </>
+            <OverviewDashboard
+              overview={overview}
+              name={me?.display_name || "there"}
+              refresh={() => setReload((v) => v + 1)}
+              navigate={(dest) => {
+                if (dest !== "tenants" && !tenant && tenants.length)
+                  selectTenant(tenants[0].id);
+                go(dest);
+              }}
+            />
           ) : (
             <section className="panel list-panel">
               {page === "access" && tenant && (
@@ -2282,6 +2420,7 @@ function App() {
                       onClick={() => {
                         setData([]);
                         setTab(t);
+                        setRecordPage(1);
                         setSearch("");
                       }}
                     >
@@ -2298,7 +2437,10 @@ function App() {
                   <input
                     aria-label="Search records"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {
+                      setRecordPage(1);
+                      setSearch(e.target.value);
+                    }}
                     placeholder={
                       "Search " +
                       (page === "access" ? tab : pageInfo.label.toLowerCase()) +
@@ -2357,23 +2499,56 @@ function App() {
                 </div>
               )}
               <div className="table-footer">
+                <span>All changes are recorded in Activity.</span>
                 <span>
-                  {page === "audit"
-                    ? "Latest 150 events"
-                    : "All changes are recorded in Activity."}
+                  <button
+                    disabled={loading || recordPage === 1}
+                    onClick={() => setRecordPage((p) => p - 1)}
+                  >
+                    Previous records
+                  </button>{" "}
+                  Page {recordPage}{" "}
+                  <button
+                    disabled={loading || !hasMore}
+                    onClick={() => setRecordPage((p) => p + 1)}
+                  >
+                    Next records
+                  </button>
                 </span>
-                <span>Lastapp control plane</span>
               </div>
             </section>
           )}
           <footer className="page-footer">
-            <span>
-              <Layers3 size={13} /> Built on a shared foundation.
-            </span>
+            <span>© {new Date().getFullYear()} Lastapp · Control plane</span>
             <span>Tenant → Space → App → micro-app</span>
           </footer>
         </section>
       </main>
+      {appearanceOpen && (
+        <AppearancePanel
+          value={appearance}
+          onChange={setAppearance}
+          reset={resetAppearance}
+          close={() => setAppearanceOpen(false)}
+        />
+      )}
+      {navigationSearch && (
+        <NavigationSearch
+          pages={visiblePages}
+          navigate={(id) => {
+            const destination = visiblePages.find((p) => p.id === id);
+            if (
+              destination?.permission &&
+              !["audit", "access"].includes(id) &&
+              !tenant &&
+              tenants.length
+            )
+              selectTenant(tenants[0].id);
+            go(id);
+          }}
+          close={() => setNavigationSearch(false)}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <Check size={17} />
@@ -2382,6 +2557,20 @@ function App() {
       )}
       {modal && (
         <FormModal
+          lookups={{
+            plan_id: "/admin/v1/plans",
+            initial_admin_user_id: "/admin/v1/users",
+            user_id:
+              tenant && page === "access"
+                ? base + "/memberships"
+                : "/admin/v1/users",
+            space_id: base + "/spaces",
+            app_id: base + "/apps",
+            resource_id: base + "/database-resources",
+            target_id: base + "/database-targets",
+            group_id: base + "/groups",
+            role_id: base + "/roles",
+          }}
           key={modal.title}
           modal={modal}
           close={() => setModal(null)}

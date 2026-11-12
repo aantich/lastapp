@@ -7,8 +7,8 @@ SET time_zone = '+00:00';
 
 CREATE TABLE users (
     id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    oidc_issuer VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
-    oidc_subject VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
+    oidc_issuer VARCHAR(255) COLLATE utf8mb4_nopad_bin NOT NULL,
+    oidc_subject VARCHAR(255) COLLATE utf8mb4_nopad_bin NOT NULL,
     display_name VARCHAR(160) NOT NULL,
     email VARCHAR(320) NULL,
     state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
@@ -337,6 +337,9 @@ CREATE TABLE access_grants (
     permission_code VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NULL,
     revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    equivalence_key VARCHAR(400) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS
+      (CONCAT_WS('|',kind,COALESCE(RTRIM(tenant_id),''),COALESCE(RTRIM(user_id),''),COALESCE(RTRIM(group_id),''),COALESCE(RTRIM(space_id),''),COALESCE(RTRIM(app_id),''),COALESCE(RTRIM(role_id),''),COALESCE(permission_code,''))) PERSISTENT,
+    UNIQUE KEY uq_grant_equivalence (equivalence_key),
     PRIMARY KEY (id),
     KEY ix_grants_user (user_id, tenant_id),
     KEY ix_grants_group (tenant_id, group_id),

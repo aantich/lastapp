@@ -178,16 +178,17 @@ test("management screens support existing database registration and Tenant acces
   const suffix = Date.now().toString();
   const dbName = "ui_" + suffix;
   const password = randomBytes(24).toString("hex");
+  const accountHost = process.env.CI ? "%" : "127.0.0.1";
+  const databaseArgs = process.env.CI ? ["--protocol=TCP","--host=127.0.0.1","--port=33317"] : ["--protocol=SOCKET","--socket=../../.local/mariadb.sock"];
   execFileSync(
     "mariadb",
     [
       "--no-defaults",
-      "--protocol=SOCKET",
-      "--socket=../../.local/mariadb.sock",
+      ...databaseArgs,
       "-uroot",
     ],
     {
-      input: `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data (id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES (7); CREATE USER '${dbName}'@'127.0.0.1' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'127.0.0.1';`,
+      input: `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data (id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES (7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
@@ -232,8 +233,7 @@ test("management screens support existing database registration and Tenant acces
     "mariadb",
     [
       "--no-defaults",
-      "--protocol=SOCKET",
-      "--socket=../../.local/mariadb.sock",
+      ...databaseArgs,
       "-uroot",
       "-N",
       "-e",

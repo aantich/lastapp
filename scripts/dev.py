@@ -57,6 +57,7 @@ def main():
  if configfile.exists():config=json.loads(configfile.read_text())
  else:
   config={'address':'127.0.0.1:8787','public_url':'http://127.0.0.1:8787','registry_dsn':f"lastapp_control:{state['registry_password']}@tcp(127.0.0.1:33317)/lastapp_control",'encryption_key':base64.b64encode(secrets.token_bytes(32)).decode(),'oidc_issuer':'http://127.0.0.1:8788','oidc_client_id':'lastapp-local','development':True,'allowed_networks':['127.0.0.0/8'],'runtime_account_host':'127.0.0.1'};write(configfile,json.dumps(config,indent=2))
+ config.setdefault('development_ui_origin','http://127.0.0.1:5173');write(configfile,json.dumps(config,indent=2))
  migrate=dict(config);migrate['registry_dsn']=f'root@unix({sock})/lastapp_control';write(LOCAL/'migrate.json',json.dumps(migrate));write(LOCAL/'provisioner.secret',state['provisioner_password'])
  if not args.skip_build:
   if not (ROOT/'web/admin/node_modules').exists():run(['npm','ci'],cwd=ROOT/'web/admin')

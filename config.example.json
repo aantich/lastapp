@@ -8,6 +8,7 @@
   "oidc_client_id": "REPLACE",
   "oidc_client_secret": "REPLACE",
   "development": false,
+  "app_origin": "https://apps.example.com",
   "allowed_networks": ["10.0.0.0/8"],
   "runtime_account_host": "%"
 }

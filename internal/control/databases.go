@@ -38,7 +38,7 @@ func (s *Server) targets(w http.ResponseWriter, r *http.Request, p Principal) er
 	}
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+targetColumns+" FROM database_targets ORDER BY display_name")
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -48,7 +48,7 @@ func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active' ORDER BY display_name")
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -191,7 +191,7 @@ func (s *Server) databases(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -226,6 +226,9 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 		return problem(403, "plan_restriction", "This database method is not included in the plan.")
 	}
 	if e := quota(ctx, tx, tenant, "database_resources", "max_databases", policy); e != nil {
+		return e
+	}
+	if e := pendingDatabaseQuota(ctx, tx, tenant); e != nil {
 		return e
 	}
 	target, e := row(ctx, tx, "SELECT state,managed_enabled FROM database_targets WHERE id=?", in.Target)
@@ -334,6 +337,11 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			}
 			next = "retired"
 		}
+		if next == "pending" {
+			if e := pendingDatabaseQuota(r.Context(), tx, tenant); e != nil {
+				return e
+			}
+		}
 		if in.Credentials != nil {
 			if str(old["management_mode"]) != "registered" || in.Credentials.Username == "" || in.Credentials.Password == "" {
 				return bad("Only registered database credentials can be replaced.")
@@ -412,4 +420,15 @@ func (s *Server) targetDB(ctx context.Context, target Row, cred credentials, nam
 		return nil, e
 	}
 	return db, nil
+}
+
+func pendingDatabaseQuota(ctx context.Context, q Queryer, tenant string) error {
+	var pending int
+	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_resources WHERE tenant_id=? AND state IN ('pending','provisioning')", tenant).Scan(&pending); e != nil {
+		return e
+	}
+	if pending >= 8 {
+		return problem(409, "pending_limit", "Wait for pending database requests before queuing more.")
+	}
+	return nil
 }

@@ -18,8 +18,12 @@ func (s *Server) api(pattern string, fn endpoint) {
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 		defer cancel()
+		ctx = context.WithValue(ctx, pageContextKey{}, &pageInfo{})
 		r = r.WithContext(ctx)
 		p, e := s.principal(ctx, r)
+		if e == nil {
+			e = s.limitRequest(w, p, r)
+		}
 		if e == nil && r.Method != "GET" && r.Method != "HEAD" {
 			e = s.csrf(ctx, r)
 		}
@@ -43,12 +47,12 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "login_url": "/auth/login"})
+		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf")})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
 	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p Principal) error {
-		c, _ := r.Cookie("lastapp_session")
+		c, _ := r.Cookie(s.cookieName("lastapp_session"))
 		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", hash(c.Value))
 		if e != nil {
 			return e
@@ -59,12 +63,19 @@ func (s *Server) Handler() http.Handler {
 		return nil
 	})
 	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p Principal) error {
-		ts, e := rows(r.Context(), s.DB, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+		ts, e := pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
 		if e != nil {
 			return e
 		}
-		send(w, 200, Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "tenants": ts})
+		send(w, 200, Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
 		return nil
+	})
+	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p Principal) error {
+		v, e := pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+		if e == nil {
+			sendPage(w, r, v)
+		}
+		return e
 	})
 	s.api("GET /v1/permissions", func(w http.ResponseWriter, r *http.Request, p Principal) error {
 		query := "SELECT code,kind,description FROM permissions"
@@ -73,7 +84,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		v, e := rows(r.Context(), s.DB, query+" ORDER BY kind,code")
 		if e == nil {
-			send(w, 200, Row{"items": v})
+			sendPage(w, r, v)
 		}
 		return e
 	})
@@ -112,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	s.api("GET /v1/tenants/{tenant}/groups", s.groups)
 	s.api("POST /v1/tenants/{tenant}/groups", s.createGroup)
 	s.api("PATCH /v1/tenants/{tenant}/groups/{id}", s.updateGroup)
+	s.api("GET /v1/tenants/{tenant}/groups/{id}/members", s.groupMembers)
 	s.api("POST /v1/tenants/{tenant}/groups/{id}/members", s.addGroupMember)
 	s.api("DELETE /v1/tenants/{tenant}/groups/{id}/members/{user}", s.removeGroupMember)
 	s.api("GET /v1/tenants/{tenant}/roles", s.roles)
@@ -173,17 +185,12 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principa
 			return e
 		}
 	}
-	ps, e := rows(r.Context(), s.DB, "SELECT code FROM permissions WHERE kind='tenant'")
+	scopes, e := s.effectiveScopes(r.Context(), s.DB, p, tenant)
 	if e != nil {
 		return e
 	}
 	out := Row{}
-	for _, v := range ps {
-		code := str(v["code"])
-		sc, e := s.scopes(r.Context(), s.DB, p, tenant, code)
-		if e != nil {
-			return e
-		}
+	for code, sc := range scopes {
 		out[code] = Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps) > 0, "spaces": sc.Spaces, "apps": sc.Apps}
 	}
 	send(w, 200, Row{"permissions": out})
@@ -229,9 +236,9 @@ func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) err
 		where = "a.tenant_id=?"
 		args = append(args, tenant)
 	}
-	v, e := rows(r.Context(), s.DB, "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,COALESCE(u.display_name,'System worker') AS actor_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC LIMIT 150", args...)
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,COALESCE(u.display_name,'System worker') AS actor_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }

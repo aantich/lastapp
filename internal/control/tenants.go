@@ -42,7 +42,7 @@ func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) erro
 	}
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+planColumns+" FROM plans ORDER BY display_name")
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -110,7 +110,7 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) erro
 	}
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at FROM users ORDER BY display_name")
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -164,7 +164,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 				return e
 			}
 		}
-		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"state": in.State})
+		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": old["state"]}, "after": Row{"state": in.State}})
 	})
 	if e != nil {
 		return e
@@ -180,7 +180,7 @@ func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) er
 	}
 	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
 	if e == nil {
-		send(w, 200, Row{"items": v})
+		sendPage(w, r, v)
 	}
 	return e
 }
@@ -314,7 +314,7 @@ func layoutAllowed(policy Row, layout string) error {
 	return problem(403, "plan_restriction", "This database layout is not permitted by the selected plan.")
 }
 func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
-	v, e := row(ctx, q, "SELECT p.*,t.state AS tenant_state,t.default_layout AS tenant_default_layout,t.default_shared_database_id FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=? FOR UPDATE", tenant)
+	v, e := row(ctx, q, "SELECT p.*,t.state AS tenant_state,t.default_layout AS tenant_default_layout,t.default_shared_database_id FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
 	if e != nil {
 		return nil, e
 	}
@@ -330,7 +330,7 @@ func quota(ctx context.Context, q Queryer, tenant, table, column string, policy 
 	var n int
 	state := "state<>'archived'"
 	if table == "database_resources" {
-		state = "state<>'retired'"
+		state = "1=1"
 	}
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE tenant_id=? AND "+state, tenant).Scan(&n); e != nil {
 		return e

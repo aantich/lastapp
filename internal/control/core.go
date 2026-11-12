@@ -34,20 +34,23 @@ const TenantAdminRole = "00000000-0000-4000-8000-000000000002"
 var migrationFiles embed.FS
 
 type Config struct {
-	Address            string   `json:"address"`
-	PublicURL          string   `json:"public_url"`
-	RegistryDSN        string   `json:"registry_dsn"`
-	EncryptionKey      string   `json:"encryption_key"`
-	EncryptionKeyID    string   `json:"encryption_key_id"`
-	OIDCIssuer         string   `json:"oidc_issuer"`
-	OIDCClientID       string   `json:"oidc_client_id"`
-	OIDCClientSecret   string   `json:"oidc_client_secret"`
-	Development        bool     `json:"development"`
-	AllowedNetworks    []string `json:"allowed_networks"`
-	RuntimeAccountHost string   `json:"runtime_account_host"`
+	DevelopmentUIOrigin string   `json:"development_ui_origin"`
+	AppOrigin           string   `json:"app_origin"`
+	Address             string   `json:"address"`
+	PublicURL           string   `json:"public_url"`
+	RegistryDSN         string   `json:"registry_dsn"`
+	EncryptionKey       string   `json:"encryption_key"`
+	EncryptionKeyID     string   `json:"encryption_key_id"`
+	OIDCIssuer          string   `json:"oidc_issuer"`
+	OIDCClientID        string   `json:"oidc_client_id"`
+	OIDCClientSecret    string   `json:"oidc_client_secret"`
+	Development         bool     `json:"development"`
+	AllowedNetworks     []string `json:"allowed_networks"`
+	RuntimeAccountHost  string   `json:"runtime_account_host"`
 }
 
 type Server struct {
+	limiter      requestLimiter
 	DB           *sql.DB
 	Config       Config
 	key          cipher.AEAD
@@ -83,9 +86,16 @@ func LoadConfig(path string) (Config, error) {
 	return c, e
 }
 func Open(c Config) (*Server, error) {
-	u, e := url.Parse(c.PublicURL)
-	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Path != "" {
-		return nil, fmt.Errorf("public_url must be an origin")
+	if !validOrigin(c.PublicURL, c.Development) {
+		return nil, fmt.Errorf("public_url must be an origin (loopback in development)")
+	}
+	if c.DevelopmentUIOrigin != "" && (!c.Development || !validOrigin(c.DevelopmentUIOrigin, true)) {
+		return nil, fmt.Errorf("development_ui_origin requires development mode and a loopback origin")
+	}
+	adminURL, _ := url.Parse(c.PublicURL)
+	appURL, _ := url.Parse(c.AppOrigin)
+	if c.AppOrigin != "" && (appURL == nil || strings.EqualFold(strings.TrimSuffix(appURL.Hostname(), "."), strings.TrimSuffix(adminURL.Hostname(), ".")) || !validOrigin(c.AppOrigin, false) || c.AppOrigin == c.PublicURL || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
+		return nil, fmt.Errorf("app_origin must be a separate secure origin")
 	}
 	host, _, e := net.SplitHostPort(c.Address)
 	if e != nil {
@@ -96,7 +106,7 @@ func Open(c Config) (*Server, error) {
 		if ip == nil || !ip.IsLoopback() {
 			return nil, fmt.Errorf("development mode must bind to a loopback IP")
 		}
-	} else if u.Scheme != "https" {
+	} else if !strings.HasPrefix(c.PublicURL, "https://") {
 		return nil, fmt.Errorf("production public_url requires HTTPS")
 	}
 	raw, e := base64.StdEncoding.DecodeString(c.EncryptionKey)
@@ -111,6 +121,9 @@ func Open(c Config) (*Server, error) {
 	}
 	if cfg.DBName == "" {
 		return nil, fmt.Errorf("registry database is required")
+	}
+	if e = registryTransport(cfg, c.Development); e != nil {
+		return nil, e
 	}
 	cfg.ParseTime = true
 	cfg.Loc = time.UTC
@@ -150,7 +163,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 }
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 1 {
+	if e != nil || v != 2 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	return nil
@@ -335,7 +348,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	if ae == nil {
 		ae = &APIError{500, "internal_error", "The operation failed. See the server log with this request ID."}
-		slog.Error("request failed", "request_id", r.Header.Get("X-Request-ID"), "error_type", fmt.Sprintf("%T", err))
+		slog.Error("request failed", append([]any{"request_id", r.Header.Get("X-Request-ID"), "operation", r.Method + " " + r.Pattern}, diagnostic(err)...)...)
 	}
 	send(w, ae.Status, Row{"error": Row{"code": ae.Code, "message": ae.Message, "request_id": r.Header.Get("X-Request-ID")}})
 }

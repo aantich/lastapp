@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	mariadb "github.com/aantich/go-mariadb"
 	"regexp"
 	"strconv"
@@ -18,7 +17,7 @@ import (
 func (s *Server) RunWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		if e := s.workerLeader(ctx); e != nil && ctx.Err() == nil {
-			s.Log.Warn("provisioning leader disconnected", "error_type", fmt.Sprintf("%T", e))
+			s.Log.Warn("provisioning leader disconnected", diagnostic(e)...)
 		}
 		select {
 		case <-ctx.Done():
@@ -45,8 +44,16 @@ func (s *Server) workerLeader(ctx context.Context) error {
 	if _, e = conn.ExecContext(ctx, "UPDATE database_resources SET state='pending',revision=revision+1 WHERE state='provisioning'"); e != nil {
 		return e
 	}
+	lastTenant := ""
+	cleanedAt := time.Time{}
 	for ctx.Err() == nil {
-		job, e := row(ctx, conn, "SELECT d.id,d.tenant_id FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY d.created_at,d.id LIMIT 1")
+		if time.Since(cleanedAt) > time.Minute {
+			if _, e = cleanupSessions(ctx, conn); e != nil {
+				return e
+			}
+			cleanedAt = time.Now()
+		}
+		job, e := nextJob(ctx, conn, lastTenant)
 		if e != nil {
 			var ae *APIError
 			if !errors.As(e, &ae) || ae.Status != 404 {
@@ -60,6 +67,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			continue
 		}
 		record, tenant := str(job["id"]), str(job["tenant_id"])
+		lastTenant = tenant
 		tx, e := conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if e != nil {
 			return e
@@ -84,6 +92,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		cancel()
 		code, message, state := "", "", "ready"
 		if err != nil {
+			s.Log.Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, diagnostic(err)...)...)
 			code, message = provisionError(err)
 			state = "failed"
 		}
@@ -249,6 +258,9 @@ func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required 
 		if e = rs.Scan(&grant); e != nil {
 			return e
 		}
+		if strings.Contains(grant, "WITH GRANT OPTION") {
+			return problem(400, "unsafe_grants", "Runtime credentials must not have GRANT OPTION.")
+		}
 		if strings.HasPrefix(grant, "GRANT USAGE ON *.* TO ") {
 			continue
 		}
@@ -302,4 +314,14 @@ func releasePinnedLock(conn *sql.Conn, name string) {
 	if e := conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", name).Scan(&released); e != nil || !released.Valid || released.Int64 != 1 {
 		conn.Raw(func(any) error { return driver.ErrBadConn })
 	}
+}
+
+// Round-robin Tenants, oldest job within each Tenant. A slow Tenant can consume
+// at most one 45-second attempt before another waiting Tenant gets a turn.
+func nextJob(ctx context.Context, q Queryer, lastTenant string) (Row, error) {
+	return row(ctx, q, "SELECT d.id,d.tenant_id FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
+}
+
+func cleanupSessions(ctx context.Context, q Queryer) (sql.Result, error) {
+	return q.ExecContext(ctx, "DELETE FROM sessions WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000")
 }

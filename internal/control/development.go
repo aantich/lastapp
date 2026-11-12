@@ -3,6 +3,9 @@ package control
 import (
 	"context"
 	"fmt"
+	mariadb "github.com/aantich/go-mariadb"
+	"net"
+	"strconv"
 )
 
 // SeedDevelopment is an explicit CLI-only fixture operation. It is never an HTTP route.
@@ -30,6 +33,13 @@ func (s *Server) SeedDevelopment(ctx context.Context, provisionerPassword string
 	if e != nil {
 		return e
 	}
-	_, e = s.DB.ExecContext(ctx, "INSERT INTO database_targets (id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES (?,?,'127.0.0.1',33317,'disabled',1,?) ON DUPLICATE KEY UPDATE provisioning_credentials_enc=VALUES(provisioning_credentials_enc)", target, "Local MariaDB", enc)
+	host, port := "127.0.0.1", 33317
+	if cfg, err := mariadb.ParseDSN(s.Config.RegistryDSN); err == nil && cfg.Net == "tcp" {
+		if h, p, err := net.SplitHostPort(cfg.Addr); err == nil {
+			host = h
+			port, _ = strconv.Atoi(p)
+		}
+	}
+	_, e = s.DB.ExecContext(ctx, "INSERT INTO database_targets (id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES (?,?,?,?,'disabled',1,?) ON DUPLICATE KEY UPDATE provisioning_credentials_enc=VALUES(provisioning_credentials_enc)", target, "Local MariaDB", host, port, enc)
 	return e
 }

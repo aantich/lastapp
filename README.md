@@ -76,6 +76,23 @@ The deployment encryption key is a base64 32-byte key. This first version uses o
 
 Implemented: centralized inventory, access management, plan quotas, lifecycle management, managed database provisioning, existing registration, retries/recovery, auditing and the admin UI.
 
-Later: business entity definitions/API compilation, entity/record/field ACLs, micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs support optional bounded offset pagination (`?page=1&limit=100`, limit at most 200), with scope predicates applied in SQL before pagination. The initial console loads complete metadata collections and filters them in the browser, with the latest 150 audit events; switch the console itself to paged loading before using it for large directories.
+Later: business entity definitions/API compilation, entity/record/field ACLs, micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs always return bounded pages (`?page=1&limit=100&q=search`, maximum limit 200) with `pagination: {page, limit, has_more}`. Scope predicates apply before search and pagination. The console pages and searches collections and selection lists on the server; audit history and group members are paged too.
 
 See [PROVISIONING_PLAN.md](PROVISIONING_PLAN.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md).
+
+## Admin themes
+
+The console defaults to a Paces Neo-inspired design: compact Inter typography,
+a pale grouped sidebar, a white workspace, blue accents and dashed card borders.
+Use the **palette icon** in the topbar to choose **Neo**, **Studio** or
+**Evergreen**, with **Light**, **Dark** or **System** color mode. Preferences are
+saved on this browser and apply across console screens and forms. Mobile has
+an offcanvas menu that includes the Tenant workspace selector.
+
+Themes use shared semantic CSS variables exposed through Tailwind 4 utilities;
+new components can use `bg-surface`, `text-ink`, `text-primary`, `border-line`
+and `rounded-panel` without choosing a fixed palette. See the
+[reference and theme extension guide](design/references/paces-neo.md).
+
+
+Security fixes and operating boundaries are recorded in [the remediation report](review/security-2026-11-12/FIXES.md). Run `make integration` for the API/security/browser suites. The local Vite UI on port 5173 is an explicit development-only origin; login returns there, and writes use the proxy. Production accepts only its configured admin origin and requires verified TLS for TCP registry connections.

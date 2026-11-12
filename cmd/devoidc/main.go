@@ -36,11 +36,18 @@ func encode(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncodin
 func main() {
 	address := flag.String("address", "127.0.0.1:8788", "loopback address")
 	origin := flag.String("app-origin", "http://127.0.0.1:8787", "allowed Lastapp origin")
+	devUI := flag.String("development-ui-origin", "http://127.0.0.1:5173", "allowed loopback development UI origin")
 	password := flag.String("password", "lastapp-local", "local-only demo password")
 	flag.Parse()
 	host, _, e := net.SplitHostPort(*address)
 	if e != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
 		log.Fatal("development issuer must bind to loopback")
+	}
+	for _, raw := range []string{*origin, *devUI} {
+		u, e := url.Parse(raw)
+		if e != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Scheme != "http" || net.ParseIP(u.Hostname()) == nil || !net.ParseIP(u.Hostname()).IsLoopback() {
+			log.Fatal("development origins must be HTTP loopback origins")
+		}
 	}
 	issuer := "http://" + *address
 	key, e := rsa.GenerateKey(rand.Reader, 2048)
@@ -68,7 +75,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+*origin+"; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+*origin+" "+*devUI+"; frame-ancestors 'none'")
 		if r.Method == "GET" {
 			page.Execute(w, nil)
 			return

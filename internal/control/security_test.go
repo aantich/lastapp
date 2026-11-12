@@ -1,0 +1,491 @@
+package control
+
+import (
+	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"github.com/pressly/goose/v3"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Regression tests for the ten independently reproduced security review findings.
+// They run against a disposable registry and remove only their own databases/users.
+func TestSecurityRegressions(t *testing.T) {
+	configPath := os.Getenv("LASTAPP_SECURITY_CONFIG")
+	if configPath == "" {
+		t.Skip("set LASTAPP_SECURITY_CONFIG to local .local/config.json")
+	}
+	source, e := LoadConfig(configPath)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !source.Development {
+		t.Fatal("review requires local development configuration")
+	}
+	adminCfg, e := LoadConfig(filepath.Join(filepath.Dir(configPath), "migrate.json"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	admin, e := Open(adminCfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { admin.DB.Close() })
+	registry := "lastapp_review_" + strings.ReplaceAll(newID(), "-", "")
+	if _, e = admin.DB.Exec("CREATE DATABASE `" + registry + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); e != nil {
+		t.Fatal(e)
+	}
+	cfg := source
+	slash := strings.LastIndex(adminCfg.RegistryDSN, "/")
+	cfg.RegistryDSN = adminCfg.RegistryDSN[:slash+1] + registry
+	s, e := Open(cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var cancel context.CancelFunc
+	var done chan struct{}
+	t.Cleanup(func() {
+		if cancel != nil {
+			cancel()
+			<-done
+		}
+		resources, _ := rows(context.Background(), s.DB, "SELECT id,database_name,LOWER(HEX(ownership_token)) AS ownership_hex FROM database_resources WHERE management_mode='managed'")
+		for _, r := range resources {
+			name := str(r["database_name"])
+			var comment string
+			admin.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment)
+			if generatedRE.MatchString(name) && comment == "lastapp:"+str(r["id"])+":"+str(r["ownership_hex"]) {
+				if _, err := admin.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
+					t.Error("review database cleanup failed", err)
+				}
+				if _, err := admin.DB.Exec("DROP USER IF EXISTS '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); err != nil {
+					t.Error("review account cleanup failed", err)
+				}
+			}
+		}
+		s.DB.Close()
+		if _, err := admin.DB.Exec("DROP DATABASE `" + registry + "`"); err != nil {
+			t.Error("review registry cleanup failed", err)
+		}
+	})
+	if e = Migrate(context.Background(), s.DB); e != nil {
+		t.Fatal(e)
+	}
+	var state struct {
+		Provisioner string `json:"provisioner_password"`
+	}
+	raw, e := os.ReadFile(filepath.Join(filepath.Dir(configPath), "state.json"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = json.Unmarshal(raw, &state); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.SeedDevelopment(context.Background(), state.Provisioner); e != nil {
+		t.Fatal(e)
+	}
+	h := s.Handler()
+	var operator, owner string
+	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='operator'").Scan(&operator)
+	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='tenant-admin'").Scan(&owner)
+	c := (testClient{t: t, s: s, h: h}).as(operator)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done = make(chan struct{})
+	go func() { defer close(done); s.RunWorker(ctx) }()
+
+	createTenant := func(plan string) string {
+		tenant := newID()
+		c.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "review-" + tenant, "display_name": "Disposable review Tenant", "plan_id": plan, "initial_admin_user_id": owner}, 0, 201)
+		return tenant
+	}
+	starter := "10000000-0000-4000-8000-000000000002"
+	development := "10000000-0000-4000-8000-000000000001"
+	target := "20000000-0000-4000-8000-000000000001"
+	t.Run("UpgradePreservesIdentitiesAndCoalescesGrants", func(t *testing.T) {
+		name := "lastapp_review_" + strings.ReplaceAll(newID(), "-", "")
+		if _, e := admin.DB.Exec("CREATE DATABASE `" + name + "`"); e != nil {
+			t.Fatal(e)
+		}
+		defer admin.DB.Exec("DROP DATABASE `" + name + "`")
+		oldCfg := cfg
+		slash := strings.LastIndex(adminCfg.RegistryDSN, "/")
+		oldCfg.RegistryDSN = adminCfg.RegistryDSN[:slash+1] + name
+		old, e := Open(oldCfg)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer old.DB.Close()
+		if e = goose.UpToContext(context.Background(), old.DB, "migrations", 1); e != nil {
+			t.Fatal(e)
+		}
+		user, e := old.Bootstrap(context.Background(), "https://upgrade.example", "immutable-subject", "Original", "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = old.DB.Exec("INSERT INTO access_grants (id,kind,user_id,role_id,role_owner_key) VALUES (?,'platform',?,?,'platform')", newID(), user, SuperRole); e != nil {
+			t.Fatal(e)
+		}
+		if e = Migrate(context.Background(), old.DB); e != nil {
+			t.Fatal(e)
+		}
+		var found string
+		var count int
+		if e = old.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject=?", "https://upgrade.example", "immutable-subject").Scan(&found); e != nil || found != user {
+			t.Fatal("upgrade changed identity", e)
+		}
+		if e = old.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE user_id=?", user).Scan(&count); e != nil || count != 1 {
+			t.Fatal("duplicate grants not coalesced", e)
+		}
+		if e = old.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE action='grant.coalesced'").Scan(&count); e != nil || count != 1 {
+			t.Fatal("deduplication lost audit evidence", e)
+		}
+		other, e := old.Bootstrap(context.Background(), "https://upgrade.example ", "immutable-subject", "Distinct", "")
+		if e != nil || other == user {
+			t.Fatal("issuer comparison still pads strings", e)
+		}
+	})
+	t.Run("MetadataCeilingsAndBoundedGroupMembers", func(t *testing.T) {
+		tenant := createTenant(development)
+		base := "/v1/tenants/" + tenant
+		group := newID()
+		c.want("POST", base+"/groups", Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
+		for i := 0; i < 12; i++ {
+			user := newID()
+			if _, e = s.DB.Exec("INSERT INTO users (id,oidc_issuer,oidc_subject,display_name) VALUES (?,?,?,?)", user, cfg.OIDCIssuer, user, fmt.Sprintf("Member %02d", i)); e != nil {
+				t.Fatal(e)
+			}
+			if _, e = s.DB.Exec("INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", tenant, user); e != nil {
+				t.Fatal(e)
+			}
+			if _, e = s.DB.Exec("INSERT INTO group_memberships (tenant_id,group_id,user_id) VALUES (?,?,?)", tenant, group, user); e != nil {
+				t.Fatal(e)
+			}
+		}
+		groups := c.want("GET", base+"/groups", nil, 0, 200)["items"].([]any)
+		g := groups[0].(map[string]any)
+		if len(g["members"].([]any)) != 10 || integer(g["members_count"]) != 12 {
+			t.Fatal("group preview unbounded", g)
+		}
+		later := c.want("GET", base+"/groups/"+group+"/members?page=2&limit=10", nil, 0, 200)["items"].([]any)
+		if len(later) != 2 {
+			t.Fatal("group member pagination incomplete", later)
+		}
+		for i := 1; i < metadataLimits["groups"]; i++ {
+			if _, e = s.DB.Exec("INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", newID(), tenant, fmt.Sprintf("group-%03d", i), "Bounded"); e != nil {
+				t.Fatal(e)
+			}
+		}
+		c.want("POST", base+"/groups", Row{"id": newID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
+	})
+	t.Run("SecurityRoleAuditHasBeforeAndAfter", func(t *testing.T) {
+		tenant := createTenant(development)
+		base := "/v1/tenants/" + tenant
+		role := newID()
+		c.want("POST", base+"/roles", Row{"id": role, "code": "audited", "display_name": "Audited", "permissions": []string{"app.read"}}, 0, 201)
+		c.want("PATCH", base+"/roles/"+role, Row{"state": "disabled", "permissions": []string{"space.read"}}, 1, 200)
+		var raw string
+		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='role.updated'", role).Scan(&raw); e != nil {
+			t.Fatal(e)
+		}
+		var details struct {
+			Before, After struct {
+				State       string
+				Permissions []string
+			}
+		}
+		if e = json.Unmarshal([]byte(raw), &details); e != nil || details.Before.State != "active" || details.After.State != "disabled" || strings.Join(details.Before.Permissions, ",") != "app.read" || strings.Join(details.After.Permissions, ",") != "space.read" {
+			t.Fatalf("role audit incomplete: %s", raw)
+		}
+	})
+	t.Run("ExpiredSessionsAreRemovedWithoutRevokingLiveSessions", func(t *testing.T) {
+		expired, live := token(32), token(32)
+		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,created_at,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)-INTERVAL 2 HOUR,UTC_TIMESTAMP(6)-INTERVAL 1 HOUR)", hash(expired), operator, hash(token(32))); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR)", hash(live), operator, hash(token(32))); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = cleanupSessions(context.Background(), s.DB); e != nil {
+			t.Fatal(e)
+		}
+		var count int
+		if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash=?", hash(expired)).Scan(&count); e != nil || count != 0 {
+			t.Fatal("expired session retained", e)
+		}
+		if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash=?", hash(live)).Scan(&count); e != nil || count != 1 {
+			t.Fatal("live session revoked", e)
+		}
+	})
+	t.Run("QueueFairness", func(t *testing.T) {
+		a, b := createTenant(development), createTenant(development)
+		if a > b {
+			a, b = b, a
+		}
+		// Paused worker eligibility is controlled by suspending these Tenants until
+		// both rows exist; selection itself runs in a transaction and rolls back.
+		tx, e := s.DB.BeginTx(context.Background(), nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer tx.Rollback()
+		for _, tenant := range []string{a, b} {
+			for i := 0; i < 2; i++ {
+				record := newID()
+				if _, e = tx.Exec("INSERT INTO database_resources (id,tenant_id,target_id,database_name,management_mode,layout,runtime_credentials_enc,ownership_token) VALUES (?,?,?,?,'managed','shared','test',RANDOM_BYTES(16))", record, tenant, target, "la_"+strings.ReplaceAll(record, "-", "")); e != nil {
+					t.Fatal(e)
+				}
+			}
+		}
+		first, e := nextJob(context.Background(), tx, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		next, e := nextJob(context.Background(), tx, str(first["tenant_id"]))
+		if e != nil || str(next["tenant_id"]) == str(first["tenant_id"]) {
+			t.Fatal("worker did not yield to another Tenant", e)
+		}
+	})
+	t.Run("ExactOIDCSubjectsRemainSeparate", func(t *testing.T) {
+		key, _ := rsa.GenerateKey(rand.Reader, 2048)
+		issuer, nonce := "", ""
+		encode := func(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
+		provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/.well-known/openid-configuration":
+				json.NewEncoder(w).Encode(Row{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}})
+			case "/jwks":
+				json.NewEncoder(w).Encode(Row{"keys": []any{Row{"kty": "RSA", "kid": "review", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
+			case "/token":
+				unsigned := encode(Row{"alg": "RS256", "kid": "review"}) + "." + encode(Row{"iss": issuer, "sub": "review-victim ", "aud": cfg.OIDCClientID, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "nonce": nonce, "name": "Distinct provider account"})
+				digest := sha256.Sum256([]byte(unsigned))
+				signature, _ := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+				json.NewEncoder(w).Encode(Row{"access_token": "review-access-token", "token_type": "Bearer", "expires_in": 60, "id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)})
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer provider.Close()
+		issuer = provider.URL
+		s.Config.OIDCIssuer = issuer
+		if e = s.InitAuth(context.Background()); e != nil {
+			t.Fatal(e)
+		}
+		victim, e := s.Bootstrap(context.Background(), issuer, "review-victim", "Original administrator", "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		start := httptest.NewRecorder()
+		h.ServeHTTP(start, httptest.NewRequest("GET", "/auth/login", nil))
+		dest, _ := url.Parse(start.Header().Get("Location"))
+		nonce = dest.Query().Get("nonce")
+		request := httptest.NewRequest("GET", "/auth/callback?code=review&state="+url.QueryEscape(dest.Query().Get("state")), nil)
+		for _, cookie := range start.Result().Cookies() {
+			request.AddCookie(cookie)
+		}
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, request)
+		if response.Code != 302 {
+			t.Fatalf("callback: %d %s", response.Code, response.Body.String())
+		}
+		meReq := httptest.NewRequest("GET", "/v1/me", nil)
+		for _, cookie := range response.Result().Cookies() {
+			meReq.AddCookie(cookie)
+		}
+		me := httptest.NewRecorder()
+		h.ServeHTTP(me, meReq)
+		var identity Row
+		json.Unmarshal(me.Body.Bytes(), &identity)
+		if str(identity["id"]) == victim || identity["platform_admin"] != false {
+			t.Fatalf("distinct signed identity inherited another account: %v", identity)
+		}
+	})
+	t.Run("RetainedDatabasesConsumeQuota", func(t *testing.T) {
+		tenant := createTenant(starter)
+		base := "/v1/tenants/" + tenant
+		tc := c.as(owner)
+		ids := []string{newID(), newID()}
+		tc.want("POST", base+"/database-resources", Row{"id": ids[0], "management_mode": "managed", "layout": "shared", "target_id": target}, 0, 202)
+		ready := tc.waitDB(tenant, ids[0], "ready")
+		tc.want("PATCH", base+"/database-resources/"+ids[0], Row{"state": "retired"}, integer(ready["revision"]), 202)
+		tc.want("POST", base+"/database-resources", Row{"id": ids[1], "management_mode": "managed", "layout": "shared", "target_id": target}, 0, 409)
+		var physical int
+		if e = admin.DB.QueryRow("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME IN (?,?)", "la_"+strings.ReplaceAll(ids[0], "-", ""), "la_"+strings.ReplaceAll(ids[1], "-", "")).Scan(&physical); e != nil || physical != 1 {
+			t.Fatalf("retirement released physical quota: count=%d error=%v", physical, e)
+		}
+
+	})
+	t.Run("ProductionRegistryRejectsPlaintextTCP", func(t *testing.T) {
+		production := source
+		production.Development = false
+		production.PublicURL = "https://review.example"
+		production.Address = "127.0.0.1:0"
+		opened, e := Open(production)
+		if e == nil {
+			opened.DB.Close()
+			t.Fatal("production accepted plaintext registry TCP")
+		}
+
+	})
+	t.Run("GlobalGrantOptionRejected", func(t *testing.T) {
+		name := "rv_" + strings.ReplaceAll(newID(), "-", "")
+		password := token(32)
+		if _, e = admin.DB.Exec("CREATE DATABASE `" + name + "`"); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = admin.DB.Exec("CREATE USER '" + name + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY '" + password + "'"); e != nil {
+			t.Fatal(e)
+		}
+		defer func() {
+			if _, err := admin.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
+				t.Error("review database cleanup failed", err)
+			}
+		}()
+		defer admin.DB.Exec("DROP USER '" + name + "'@'" + cfg.RuntimeAccountHost + "'")
+		if _, e = admin.DB.Exec("GRANT USAGE ON *.* TO '" + name + "'@'" + cfg.RuntimeAccountHost + "' WITH GRANT OPTION"); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = admin.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(name, "_", `\_`) + "`.* TO '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
+			t.Fatal(e)
+		}
+		targetRow, _ := row(context.Background(), s.DB, "SELECT * FROM database_targets WHERE id=?", target)
+		db, e := s.targetDB(context.Background(), targetRow, credentials{Username: name, Password: password}, name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer db.Close()
+		if e = validateRuntime(context.Background(), db, name, true); e == nil {
+			t.Fatal("global GRANT OPTION accepted")
+		}
+		if e = validateRuntime(context.Background(), db, name, false); e == nil {
+			t.Fatal("registered account grant authority accepted")
+		}
+		if _, e = admin.DB.Exec("REVOKE GRANT OPTION ON *.* FROM '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
+			t.Fatal(e)
+		}
+		if e = validateRuntime(context.Background(), db, name, true); e != nil {
+			t.Fatal("safe CRUD rejected", e)
+		}
+	})
+	t.Run("GrantAuditRetainsPrincipalAndScope", func(t *testing.T) {
+		tenant := createTenant(development)
+		base := "/v1/tenants/" + tenant
+		grant := newID()
+		c.want("POST", base+"/access-grants", Row{"id": grant, "user_id": owner, "permission_code": "space.read"}, 0, 201)
+		c.want("DELETE", base+"/access-grants/"+grant, nil, 1, 200)
+		var details string
+		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='grant.deleted'", grant).Scan(&details); e != nil {
+			t.Fatal(e)
+		}
+		var change struct {
+			Before struct {
+				User       string `json:"user_id"`
+				Permission string `json:"permission_code"`
+			}
+			After any
+		}
+		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != owner || change.Before.Permission != "space.read" || change.After != nil {
+			t.Fatalf("incomplete revocation audit: %s", details)
+		}
+	})
+	t.Run("IndependentTenantsDoNotLockSharedPlans", func(t *testing.T) {
+		first, second := createTenant(development), createTenant(development)
+		tx, e := s.DB.BeginTx(context.Background(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer tx.Rollback()
+		if _, e = policyFor(context.Background(), tx, first); e != nil {
+			t.Fatal(e)
+		}
+		other, e := s.DB.BeginTx(context.Background(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer other.Rollback()
+		short, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		_, e = policyFor(short, other, second)
+		if e != nil {
+			t.Fatal("unrelated Tenant allocation blocked", e)
+		}
+	})
+	t.Run("BoundedCollectionsAndUniqueGrants", func(t *testing.T) {
+		tenant := createTenant(development)
+		base := "/v1/tenants/" + tenant
+		c.want("POST", base+"/access-grants", Row{"id": newID(), "user_id": owner, "permission_code": "app.read"}, 0, 201)
+		c.want("POST", base+"/access-grants", Row{"id": newID(), "user_id": owner, "permission_code": "app.read"}, 0, 409)
+		// Legitimately distinct roles exercise paging beyond the default bound.
+		for i := 0; i < 105; i++ {
+			_, e = s.DB.Exec("INSERT INTO roles (id,tenant_id,owner_key,kind,code,display_name) VALUES (?,?,?,'tenant',?,?)", newID(), tenant, "t:"+tenant, fmt.Sprintf("paged-%03d", i), fmt.Sprintf("Paged %03d", i))
+			if e != nil {
+				t.Fatal(e)
+			}
+		}
+		first := c.want("GET", base+"/roles", nil, 0, 200)
+		second := c.want("GET", base+"/roles?page=2", nil, 0, 200)
+		if len(first["items"].([]any)) != 100 || first["pagination"].(map[string]any)["has_more"] != true || len(second["items"].([]any)) != 6 {
+			t.Fatalf("unbounded/incomplete pagination: %d %d", len(first["items"].([]any)), len(second["items"].([]any)))
+		}
+		found := c.want("GET", base+"/roles?q=Paged%20104", nil, 0, 200)["items"].([]any)
+		if len(found) != 1 {
+			t.Fatalf("search did not reach later pages: %v", found)
+		}
+
+	})
+	t.Run("DedicatedAppGrandfathering", func(t *testing.T) {
+		tenant := createTenant(development)
+		base := "/v1/tenants/" + tenant
+		space := newID()
+		c.want("POST", base+"/spaces", Row{"id": space, "slug": "review-space", "display_name": "Review", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		app := newID()
+		c.want("POST", base+"/spaces/"+space+"/apps", Row{"id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
+		current := c.want("GET", base, nil, 0, 200)
+		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"plan_id": starter}, integer(current["revision"]), 200)
+		c.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename", "compute_mode": "dedicated"}, 1, 200)
+		c.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename again"}, 2, 200)
+		c.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "shared"}, 3, 200)
+		c.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "dedicated"}, 4, 403)
+	})
+	t.Run("DisabledRoleCreation", func(t *testing.T) {
+		tenant := createTenant(development)
+		role := newID()
+		c.want("POST", "/v1/tenants/"+tenant+"/roles", Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled", "permissions": []string{"app.manage"}}, 0, 201)
+		var state string
+		if e = s.DB.QueryRow("SELECT state FROM roles WHERE id=?", role).Scan(&state); e != nil {
+			t.Fatal(e)
+		}
+		if state != "disabled" {
+			t.Fatalf("disabled role became %s", state)
+		}
+		c.want("POST", "/v1/tenants/"+tenant+"/roles", Row{"id": newID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
+	})
+	t.Run("SuspensionBlocksAllNewInventory", func(t *testing.T) {
+		tenant := createTenant(development)
+		base := "/v1/tenants/" + tenant
+		space, app := newID(), newID()
+		c.want("POST", base+"/spaces", Row{"id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		c.want("POST", base+"/spaces/"+space+"/apps", Row{"id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
+		current := c.want("GET", base, nil, 0, 200)
+		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"state": "suspended"}, integer(current["revision"]), 200)
+		c.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "still-created", "display_name": "Still created"}, 0, 409)
+		c.want("POST", base+"/spaces/"+space+"/apps", Row{"id": newID(), "slug": "blocked", "display_name": "Blocked"}, 0, 409)
+	})
+
+	fmt.Println("Review fixture registry and all its managed databases/accounts are removed by test cleanup.")
+}

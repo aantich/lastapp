@@ -1,0 +1,37 @@
+=== RUN   TestSecurityReviewProbes
+2026/11/12 09:13:02 OK   00001_control.sql (478.75ms)
+2026/11/12 09:13:02 goose: successfully migrated database to version: 1
+=== RUN   TestSecurityReviewProbes/OIDCSubjectPaddingMergesSuperadminIdentity
+    review_probe_test.go:166: CONFIRMED: signed subject 'review-victim ' received the original 'review-victim' superadmin session
+=== RUN   TestSecurityReviewProbes/RetirementBypassesPhysicalDatabaseQuota
+    review_probe_test.go:186: CONFIRMED: max_databases=1 allows two physical databases and accounts after retiring the first; the loop can repeat
+=== RUN   TestSecurityReviewProbes/ProductionRegistryAcceptsPlaintextTCP
+    review_probe_test.go:205: CONFIRMED: production configuration accepted an unencrypted TCP registry connection
+=== RUN   TestSecurityReviewProbes/GlobalUsageGrantOptionAccepted
+    review_probe_test.go:237: CONFIRMED: strict runtime validation accepted an account with global GRANT OPTION
+=== RUN   TestSecurityReviewProbes/GrantRevocationAuditLosesPrincipalAndScope
+    review_probe_test.go:252: CONFIRMED: revoked grant row is deleted and the audit retains neither principal nor permission nor scope
+=== RUN   TestSecurityReviewProbes/PlanAllocationLocksOtherTenants
+    review_probe_test.go:275: CONFIRMED: a plan-policy read held by one Tenant blocked another Tenant sharing that plan
+=== RUN   TestSecurityReviewProbes/UnboundedCollectionsAndDuplicateGrantInflation
+    review_probe_test.go:288: CONFIRMED: duplicate effective grants are accepted and default collection reads exceed the advertised optional 200-row bound
+=== RUN   TestSecurityReviewProbes/DedicatedAppGrandfatheringFailsOnUnchangedCompute
+    review_probe_test.go:301: CONFIRMED: the UI's unchanged dedicated-compute field prevents renaming a grandfathered App after downgrade
+=== RUN   TestSecurityReviewProbes/DisabledRoleCreationBecomesActive
+    review_probe_test.go:314: CONFIRMED: POST role with state=disabled silently creates an active role
+=== RUN   TestSecurityReviewProbes/SuperadminCreatesMicroappInSuspendedTenant
+    review_probe_test.go:326: CONFIRMED: suspended Tenant blocks new Apps but still permits new micro-app registrations through the superadmin path
+Review fixture registry and all its managed databases/accounts are removed by test cleanup.
+--- PASS: TestSecurityReviewProbes (3.48s)
+    --- PASS: TestSecurityReviewProbes/OIDCSubjectPaddingMergesSuperadminIdentity (0.08s)
+    --- PASS: TestSecurityReviewProbes/RetirementBypassesPhysicalDatabaseQuota (2.02s)
+    --- PASS: TestSecurityReviewProbes/ProductionRegistryAcceptsPlaintextTCP (0.00s)
+    --- PASS: TestSecurityReviewProbes/GlobalUsageGrantOptionAccepted (0.03s)
+    --- PASS: TestSecurityReviewProbes/GrantRevocationAuditLosesPrincipalAndScope (0.01s)
+    --- PASS: TestSecurityReviewProbes/PlanAllocationLocksOtherTenants (0.30s)
+    --- PASS: TestSecurityReviewProbes/UnboundedCollectionsAndDuplicateGrantInflation (0.18s)
+    --- PASS: TestSecurityReviewProbes/DedicatedAppGrandfatheringFailsOnUnchangedCompute (0.01s)
+    --- PASS: TestSecurityReviewProbes/DisabledRoleCreationBecomesActive (0.00s)
+    --- PASS: TestSecurityReviewProbes/SuperadminCreatesMicroappInSuspendedTenant (0.01s)
+PASS
+ok  	github.com/aantich/lastapp/internal/control	3.909s

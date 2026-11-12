@@ -25,6 +25,7 @@ type oidcAuth struct {
 	verifier *oidc.IDTokenVerifier
 }
 type loginFlow struct {
+	ReturnOrigin           string
 	State, Nonce, Verifier string
 	Issued                 int64
 }
@@ -37,24 +38,39 @@ func (s *Server) InitAuth(ctx context.Context) error {
 	if s.Config.OIDCIssuer == "" {
 		return fmt.Errorf("oidc_issuer is required")
 	}
-	if !s.Config.Development && !strings.HasPrefix(s.Config.OIDCIssuer, "https://") {
+	if !s.Config.Development && !secureEndpoint(s.Config.OIDCIssuer) {
 		return fmt.Errorf("OIDC issuer requires HTTPS")
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := s.oidcClient()
 	ctx = oidc.ClientContext(ctx, client)
 	provider, e := oidc.NewProvider(ctx, s.Config.OIDCIssuer)
 	if e != nil {
 		return fmt.Errorf("OIDC provider discovery failed: %w", e)
 	}
+	if !s.Config.Development {
+		var metadata struct {
+			Auth  string `json:"authorization_endpoint"`
+			Token string `json:"token_endpoint"`
+			JWKS  string `json:"jwks_uri"`
+		}
+		if e = provider.Claims(&metadata); e != nil || !secureEndpoint(metadata.Auth) || !secureEndpoint(metadata.Token) || !secureEndpoint(metadata.JWKS) {
+			return fmt.Errorf("OIDC endpoints must all use HTTPS")
+		}
+	}
 	s.auth = &oidcAuth{config: oauth2.Config{ClientID: s.Config.OIDCClientID, ClientSecret: s.Config.OIDCClientSecret, Endpoint: provider.Endpoint(), RedirectURL: s.Config.PublicURL + "/auth/callback", Scopes: []string{oidc.ScopeOpenID, "profile", "email"}}, verifier: provider.Verifier(&oidc.Config{ClientID: s.Config.OIDCClientID})}
 	return nil
 }
 func (s *Server) cookie(w http.ResponseWriter, name, value string, age int, httpOnly bool) {
-	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", MaxAge: age, HttpOnly: httpOnly, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName(name), Value: value, Path: "/", MaxAge: age, HttpOnly: httpOnly, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteLaxMode})
 }
 func hash(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	flow := loginFlow{State: token(32), Nonce: token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
+	origin := r.URL.Query().Get("return_origin")
+	if origin != "" && !s.allowedOrigin(origin) {
+		writeError(w, r, bad("Invalid return origin."))
+		return
+	}
+	flow := loginFlow{ReturnOrigin: origin, State: token(32), Nonce: token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
 	b, e := s.seal("oidc_flow", "browser", "", flow)
 	if e != nil {
 		writeError(w, r, e)
@@ -64,7 +80,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.auth.config.AuthCodeURL(flow.State, oidc.Nonce(flow.Nonce), oauth2.S256ChallengeOption(flow.Verifier)), http.StatusFound)
 }
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
-	cookie, e := r.Cookie("lastapp_flow")
+	cookie, e := r.Cookie(s.cookieName("lastapp_flow"))
 	if e != nil {
 		writeError(w, r, problem(400, "login_expired", "Start login again."))
 		return
@@ -78,7 +94,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	ctx = oidc.ClientContext(ctx, &http.Client{Timeout: 10 * time.Second})
+	ctx = oidc.ClientContext(ctx, s.oidcClient())
 	tok, e := s.auth.config.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(flow.Verifier))
 	if e != nil {
 		writeError(w, r, problem(401, "login_failed", "The identity provider rejected this login."))
@@ -102,7 +118,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if claims.Name == "" {
 		claims.Name = ident.Subject
 	}
-	if len(claims.Name) > 160 || len(claims.Email) > 320 || len(ident.Subject) > 255 {
+	if len(claims.Name) > 160 || len(claims.Email) > 320 || len(ident.Subject) > 255 || ident.Subject == "" || len(ident.Issuer) > 255 {
 		writeError(w, r, bad("Provider identity exceeds supported limits."))
 		return
 	}
@@ -140,11 +156,14 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cookie(w, "lastapp_session", session, 8*3600, true)
 	s.cookie(w, "lastapp_csrf", csrf, 8*3600, false)
-	http.Redirect(w, r, "/console/", http.StatusFound)
+	if flow.ReturnOrigin != "" && !s.allowedOrigin(flow.ReturnOrigin) {
+		flow.ReturnOrigin = ""
+	}
+	http.Redirect(w, r, flow.ReturnOrigin+"/console/", http.StatusFound)
 }
 func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, error) {
 	var p Principal
-	c, e := r.Cookie("lastapp_session")
+	c, e := r.Cookie(s.cookieName("lastapp_session"))
 	if e != nil {
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
@@ -159,10 +178,10 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 	return p, e
 }
 func (s *Server) csrf(ctx context.Context, r *http.Request) error {
-	if r.Header.Get("Origin") != s.Config.PublicURL {
+	if !s.allowedOrigin(r.Header.Get("Origin")) {
 		return problem(403, "invalid_origin", "Request origin is not allowed.")
 	}
-	cookie, e := r.Cookie("lastapp_session")
+	cookie, e := r.Cookie(s.cookieName("lastapp_session"))
 	if e != nil {
 		return problem(401, "unauthenticated", "Sign in to continue.")
 	}
@@ -200,6 +219,9 @@ func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant stri
 	return nil
 }
 func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, action string) (scopeSet, error) {
+	if !controlAction(action) {
+		return scopeSet{}, problem(403, "unknown_action", "Unsupported control-plane action.")
+	}
 	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
 		return scopeSet{}, e
@@ -210,32 +232,76 @@ func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, act
 	if e = s.member(ctx, q, p, tenant, false); e != nil {
 		return scopeSet{}, e
 	}
-	rs, e := rows(ctx, q, `SELECT g.space_id,g.app_id FROM access_grants g
+	p.Platform = false // global authority was rechecked above, inside the mutation transaction
+	all, e := s.effectiveScopes(ctx, q, p, tenant)
+	return all[action], e
+}
+
+func (s *Server) effectiveScopes(ctx context.Context, q Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
+	out := map[string]scopeSet{}
+	for _, code := range []string{"tenant.read", "tenant.manage", "membership.read", "membership.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read"} {
+		out[code] = scopeSet{All: p.Platform, Spaces: []string{}, Apps: []string{}}
+	}
+	if p.Platform {
+		return out, nil
+	}
+	rs, e := rows(ctx, q, `SELECT DISTINCT COALESCE(g.permission_code,rp.permission_code) AS code,g.space_id,g.app_id FROM access_grants g
  LEFT JOIN roles ro ON ro.id=g.role_id AND ro.state='active'
  LEFT JOIN role_permissions rp ON rp.role_id=ro.id
  LEFT JOIN groups team ON team.id=g.group_id AND team.state='active'
  WHERE g.tenant_id=? AND g.kind='tenant'
  AND (g.user_id=? OR (team.id IS NOT NULL AND EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.tenant_id=g.tenant_id AND gm.group_id=g.group_id AND gm.user_id=?)))
- AND ((g.role_id IS NULL AND g.permission_code=?) OR rp.permission_code=?)`, tenant, p.ID, p.ID, action, action)
+ AND (g.role_id IS NULL OR ro.id IS NOT NULL)`, tenant, p.ID, p.ID)
 	if e != nil {
-		return scopeSet{}, e
+		return nil, e
 	}
-	out := scopeSet{}
+	seen := map[string]bool{}
 	for _, r := range rs {
-		space, app := str(r["space_id"]), str(r["app_id"])
+		code, space, app := str(r["code"]), str(r["space_id"]), str(r["app_id"])
+		sc, ok := out[code]
+		if !ok {
+			continue
+		}
 		if space == "" && app == "" {
-			out.All = true
+			sc.All = true
 		}
-		if space != "" {
-			out.Spaces = append(out.Spaces, space)
+		key := code + "/" + space + "/" + app
+		if !seen[key] {
+			if space != "" {
+				sc.Spaces = append(sc.Spaces, space)
+			}
+			if app != "" {
+				sc.Apps = append(sc.Apps, app)
+			}
+			seen[key] = true
 		}
-		if app != "" {
-			out.Apps = append(out.Apps, app)
-		}
+		out[code] = sc
 	}
 	return out, nil
 }
+
 func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action string, res Resource, mutating bool) error {
+	// This is exclusively the inventory/control-plane policy boundary. Unknown
+	// domains fail closed even for superadmins; business APIs must use their own
+	// membership- and active-resource-bound policy, never this bypass.
+	if !controlAction(action) {
+		return problem(403, "unknown_action", "Unsupported control-plane action.")
+	}
+	if res.App != "" {
+		parent, e := row(ctx, q, "SELECT space_id FROM apps WHERE tenant_id=? AND id=?", res.Tenant, res.App)
+		if e != nil {
+			return e
+		}
+		if res.Space != "" && res.Space != str(parent["space_id"]) {
+			return missing()
+		}
+		res.Space = str(parent["space_id"])
+	}
+	if res.Space != "" {
+		if _, e := row(ctx, q, "SELECT id FROM spaces WHERE tenant_id=? AND id=?", res.Tenant, res.Space); e != nil {
+			return e
+		}
+	}
 	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
 		return e

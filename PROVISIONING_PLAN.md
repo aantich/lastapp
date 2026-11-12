@@ -2,6 +2,8 @@
 
 **Final proposal — updated 12 November 2026**
 
+The proposed next phase is [Space and authorization design](SPACE_AUTHORIZATION_PLAN.md), pending approval. It replaces this phase’s Tenant-owned custom-role model with fixed Tenant/team roles, Space/App-owned business roles and Space-owned entity definitions. This document continues to describe the delivered provisioning foundation.
+
 Build one Go application containing the management API, a provisioning worker and a small React administration console. One central MariaDB database records Tenants, Spaces, their databases, Apps and micro-app installations, together with shared identities and authorization metadata. Tenant business data stays in the databases bound to Spaces.
 
 An implemented local first slice is available; see [README.md](README.md) for startup and review instructions and [VERIFICATION.md](VERIFICATION.md) for executed checks.
@@ -92,7 +94,7 @@ Canonical endpoint/database pairs are unique, conservatively ignoring case in da
 
 Keep explicit fields for permitted shared/dedicated databases, managed/registered methods, default layout, dedicated compute, and optional limits on Spaces, Apps and databases. `NULL` means unlimited; zero forbids additional resources. A Tenant may select either layout when permitted and may mix layouts.
 
-Count non-archived Spaces/Apps and non-retired databases, including pending and failed reservations. Serialize creation on the Tenant row before checking usage. Reopening archived resources checks quotas again.
+Count non-archived Spaces/Apps and all retained database-resource records, including pending, failed and retired reservations. Retirement preserves physical resources and does not release database quota. Reclamation is an explicit operator operation outside tenant self-service. Serialize creation on the Tenant row before checking usage. Reopening archived resources checks quotas again.
 
 Plan edits and assignment changes affect new allocations and requested capability changes. Existing resources and already accepted provisioning requests continue; there is no automatic migration, deletion or downgrade sweep. If usage exceeds a new limit, additional allocations are blocked. An invalidated Tenant layout default falls back to the plan default. Existing resource retry does not consume another quota slot.
 
@@ -135,7 +137,7 @@ Database-resource status is the provisioning-status endpoint. There is no separa
 
 Clients generate a UUID once when creating an ID-bearing resource and keep it across retries. A duplicate ID returns `409` without creating anything; the console reads the existing authorized resource to reconcile a lost response. This guarantees no duplicate allocation for the same create ID without promising replay of an old response. Updates to versioned records use `PATCH` with `If-Match: <revision>`; stale revisions return `412`. Membership joins use their composite keys; editing a team's membership or a role's permission bundle checks/increments the parent revision.
 
-Tenant-scoped mutations run in short transactions: lock the Tenant, authorize against current membership/grants, check policy/parents/revision, write records and append audit. Lock the applicable plan while evaluating a new allocation. Authorization changes take that same Tenant lock, so revocation and mutation have a defined order. Use READ COMMITTED and a consistent Tenant-before-resource order; shared plan updates lock only the plan. Platform grant changes serialize on the protected superadmin role. Revocation affects subsequent authorization checks; it does not cancel already authorized external work. Never make target network calls while holding registry transaction locks. Scope every lookup to the authorized Tenant; return not-found for out-of-scope IDs.
+Tenant-scoped mutations run in short transactions: lock the Tenant, authorize against current membership/grants, check policy/parents/revision, write records and append audit. Read the applicable plan without an exclusive plan-row lock while evaluating a new allocation. Authorization changes take that same Tenant lock, so revocation and mutation have a defined order. Use READ COMMITTED and a consistent Tenant-before-resource order; shared plan updates lock only the plan. Platform grant changes serialize on the protected superadmin role. Revocation affects subsequent authorization checks; it does not cancel already authorized external work. Never make target network calls while holding registry transaction locks. Scope every lookup to the authorized Tenant; return not-found for out-of-scope IDs.
 
 ## Provisioning and recovery
 
@@ -209,3 +211,16 @@ Authorization cases must include cross-Tenant users/teams/roles/resources, role-
 Run migrations explicitly as a deployment task; replicas only check schema compatibility. MariaDB DDL can partially commit, so document migration recovery. The [validation report](design/VALIDATION.md) records the current SQL checks. MariaDB 10.11 is the proposed minimum and needs CI execution before support is declared; current local validation uses 12.3.3.
 
 Business-object execution/schema migration, App configuration publishing, artifact builds and browser runners, connector OAuth, compute scheduling, billing and physical purge follow later. The initial release remains a small, self-hostable provisioning application.
+
+
+### Security boundaries for the next phase
+
+The control-plane authorizer accepts only the fixed management action catalog. Unknown domains fail closed, including for superadmins. Business APIs must have a separate entry point that requires Tenant membership, resolves Space/App ownership on the server and enforces active Tenant/Space/App states. Reuse grant evaluation primitives; do not reuse the control-plane administrator bypass or Tenant-wide mutation lock for business-record writes.
+
+The admin origin serves trusted console code only. Generated apps and npm dependencies execute on separate hosts in isolated contexts with narrowly scoped, App-bound authority. `app_origin`, when configured, must use a different hostname from `public_url`; a different port on the same host does not isolate cookies. Production admin cookies use the `__Host-` prefix. App execution and its credential broker remain part of the later runtime phase.
+
+A Space owns the shared physical data schema, migrations and invariants. Apps refer to those definitions and expose selected APIs/views; separate App definitions cannot independently rewrite shared tables or weaken Space rules. The existing registry introduces no entity compiler or automatic business DDL.
+
+Operators register one canonical target per physical database server. DNS aliases must reuse that target ID; host strings are not proof of distinct servers. Current targets form the shared provisioning pool. Private/premium targets require explicit placement entitlements before they are offered; they are not implied by the current shared-pool API.
+
+Plan policy is read once inside each allocation transaction under READ COMMITTED. The Tenant row protects usage and quotas; shared plan rows are not exclusively locked. Metadata ceilings bound Tenant members (1,000), groups (200), group memberships (10,000), custom roles (200), grants (2,000) and micro-app registrations (1,000). At most eight database requests per Tenant may await provisioning. The local request limiter allows a 120-request burst and 20 requests/second per user and Tenant, per process. The single provisioning worker rotates between waiting Tenants and removes expired sessions in bounded batches; these are control-plane safeguards, not a claim of distributed runtime capacity.
