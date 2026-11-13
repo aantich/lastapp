@@ -1,6 +1,8 @@
 # Lastapp Space and Authorization Design
 
-**Foundation approved and implemented — 12 November 2026. Entity/ACL runtime and App SDK deferred.**
+**Foundation and initial entity/ACL runtime implemented — 12 November 2026.**
+
+The [entity design and implementation plan](ENTITY_DESIGN_IMPLEMENTATION_PLAN.md) governs the implemented entity stage, including its authoring contract, ACL semantics, publication and API. The [runtime guide](ENTITY_RUNTIME.md) records its actual API and supported boundaries. This refines the corresponding original proposals below.
 
 The implemented scope and exact management API are documented in [FOUNDATION.md](FOUNDATION.md). Following the discussion, this delivery covers global identities, memberships, teams, fixed administrative roles, scoped Space/App business-role definitions/assignments and the console. The entity policy language, authorized query compiler, record ACLs, App credentials/runner and SDK below remain later-stage design direction, to be finalized with their developer API before implementation.
 

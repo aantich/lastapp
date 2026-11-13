@@ -1,197 +1,65 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AppWindow,
-  Building2,
-  Check,
-  ChevronRight,
-  Database,
   FolderOpen,
-  Home,
-  Layers3,
-  LoaderCircle,
-  LogOut,
-  Menu,
-  Moon,
-  Palette,
+  Users,
+  ScrollText,
+  Settings,
   Plus,
   RefreshCw,
-  ScrollText,
-  Search,
-  Settings,
-  Sun,
-  Users,
-  X,
 } from "lucide-react";
 import { api } from "./api";
-import { AccessControl } from "./access-control";
-import { AppearancePanel, useAppearance, useDialogFocus } from "./appearance";
+import { EntityDesigner } from "./entity-designer/designer";
+import { AppDataAccess } from "./entity-designer/app-access";
+import { Collection } from "./collection";
+import { ConsoleShell } from "./console-shell";
+import { useConsoleURL } from "./console-url";
 import { FormModal, type Field, type Modal } from "./form-modal";
 import { PasswordScreen } from "./login";
+import { useAppearance } from "./appearance";
 import { RemoteSelect } from "./remote-select";
+import { AccessControl } from "./access-control";
+import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
-
-type Item = Record<string, any>;
-type Route = { page: string; space: string; app: string; tab: string };
-const homeRoute: Route = { page: "home", space: "", app: "", tab: "overview" };
-const nameFields: Field[] = [
+import {
+  nameFields,
+  stateOptions,
+  status as badge,
+  type Item,
+} from "./console-forms";
+const states = stateOptions;
+const editFields: Field[] = [
   { key: "display_name", label: "Name", required: true },
   {
-    key: "slug",
-    label: "Slug",
+    key: "state",
+    label: "Status",
+    type: "select",
+    options: states,
     required: true,
-    hint: "Lowercase letters, numbers and hyphens.",
   },
 ];
-const states = ["active", "suspended", "archived"].map((value) => ({
-  value,
-  label: value,
-}));
-const badge = (state: string) => (
-  <span className={"badge " + state}>
-    <i />
-    {state}
-  </span>
-);
+function computeField(dedicated: boolean): Field {
+  return {
+    key: "compute_mode",
+    label: "Compute preference",
+    type: "select",
+    required: true,
+    advanced: true,
+    options: [
+      { value: "shared", label: "Shared" },
+      ...(dedicated ? [{ value: "dedicated", label: "Dedicated" }] : []),
+    ],
+  };
+}
 const options = (items: Item[], key = "id", label = "display_name") =>
   items.map((x) => ({ value: x[key], label: x[label] }));
-const pages = [
-  { id: "home", label: "Home", icon: Home },
+const nav = [
+  { id: "apps", label: "Apps", icon: AppWindow },
   { id: "spaces", label: "Spaces", icon: FolderOpen },
   { id: "people", label: "People", icon: Users },
   { id: "activity", label: "Activity", icon: ScrollText },
   { id: "settings", label: "Settings", icon: Settings },
 ];
-
-// All Tenant collection screens share server search/paging and scope-filtered APIs.
-function Collection({
-  path,
-  reload,
-  columns,
-  actions,
-  empty = "No records yet.",
-}: {
-  path: string;
-  reload: number;
-  columns: [string, (row: Item) => ReactNode][];
-  actions?: (row: Item) => ReactNode;
-  empty?: string;
-}) {
-  const [items, setItems] = useState<Item[]>([]),
-    [query, setQuery] = useState(""),
-    [page, setPage] = useState(1),
-    [more, setMore] = useState(false),
-    [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
-  useEffect(() => {
-    setPage(1);
-    setQuery("");
-    setItems([]);
-  }, [path]);
-  useEffect(() => {
-    let live = true;
-    setLoading(true);
-    setError("");
-    const timer = setTimeout(() => {
-      api(
-        path +
-          (path.includes("?") ? "&" : "?") +
-          `page=${page}&q=${encodeURIComponent(query)}`,
-      )
-        .then((v) => {
-          if (live) {
-            setItems(v.items);
-            setMore(!!v.pagination?.has_more);
-          }
-        })
-        .catch((e) => {
-          if (live) setError(e.message);
-        })
-        .finally(() => {
-          if (live) setLoading(false);
-        });
-    }, 150);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [path, page, query, reload]);
-  return (
-    <section className="panel list-panel">
-      <div className="toolbar">
-        <label className="search">
-          <Search size={16} />
-          <input
-            aria-label="Search records"
-            placeholder="Search records…"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-        <span>{loading ? "Loading…" : `${items.length} records`}</span>
-      </div>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              {columns.map(([label]) => (
-                <th key={label}>{label}</th>
-              ))}
-              {actions && <th>Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row) => (
-              <tr key={row.id || row.user_id}>
-                {columns.map(([label, render]) => (
-                  <td key={label}>{render(row)}</td>
-                ))}
-                {actions && (
-                  <td>
-                    <div className="row-actions">{actions(row)}</div>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!loading && !items.length && (
-        <div className="empty">
-          <FolderOpen size={28} />
-          <p>{empty}</p>
-        </div>
-      )}
-      <div className="pagination">
-        <button
-          className="secondary"
-          aria-label="Previous records"
-          disabled={loading || page === 1}
-          onClick={() => setPage((p) => p - 1)}
-        >
-          Previous
-        </button>
-        <span>Page {page}</span>
-        <button
-          className="secondary"
-          aria-label="Next records"
-          disabled={loading || !more}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          Next
-        </button>
-      </div>
-    </section>
-  );
-}
-
 export function TenantWorkspace({
   me,
   appearanceControls,
@@ -203,76 +71,91 @@ export function TenantWorkspace({
   signOut: () => void;
   refreshMe: () => Promise<void>;
 }) {
-  const memberships: Item[] = me.tenants || [];
-  const [tenant, setTenant] = useState(() => {
-    const saved = readPreference("lastapp-tenant");
-    return memberships.some((t) => t.id === saved)
+  const memberships: Item[] = me.tenants || [],
+    [url, navigate] = useConsoleURL(),
+    parts = url.split("/").filter(Boolean);
+  const saved = readPreference("lastapp-tenant"),
+    fallback = memberships.some((t) => t.id === saved)
       ? saved
       : memberships[0]?.id || "";
-  });
-  const [route, setRoute] = useState<Route>(homeRoute);
+  const tenant = parts[1] === "tenants" ? parts[2] || "" : fallback,
+    base = "/v1/tenants/" + tenant;
   const [overview, setOverview] = useState<Item>({}),
     [caps, setCaps] = useState<Item>({}),
     [space, setSpace] = useState<Item>({}),
-    [app, setApp] = useState<Item>({});
-  const [reload, setReload] = useState(0),
-    [error, setError] = useState(""),
-    [toast, setToast] = useState("");
-  const [modal, setModal] = useState<Modal | null>(null);
-  const [appearanceOpen, setAppearanceOpen] = useState(false),
-    [navOpen, setNavOpen] = useState(false),
-    [collapsed, setCollapsed] = useState(false),
-    [mobile, setMobile] = useState(
-      () => matchMedia("(max-width: 800px)").matches,
-    );
-  const { appearance, setAppearance, isDark, reset } = appearanceControls;
-  const navRef = useDialogFocus(() => setNavOpen(false), mobile && navOpen);
-  const base = `/v1/tenants/${tenant}`,
-    profile = overview.tenant || {};
-  const contextKey = [
-    tenant,
-    route.page,
-    route.space,
-    route.app,
-    route.tab,
-  ].join(":");
-  const currentContext = useRef(contextKey);
-  currentContext.current = contextKey;
-  const all = (action: string) => !!caps[action]?.all;
-  const can = (action: string) => !!caps[action]?.available;
+    [app, setApp] = useState<Item>({}),
+    [reload, setReload] = useState(0),
+    [modal, setModal] = useState<Modal | null>(null),
+    [error, setError] = useState("");
+  const route = {
+    page: parts[1] === "account" ? "account" : parts[3] || "apps",
+    space:
+      parts[3] === "spaces"
+        ? parts[4] || ""
+        : parts[3] === "apps" && parts[4] && app.id === parts[4]
+          ? app.space_id || ""
+          : "",
+    app: parts[3] === "apps" ? parts[4] || "" : "",
+    tab:
+      parts[3] === "spaces" && parts[4]
+        ? parts[5] || "apps"
+        : parts[3] === "apps" && parts[4]
+          ? parts[5] || "microapps"
+          : parts[4] || "general",
+    team: parts[3] === "people" ? parts[5] || "" : "",
+  };
+  if (route.page === "spaces" && route.space) route.page = "space";
+  if (route.page === "apps" && route.app) route.page = "app";
+  const profile = overview.tenant || {},
+    contextKey = url,
+    currentContext = useRef(url);
+  currentContext.current = url;
+  const all = (action: string) => !!caps[action]?.all,
+    can = (action: string) => !!caps[action]?.available;
   const scoped = (action: string, spaceID = route.space, appID = route.app) =>
     all(action) ||
     (caps[action]?.spaces || []).includes(spaceID) ||
     (caps[action]?.apps || []).includes(appID);
   const refresh = () => setReload((r) => r + 1);
-  function go(page: string, values: Partial<Route> = {}) {
-    setRoute({ ...homeRoute, page, ...values });
+  function go(page: string, v: Partial<typeof route> = {}) {
+    if (page === "account") {
+      navigate("/console/account");
+      return;
+    }
+    const root = "/console/tenants/" + tenant;
+    const next =
+      page === "space"
+        ? `/spaces/${v.space || route.space}/${v.tab || "apps"}`
+        : page === "app"
+          ? `/apps/${v.app || route.app}/${v.tab || "microapps"}`
+          : page === "people"
+            ? `/people/${v.tab || (all("membership.read") ? "members" : "teams")}${v.team ? "/" + v.team : ""}`
+            : page === "settings"
+              ? `/settings/${v.tab || "general"}`
+              : "/" + page;
+    navigate(root + next);
+  }
+  function selectTenant(id: string) {
+    if (!id) return;
+    savePreference("lastapp-tenant", id);
+    navigate("/console/tenants/" + id + "/apps");
+  }
+  const openSpace = (r: Item) => go("space", { space: r.id }),
+    openApp = (r: Item) => go("app", { app: r.id });
+  useEffect(() => {
+    if (parts[1] !== "tenants" && parts[1] !== "account" && tenant)
+      navigate("/console/tenants/" + tenant + "/apps", true);
+  }, [url, tenant]);
+  useEffect(() => {
     setModal(null);
     setError("");
-    setNavOpen(false);
-  }
-  const openSpace = (row: Item) => go("space", { space: row.id });
-  const openApp = (row: Item) =>
-    go("app", { space: row.space_id, app: row.id });
-  function selectTenant(id: string) {
-    currentContext.current = "";
-    setTenant(id);
-    savePreference("lastapp-tenant", id);
+  }, [url]);
+  useEffect(() => {
     setOverview({});
     setCaps({});
     setSpace({});
     setApp({});
-    go("home");
-  }
-  useEffect(() => {
-    const media = matchMedia("(max-width: 800px)");
-    const change = () => {
-      setMobile(media.matches);
-      setNavOpen(false);
-    };
-    media.addEventListener("change", change);
-    return () => media.removeEventListener("change", change);
-  }, []);
+  }, [tenant]);
   useEffect(() => {
     if (!tenant) return;
     let live = true;
@@ -291,9 +174,6 @@ export function TenantWorkspace({
     };
   }, [tenant, reload]);
   useEffect(() => {
-    // Keep mounted editors and their revision snapshots during refreshes.
-    setSpace((old) => (old.id === route.space ? old : {}));
-    setApp((old) => (old.id === route.app ? old : {}));
     if (!tenant || !["space", "app"].includes(route.page)) return;
     let live = true;
     api(
@@ -320,18 +200,12 @@ export function TenantWorkspace({
     const timer = setInterval(refresh, 5000);
     return () => clearInterval(timer);
   }, [tenant, modal]);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
   function done() {
     setModal(null);
     refresh();
-    setToast("Changes saved successfully");
   }
   async function act(fn: () => Promise<any>) {
-    const started = contextKey;
+    const started = url;
     try {
       await fn();
       if (currentContext.current === started) done();
@@ -343,16 +217,7 @@ export function TenantWorkspace({
     row: Item,
     path: string,
     title: string,
-    fields: Field[] = [
-      { key: "display_name", label: "Name", required: true },
-      {
-        key: "state",
-        label: "State",
-        type: "select",
-        options: states,
-        required: true,
-      },
-    ],
+    fields: Field[] = editFields,
   ) {
     setModal({
       title,
@@ -381,14 +246,17 @@ export function TenantWorkspace({
       ]);
       if (currentContext.current !== started) return;
       setModal({
-        title: "Create a Space",
+        title: "Create Space",
+        submit: "Create Space",
         description:
           "A Space owns shared business objects, rules and a database.",
         initial: {
           id: crypto.randomUUID(),
           mode: profile.allow_managed_database ? "managed" : "existing",
-          layout: profile.allow_shared_database ? "shared" : "dedicated",
-          target_id: targets.items.find((t: Item) => t.managed_enabled)?.id,
+          layout:
+            profile.default_layout ||
+            (profile.allow_shared_database ? "shared" : "dedicated"),
+          target_id: "",
           initial_manager_user_id: me.id,
         },
         fields: [
@@ -397,6 +265,7 @@ export function TenantWorkspace({
             key: "initial_manager_user_id",
             label: "Initial Space manager",
             type: "select",
+            advanced: true,
             lookup: base + "/memberships",
             options: options(members.items, "user_id"),
             required: true,
@@ -404,6 +273,7 @@ export function TenantWorkspace({
           {
             key: "mode",
             label: "Database",
+            advanced: !!profile.allow_managed_database,
             type: "select",
             required: true,
             options: [
@@ -424,6 +294,7 @@ export function TenantWorkspace({
           {
             key: "layout",
             label: "New database layout",
+            advanced: true,
             type: "select",
             required: true,
             options: [
@@ -439,8 +310,9 @@ export function TenantWorkspace({
           {
             key: "target_id",
             label: "Managed database target",
+            advanced: true,
             type: "select",
-            lookup: base + "/database-targets",
+            lookup: base + "/database-targets?managed=true",
             options: options(
               targets.items.filter((t: Item) => t.managed_enabled),
             ),
@@ -469,38 +341,45 @@ export function TenantWorkspace({
   }
   function createApp() {
     setModal({
-      title: "Create an App",
-      description: `An App in ${space.display_name} reuses this Space's database and definitions.`,
+      title: "Create App",
+      submit: "Create App",
+      description: "The App reuses its Space’s database and definitions.",
       initial: {
         id: crypto.randomUUID(),
         initial_manager_user_id: me.id,
         compute_mode: "shared",
+        space_id: route.space,
       },
       fields: [
         ...nameFields,
+        ...(!route.space
+          ? [
+              {
+                key: "space_id",
+                label: "Space",
+                type: "select",
+                lookup: base + "/spaces",
+                required: true,
+              },
+            ]
+          : []),
         {
           key: "initial_manager_user_id",
           label: "Initial App manager",
-          type: all("membership.read") ? "select" : "text",
-          lookup: all("membership.read") ? base + "/memberships" : undefined,
+          advanced: true,
+          when: () => !!route.space,
+          type: "select",
+          options: [{ value: me.id, label: me.display_name }],
+          lookup: route.space
+            ? base + "/spaces/" + route.space + "/recipients"
+            : base + "/recipients",
           required: true,
           hint: "An active Tenant member.",
         },
-        {
-          key: "compute_mode",
-          label: "Compute preference",
-          type: "select",
-          required: true,
-          options: [
-            { value: "shared", label: "Shared" },
-            ...(profile.allow_dedicated_compute
-              ? [{ value: "dedicated", label: "Dedicated" }]
-              : []),
-          ],
-        },
+        computeField(!!profile.allow_dedicated_compute),
       ],
       save: (v) =>
-        api(base + `/spaces/${route.space}/apps`, "POST", {
+        api(base + `/spaces/${v.space_id || route.space}/apps`, "POST", {
           id: v.id,
           slug: v.slug,
           display_name: v.display_name,
@@ -511,64 +390,25 @@ export function TenantWorkspace({
   }
   function createMicro() {
     setModal({
-      title: "Register a micro-app",
+      title: "Add micro-app",
+      submit: "Add micro-app",
       description: "Record a client experience within this App.",
       initial: { id: crypto.randomUUID(), navigation_order: 0 },
       fields: [
         ...nameFields,
-        { key: "artifact_ref", label: "Artifact reference" },
-        { key: "navigation_order", label: "Navigation order", type: "number" },
+        { key: "artifact_ref", label: "Artifact reference", advanced: true },
+        {
+          key: "navigation_order",
+          label: "Navigation order",
+          type: "number",
+          advanced: true,
+        },
       ],
       save: (v) =>
         api(base + `/apps/${route.app}/microapps`, "POST", {
           ...v,
           navigation_order: Number(v.navigation_order),
         }),
-    });
-  }
-  function addMember() {
-    setModal({
-      title: "Add member",
-      description:
-        "Add an existing account by email or user ID. A platform administrator creates new global accounts and supplies their initial passwords.",
-      initial: { account_mode: "existing" },
-      fields: [
-        {
-          key: "account_mode",
-          label: "Account",
-          type: "select",
-          required: true,
-          options: [
-            { value: "existing", label: "Existing account by email" },
-            { value: "id", label: "Existing user by ID (including SSO)" },
-          ],
-        },
-        {
-          key: "user_id",
-          label: "User ID",
-          required: true,
-          when: (v) => v.account_mode === "id",
-        },
-        {
-          key: "email",
-          label: "Email",
-          type: "email",
-          required: true,
-          when: (v) => v.account_mode !== "id",
-        },
-      ],
-      save: (v) =>
-        api(
-          base + "/memberships",
-          "POST",
-          v.account_mode === "id"
-            ? { user_id: v.user_id }
-            : {
-                account: {
-                  email: v.email,
-                },
-              },
-        ),
     });
   }
   async function addDatabase() {
@@ -578,12 +418,15 @@ export function TenantWorkspace({
       if (currentContext.current !== started) return;
       setModal({
         title: "Add database",
+        submit: "Add database",
         initial: {
           id: crypto.randomUUID(),
           management_mode: profile.allow_managed_database
             ? "managed"
             : "registered",
-          layout: profile.allow_shared_database ? "shared" : "dedicated",
+          layout:
+            profile.default_layout ||
+            (profile.allow_shared_database ? "shared" : "dedicated"),
           target_id: targets.items[0]?.id,
         },
         fields: [
@@ -662,61 +505,33 @@ export function TenantWorkspace({
     }
   }
 
-  const nameColumn: [string, (r: Item) => ReactNode] = [
-    "Name",
-    (r) => (
-      <div className="entity">
-        <span className="avatar">
-          <FolderOpen size={17} />
-        </span>
-        <span>
-          <strong>{r.display_name}</strong>
-          <small>{r.slug || r.email}</small>
-        </span>
-      </div>
-    ),
-  ];
-  const statusColumn: [string, (r: Item) => ReactNode] = [
-    "Status",
-    (r) => badge(r.state),
-  ];
+  const nameColumn: [string, (r: Item) => any] = [
+      "Name",
+      (r) => <strong>{r.display_name}</strong>,
+    ],
+    statusColumn: [string, (r: Item) => any] = [
+      "Status",
+      (r) => badge(r.state),
+    ];
+  const detail = route.page === "space" ? space : app,
+    detailReady =
+      route.page === "space" ? space.id === route.space : app.id === route.app;
   const peopleTab =
-    route.tab === "overview"
+    route.tab === "general"
       ? all("membership.read")
         ? "members"
         : "teams"
       : route.tab;
-  const settingsTab = route.tab === "overview" ? "general" : route.tab;
-  const detail = route.page === "space" ? space : app;
-  const label =
-    route.page === "apps"
-      ? "All Apps"
-      : route.page === "space"
-        ? space.display_name || "Space"
-        : route.page === "app"
-          ? app.display_name || "App"
-          : pages.find((p) => p.id === route.page)?.label || "Home";
-  const menu = pages
-    .filter((p) => p.id !== "activity" || can("audit.read"))
-    .filter(
-      (p) =>
-        p.id !== "people" ||
-        all("membership.read") ||
-        can("team.manage") ||
-        all("authorization.read"),
-    );
   const tabs =
     route.page === "space"
       ? [
-          ["overview", "Overview"],
           ["apps", "Apps"],
-          ["database", "Database"],
+          ...(scoped("entity.manage") ? [["entities", "Entities"]] : []),
           ...(scoped("authorization.read") ? [["access", "Access"]] : []),
           ["settings", "Settings"],
         ]
       : route.page === "app"
         ? [
-            ["overview", "Overview"],
             ["microapps", "Micro-apps"],
             ...(scoped("authorization.read") ? [["access", "Access"]] : []),
             ["settings", "Settings"],
@@ -725,558 +540,273 @@ export function TenantWorkspace({
           ? [
               ...(all("membership.read") ? [["members", "Members"]] : []),
               ...(can("team.read") ? [["teams", "Teams"]] : []),
-              ...(all("authorization.read") ? [["roles", "Tenant roles"]] : []),
             ]
           : route.page === "settings"
             ? [
                 ["general", "General"],
                 ...(all("database.read") ? [["databases", "Databases"]] : []),
-                ["account", "My account"],
               ]
             : [];
-  const activeTab =
-    route.page === "people"
-      ? peopleTab
-      : route.page === "settings"
-        ? settingsTab
-        : route.tab;
-  return (
-    <div
-      className={
-        "shell tenant-console" +
-        (collapsed ? " sidebar-collapsed" : "") +
-        (navOpen ? " navigation-open" : "")
-      }
-    >
-      <a className="skip-link" href="#main-content">
-        Skip to content
-      </a>
-      {mobile && navOpen && (
-        <button
-          className="navigation-backdrop"
-          aria-label="Close navigation"
-          onClick={() => setNavOpen(false)}
-        />
+  const title =
+    route.page === "account"
+      ? "My account"
+      : ["space", "app"].includes(route.page)
+        ? detailReady
+          ? detail.display_name
+          : route.page === "space"
+            ? "Space"
+            : "App"
+        : nav.find((p) => p.id === route.page)?.label || "Apps";
+  const menu = nav
+    .filter((n) => n.id !== "spaces" || can("space.read"))
+    .filter(
+      (n) => n.id !== "people" || all("membership.read") || can("team.manage"),
+    )
+    .filter((n) => n.id !== "activity" || can("audit.read"));
+  const canCreateApp =
+    all("app.manage") || (caps["app.manage"]?.spaces || []).length > 0;
+  const actions = (
+    <>
+      <button className="icon" aria-label="Refresh" onClick={refresh}>
+        <RefreshCw size={16} />
+      </button>
+      {route.page === "spaces" && all("space.manage") && (
+        <button className="primary" onClick={createSpace}>
+          <Plus size={16} />
+          Create Space
+        </button>
       )}
-      <aside
-        className="sidebar"
-        id="tenant-navigation"
-        ref={navRef as any}
-        inert={mobile && !navOpen}
-        role={mobile && navOpen ? "dialog" : undefined}
-        aria-modal={mobile && navOpen ? true : undefined}
-        aria-label="Tenant navigation"
-      >
-        <div className="sidebar-brand">
-          <span className="brand-mark">
-            <Layers3 size={23} />
-          </span>
-          <strong>
-            lastapp<span>Tenant workspace</span>
+      {((route.page === "apps" && canCreateApp && overview.spaces > 0) ||
+        (route.page === "space" &&
+          route.tab === "apps" &&
+          scoped("app.manage") &&
+          detailReady)) && (
+        <button className="primary" onClick={createApp}>
+          <Plus size={16} />
+          Create App
+        </button>
+      )}
+      {route.page === "app" &&
+        route.tab === "microapps" &&
+        scoped("microapp.manage") &&
+        detailReady && (
+          <button className="primary" onClick={createMicro}>
+            <Plus size={16} />
+            Add micro-app
+          </button>
+        )}
+      {route.page === "settings" &&
+        route.tab === "databases" &&
+        all("database.manage") && (
+          <button className="primary" onClick={addDatabase}>
+            Add database
+          </button>
+        )}
+    </>
+  );
+  return (
+    <ConsoleShell
+      me={me}
+      kind="Tenant"
+      title={title}
+      nav={menu}
+      active={
+        route.page === "space"
+          ? "spaces"
+          : route.page === "app"
+            ? "apps"
+            : route.page
+      }
+      navigate={go}
+      context={
+        memberships.length > 1 || me.pagination?.has_more ? (
+          <RemoteSelect
+            path="/v1/my-tenants"
+            label="Tenant"
+            value={tenant}
+            onChange={selectTenant}
+            initial={options(memberships)}
+          />
+        ) : (
+          <strong className="company-name">
+            {profile.display_name ||
+              memberships[0]?.display_name ||
+              "No Tenant access"}
           </strong>
-          {mobile && (
-            <button
-              className="icon"
-              aria-label="Close navigation"
-              onClick={() => setNavOpen(false)}
-            >
-              <X size={20} />
-            </button>
+        )
+      }
+      breadcrumbs={
+        <>
+          <button className="text-button" onClick={() => go("apps")}>
+            {profile.display_name || "Tenant"}
+          </button>
+          {route.page === "app" && detailReady && (
+            <>
+              <span> / </span>
+              <button
+                className="text-button"
+                disabled={!scoped("space.read", app.space_id, "")}
+                onClick={() => openSpace({ id: app.space_id })}
+              >
+                {app.space_name}
+              </button>
+            </>
           )}
+        </>
+      }
+      actions={actions}
+      appearanceControls={appearanceControls}
+      account={() => go("account")}
+      signOut={signOut}
+    >
+      {error && (
+        <div className="error" role="alert">
+          {error}
+          <button
+            className="tiny"
+            aria-label="Dismiss error"
+            onClick={() => setError("")}
+          >
+            ×
+          </button>
         </div>
-        <div className="tenant-switch">
-          <span className="nav-label">COMPANY</span>
-          {memberships.length > 1 || me.pagination?.has_more ? (
-            <RemoteSelect
-              path="/v1/my-tenants"
-              label="Tenant"
-              value={tenant}
-              onChange={selectTenant}
-              initial={options(memberships)}
-            />
+      )}
+      {!!tabs.length && (
+        <div className="tabs workspace-tabs">
+          {tabs.map(([id, label]) => (
+            <button
+              key={id}
+              className={
+                (route.page === "people" ? peopleTab : route.tab) === id
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                go(route.page, { space: route.space, app: route.app, tab: id })
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {route.page === "account" ? (
+        <>
+          <section className="panel workspace-section">
+            <p>
+              {me.display_name} · {me.email}
+            </p>
+          </section>
+          {me.auth_method === "password" ? (
+            <PasswordScreen done={refreshMe} />
           ) : (
-            <strong className="company-name">
-              {profile.display_name ||
-                memberships[0]?.display_name ||
-                "No Tenant access"}
-            </strong>
+            <p className="panel workspace-section">
+              Manage your password with your single sign-on provider.
+            </p>
           )}
-        </div>
-        <nav aria-label="Console screens">
-          <div className="nav-group">
-            {menu.map((p) => {
-              const Icon = p.icon;
-              const selected =
-                p.id === route.page ||
-                (p.id === "home" && route.page === "apps") ||
-                (p.id === "spaces" && ["space", "app"].includes(route.page));
-              return (
-                <button
-                  key={p.id}
-                  className={selected ? "selected" : ""}
-                  aria-current={selected ? "page" : undefined}
-                  title={p.label}
-                  onClick={() => go(p.id)}
-                >
-                  <Icon size={19} />
-                  <span>{p.label}</span>
-                  {selected && (
-                    <ChevronRight size={14} className="nav-chevron" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-        <div className="sidebar-bottom">
-          <span className="env">
-            <i />
-            {profile.plan_name || "Your workspace"}
-          </span>
-          <div className="sidebar-version">Tenant → Space → App</div>
-        </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              className="icon menu-toggle"
-              aria-label={
-                mobile
-                  ? "Open navigation"
-                  : collapsed
-                    ? "Expand sidebar"
-                    : "Collapse sidebar"
-              }
-              aria-controls="tenant-navigation"
-              aria-expanded={mobile ? navOpen : !collapsed}
-              onClick={() =>
-                mobile ? setNavOpen(true) : setCollapsed(!collapsed)
-              }
-            >
-              <Menu size={21} />
-            </button>
-            <span className="topbar-workspace">
-              {profile.display_name || "Tenant workspace"}
-            </span>
-          </div>
-          <div className="topbar-actions">
-            <button
-              className="icon mode-toggle"
-              aria-label={
-                isDark ? "Switch to light mode" : "Switch to dark mode"
-              }
-              onClick={() =>
-                setAppearance({
-                  ...appearance,
-                  mode: isDark ? "light" : "dark",
-                })
-              }
-            >
-              {isDark ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <button
-              className="icon appearance-trigger"
-              aria-label="Customize appearance"
-              onClick={() => setAppearanceOpen(true)}
-            >
-              <Palette size={20} />
-            </button>
-            <button
-              className="profile-button"
-              onClick={() => go("settings", { tab: "account" })}
-            >
-              <span className="avatar person">
-                {me.display_name?.slice(0, 1)}
-              </span>
-              <span>
-                <strong>{me.display_name}</strong>
-                <small>
-                  {all("tenant.manage")
-                    ? "Tenant administrator"
-                    : "Workspace member"}
-                </small>
-              </span>
-            </button>
-            <button className="icon" aria-label="Sign out" onClick={signOut}>
-              <LogOut size={17} />
-            </button>
-          </div>
-        </header>
-        <section className="content" id="main-content" tabIndex={-1}>
-          <div className="page-title-row">
-            <h1>{label}</h1>
-            <div className="breadcrumbs">
-              <button className="text-button" onClick={() => go("home")}>
-                {profile.display_name || "Company"}
-              </button>
-              {["space", "app"].includes(route.page) && (
-                <>
-                  <ChevronRight size={13} />
-                  <button
-                    className="text-button"
-                    disabled={!scoped("space.read", route.space, "")}
-                    onClick={() => openSpace({ id: route.space })}
-                  >
-                    {route.page === "space"
-                      ? space.display_name
-                      : app.space_name}
-                  </button>
-                </>
-              )}
-              {route.page === "app" && (
-                <>
-                  <ChevronRight size={13} />
-                  <span>{app.display_name}</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="page-heading">
-            <div>
-              <h2>
-                {route.page === "home"
-                  ? `Welcome, ${me.display_name.split(" ")[0]}`
-                  : label}
-              </h2>
-              <p>
-                {route.page === "home"
-                  ? "Build your company's workspace, one Space at a time."
-                  : route.page === "space"
-                    ? "Shared business data and rules for your Apps."
-                    : route.page === "app"
-                      ? "Client experiences within this Space."
-                      : route.page === "people"
-                        ? "Members, teams and their scoped roles."
-                        : route.page === "settings"
-                          ? "Company, database and account settings."
-                          : route.page === "apps"
-                            ? "Apps available to you across your company's Spaces."
-                            : "Your workspace activity and resources."}
-              </p>
-            </div>
-            <div className="row-actions">
-              <button className="icon" aria-label="Refresh" onClick={refresh}>
-                <RefreshCw size={16} />
-              </button>
-              {tenant &&
-                ["home", "spaces"].includes(route.page) &&
-                all("space.manage") && (
+        </>
+      ) : !tenant ? (
+        <section className="panel empty">
+          <p>Your administrator can add this account to a Tenant.</p>
+        </section>
+      ) : (
+        <>
+          {route.page === "apps" && (
+            <>
+              {overview.spaces === 0 && all("space.manage") && (
+                <section className="panel first-space">
+                  <div>
+                    <h2>Create your first Space</h2>
+                    <p>A Space gives your Apps a shared database.</p>
+                  </div>
                   <button className="primary" onClick={createSpace}>
-                    <Plus size={17} />
                     Create Space
                   </button>
-                )}
-              {route.page === "space" &&
-                route.tab === "apps" &&
-                scoped("app.manage") &&
-                space.id && (
-                  <button className="primary" onClick={createApp}>
-                    <Plus size={17} />
-                    Create App
+                </section>
+              )}
+              <Collection
+                key={base + "apps"}
+                path={base + "/apps"}
+                reload={reload}
+                columns={[
+                  nameColumn,
+                  ["Space", (r) => r.space_name],
+                  statusColumn,
+                ]}
+                empty="No Apps are available yet."
+                actions={(r) => (
+                  <button className="text-button" onClick={() => openApp(r)}>
+                    Open
                   </button>
                 )}
-              {route.page === "app" &&
-                route.tab === "microapps" &&
-                scoped("microapp.manage") &&
-                app.id && (
-                  <button className="primary" onClick={createMicro}>
-                    <Plus size={17} />
-                    Register micro-app
-                  </button>
-                )}
-              {route.page === "people" &&
-                peopleTab === "members" &&
-                all("membership.manage") && (
-                  <button className="primary" onClick={addMember}>
-                    <Plus size={17} />
-                    Add member
-                  </button>
-                )}
-              {route.page === "settings" &&
-                settingsTab === "databases" &&
-                all("database.manage") && (
-                  <button className="primary" onClick={addDatabase}>
-                    <Plus size={17} />
-                    Add database
-                  </button>
-                )}
-            </div>
-          </div>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-              <button
-                className="tiny"
-                aria-label="Dismiss error"
-                onClick={() => setError("")}
-              >
-                <X size={14} />
-              </button>
-            </div>
+              />
+            </>
           )}
-          {!!tabs.length && (
-            <div className="tabs workspace-tabs">
-              {tabs.map(([id, title]) => (
-                <button
-                  key={id}
-                  className={activeTab === id ? "active" : ""}
-                  onClick={() => {
-                    setRoute((r) => ({ ...r, tab: id }));
-                    setModal(null);
-                  }}
-                >
-                  {title}
+          {route.page === "spaces" && (
+            <Collection
+              key={base + "spaces"}
+              path={base + "/spaces"}
+              reload={reload}
+              columns={[
+                nameColumn,
+                ["Apps", (r) => r.app_count],
+                ["Database", (r) => badge(r.database_state)],
+                statusColumn,
+              ]}
+              empty="Create a Space to organize your Apps."
+              actions={(r) => (
+                <button className="text-button" onClick={() => openSpace(r)}>
+                  Open
                 </button>
-              ))}
-            </div>
+              )}
+            />
           )}
-          {!tenant ? (
-            <div className="panel empty">
-              <Building2 size={32} />
-              <h3>No Tenant access yet</h3>
-              <p>Your administrator can add this account to a Tenant.</p>
-            </div>
-          ) : (
+          {route.page === "space" && detailReady && (
             <>
-              {route.page === "home" && (
-                <>
-                  {overview.spaces === 0 && (
-                    <section className="panel first-space">
-                      <span className="welcome-symbol">
-                        <FolderOpen size={27} />
-                      </span>
-                      <div>
-                        <h2>
-                          {all("space.manage")
-                            ? "Create your first Space"
-                            : "Your workspace is ready"}
-                        </h2>
-                        <p>
-                          {all("space.manage")
-                            ? "Choose a database and give your Apps a shared foundation."
-                            : "Your administrator can grant access to Spaces and Apps."}
-                        </p>
-                      </div>
-                      {all("space.manage") && (
-                        <button className="primary" onClick={createSpace}>
-                          Create your first Space
-                        </button>
-                      )}
-                    </section>
-                  )}
-                  <div className="tenant-stats">
-                    {[
-                      [
-                        "Spaces",
-                        overview.spaces,
-                        profile.max_spaces,
-                        FolderOpen,
-                      ],
-                      ["Apps", overview.apps, profile.max_apps, AppWindow],
-                      [
-                        "Databases",
-                        overview.databases,
-                        profile.max_databases,
-                        Database,
-                      ],
-                    ]
-                      .filter(([, count]) => count !== undefined)
-                      .map(([title, count, limit, Icon]: any) => (
-                        <section className="panel tenant-stat" key={title}>
-                          <Icon size={23} />
-                          <span>{title}</span>
-                          <strong>{count ?? 0}</strong>
-                          <small>
-                            {limit == null
-                              ? "No plan limit"
-                              : `${limit} allowed by your plan`}
-                          </small>
-                        </section>
-                      ))}
-                  </div>
-                  <section className="panel workspace-section">
-                    <h3>Recent Apps</h3>
-                    {can("app.read") && (
-                      <button className="secondary" onClick={() => go("apps")}>
-                        View all Apps <ChevronRight size={16} />
-                      </button>
-                    )}
-                    {overview.recent_apps?.length ? (
-                      <div className="app-grid">
-                        {overview.recent_apps.map((a: Item) => (
-                          <button
-                            className="app-card"
-                            key={a.id}
-                            onClick={() => openApp(a)}
-                          >
-                            <AppWindow size={25} />
-                            <strong>{a.display_name}</strong>
-                            <small>{a.space_name}</small>
-                            {badge(a.state)}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="muted">
-                        Your Apps will appear here as you build them.
-                      </p>
-                    )}
-                  </section>
-                  {!!overview.attention?.length && (
-                    <section className="panel workspace-section">
-                      <h3>Needs attention</h3>
-                      {overview.attention.map((d: Item) => (
-                        <button
-                          className="attention-row"
-                          key={d.id}
-                          onClick={() => go("settings", { tab: "databases" })}
-                        >
-                          <Database size={18} />
-                          <span>
-                            {d.database_name}
-                            <small>
-                              {d.last_error_message ||
-                                "Database provisioning is in progress."}
-                            </small>
-                          </span>
-                          {badge(d.state)}
-                        </button>
-                      ))}
-                    </section>
-                  )}
-                </>
-              )}
-              {route.page === "spaces" && (
+              {route.tab === "apps" && (
                 <Collection
-                  key={base + "spaces"}
-                  path={base + "/spaces"}
+                  key={space.id + "apps"}
+                  path={base + "/apps?space_id=" + space.id}
                   reload={reload}
-                  empty="Create a Space to start organizing your Apps."
                   columns={[
                     nameColumn,
-                    statusColumn,
-                    [
-                      "Database",
-                      (r) => (
-                        <>
-                          {r.database_name}
-                          <small>
-                            {r.database_layout} · {r.database_state}
-                          </small>
-                        </>
-                      ),
-                    ],
-                    ["Apps", (r) => r.app_count],
-                  ]}
-                  actions={(r) => (
-                    <button
-                      className="text-button"
-                      onClick={() => openSpace(r)}
-                    >
-                      Open <ChevronRight size={14} />
-                    </button>
-                  )}
-                />
-              )}
-              {route.page === "apps" && (
-                <Collection
-                  key={base + "apps"}
-                  path={base + "/apps"}
-                  reload={reload}
-                  empty="No Apps are available to this account."
-                  columns={[
-                    nameColumn,
-                    ["Space", (r) => r.space_name],
+                    ["Micro-apps", (r) => r.microapp_count],
                     statusColumn,
                   ]}
                   actions={(r) => (
                     <button className="text-button" onClick={() => openApp(r)}>
-                      Open <ChevronRight size={14} />
+                      Open
                     </button>
                   )}
                 />
               )}
-              {route.page === "space" && space.id && (
+              {route.tab === "entities" && scoped("entity.manage") && (
+                <EntityDesigner
+                  key={space.id}
+                  space={space.id}
+                  tenant={tenant}
+                  me={me}
+                />
+              )}
+              {route.tab === "access" && (
+                <AccessControl
+                  key={space.id}
+                  tenant={tenant}
+                  caps={caps}
+                  reload={reload}
+                  refresh={refresh}
+                  scopeKind="space"
+                  scopeId={space.id}
+                />
+              )}
+              {route.tab === "settings" && (
                 <>
-                  {route.tab === "overview" && (
-                    <section className="panel workspace-section">
-                      <h3>{space.display_name}</h3>
-                      <p>This Space is the shared foundation for its Apps.</p>
-                      <dl className="workspace-facts">
-                        <dt>Status</dt>
-                        <dd>{badge(space.state)}</dd>
-                        <dt>Database</dt>
-                        <dd>
-                          {space.database_name} · {space.database_layout} ·{" "}
-                          {space.database_state}
-                        </dd>
-                      </dl>
-                      <button
-                        className="primary"
-                        onClick={() => setRoute((r) => ({ ...r, tab: "apps" }))}
-                      >
-                        View Apps <ChevronRight size={16} />
-                      </button>
-                    </section>
-                  )}
-                  {route.tab === "apps" && (
-                    <Collection
-                      path={base + `/apps?space_id=${space.id}`}
-                      reload={reload}
-                      columns={[
-                        nameColumn,
-                        statusColumn,
-                        ["Micro-apps", (r) => r.microapp_count],
-                      ]}
-                      empty="Create an App in this Space."
-                      actions={(r) => (
-                        <button
-                          className="text-button"
-                          onClick={() => openApp(r)}
-                        >
-                          Open <ChevronRight size={14} />
-                        </button>
-                      )}
-                    />
-                  )}
-                  {route.tab === "database" && (
-                    <section className="panel workspace-section">
-                      <h3>Database binding</h3>
-                      <dl className="workspace-facts">
-                        <dt>Database</dt>
-                        <dd>{space.database_name}</dd>
-                        <dt>Layout</dt>
-                        <dd>{space.database_layout}</dd>
-                        <dt>Status</dt>
-                        <dd>{badge(space.database_state)}</dd>
-                      </dl>
-                      {all("database.read") && (
-                        <button
-                          className="secondary"
-                          onClick={() => go("settings", { tab: "databases" })}
-                        >
-                          Manage database resources
-                        </button>
-                      )}
-                    </section>
-                  )}
-                  {route.tab === "access" && (
-                    <AccessControl
-                      tenant={tenant}
-                      platform={false}
-                      caps={caps}
-                      refresh={refresh}
-                      scopeKind="space"
-                      scopeId={space.id}
-                    />
-                  )}
-                  {route.tab === "settings" && (
-                    <section className="panel workspace-section">
-                      <h3>Space settings</h3>
-                      <p>
-                        {space.display_name} · {space.slug} · {space.state}
-                      </p>
+                  <section className="panel workspace-section">
+                    <div className="settings-heading">
+                      <div className="settings-summary">
+                        <h2>General</h2>
+                        {badge(space.state)}
+                      </div>
                       {scoped("space.manage") && (
                         <button
                           className="secondary"
@@ -1291,438 +821,364 @@ export function TenantWorkspace({
                           Edit Space
                         </button>
                       )}
-                    </section>
-                  )}
-                </>
-              )}
-              {route.page === "app" && app.id && (
-                <>
-                  {route.tab === "overview" && (
-                    <section className="panel workspace-section">
-                      <h3>{app.display_name}</h3>
-                      <p>
-                        Part of {app.space_name}. Its business definitions and
-                        database come from that Space.
-                      </p>
-                      <dl className="workspace-facts">
-                        <dt>Status</dt>
-                        <dd>{badge(app.state)}</dd>
-                        <dt>Compute preference</dt>
-                        <dd>{app.compute_mode}</dd>
-                      </dl>
+                    </div>
+                  </section>
+                  <section className="panel workspace-section">
+                    <h2 className="section-title">Database</h2>
+                    <dl className="workspace-facts">
+                      <dt>Connection</dt>
+                      <dd>{badge(space.database_state)}</dd>
+                      <dt>Layout</dt>
+                      <dd>{space.database_layout}</dd>
+                    </dl>
+                    {all("database.read") && (
                       <button
-                        className="primary"
-                        onClick={() =>
-                          setRoute((r) => ({ ...r, tab: "microapps" }))
-                        }
+                        className="secondary"
+                        onClick={() => go("settings", { tab: "databases" })}
                       >
-                        View micro-apps <ChevronRight size={16} />
+                        Manage databases
                       </button>
-                    </section>
-                  )}
-                  {route.tab === "microapps" && (
-                    <Collection
-                      path={base + `/microapps?app_id=${app.id}`}
-                      reload={reload}
-                      columns={[
-                        nameColumn,
-                        statusColumn,
-                        ["Artifact", (r) => r.artifact_ref || "—"],
-                        ["Order", (r) => r.navigation_order],
-                      ]}
-                      actions={
-                        scoped("microapp.manage")
-                          ? (r) => (
-                              <button
-                                className="text-button"
-                                onClick={() =>
-                                  edit(
-                                    r,
-                                    base + "/microapps/" + r.id,
-                                    "Edit micro-app",
-                                    [
-                                      {
-                                        key: "display_name",
-                                        label: "Name",
-                                        required: true,
-                                      },
-                                      {
-                                        key: "state",
-                                        label: "State",
-                                        type: "select",
-                                        options: states,
-                                        required: true,
-                                      },
-                                      {
-                                        key: "artifact_ref",
-                                        label: "Artifact reference",
-                                      },
-                                      {
-                                        key: "navigation_order",
-                                        label: "Navigation order",
-                                        type: "number",
-                                      },
-                                    ],
-                                  )
-                                }
-                              >
-                                Edit
-                              </button>
-                            )
-                          : undefined
-                      }
-                    />
-                  )}
-                  {route.tab === "access" && (
-                    <AccessControl
-                      tenant={tenant}
-                      platform={false}
-                      caps={caps}
-                      refresh={refresh}
-                      scopeKind="app"
-                      scopeId={app.id}
-                    />
-                  )}
-                  {route.tab === "settings" && (
-                    <section className="panel workspace-section">
-                      <h3>App settings</h3>
-                      <p>
-                        {app.display_name} · {app.slug} · {app.state}
-                      </p>
-                      {scoped("app.manage") && (
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            edit(app, base + "/apps/" + app.id, "Edit App", [
-                              {
-                                key: "display_name",
-                                label: "Name",
-                                required: true,
-                              },
-                              {
-                                key: "state",
-                                label: "State",
-                                type: "select",
-                                options: states,
-                                required: true,
-                              },
-                              {
-                                key: "compute_mode",
-                                label: "Compute preference",
-                                type: "select",
-                                options: [
-                                  { value: "shared", label: "Shared" },
-                                  ...(profile.allow_dedicated_compute ||
-                                  app.compute_mode === "dedicated"
-                                    ? [
-                                        {
-                                          value: "dedicated",
-                                          label: "Dedicated",
-                                        },
-                                      ]
-                                    : []),
-                                ],
-                                required: true,
-                              },
-                            ])
-                          }
-                        >
-                          Edit App
-                        </button>
-                      )}
-                    </section>
-                  )}
+                    )}
+                    <details>
+                      <summary>Advanced</summary>
+                      <p>Database: {space.database_name}</p>
+                      <p>Slug: {space.slug}</p>
+                    </details>
+                  </section>
                 </>
               )}
-              {route.page === "people" && peopleTab === "members" && (
+            </>
+          )}
+          {route.page === "app" && detailReady && (
+            <>
+              {route.tab === "microapps" && (
                 <Collection
-                  path={base + "/memberships"}
+                  key={app.id + "microapps"}
+                  path={base + "/microapps?app_id=" + app.id}
                   reload={reload}
-                  columns={[
-                    [
-                      "Member",
-                      (r) => (
-                        <>
-                          <strong>{r.display_name}</strong>
-                          <small>{r.email}</small>
-                        </>
-                      ),
-                    ],
-                    statusColumn,
-                    ["Account", (r) => r.user_state],
-                  ]}
+                  columns={[nameColumn, statusColumn]}
+                  empty="Add your first micro-app."
                   actions={
-                    all("membership.manage")
+                    scoped("microapp.manage")
                       ? (r) => (
                           <button
                             className="text-button"
                             onClick={() =>
-                              act(() =>
-                                api(
-                                  base + "/memberships/" + r.user_id,
-                                  "PATCH",
+                              edit(
+                                r,
+                                base + "/microapps/" + r.id,
+                                "Edit micro-app",
+                                [
                                   {
-                                    state:
-                                      r.state === "active"
-                                        ? "disabled"
-                                        : "active",
+                                    key: "display_name",
+                                    label: "Name",
+                                    required: true,
                                   },
-                                  r.revision,
-                                ),
+                                  {
+                                    key: "state",
+                                    label: "Status",
+                                    type: "select",
+                                    options: states,
+                                    required: true,
+                                  },
+                                  {
+                                    key: "artifact_ref",
+                                    label: "Artifact reference",
+                                    advanced: true,
+                                  },
+                                  {
+                                    key: "navigation_order",
+                                    label: "Navigation order",
+                                    type: "number",
+                                    advanced: true,
+                                  },
+                                ],
                               )
                             }
                           >
-                            {r.state === "active" ? "Disable" : "Enable"}
+                            Edit micro-app
                           </button>
                         )
                       : undefined
                   }
                 />
               )}
-              {route.page === "people" && peopleTab === "teams" && (
+              {route.tab === "access" && (
                 <AccessControl
-                  key={tenant + "teams"}
+                  key={app.id}
                   tenant={tenant}
-                  platform={false}
                   caps={caps}
-                  refresh={refresh}
-                  scopeKind="team"
-                />
-              )}
-              {route.page === "people" && peopleTab === "roles" && (
-                <AccessControl
-                  key={tenant + "tenant"}
-                  tenant={tenant}
-                  platform={false}
-                  caps={caps}
-                  refresh={refresh}
-                  scopeKind="tenant"
-                />
-              )}
-              {route.page === "activity" && (
-                <Collection
-                  path={base + "/audit-events"}
                   reload={reload}
-                  columns={[
-                    [
-                      "Event",
-                      (r) => (
-                        <>
-                          <strong>{r.action}</strong>
-                          <small>{r.resource_type}</small>
-                        </>
-                      ),
-                    ],
-                    ["Actor", (r) => r.actor_name],
-                    ["Time", (r) => new Date(r.created_at).toLocaleString()],
-                  ]}
+                  refresh={refresh}
+                  scopeKind="app"
+                  scopeId={app.id}
                 />
               )}
-              {route.page === "settings" && settingsTab === "general" && (
-                <section className="panel workspace-section">
-                  <h3>Company and subscription</h3>
-                  <dl className="workspace-facts">
-                    <dt>Company</dt>
-                    <dd>{profile.display_name}</dd>
-                    <dt>Status</dt>
-                    <dd>{badge(profile.state || "active")}</dd>
-                    <dt>Plan</dt>
-                    <dd>{profile.plan_name}</dd>
-                    <dt>Spaces / Apps / Databases</dt>
-                    <dd>
-                      {profile.max_spaces ?? "Unlimited"} /{" "}
-                      {profile.max_apps ?? "Unlimited"} /{" "}
-                      {profile.max_databases ?? "Unlimited"}
-                    </dd>
-                  </dl>
-                  {all("tenant.manage") && (
-                    <button
-                      className="secondary"
-                      onClick={() =>
-                        edit(profile, base, "Edit company", [
-                          {
-                            key: "display_name",
-                            label: "Company name",
-                            required: true,
-                          },
-                        ])
-                      }
-                    >
-                      Edit company
-                    </button>
+              {route.tab === "settings" && (
+                <>
+                  <section className="panel workspace-section">
+                    <div className="settings-heading">
+                      <div className="settings-summary">
+                        <h2>General</h2>
+                        {badge(app.state)}
+                      </div>
+                      {scoped("app.manage") && (
+                        <button
+                          className="secondary"
+                          onClick={() =>
+                            edit(app, base + "/apps/" + app.id, "Edit App", [
+                              ...editFields,
+                              computeField(
+                                !!profile.allow_dedicated_compute ||
+                                  app.compute_mode === "dedicated",
+                              ),
+                            ])
+                          }
+                        >
+                          Edit App
+                        </button>
+                      )}
+                    </div>
+                    <details>
+                      <summary>Advanced</summary>
+                      <p>Slug: {app.slug}</p>
+                      <p>Compute preference: {app.compute_mode}</p>
+                    </details>
+                  </section>
+                  {scoped("app.manage") && (
+                    <AppDataAccess
+                      key={app.id}
+                      app={app.id}
+                      spaceManager={scoped("entity.manage", app.space_id, "")}
+                    />
                   )}
-                  <p className="muted">
-                    Your platform administrator manages the subscription plan.
-                  </p>
-                </section>
+                </>
               )}
-              {route.page === "settings" && settingsTab === "databases" && (
-                <Collection
-                  path={base + "/database-resources"}
-                  reload={reload}
-                  columns={[
-                    [
-                      "Database",
-                      (r) => (
-                        <>
-                          <strong>{r.database_name}</strong>
-                          <small>
-                            {r.management_mode} · {r.layout}
-                          </small>
-                        </>
-                      ),
-                    ],
-                    statusColumn,
-                    ["Last result", (r) => r.last_error_message || "—"],
-                  ]}
-                  actions={
-                    all("database.manage")
-                      ? (r) => (
-                          <>
-                            {["ready", "failed"].includes(r.state) && (
-                              <button
-                                className="text-button"
-                                onClick={() =>
-                                  act(() =>
+            </>
+          )}
+          {route.page === "people" && (
+            <TenantPeople
+              key={tenant}
+              tenant={tenant}
+              caps={caps}
+              tab={peopleTab}
+              team={route.team}
+              selectTeam={(id) => go("people", { tab: "teams", team: id })}
+              refresh={refresh}
+              reload={reload}
+            />
+          )}
+          {route.page === "activity" && (
+            <Collection
+              path={base + "/audit-events"}
+              reload={reload}
+              columns={[
+                [
+                  "Event",
+                  (r) => (
+                    <>
+                      <strong>{r.action}</strong>
+                      <small>{r.resource_type}</small>
+                    </>
+                  ),
+                ],
+                ["Actor", (r) => r.actor_name],
+                ["Time", (r) => new Date(r.created_at).toLocaleString()],
+              ]}
+            />
+          )}
+          {route.page === "settings" && route.tab === "general" && (
+            <section className="panel workspace-section">
+              <dl className="workspace-facts">
+                <dt>Name</dt>
+                <dd>{profile.display_name}</dd>
+                <dt>Plan</dt>
+                <dd>{profile.plan_name}</dd>
+                <dt>Status</dt>
+                <dd>{profile.state}</dd>
+                <dt>Spaces / Apps / Databases</dt>
+                <dd>
+                  {profile.max_spaces ?? "Unlimited"} /{" "}
+                  {profile.max_apps ?? "Unlimited"} /{" "}
+                  {profile.max_databases ?? "Unlimited"}
+                </dd>
+              </dl>
+              {all("tenant.manage") && (
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    edit(profile, base, "Edit Tenant", [
+                      { key: "display_name", label: "Name", required: true },
+                    ])
+                  }
+                >
+                  Edit Tenant
+                </button>
+              )}
+            </section>
+          )}
+          {route.page === "settings" && route.tab === "databases" && (
+            <Collection
+              path={base + "/database-resources"}
+              reload={reload}
+              columns={[
+                [
+                  "Database",
+                  (r) => (
+                    <>
+                      <strong>{r.database_name}</strong>
+                      <small>
+                        {r.management_mode} · {r.layout}
+                      </small>
+                    </>
+                  ),
+                ],
+                statusColumn,
+                ["Last result", (r) => r.last_error_message || "—"],
+              ]}
+              actions={
+                all("database.manage")
+                  ? (r) => (
+                      <>
+                        {["ready", "failed"].includes(r.state) && (
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              act(() =>
+                                api(
+                                  base +
+                                    "/database-resources/" +
+                                    r.id +
+                                    "/retry",
+                                  "POST",
+                                  {},
+                                  r.revision,
+                                ),
+                              )
+                            }
+                          >
+                            {r.state === "failed"
+                              ? "Retry"
+                              : "Recheck connection"}
+                          </button>
+                        )}
+                        {r.management_mode === "registered" &&
+                          !["provisioning", "retired"].includes(r.state) && (
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                setModal({
+                                  title: "Update database credentials",
+                                  submit: "Save",
+                                  initial: {},
+                                  fields: [
+                                    {
+                                      key: "username",
+                                      label: "Username",
+                                      required: true,
+                                    },
+                                    {
+                                      key: "password",
+                                      label: "Password",
+                                      type: "password",
+                                      required: true,
+                                    },
+                                  ],
+                                  save: (v) =>
                                     api(
-                                      base +
-                                        `/database-resources/${r.id}/retry`,
-                                      "POST",
-                                      {},
+                                      base + "/database-resources/" + r.id,
+                                      "PATCH",
+                                      {
+                                        credentials: {
+                                          username: v.username,
+                                          password: v.password,
+                                        },
+                                      },
                                       r.revision,
                                     ),
-                                  )
-                                }
-                              >
-                                Verify / retry
-                              </button>
-                            )}
-                            {r.management_mode === "registered" &&
-                              r.state !== "provisioning" &&
-                              r.state !== "retired" && (
-                                <button
-                                  className="text-button"
-                                  onClick={() =>
-                                    setModal({
-                                      title: "Update database credentials",
-                                      initial: {},
-                                      fields: [
-                                        {
-                                          key: "username",
-                                          label: "Username",
-                                          required: true,
-                                        },
-                                        {
-                                          key: "password",
-                                          label: "Password",
-                                          type: "password",
-                                          required: true,
-                                        },
-                                      ],
-                                      save: (v) =>
-                                        api(
-                                          base + "/database-resources/" + r.id,
-                                          "PATCH",
-                                          {
-                                            credentials: {
-                                              username: v.username,
-                                              password: v.password,
-                                            },
-                                          },
-                                          r.revision,
-                                        ),
-                                    })
-                                  }
-                                >
-                                  Update credentials
-                                </button>
-                              )}
-                            {r.state !== "provisioning" &&
-                              r.state !== "retired" && (
-                                <button
-                                  className="text-button danger"
-                                  onClick={() => {
-                                    if (
-                                      window.confirm(
-                                        "Retire this database resource? Physical data is preserved.",
-                                      )
-                                    )
-                                      act(() =>
-                                        api(
-                                          base + "/database-resources/" + r.id,
-                                          "PATCH",
-                                          { state: "retired" },
-                                          r.revision,
-                                        ),
-                                      );
-                                  }}
-                                >
-                                  Retire
-                                </button>
-                              )}
-                          </>
-                        )
-                      : undefined
-                  }
-                />
-              )}
-            </>
+                                })
+                              }
+                            >
+                              Update credentials
+                            </button>
+                          )}
+                        {r.management_mode === "registered" &&
+                          r.state === "ready" && (
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                setModal({
+                                  title: "Schema credentials",
+                                  submit: "Save",
+                                  initial: {},
+                                  fields: [
+                                    {
+                                      key: "username",
+                                      label: "Schema username",
+                                      required: true,
+                                    },
+                                    {
+                                      key: "password",
+                                      label: "Schema password",
+                                      type: "password",
+                                      required: true,
+                                    },
+                                  ],
+                                  save: (v) =>
+                                    api(
+                                      base +
+                                        "/database-resources/" +
+                                        r.id +
+                                        "/schema-credentials",
+                                      "POST",
+                                      v,
+                                      r.revision,
+                                    ),
+                                })
+                              }
+                            >
+                              Set schema credentials
+                            </button>
+                          )}
+                        {!["provisioning", "retired"].includes(r.state) && (
+                          <button
+                            className="text-button danger"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  "Retire this database resource? Physical data is preserved.",
+                                )
+                              )
+                                act(() =>
+                                  api(
+                                    base + "/database-resources/" + r.id,
+                                    "PATCH",
+                                    { state: "retired" },
+                                    r.revision,
+                                  ),
+                                );
+                            }}
+                          >
+                            Retire
+                          </button>
+                        )}
+                      </>
+                    )
+                  : undefined
+              }
+            />
           )}
-          {route.page === "settings" && settingsTab === "account" && (
-            <>
-              <section className="panel workspace-section">
-                <h3>My account</h3>
-                <p>
-                  {me.display_name} · {me.email}
-                </p>
-                <small>User ID: {me.id}</small>
-              </section>
-              {me.auth_method === "password" ? (
-                <PasswordScreen
-                  done={async () => {
-                    await refreshMe();
-                    setToast("Password changed successfully");
-                  }}
-                />
-              ) : (
-                <section className="panel workspace-section">
-                  <p>
-                    You use single sign-on. Manage your password with your
-                    identity provider.
-                  </p>
-                </section>
-              )}
-            </>
-          )}
-          <footer className="page-footer">
-            <span>© {new Date().getFullYear()} Lastapp</span>
-            <span>Tenant → Space → App → micro-app</span>
-          </footer>
-        </section>
-      </main>
-      {appearanceOpen && (
-        <AppearancePanel
-          value={appearance}
-          onChange={setAppearance}
-          reset={reset}
-          close={() => setAppearanceOpen(false)}
-        />
+        </>
       )}
       {modal && (
         <FormModal
-          key={tenant + modal.title}
+          key={url + modal.title}
           modal={modal}
           lookups={{}}
           close={() => setModal(null)}
           done={done}
         />
       )}
-      {toast && (
-        <div className="toast" role="status">
-          <Check size={17} />
-          {toast}
-        </div>
-      )}
-    </div>
+    </ConsoleShell>
   );
 }

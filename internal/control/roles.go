@@ -69,6 +69,12 @@ func (s *Server) roles(w http.ResponseWriter, r *http.Request, p Principal) erro
 		role["permissions"] = []string{}
 		if def, ok := authz.Builtin(str(role["id"])); ok {
 			role["permissions"] = def.Permissions
+		} else {
+			links, err := rows(r.Context(), s.DB, "SELECT p.id,p.entity_id,p.code,p.description FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? AND p.domain='data' AND p.state='active'", role["id"])
+			if err != nil {
+				return err
+			}
+			role["data_permissions"] = links
 		}
 	}
 	sendPage(w, r, v)

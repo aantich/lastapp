@@ -29,7 +29,7 @@ func seedControlCatalog(ctx context.Context, db *sql.DB) error {
 			return e
 		}
 		for _, code := range r.Permissions {
-			if _, e = tx.ExecContext(ctx, "INSERT INTO role_permissions(role_id,permission_id,domain) SELECT ?,id,'control' FROM permissions WHERE code=?", r.ID, code); e != nil {
+			if _, e = tx.ExecContext(ctx, "INSERT INTO role_permissions(role_id,permission_id,domain) SELECT ?,id,'control' FROM permissions WHERE domain='control' AND code=?", r.ID, code); e != nil {
 				return e
 			}
 		}
@@ -64,6 +64,6 @@ func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p Principal) er
 	if e != nil {
 		return e
 	}
-	send(w, 200, Row{"tenant_id": t, "user_id": p.ID, "items": roles, "business_acl_enforcement": false, "pagination": r.Context().Value(pageContextKey{})})
+	send(w, 200, Row{"tenant_id": t, "user_id": p.ID, "items": roles, "business_acl_enforcement": true, "pagination": r.Context().Value(pageContextKey{})})
 	return nil
 }

@@ -45,6 +45,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		return e
 	}
 	lastTenant := ""
+	lastPublicationTenant := ""
 	cleanedAt := time.Time{}
 	for ctx.Err() == nil {
 		if time.Since(cleanedAt) > time.Minute {
@@ -52,6 +53,9 @@ func (s *Server) workerLeader(ctx context.Context) error {
 				return e
 			}
 			cleanedAt = time.Now()
+		}
+		if _, err := s.publicationJob(ctx, conn, &lastPublicationTenant); err != nil {
+			return err
 		}
 		job, e := nextJob(ctx, conn, lastTenant)
 		if e != nil {

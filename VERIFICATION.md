@@ -1,5 +1,53 @@
 # Lastapp verification
 
+## Single-source password policy — current, 12 November 2026
+
+DRY is recorded as the main foundational engineering principle in `AGENTS.md`, README and the foundation contract. Password limits are defined once in `internal/control/passwords.go`. Validation, error text and public `GET /v1/config.password_policy` derive from that source. The running server publishes 8–128 characters with `Cache-Control: no-store`; the embedded console/index is also served without caching.
+
+All initial-password fields share one field definition. All new-password inputs share one policy-driven control, including first-login replacement and ordinary account settings. There are no frontend password-limit constants or hardcoded fallback policy. Login/current-password fields remain independent of new-password requirements. Password generation respects the server bounds. Unicode code-point validation matches Go rather than native HTML UTF-16 limits. Public settings refresh after sign-in and on focus/page restoration, updating open forms without clearing drafts. Missing initial settings show an explicit retry instead of guessing policy.
+
+New browser regressions supply a different policy (9–12 characters), verify all creation/change forms and generation, update an open form to 8–64 without losing its draft, verify missing-policy retry and complete real eight-character local onboarding after a stricter policy was loaded on the login page. The latter captures `artifacts/password-policy-onboarding.png`. Backend tests verify the unauthenticated public contract, no-store header and Unicode boundaries against the authoritative validator.
+
+Full backend race suite with existing local integration/security configs: **PASS**, control package **47.932 seconds**; only the opt-in CI fixture-preparation helper skips locally. Complete installed-Chrome suite: **19/19 PASS in 1.1 minutes**, including all three new password-policy regressions and real eight-character account/password lifecycle checks. `go vet ./...`, TypeScript/Vite production build, `git diff --check` and driver verification (**42/42 unchanged**) pass. API and embedded console were rebuilt and restarted while preserving local data and credentials. Detailed logs are in ignored `.local/password-policy-dry/`.
+
+## Earlier password length adjustment — 12 November 2026
+
+Local account creation/bootstrap and password changes now accept **8–128 characters**. The API counts Unicode code points. Shared browser form settings show the requirement before submission and apply it to initial account passwords and replacement passwords; external database credentials keep their separate behavior. Existing passwords and hashing/session safeguards are preserved.
+
+Focused verification: password-boundary cases (including Unicode), local bootstrap/login guards and the Tenant/account/password lifecycle all pass with `-race` on the existing local MariaDB (**25.989 seconds**). The integration fixtures use exactly eight-character initial and replacement passwords. `go vet ./...`, the TypeScript/Vite production build and `git diff --check` pass. Both targeted Chrome scenarios pass (**2/2 in 9.3 seconds**), covering Tenant/new-administrator creation, global account creation, login and initial-password replacement with eight-character passwords. The updated API and embedded console are running.
+
+## Console review corrections — 12 November 2026
+
+All five findings from the UI-simplification code review are fixed in the running console:
+
+- Existing platform/Tenant/team roles can be revoked while the account, membership or team is disabled. New assignments still require active recipients and last-administrator guards remain enforced. Chrome checks revoke platform authority from a disabled account, Tenant authority from a disabled membership and team roles across disabled team membership/team states without restoring access.
+- Platform **Users → Add to Tenant** selects an existing local or SSO identity and creates ordinary membership through the existing API. No automatic administrator grant, credential creation or email-based OIDC linking occurs. Tenant administrators still cannot read the global identity directory.
+- Space/App Access collections use the parent refresh counter for manual/background updates. Open role editors keep their drafts and captured revisions; a concurrent update remains a 412 instead of being overwritten.
+- Tenant administrator and user-recipient searches include email; team-recipient queries use their own columns. Database tests check the user/team query variants and scoped authority restrictions; Chrome selects a role recipient by email.
+- App compute preferences are displayed and edited under Advanced using the creation form's shared field definition. Chrome verifies retaining an existing dedicated preference after plan support is removed, changing to shared and preventing a new dedicated selection.
+
+Validation on the existing local MariaDB and pinned driver:
+
+- Full `go test -race -count=1 -v ./...` with integration/security configs: **PASS**, control package **63.007 seconds**. Only the opt-in CI fixture-preparation helper skips locally.
+- `go vet ./...`, TypeScript/Vite production build and `git diff --check`: **PASS**.
+- Complete installed-Chrome suite: **16/16 PASS in 1.1 minutes**, including all three new review-regression scenarios. The focused regressions also passed independently (**3/3 in 19.0 seconds**). The ordinary-membership form was visually inspected in `artifacts/review-add-to-tenant.png`.
+- Driver verifier: **42/42 pinned files unchanged**. Registry schema and database bindings are preserved. The rebuilt API/embedded console is running and ready at `http://127.0.0.1:8787/console/`.
+
+## Console simplification — 12 November 2026
+
+The console now uses task-based navigation and shared shell/forms/collections/pickers. Platform navigation is Tenants, Users, Activity and Settings; Tenant navigation starts at Apps. Space/App detail screens open on their actual collections. Members and team roles appear together; database servers/plans and technical form overrides are secondary settings. Browser URLs preserve direct links, reloads and Back/Forward. The account menu groups appearance, password and sign-out actions.
+
+Tenant administrator management is one atomic platform operation: **Tenants → Open → Administrators → Add administrator**, using either an existing identity or new email/password credentials. Tests verify account/membership/grant rollback, idempotence, membership recovery, credential preservation, secret omission, privilege separation and scoped recipient lookup. Name-only Space creation uses eligible managed targets, shared-resource reuse and effective plan defaults; an unconfigured target fails cleanly without partial allocation. Registry schema is unchanged.
+
+Validation uses the existing local MariaDB and pinned driver:
+
+- Full `go test -race -count=1 -v ./...` with the local integration/security configs: **PASS**, control package **48.272 seconds**. Only the opt-in CI fixture-preparation helper skips locally.
+- `go vet ./...`, TypeScript/Vite production build and `git diff --check`: **PASS**.
+- Driver verifier: **42/42 pinned files unchanged**. No driver changes, alternate server-version testing or benchmarks.
+- Complete installed-Chrome suite against the final embedded console: **13/13 PASS in 46.7 seconds**. It covers new/existing administrator creation, required initial-password rotation, name-only Space/App/micro-app creation, shared database provisioning and existing registration with an unchanged business-table marker, inline Tenant/team role management, stale revisions, delayed old-Tenant requests, direct URLs/reloads/Back/Forward, server search/paging, picker Load more, Vite authentication/writes, App-only visibility, session recovery, themes, mobile layout/focus and disabled browser storage.
+- Final desktop, administrator, team, dark-form and mobile screenshots were inspected in `artifacts/simple-*.png`. Chrome verification caught a hidden desktop sidebar control; the final build corrects it. Selector failures during the test rewrite were corrected to target the custom picker listbox rather than hidden native select options. The onboarding/mobile scenario also passed after adding assertions that wait for the responsive sidebar transition to settle (**1/1 in 6.3 seconds**); the final mobile capture has a hidden sidebar and full-width content.
+- Rebuilt API and embedded console restarted successfully; final readiness: **ready** at `http://127.0.0.1:8787/console/`. Existing local data, keys and database bindings are preserved.
+
 ## Tenant workspace review fixes — current, 12 November 2026
 
 All four findings from the Tenant-workspace review are fixed in the running API and console:
@@ -159,3 +207,142 @@ rerun or relabel the earlier Go race/integration results above.
 All ten findings in the initial security review are corrected; see [the remediation and verification record](review/security-2026-11-12/FIXES.md). The existing registry is on migration 2. The full Go/API suite passes with `-race`; `go vet` passes; the TypeScript/Vite build passes; and the final Chrome run passes **9/9 scenarios in 34.2 seconds**, including server paging/search and Vite login plus authenticated writes. `govulncheck` reports no vulnerabilities after the go-jose patch, and all 42 driver snapshot hashes match.
 
 This supersedes the earlier limitations about unpaged collection loading and the latest-150-only audit view. Security regression fixtures are disposable and clean up only their own verified resources; the original integration/browser inspection fixtures retain their existing behavior. The new CI workflow is configured but has not been run remotely. Business-data policy enforcement and generated-app execution remain outside the provisioning phase; their required boundaries are recorded in the provisioning plan.
+
+## Business entities, ACLs and rules — 12 November 2026
+
+The entity implementation supersedes the preceding provisioning-only boundary.
+It includes the React designer, generated MariaDB storage, durable publication,
+secured data APIs, App-bound authentication, TypeScript SDK and optional record
+sharing. General generated-App builds/runners remain outside this stage. Usage
+and supported changes are in [the entity guide](ENTITY_RUNTIME.md).
+
+Final checks ran against the existing local MariaDB and the rebuilt Go/React
+services, using the unchanged pinned driver:
+
+| Check | Result |
+| --- | --- |
+| `LASTAPP_TEST_CONFIG="$PWD/.local/config.json" LASTAPP_SECURITY_CONFIG="$PWD/.local/config.json" go test -race -count=1 ./...` with local `GOCACHE` | All packages passed; control integration suite 56.094 seconds |
+| `npm run test:e2e --prefix web/admin` with the configured Node | 21/21 Chrome scenarios passed in 1.2 minutes |
+| `make client` | SDK TypeScript build and static example generation passed |
+| `make dev` | React type/build checks, Go binaries and local startup passed; registry version 4 |
+| `go vet ./...` | Passed |
+| `python3 scripts/verify_driver.py` | All 42 snapshot hashes matched; driver unchanged |
+| Normalized design DDL versus all four migration Up sections | Identical |
+| Plan/guide JSON examples, local links and `git diff --check` | Passed |
+| HTTP `/healthz`, `/console/`, `/v1/config` | All returned 200 after verification |
+
+The real-database entity regression covers owner ACLs, inaccessible-record errors,
+authorized revision conflicts, atomic bulk rollback, count/cursor pagination,
+wide-projection page limits, exact decimal and null/text SQL/evaluator parity,
+synthetic tests without mutations, interrupted activation recovery and rejection
+of unsupported storage changes while preserving the active version. Two Apps
+reuse the same entity and records; another Space in the same physical database
+cannot cross their namespace or reference boundary. Sharing checks include exact
+permission delegation, label versus security changes, grantor revocation and
+parent-session revocation. Separate regressions check Tenant concurrency limits
+and prove a stalled database open does not block a healthy cached resource.
+
+Browser checks retain the complete provisioning, administration, roles, password,
+appearance and workspace regressions. New flows author/test/publish an entity on
+managed storage, preserve a dirty editor across a competing draft update, and
+connect a static App on a separate host through the actual approval/PKCE/token
+flow to create and read real records. Registered storage is covered by database
+and integration fixtures. The designer's desktop and 390px screenshots were
+visually inspected, including responsive layout and the existing shared theme.
+
+Final local logs are `.local/entities-go-final-all.log`,
+`.local/entities-browser-final-all.log` and `.local/entities-dev-final.log`.
+Screenshots are `web/admin/test-results/entity-designer-desktop.png` and
+`web/admin/test-results/entity-designer-mobile.png`. These generated artifacts
+remain ignored. Earlier verification runs exposed and corrected ambiguous test
+selectors and an expiration-test race where a pending request could return the
+UI to login before Refresh was clicked; the final complete run passed.
+
+Existing development data and pre-existing working-tree changes were preserved.
+No database-version matrix, benchmark, driver modification or remote deployment
+was performed. The local console remains available at
+<http://127.0.0.1:8787/console/>.
+
+## Entity designer layout correction — 12 November 2026
+
+The Fields screen now aligns the name input and Add field button, uses a compact
+list with shared edit/remove actions, and groups ownership, default fields,
+sharing and lifecycle controls into a properly padded settings disclosure.
+Desktop ownership controls share a row and stack on mobile. The same row
+component serves Access and Rules. Entity dialogs have one padding layer,
+consistent form spacing and grouped review actions. All colors continue to use
+the shared appearance tokens.
+
+`make dev` passed the TypeScript/Vite build and rebuilt the running local console.
+The complete browser run passed its 20 existing non-entity scenarios; the new
+entity layout check initially used an exact label selector that did not match
+the select's implicit label. After switching to its accessible combobox role,
+the focused entity scenario passed, including real create/test/publication,
+desktop input/button and ownership alignment, 390px overflow, mobile dialog
+bounds and focus restoration. The final visual run also captures Studio dark
+and wide desktop layouts; its final run passed in 8.2 seconds. All four final
+captures were visually inspected. Logs are `.local/entity-layout-browser.log`,
+`.local/entity-layout-focused.log` and `.local/entity-layout-visual-final.log`.
+The screenshot helper resets scroll before full-page captures so fixed headers
+are not captured at their previous scrolled offset.
+
+Screenshots are in `web/admin/test-results/entity-designer-{desktop,dark,mobile}.png`
+and `web/admin/test-results/entity-editor-mobile.png`. This correction changes
+frontend layout/components and their browser verification; backend business
+logic and the pinned MariaDB driver are unchanged.
+
+## Complete screen and modal layout review — 12 November 2026
+
+Reviewed the current console screen families and their create/edit/disclosure
+variants through real local sessions. The final capture matrix contains **136
+states at desktop and mobile sizes (272 captures)**, with no document horizontal
+overflow, off-screen dialogs or extra Advanced-section indentation in its final
+checks. Captures/contact sheets were visually inspected, with full-size checks
+of the dense forms, settings, credentials, onboarding and expression dialogs.
+
+| Area | Reviewed surfaces |
+| --- | --- |
+| Authentication/account | Sign-in, first password, ordinary password change, SSO account, account before Tenant assignment, App connection approval/error |
+| Platform | Tenants, Tenant overview/administrators/settings, users, activity, database servers, plans; their create/edit/account/administrator dialogs and Advanced sections |
+| Tenant workspace | Apps, Spaces, Space/App tabs and settings, micro-apps, people, teams and team members, activity, Tenant settings; create/edit/member dialogs |
+| Access | Space/App assignments, custom role lists and create/edit dialogs, user/team access assignment, inherited and explicit App ceilings/restrictions |
+| Databases | Managed creation, existing registration, resource list, replacement runtime credentials and schema credentials |
+| Entity authoring | Library, fields/settings, all eleven field types and relevant options, access subjects/operations/conditions, validation/allowed-change dialogs, all four Test operations and publication review |
+| Shared surfaces | Search/paging tables, empty/loading states, appearance controls, mobile navigation and the isolated static data example |
+
+Corrections use shared components and CSS tokens:
+
+- One form spacing/padding/control-height contract; Advanced fields no longer
+  acquire a second inset. Single-field forms and initial passwords use the
+  available width. Account selection and credential pairs have coherent rows.
+- Table action headings align with their actions; long actions wrap. Table text
+  is more readable and existing scroll containers retain mobile containment.
+- Settings have consistent heading/action groups and spacing. App data access
+  is a sibling section rather than a panel nested inside another settings card;
+  its developer-only local setup instructions remain in documentation.
+- Password onboarding uses a centered single-column grid. The account password
+  form has an appropriate section heading and no inherited oversized title or
+  excess hint margins. Mobile navigation no longer animates the desktop content
+  offset across the layout breakpoint.
+- The isolated example aligns its entity selector/actions and uses consistent
+  field/button spacing. Colors and appearance presets remain shared in the
+  console; no authorization rules or backend behavior changed.
+
+`make dev` passed the final TypeScript/Vite and Go build and left the local UI
+running. The complete Chrome suite passed **23/23 scenarios in 1.3 minutes**,
+including two new regressions for advanced-field alignment, credential pairing,
+responsive dialog bounds, centered onboarding and account use without Tenant
+assignment. Existing provisioning, permission, password-policy, theme and App
+data flows passed. All 42 pinned-driver hashes matched; `git diff --check` passed.
+
+Local evidence: `.local/ui-audit/final-console/manifest.json` (164 captures),
+`.local/ui-audit/final-authoring/manifest.json` (108 captures),
+`.local/ui-review-build.log`, `.local/ui-review-browser-final.log` and
+`.local/ui-review-example-final.log`. The first audit iteration exposed a bad
+audit endpoint and transient measurements during responsive animation; these
+were investigated and corrected before the final matrix. It also exposed an
+audit navigation race during password replacement; the final audit waits for
+the actual authenticated screen, and the permanent regression verifies that
+flow. These audit issues are not counted as application failures or passing
+checks. Screenshot artifacts remain ignored; prior data and uncommitted work
+were preserved. No commit, push or remote deployment was performed.

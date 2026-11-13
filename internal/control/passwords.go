@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -15,8 +16,23 @@ import (
 	"unicode/utf8"
 )
 
-const passwordIterations = 600000
+const (
+	passwordIterations = 600000
+	minPasswordLength  = 8
+	maxPasswordLength  = 128
+	// Bound authentication work independently of the policy for NEW passwords.
+	// Existing credentials must remain usable after a policy change.
+	maxPasswordInputBytes = 1024
+)
 const localIssuer = "urn:lastapp:local"
+
+func passwordLengthHint() string {
+	return fmt.Sprintf("%d–%d characters.", minPasswordLength, maxPasswordLength)
+}
+
+func publicPasswordPolicy() Row {
+	return Row{"min_length": minPasswordLength, "max_length": maxPasswordLength, "length_hint": passwordLengthHint()}
+}
 
 type accountInput struct {
 	Name     string `json:"display_name"`
@@ -38,8 +54,8 @@ func loginEmail(raw string) (string, error) {
 }
 func validatePassword(password string) error {
 	n := utf8.RuneCountInString(password)
-	if !utf8.ValidString(password) || n < 15 || n > 128 || len(password) > 1024 {
-		return bad("Use a password of 15–128 characters.")
+	if !utf8.ValidString(password) || n < minPasswordLength || n > maxPasswordLength {
+		return bad("Use a password of " + passwordLengthHint())
 	}
 	return nil
 }
@@ -217,7 +233,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		if !s.loginLimiter.allowRate("ip:"+peer, now, 12, 1.0/5) || !s.loginLimiter.allowRate("email:"+hex.EncodeToString(hash(email)), now, 8, 1.0/30) {
 			return rateLimited(w)
 		}
-		if e != nil || len(in.Password) > 1024 {
+		if e != nil || len(in.Password) > maxPasswordInputBytes {
 			return invalidLogin()
 		}
 		release, e := s.passwordWork()
@@ -282,7 +298,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Princi
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if len(in.Current) > 1024 {
+	if len(in.Current) > maxPasswordInputBytes {
 		return invalidLogin()
 	}
 	if e := validatePassword(in.Next); e != nil {

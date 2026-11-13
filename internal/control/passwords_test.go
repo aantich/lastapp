@@ -12,6 +12,60 @@ import (
 	"time"
 )
 
+func TestPasswordLengthBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, password string
+		valid          bool
+	}{
+		{"too short", "1234567", false},
+		{"minimum", "Abc!1234", true},
+		{"unicode below minimum", strings.Repeat("界", 7), false},
+		{"unicode minimum", strings.Repeat("界", 8), true},
+		{"maximum", strings.Repeat("x", 128), true},
+		{"too long", strings.Repeat("x", 129), false},
+		{"invalid unicode", "password\xff", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if e := validatePassword(tc.password); (e == nil) != tc.valid {
+				t.Fatalf("valid=%v, error=%v", tc.valid, e)
+			}
+		})
+	}
+}
+
+func TestPublicPasswordPolicy(t *testing.T) {
+	// Public config must be available before login and without a database.
+	s := &Server{mux: http.NewServeMux()}
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/v1/config", nil))
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("public config response", w.Code, w.Header())
+	}
+	var config struct {
+		Policy struct {
+			Min  int    `json:"min_length"`
+			Max  int    `json:"max_length"`
+			Hint string `json:"length_hint"`
+		} `json:"password_policy"`
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &config); e != nil {
+		t.Fatal(e)
+	}
+	p := config.Policy
+	if p.Min != minPasswordLength || p.Max != maxPasswordLength || p.Hint != passwordLengthHint() {
+		t.Fatal("config differs from authoritative policy", p)
+	}
+	for _, n := range []int{p.Min - 1, p.Min, p.Max, p.Max + 1} {
+		e := validatePassword(strings.Repeat("😀", n))
+		if (e == nil) != (n >= p.Min && n <= p.Max) {
+			t.Fatalf("public bounds disagree with Unicode validation at %d: %v", n, e)
+		}
+		if e != nil && !strings.Contains(e.Error(), p.Hint) {
+			t.Fatal("validation message differs from public policy", e)
+		}
+	}
+}
+
 func passwordSignIn(c testClient, email, password string, want int) testClient {
 	c.t.Helper()
 	b, _ := json.Marshal(Row{"email": email, "password": password})
@@ -41,7 +95,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 	if e := s.InitAuth(context.Background()); e != nil {
 		t.Fatal(e)
 	}
-	email, password := "local-"+newID()+"@example.test", "Local bootstrap account password!"
+	email, password := "local-"+newID()+"@example.test", "Boot8!ab"
 	user, e := s.BootstrapLocal(context.Background(), "Local operator", email, password)
 	if e != nil {
 		t.Fatal(e)
@@ -83,7 +137,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	s, platform, operator, oidcOwner, _ := foundationFixture(t)
 	tenant, email := newID(), "owner-"+newID()+"@example.test"
-	temporary, personal := "Temporary account password 2026!", "A personal passphrase for Lastapp!"
+	temporary, personal := "Temp8!ab", "Own8!xyz"
 	create := Row{"id": tenant, "slug": "accounts-" + tenant, "display_name": "Account workspace", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": Row{"display_name": "Account owner", "email": email, "password": temporary}}
 	platform.want("POST", "/admin/v1/tenants", create, 0, 201)
 	base := "/v1/tenants/" + tenant

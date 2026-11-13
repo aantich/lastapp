@@ -51,6 +51,12 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 		columns, order = "id,principal_name,access_name,scope_name", "created_at DESC,id"
 	case "memberships":
 		columns, order = "user_id,display_name,email,state", "display_name,user_id"
+	case "administrators":
+		columns = "id,user_id,display_name,email,state"
+	case "recipients":
+		if values.Get("type") != "team" {
+			columns = "id,user_id,display_name,email"
+		}
 	case "members":
 		columns, order = "user_id,display_name", "display_name,user_id"
 	case "audit-events":

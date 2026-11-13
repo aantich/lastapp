@@ -53,7 +53,7 @@ def main():
   try:sql('SELECT 1;');break
   except subprocess.CalledProcessError:time.sleep(.2)
  else:raise RuntimeError('Private MariaDB failed to start')
- sql(f"CREATE DATABASE IF NOT EXISTS {REGISTRY} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'lastapp_control'@'127.0.0.1' IDENTIFIED BY '{state['registry_password']}'; GRANT SELECT,INSERT ON {REGISTRY}.* TO 'lastapp_control'@'127.0.0.1'; REVOKE UPDATE,DELETE ON {REGISTRY}.* FROM 'lastapp_control'@'127.0.0.1'; CREATE USER IF NOT EXISTS 'lastapp_provisioner'@'127.0.0.1' IDENTIFIED BY '{state['provisioner_password']}'; GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'127.0.0.1'; GRANT CREATE,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'127.0.0.1' WITH GRANT OPTION; CREATE DATABASE IF NOT EXISTS legacy_demo; CREATE TABLE IF NOT EXISTS legacy_demo.contacts (id INT PRIMARY KEY,name VARCHAR(100)); INSERT IGNORE INTO legacy_demo.contacts VALUES (1,'Existing customer'); CREATE USER IF NOT EXISTS 'legacy_runtime'@'127.0.0.1' IDENTIFIED BY '{state['legacy_password']}'; GRANT SELECT,INSERT,UPDATE,DELETE ON `legacy\\_demo`.* TO 'legacy_runtime'@'127.0.0.1';")
+ sql(f"CREATE DATABASE IF NOT EXISTS {REGISTRY} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'lastapp_control'@'127.0.0.1' IDENTIFIED BY '{state['registry_password']}'; GRANT SELECT,INSERT ON {REGISTRY}.* TO 'lastapp_control'@'127.0.0.1'; REVOKE UPDATE,DELETE ON {REGISTRY}.* FROM 'lastapp_control'@'127.0.0.1'; CREATE USER IF NOT EXISTS 'lastapp_provisioner'@'127.0.0.1' IDENTIFIED BY '{state['provisioner_password']}'; GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'127.0.0.1'; GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'127.0.0.1' WITH GRANT OPTION; CREATE DATABASE IF NOT EXISTS legacy_demo; CREATE TABLE IF NOT EXISTS legacy_demo.contacts (id INT PRIMARY KEY,name VARCHAR(100)); INSERT IGNORE INTO legacy_demo.contacts VALUES (1,'Existing customer'); CREATE USER IF NOT EXISTS 'legacy_runtime'@'127.0.0.1' IDENTIFIED BY '{state['legacy_password']}'; GRANT SELECT,INSERT,UPDATE,DELETE ON `legacy\\_demo`.* TO 'legacy_runtime'@'127.0.0.1';")
  configfile=LOCAL/'config.json'
  if configfile.exists():config=json.loads(configfile.read_text())
  else:
@@ -76,7 +76,7 @@ def main():
    if not listening(8787) and not listening(8788):break
    time.sleep(.1)
  run([LOCAL/'lastapp','migrate','-config',LOCAL/'migrate.json']);# Runtime credentials can append/read audit history but cannot change it.
- for table in ['users','sessions','plans','tenants','tenant_memberships','database_targets','database_resources','spaces','apps','microapp_installations','groups','group_memberships','local_accounts','roles','role_permissions','access_grants']:
+ for table in ['users','sessions','plans','tenants','tenant_memberships','database_targets','database_resources','spaces','apps','microapp_installations','groups','group_memberships','local_accounts','roles','role_permissions','access_grants','permissions','entity_definitions','entity_versions']:
   sql(f"GRANT UPDATE,DELETE ON {REGISTRY}.`{table}` TO 'lastapp_control'@'127.0.0.1';")
  run([LOCAL/'lastapp','seed-development','-config',configfile,'-provisioner-file',LOCAL/'provisioner.secret'])
  start('devoidc',[LOCAL/'devoidc']);wait_url('http://127.0.0.1:8788/.well-known/openid-configuration')

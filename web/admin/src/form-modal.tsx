@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { RemoteSelect } from "./remote-select";
 import { useDialogFocus } from "./appearance";
+import {
+  NewPasswordInput,
+  usePasswordPolicy,
+  generatePassword,
+} from "./new-password-input";
 type Item = Record<string, any>;
 export type Field = {
   key: string;
@@ -9,11 +14,17 @@ export type Field = {
   type?: string;
   options?: Item[];
   required?: boolean;
+  newPassword?: boolean;
   hint?: string;
   lookup?: string;
   value?: any;
   when?: (values: Item) => boolean;
   generate?: boolean;
+  advanced?: boolean;
+  excludeControl?: boolean;
+  excludePlatform?: boolean;
+  excludeInactive?: boolean;
+  wide?: boolean;
 };
 export type Modal = {
   title: string;
@@ -34,6 +45,7 @@ export function FormModal({
   done: () => void;
   lookups: Record<string, string>;
 }) {
+  const policy = usePasswordPolicy();
   const [values, setValues] = useState<Item>(modal.initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,7 +83,7 @@ export function FormModal({
     >
       <section
         ref={dialogRef}
-        className="modal"
+        className="modal form-modal"
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
@@ -93,184 +105,224 @@ export function FormModal({
         </header>
         <form onSubmit={submit}>
           <div className="fields">
-            {modal.fields
-              .filter((f) => !f.when || f.when(values))
-              .map((f, i) => (
-                <label
-                  className={
-                    f.type === "permissions" || f.type === "note" ? "wide" : ""
-                  }
-                  key={f.key}
-                >
-                  {f.type !== "checkbox" && (
-                    <span>
-                      {f.label}
-                      {f.required && <b aria-hidden="true"> *</b>}
-                    </span>
-                  )}
-                  {f.type === "note" ? (
-                    <p className="hint">{f.hint}</p>
-                  ) : f.type === "checkbox" ? (
-                    <span className="check-label">
-                      <input
-                        type="checkbox"
-                        checked={!!values[f.key]}
-                        onChange={(e) =>
-                          setValues({ ...values, [f.key]: e.target.checked })
+            {[false, true].map((advanced) => {
+              const fields = modal.fields.filter(
+                (f) => !!f.advanced === advanced && (!f.when || f.when(values)),
+              );
+              const content = fields.map((f, i) => {
+                const Input = f.newPassword ? NewPasswordInput : "input";
+                const Container =
+                  f.type === "permissions" || f.type === "note"
+                    ? "div"
+                    : "label";
+                return (
+                  <Container
+                    className={
+                      "form-field" +
+                      (f.wide ||
+                      f.newPassword ||
+                      f.type === "permissions" ||
+                      f.type === "note"
+                        ? " wide"
+                        : "")
+                    }
+                    key={f.key}
+                  >
+                    {f.type !== "checkbox" && (
+                      <span className="field-label">
+                        {f.label}
+                        {f.required && <b aria-hidden="true"> *</b>}
+                      </span>
+                    )}
+                    {f.type === "note" ? (
+                      <p className="hint">{f.hint}</p>
+                    ) : f.type === "checkbox" ? (
+                      <span className="check-label">
+                        <input
+                          type="checkbox"
+                          checked={!!values[f.key]}
+                          onChange={(e) =>
+                            setValues({ ...values, [f.key]: e.target.checked })
+                          }
+                        />
+                        {f.label}
+                      </span>
+                    ) : f.type === "permissions" ? (
+                      <div className="permission-list">
+                        {f.options?.map((o) => (
+                          <label key={o.value}>
+                            <input
+                              type="checkbox"
+                              checked={(values[f.key] || []).includes(o.value)}
+                              onChange={(e) =>
+                                setValues({
+                                  ...values,
+                                  [f.key]: e.target.checked
+                                    ? [...(values[f.key] || []), o.value]
+                                    : (values[f.key] || []).filter(
+                                        (x: string) => x !== o.value,
+                                      ),
+                                })
+                              }
+                            />
+                            <span>{o.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : f.type === "select" && (f.lookup || lookups[f.key]) ? (
+                      <RemoteSelect
+                        label={f.label}
+                        required={f.required}
+                        value={values[f.key] ?? ""}
+                        initial={(f.options || []).map((o) => ({
+                          value: o.value,
+                          label: o.label,
+                        }))}
+                        path={f.lookup || lookups[f.key]}
+                        valueKey={
+                          (f.lookup || lookups[f.key]).endsWith(
+                            "memberships",
+                          ) || (f.lookup || lookups[f.key]).endsWith("/members")
+                            ? "user_id"
+                            : "id"
+                        }
+                        labelKey={
+                          f.key === "resource_id"
+                            ? "database_name"
+                            : "display_name"
+                        }
+                        excludeControl={f.excludeControl}
+                        excludeInactive={
+                          f.excludeInactive ||
+                          [
+                            "user_id",
+                            "initial_admin_user_id",
+                            "initial_manager_user_id",
+                          ].includes(f.key)
+                        }
+                        excludePlatform={
+                          f.excludePlatform ||
+                          [
+                            "initial_admin_user_id",
+                            "initial_manager_user_id",
+                          ].includes(f.key)
+                        }
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
                         }
                       />
-                      {f.label}
-                    </span>
-                  ) : f.type === "permissions" ? (
-                    <div className="permission-list">
-                      {f.options?.map((o) => (
-                        <label key={o.value}>
-                          <input
-                            type="checkbox"
-                            checked={(values[f.key] || []).includes(o.value)}
-                            onChange={(e) =>
-                              setValues({
-                                ...values,
-                                [f.key]: e.target.checked
-                                  ? [...(values[f.key] || []), o.value]
-                                  : (values[f.key] || []).filter(
-                                      (x: string) => x !== o.value,
-                                    ),
-                              })
-                            }
-                          />
-                          <span>{o.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : f.type === "select" && (f.lookup || lookups[f.key]) ? (
-                    <RemoteSelect
-                      label={f.label}
-                      required={f.required}
-                      value={values[f.key] ?? ""}
-                      initial={(f.options || []).map((o) => ({
-                        value: o.value,
-                        label: o.label,
-                      }))}
-                      path={f.lookup || lookups[f.key]}
-                      valueKey={
-                        (f.lookup || lookups[f.key]).endsWith("memberships") ||
-                        (f.lookup || lookups[f.key]).endsWith("/members")
-                          ? "user_id"
-                          : "id"
-                      }
-                      labelKey={
-                        f.key === "resource_id"
-                          ? "database_name"
-                          : "display_name"
-                      }
-                      excludeInactive={[
-                        "user_id",
-                        "initial_admin_user_id",
-                        "initial_manager_user_id",
-                      ].includes(f.key)}
-                      excludePlatform={[
-                        "initial_admin_user_id",
-                        "initial_manager_user_id",
-                      ].includes(f.key)}
-                      onChange={(value) =>
-                        setValues({ ...values, [f.key]: value })
-                      }
-                    />
-                  ) : f.type === "select" ? (
-                    <select
-                      aria-label={f.label}
-                      required={f.required}
-                      value={values[f.key] ?? ""}
-                      onChange={(e) =>
-                        setValues({ ...values, [f.key]: e.target.value })
-                      }
-                    >
-                      <option value="">Choose…</option>
-                      {f.options?.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="form-input-group">
-                      <input
+                    ) : f.type === "select" ? (
+                      <select
                         aria-label={f.label}
-                        autoFocus={i === 0}
                         required={f.required}
-                        min={f.type === "number" ? 0 : undefined}
-                        type={
-                          f.type === "password" && visible.includes(f.key)
-                            ? "text"
-                            : f.type || "text"
-                        }
-                        autoComplete={
-                          f.type === "password" ? "new-password" : "off"
-                        }
                         value={values[f.key] ?? ""}
-                        onChange={(e) => {
-                          const v: Item = {
-                            ...values,
-                            [f.key]: e.target.value,
-                          };
-                          if (
-                            f.key === "display_name" &&
-                            (!values.slug ||
-                              values.slug ===
-                                String(values.display_name || "")
+                        onChange={(e) =>
+                          setValues({ ...values, [f.key]: e.target.value })
+                        }
+                      >
+                        <option value="">Choose…</option>
+                        {f.options?.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="form-input-group">
+                        <Input
+                          aria-label={f.label}
+                          autoFocus={i === 0 && !advanced}
+                          required={f.required}
+                          min={f.type === "number" ? 0 : undefined}
+                          type={
+                            f.type === "password" && visible.includes(f.key)
+                              ? "text"
+                              : f.type || "text"
+                          }
+                          autoComplete={
+                            f.type === "password" ? "new-password" : "off"
+                          }
+                          value={values[f.key] ?? ""}
+                          onChange={(e) => {
+                            const v: Item = {
+                              ...values,
+                              [f.key]: e.target.value,
+                            };
+                            for (const key of ["slug", "code"]) {
+                              const clean = (name: string) =>
+                                name
                                   .toLowerCase()
                                   .replace(/[^a-z0-9]+/g, "-")
-                                  .slice(0, 63)) &&
-                            modal.fields.some((f) => f.key === "slug")
-                          )
-                            v.slug = e.target.value
-                              .toLowerCase()
-                              .replace(/[^a-z0-9]+/g, "-")
-                              .slice(0, 63);
-                          setValues(v);
-                        }}
-                      />
-                      {f.generate && (
-                        <span className="row-actions">
-                          <button
-                            type="button"
-                            className="text-button"
-                            onClick={() => {
-                              const bytes = crypto.getRandomValues(
-                                new Uint8Array(20),
-                              );
-                              setValues({
-                                ...values,
-                                [f.key]: Array.from(bytes, (b) =>
-                                  b.toString(16).padStart(2, "0"),
-                                ).join(""),
-                              });
-                              setVisible((old) => [...old, f.key]);
-                            }}
-                          >
-                            Generate password
-                          </button>
-                          <button
-                            type="button"
-                            className="text-button"
-                            onClick={() =>
-                              setVisible((old) =>
-                                old.includes(f.key)
-                                  ? old.filter((k) => k !== f.key)
-                                  : [...old, f.key],
+                                  .replace(/^[^a-z]+|[-]+$/g, "")
+                                  .slice(0, 63) || "item";
+                              if (
+                                f.key === "display_name" &&
+                                modal.fields.some(
+                                  (field) => field.key === key,
+                                ) &&
+                                (!values[key] ||
+                                  values[key] ===
+                                    clean(String(values.display_name || "")))
                               )
+                                v[key] = clean(e.target.value);
                             }
-                          >
-                            {visible.includes(f.key) ? "Hide" : "Show"}
-                          </button>
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  {f.hint && f.type !== "note" && <small>{f.hint}</small>}
-                </label>
-              ))}
+                            setValues(v);
+                          }}
+                        />
+                        {f.generate && (
+                          <span className="row-actions">
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => {
+                                setValues({
+                                  ...values,
+                                  [f.key]: generatePassword(policy),
+                                });
+                                setVisible((old) => [...old, f.key]);
+                              }}
+                            >
+                              Generate password
+                            </button>
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() =>
+                                setVisible((old) =>
+                                  old.includes(f.key)
+                                    ? old.filter((k) => k !== f.key)
+                                    : [...old, f.key],
+                                )
+                              }
+                            >
+                              {visible.includes(f.key) ? "Hide" : "Show"}
+                            </button>
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {(f.hint || f.newPassword) && f.type !== "note" && (
+                      <small>
+                        {f.newPassword && `${policy.length_hint} `}
+                        {f.hint}
+                      </small>
+                    )}
+                  </Container>
+                );
+              });
+              return advanced ? (
+                fields.length > 0 && (
+                  <details className="advanced-fields wide" key="advanced">
+                    <summary>Advanced</summary>
+                    <div className="fields">{content}</div>
+                  </details>
+                )
+              ) : (
+                <span className="basic-fields" key="basic">
+                  {content}
+                </span>
+              );
+            })}
           </div>
           {error && (
             <div className="error" role="alert">

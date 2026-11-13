@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/authz"
 	admin "github.com/aantich/lastapp/web/admin"
 )
 
@@ -50,7 +51,7 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf")})
+		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "password_policy": publicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
@@ -82,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		return e
 	})
+	s.entityRoutes()
 	s.api("GET /v1/roles/catalog", s.roleCatalog)
 	s.api("GET /v1/tenants/{tenant}/my-role-assignments", s.myRoles)
 	s.api("GET /v1/tenants/{tenant}/capabilities", s.capabilities)
@@ -98,6 +100,8 @@ func (s *Server) Handler() http.Handler {
 	s.api("GET /v1/tenants/{tenant}", s.getTenant)
 	s.api("PATCH /v1/tenants/{tenant}", s.updateTenantProfile)
 	s.api("GET /v1/tenants/{tenant}/overview", s.tenantOverview)
+	s.api("GET /admin/v1/tenants/{tenant}/administrators", s.tenantAdministrators)
+	s.api("POST /admin/v1/tenants/{tenant}/administrators", s.addTenantAdministrator)
 	s.api("GET /admin/v1/database-targets", s.targets)
 	s.api("POST /admin/v1/database-targets", s.createTarget)
 	s.api("PATCH /admin/v1/database-targets/{id}", s.updateTarget)
@@ -129,6 +133,7 @@ func (s *Server) Handler() http.Handler {
 	s.api("POST /v1/tenants/{tenant}/teams/{id}/members", s.addGroupMember)
 	s.api("DELETE /v1/tenants/{tenant}/teams/{id}/members/{user}", s.removeGroupMember)
 	for _, path := range []string{"/v1/tenants/{tenant}", "/v1/tenants/{tenant}/teams/{team}", "/v1/tenants/{tenant}/spaces/{space}", "/v1/tenants/{tenant}/apps/{app}"} {
+		s.api("GET "+path+"/recipients", s.recipientOptions)
 		s.api("GET "+path+"/roles", s.roles)
 		if strings.Contains(path, "{space}") || strings.Contains(path, "{app}") {
 			s.api("POST "+path+"/roles", s.createRole)

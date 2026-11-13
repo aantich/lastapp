@@ -109,6 +109,15 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 					return conflict("The selected target differs from the existing default shared database.")
 				}
 			} else {
+				if in.Database.Target == "" {
+					e := tx.QueryRowContext(r.Context(), "SELECT id FROM database_targets WHERE state='active' AND managed_enabled=1 ORDER BY created_at,id LIMIT 1").Scan(&in.Database.Target)
+					if e == sql.ErrNoRows {
+						return conflict("Managed database creation is not configured. Ask a platform administrator to add a database server.")
+					}
+					if e != nil {
+						return e
+					}
+				}
 				resource = newID()
 				dbIn := databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: in.Database.Target}
 				if e = s.allocateDatabase(r.Context(), tx, p, tenant, dbIn, policy, r.Header.Get("X-Request-ID")); e != nil {

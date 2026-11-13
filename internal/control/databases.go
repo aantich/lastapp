@@ -46,7 +46,11 @@ func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p Prin
 	if e := s.authorize(r.Context(), s.DB, p, "database.manage", Resource{Tenant: r.PathValue("tenant")}, false); e != nil {
 		return e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active' ORDER BY display_name")
+	filter := ""
+	if r.URL.Query().Get("managed") == "true" {
+		filter = " AND managed_enabled=1"
+	}
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
 	if e == nil {
 		sendPage(w, r, v)
 	}
@@ -350,7 +354,7 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			if e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET runtime_credentials_enc=? WHERE id=?", enc, record); e != nil {
+			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET runtime_credentials_enc=?,credential_generation=credential_generation+1 WHERE id=?", enc, record); e != nil {
 				return e
 			}
 		}

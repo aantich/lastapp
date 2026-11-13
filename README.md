@@ -1,10 +1,14 @@
 # Lastapp — provisioning and authorization foundation
 
-A Go API and React/Tailwind console with separate Platform and Tenant workspaces, email/password accounts and optional OIDC, real MariaDB provisioning, shared identities/teams and scoped roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. Business-object ACLs and the entity runtime are the next stage.
+A Go API and React/Tailwind console with separate Platform and Tenant workspaces, email/password accounts and optional OIDC, real MariaDB provisioning, shared identities/teams and scoped roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. The entity designer, generated storage, business-object ACLs/rules, App sessions and TypeScript data SDK are implemented.
+
+**Foundational principle: DRY.** Rules and policies have one authoritative source, shared by all consumers. Keep implementations simple and reuse existing contracts and components. See [AGENTS.md](AGENTS.md) for the persistent engineering rules.
+
+**Business entities:** [Usage and implementation guide](ENTITY_RUNTIME.md) · [Design and delivery plan](ENTITY_DESIGN_IMPLEMENTATION_PLAN.md). In a Tenant workspace, open **Space → Entities**. App origins and ceilings are approved under **App → Settings → App data access**.
 
 **Open locally:** http://127.0.0.1:8787/console/
 
-Use **Sign in to Lastapp** to open development SSO, then choose **Platform operator**, password **`lastapp-local`**. The issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space, Marketing/Engineering teams and two Apps. The normal login form accepts the email/password accounts created by platform administrators through Tenant provisioning or **Users → Create account**.
+Use **Continue with SSO** to open development SSO, then choose **Platform operator**, password **`lastapp-local`**. The issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space, Marketing/Engineering teams and two Apps. The normal login form accepts the email/password accounts created by platform administrators through Tenant provisioning or **Users → Create account**.
 
 ## Run
 
@@ -40,12 +44,14 @@ Do not delete `.local/config.json` while retaining its database: its encryption 
 
 1. As **Platform operator**, open **Tenants → Create Tenant**. Choose a plan, enter the administrator's name/email/initial password (or generate one), or select an existing account. An existing account's password is never replaced.
 2. Sign out, then sign in with that email/password. Replace the initial password to unlock the workspace. Alternatively, use the development **Tenant administrator** SSO account to inspect the Northstar demo.
-3. Tenant **Home** shows recent Apps, resource counts/limits and provisioning issues. **View all Apps** opens the paginated, searchable App directory; App-only managers can reach every authorized App without access to its parent Space. The sidebar contains **Home, Spaces, People, Activity, Settings**. A Tenant switcher appears only for multiple memberships.
-4. **Spaces → Create Space:** choose its manager and managed creation or an existing database resource. Open the Space for **Overview, Apps, Database, Access, Settings**; create Apps inside its **Apps** tab.
-5. Open an App for **Overview, Micro-apps, Access, Settings**. Register micro-apps and manage App business roles. Registrations and compute preferences do not deploy or execute Apps.
-6. **People:** add an existing account by email or user ID, manage teams/memberships and assign fixed Tenant/team roles. Platform administrators create new global accounts; Tenant administrators cannot claim arbitrary global email identities. Space/App custom roles remain inside their owning Space/App. The last active Tenant administrator is protected.
-7. **Settings:** company name, read-only subscription limits, database resources and password changes. Existing database registration preserves business tables; verification/retries, credential replacement and retirement use the existing provisioning API.
-8. The **Platform workspace** manages Tenants, plans, targets, global users and platform roles/activity. **Users → Create account** provisions an email/password account without automatically granting any role or membership. Tenant details show operational inventory. Platform accounts cannot create/update Spaces, Apps, micro-apps or custom business roles, and cannot hold Tenant/team administrative roles. Last-superadmin protection remains enforced.
+3. Tenant users land on **Apps**, the complete searchable, paginated directory. The sidebar is **Apps, Spaces, People, Activity, Settings**, filtered by authority. App-only managers need no parent-Space visibility. A single searchable Tenant switcher appears for multiple memberships.
+4. **Spaces → Create Space:** enter a name. The current user becomes manager; managed creation uses the effective Tenant/plan database layout and an eligible server, reusing the Tenant's shared database where applicable. **Advanced** exposes slug, manager, layout/server and existing-resource choices. A Space opens on **Apps**, with **Access** and **Settings**; database details are in Settings.
+5. An App opens on **Micro-apps**, with **Access** and **Settings**. Create Apps and micro-app registrations by name; technical metadata and compute preferences are under Advanced. The compute preference remains editable under App **Settings → Edit App → Advanced**. These preferences and registrations do not execute Apps.
+6. **People → Members:** Tenant administrator checkboxes and Tenant access controls are directly on member rows. Add existing local accounts by email. **Teams** opens a team's members with Administrator/Reviewer checkboxes on the same rows. Space/App **Access → Manage roles** is the secondary custom-role editor. The last active Tenant administrator remains protected. Existing roles can be revoked while the account or access is disabled; new assignments require active recipients.
+7. Tenant **Settings** contains general information, plan limits and databases. Existing database registration preserves business tables; connection checks/retries, credential replacement and retirement use the provisioning API. The **account menu** contains **My account**, **Appearance** and **Sign out**.
+8. Platform navigation is **Tenants, Users, Activity, Settings**. Open a Tenant for **Overview, Administrators, Settings**. **Administrators → Add administrator** creates or selects an account, activates its membership and grants Tenant administration atomically. Existing passwords are never replaced. **Users** contains platform administrator checkboxes and global account enable/disable; **Settings** contains database servers and plans. **Users → Add to Tenant** adds an existing local or SSO identity as an ordinary member, with no automatic administrator grant. Platform accounts cannot author Tenant Spaces/Apps or hold Tenant/team roles.
+
+Console URLs identify the current Tenant, Space/App and tab. Reloads, direct links and browser Back/Forward preserve that location. Searchable pickers load results and further pages inside one control; list pagination disappears when unnecessary.
 
 Expired or revoked sessions return to login automatically, including when signing out an already-expired session. Incorrect login/current-password responses remain ordinary form errors. Starting a new password session or rotating credentials invalidates older request generations so a delayed old-session response cannot close the new session.
 
@@ -57,10 +63,10 @@ The `Starter` plan allows one shared managed database, three Spaces and ten Apps
 - `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
-- `design/control_plane.sql`: canonical 18-table registry schema. The second SQL bootstrap step adds global local-account credentials and the session authentication method without changing existing identities or database bindings.
+- `design/control_plane.sql`: canonical registry schema, kept equal to the executable migrations. It includes local accounts, entity drafts/publications and App-bound sessions.
 - `third_party/go-mariadb`: source snapshot of **[aantich/go-mariadb](https://github.com/aantich/go-mariadb)** from sibling `../go-mariadb`, including its compression implementation and license notices. `SNAPSHOT.json` records hashes. All connectivity uses its `mariadb` package and `database/sql` connector. No MySQL fallback driver is installed. The snapshot avoids silently changing Lastapp when another chat edits the driver; intentionally refresh/pin it when adopting a reviewed driver change.
 
-The hierarchy is **Tenant → Space → App → micro-app installation**. A Space has one fixed database binding. Spaces can share only within the same Tenant, and dedicated bindings are exclusive. All identities, memberships, groups, permission definitions, roles and grants live in the central registry.
+The hierarchy is **Tenant → Space → App → micro-app installation**. A Space has one fixed database binding. Spaces can share only within the same Tenant, and dedicated bindings are exclusive. All identities, memberships, groups, permission definitions, roles and assignments live in the central registry. Record-specific shares and business audit stay beside the records and reference global identities and permissions.
 
 Session tokens are hashed at rest; writes require CSRF and exact Origin checks. Authorization reads current grants on each request. List queries apply scope predicates before selecting rows. Cross-Tenant references have composite foreign keys as a second guard. Revisions prevent stale overwrites. Client-generated UUIDs make duplicate creation detectable; retries must reuse the original UUID.
 
@@ -78,7 +84,7 @@ For local authentication without OIDC, leave the OIDC issuer/client fields empty
 lastapp bootstrap -config /path/to/runtime.json -name "Platform operator" -email operator@example.com -password-file /private/path/initial-password
 ```
 
-The file contains only the initial password (15–128 characters); keep it private and remove it after bootstrap. The first login requires a new password. To grant an already-existing local account platform administration without resetting its password, omit `-password-file`. Platform and Tenant administrative accounts remain separate.
+The file contains only the initial password (8–128 characters); keep it private and remove it after bootstrap. The first login requires a new password. To grant an already-existing local account platform administration without resetting its password, omit `-password-file`. Platform and Tenant administrative accounts remain separate.
 
 Local passwords use random 16-byte salts and PBKDF2-HMAC-SHA256 with 600,000 iterations, matching the [OWASP PBKDF2 work-factor guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2). Passwords are never encrypted/recovered or included in API/audit output. Login has per-peer/per-email throttling and bounded hashing concurrency. Changing a password revokes old sessions and rotates the current session and CSRF token. OIDC identities are never automatically linked by email. Email recovery delivery and MFA are later work.
 
@@ -92,7 +98,9 @@ The deployment encryption key is a base64 32-byte key. This first version uses o
 
 Implemented: centralized identity/inventory, scoped role management, fixed Tenant/team catalogs, custom Space/App business roles and assignments, plan quotas, lifecycle management, real database provisioning/registration, retries/recovery, auditing and the matching admin UI.
 
-Later: business entity definitions/API compilation, entity/record/field ACLs, micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs always return bounded pages (`?page=1&limit=100&q=search`, maximum limit 200) with `pagination: {page, limit, has_more}`. Scope predicates apply before search and pagination. The console pages and searches collections and selection lists on the server; audit history and group members are paged too.
+Implemented entity stage: Space-owned definitions and publishing, generated storage, entity/record/field ACLs, defaults/calculations/validation/allowed changes, bulk CRUD and filtered/paginated reads, optional record sharing, App-bound authentication and a small TypeScript SDK. See [the entity guide](ENTITY_RUNTIME.md).
+
+Later: micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs always return bounded pages (`?page=1&limit=100&q=search`, maximum limit 200) with `pagination: {page, limit, has_more}`. Scope predicates apply before search and pagination. The console pages and searches collections and selection lists on the server; audit history and group members are paged too.
 
 See [FOUNDATION.md](FOUNDATION.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md). The provisioning plan describes the earlier implementation; its Tenant custom-role model is superseded by the foundation.
 
@@ -100,7 +108,7 @@ See [FOUNDATION.md](FOUNDATION.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.
 
 The console defaults to a Paces Neo-inspired design: compact Inter typography,
 a pale grouped sidebar, a white workspace, blue accents and dashed card borders.
-Use the **palette icon** in the topbar to choose **Neo**, **Studio** or
+Use **Account menu → Appearance** to choose **Neo**, **Studio** or
 **Evergreen**, with **Light**, **Dark** or **System** color mode. Preferences are
 saved on this browser and apply across console screens and forms. Mobile has
 an offcanvas menu that includes the Tenant workspace selector.

@@ -21,3 +21,6 @@ __pycache__/
 *.key
 *.secret
 .DS_Store
+
+packages/client/dist/
+examples/data-app/public/client.js

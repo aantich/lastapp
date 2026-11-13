@@ -1,0 +1,1650 @@
+import { useEffect, useState, useRef } from "react";
+import { ArrowLeft, Pencil, Plus, Trash2, X } from "lucide-react";
+import { api } from "../api";
+import { RemoteSelect } from "../remote-select";
+import type { Item } from "../console-forms";
+import {
+  Expression,
+  FieldChoices,
+  ValueInputs,
+  choiceLabel,
+} from "./expression";
+import "./entity.css";
+const keyOf = (name: string) => {
+  const bare = name
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return (
+    bare
+      ? /^[a-z]/.test(bare)
+        ? bare
+        : "item_" + bare
+      : "item_" + crypto.randomUUID().replaceAll("-", "")
+  ).slice(0, 48);
+};
+const fieldLabel = (key: string) => key[0].toUpperCase() + key.slice(1);
+const emptyDefinition = (name: string, format: number) => ({
+  format_version: format,
+  key: keyOf(name),
+  label: name,
+  fields: [],
+  rules: [],
+  permissions: [],
+  default_projection: [],
+});
+export function EntityDesigner({
+  space,
+  tenant,
+  me,
+}: {
+  space: string;
+  tenant: string;
+  me: Item;
+}) {
+  const [items, setItems] = useState<Item[]>([]),
+    [record, setRecord] = useState<Item | null>(null),
+    [draft, setDraft] = useState<Item | null>(null),
+    [catalog, setCatalog] = useState<Item | null>(null),
+    [tab, setTab] = useState("fields"),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [name, setName] = useState(""),
+    [template, setTemplate] = useState(""),
+    [review, setReview] = useState(false),
+    [roles, setRoles] = useState<Item[]>([]);
+  const [editField, setEditField] = useState<Item | null>(null),
+    [editPermission, setEditPermission] = useState<Item | null>(null),
+    [editRule, setEditRule] = useState<Item | null>(null);
+  const creationID = useRef(crypto.randomUUID());
+  const dirty =
+    !!record && JSON.stringify(draft) !== JSON.stringify(record.draft_json);
+  const load = () =>
+    api("/v1/spaces/" + space + "/entities").then((v) => setItems(v.items));
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      api("/v1/entity-capabilities"),
+      api("/v1/tenants/" + tenant + "/spaces/" + space + "/roles"),
+      api("/v1/spaces/" + space + "/entities"),
+    ])
+      .then(([c, r, l]) => {
+        if (live) {
+          setCatalog(c);
+          setRoles(r.items.filter((x: Item) => x.domain === "data"));
+          setItems(l.items);
+          const selected = new URLSearchParams(location.search).get("entity");
+          if (selected) {
+            api("/v1/entities/" + selected)
+              .then((v) => {
+                if (live && v.space_id === space) {
+                  setRecord(v);
+                  setDraft(v.draft_json);
+                }
+              })
+              .catch((e) => {
+                if (live) setError(e.message);
+              });
+          }
+        }
+      })
+      .catch((e) => setError(e.message));
+    return () => {
+      live = false;
+    };
+  }, [space, tenant]);
+  useEffect(() => {
+    if (!dirty) return;
+    const fn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    const navigate = (e: Event) => {
+      if (!confirm("Discard your unsaved entity changes?")) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", fn);
+    window.addEventListener("lastapp:before-navigate", navigate);
+    return () => {
+      window.removeEventListener("beforeunload", fn);
+      window.removeEventListener("lastapp:before-navigate", navigate);
+    };
+  }, [dirty]);
+  useEffect(() => {
+    if (!record?.pending_version_id) return;
+    let live = true;
+    const timer = setInterval(() => {
+      api("/v1/entities/" + record.id)
+        .then((v) => {
+          if (!live) return;
+          setRecord((current) =>
+            dirty &&
+            current &&
+            JSON.stringify(current.draft_json) !== JSON.stringify(v.draft_json)
+              ? {
+                  ...current,
+                  publications: v.publications,
+                  pending_version_id: v.pending_version_id,
+                  active_version_id: v.active_version_id,
+                  active_definition: v.active_definition,
+                }
+              : v,
+          );
+          if (!dirty) setDraft(v.draft_json);
+          if (!v.pending_version_id) void load();
+        })
+        .catch((e) => {
+          if (live) setError(e.message);
+        });
+    }, 1500);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [record?.id, record?.pending_version_id, dirty]);
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function open(id: string) {
+    if (dirty && !confirm("Discard your unsaved changes?")) return;
+    await run(async () => {
+      const v = await api("/v1/entities/" + id);
+      setRecord(v);
+      setDraft(v.draft_json);
+      history.replaceState(
+        null,
+        "",
+        location.pathname + "?entity=" + encodeURIComponent(v.id),
+      );
+      setReview(false);
+      setTab("fields");
+    });
+  }
+  async function save() {
+    const v = await api(
+      "/v1/entities/" + record!.id,
+      "PATCH",
+      { definition: draft },
+      record!.revision,
+    );
+    setRecord(v);
+    setDraft(v.draft_json);
+    await load();
+    return v;
+  }
+  const replace = (list: string, key: string, v: Item) =>
+    setDraft((d) => ({
+      ...d,
+      ...(list === "fields" && d!.fields.length === 0
+        ? { default_projection: [v.key] }
+        : {}),
+      [list]: d![list].some((x: Item) => x.key === key)
+        ? d![list].map((x: Item) => (x.key === key ? v : x))
+        : [...d![list], v],
+    }));
+  const remove = (list: string, key: string) => {
+    if (
+      confirm(
+        "Remove this " +
+          (list === "fields" ? "field" : "definition") +
+          " from the draft?",
+      )
+    )
+      setDraft((d) => ({
+        ...d,
+        [list]: d![list].filter((x: Item) => x.key !== key),
+      }));
+  };
+  if (!catalog)
+    return (
+      <p role={error ? "alert" : undefined}>
+        {error || "Loading entity designer…"}
+      </p>
+    );
+  return (
+    <section className="entity-designer">
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
+      {!draft ? (
+        <>
+          <div className="entity-intro">
+            <h2>Business entities</h2>
+            <p>
+              Describe your data once. Every App in this Space shares its API,
+              access rules and validation.
+            </p>
+          </div>
+          <form
+            className="entity-create panel"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const v = await api(
+                  "/v1/spaces/" + space + "/entities",
+                  "POST",
+                  {
+                    id: creationID.current,
+                    definition: template
+                      ? {
+                          ...structuredClone(
+                            catalog.templates.find(
+                              (d: Item) => d.key === template,
+                            ),
+                          ),
+                          key: keyOf(name),
+                          label: name,
+                        }
+                      : emptyDefinition(name, catalog.format_version),
+                  },
+                );
+                setRecord(v);
+                setDraft(v.draft_json);
+                setName("");
+                creationID.current = crypto.randomUUID();
+                history.replaceState(
+                  null,
+                  "",
+                  location.pathname + "?entity=" + encodeURIComponent(v.id),
+                );
+                await load();
+              });
+            }}
+          >
+            <label className="field">
+              <span>Start from</span>
+              <select
+                value={template}
+                onChange={(e) => setTemplate(e.target.value)}
+              >
+                <option value="">Blank entity</option>
+                {catalog.templates?.map((d: Item) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Entity name</span>
+              <input
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="For example, Deal"
+              />
+            </label>
+            <button className="primary" disabled={busy || !name.trim()}>
+              Create entity
+            </button>
+          </form>
+          <div className="entity-list">
+            {items.map((v) => (
+              <button
+                key={v.id}
+                disabled={busy}
+                className="panel entity-card"
+                onClick={() => void open(v.id)}
+              >
+                <strong>{v.label}</strong>
+                <span>
+                  {v.pending_version_id
+                    ? "Publishing"
+                    : v.state === "archived"
+                      ? "Archived"
+                      : v.active_version_id
+                        ? "Published"
+                        : "Draft"}
+                </span>
+                <small>{v.entity_key}</small>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <header className="entity-heading">
+            <div className="entity-title">
+              <button
+                className="text-button"
+                onClick={() => {
+                  if (!dirty || confirm("Discard your unsaved changes?")) {
+                    setDraft(null);
+                    setRecord(null);
+                    history.replaceState(null, "", location.pathname);
+                  }
+                }}
+              >
+                <ArrowLeft size={14} /> Entities
+              </button>
+              <div className="entity-title-copy">
+                <h2>{draft.label}</h2>
+                <small>
+                  {dirty
+                    ? "Unsaved changes"
+                    : record?.pending_version_id
+                      ? "Publishing…"
+                      : record?.active_version_id
+                        ? "Published · draft saved"
+                        : "Draft saved"}
+                </small>
+              </div>
+            </div>
+            <div className="entity-heading-actions">
+              <button
+                className="secondary"
+                disabled={!dirty || busy}
+                onClick={() =>
+                  void run(async () => {
+                    await save();
+                  })
+                }
+              >
+                Save draft
+              </button>
+              <button
+                className="primary"
+                disabled={
+                  busy ||
+                  !!record?.pending_version_id ||
+                  record?.state === "archived"
+                }
+                onClick={() => setReview(true)}
+              >
+                Review changes
+              </button>
+            </div>
+          </header>
+          <nav className="tabs entity-tabs" aria-label="Entity designer">
+            {["fields", "access", "rules", "test"].map((t) => (
+              <button
+                key={t}
+                className={tab === t ? "active" : ""}
+                onClick={() => setTab(t)}
+              >
+                {t[0].toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </nav>
+          {tab === "fields" && (
+            <>
+              <p className="muted">
+                Choose the information this entity stores.
+              </p>
+              <div className="entity-toolbar entity-fields-toolbar">
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    value={draft.label}
+                    onChange={(e) =>
+                      setDraft({ ...draft, label: e.target.value })
+                    }
+                  />
+                </label>
+                <button
+                  className="primary"
+                  onClick={() =>
+                    setEditField({
+                      key: "",
+                      label: "",
+                      type: catalog.types[0],
+                      max_length: 200,
+                    })
+                  }
+                >
+                  <Plus size={15} /> Add field
+                </button>
+              </div>
+              <div className="entity-rows">
+                {draft.fields.map((f: Item) => (
+                  <EntityRow
+                    key={f.key}
+                    title={f.label}
+                    summary={
+                      <>
+                        {f.type}
+                        {f.required ? " · Required" : ""}
+                        {f.default ? " · Default" : ""}
+                        {f.calculation ? " · Calculated" : ""}
+                      </>
+                    }
+                    edit={() => setEditField({ ...f })}
+                    remove={() => remove("fields", f.key)}
+                  />
+                ))}
+                {!draft.fields.length && (
+                  <p className="entity-empty">
+                    Add your first field to start defining this entity.
+                  </p>
+                )}
+              </div>
+              <details className="panel entity-settings">
+                <summary>
+                  <span>Entity settings</span>
+                  <small>Ownership, default fields and sharing</small>
+                </summary>
+                <div className="entity-settings-content">
+                  <div className="entity-form-grid">
+                    <label className="field">
+                      <span>Owner field</span>
+                      <select
+                        value={draft.owner_field || ""}
+                        onChange={(e) =>
+                          setDraft({ ...draft, owner_field: e.target.value })
+                        }
+                      >
+                        <option value="">None</option>
+                        {draft.fields
+                          .filter((f: Item) => f.type === "user")
+                          .map((f: Item) => (
+                            <option key={f.key} value={f.key}>
+                              {f.label}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Owning team field</span>
+                      <select
+                        value={draft.team_field || ""}
+                        onChange={(e) =>
+                          setDraft({ ...draft, team_field: e.target.value })
+                        }
+                      >
+                        <option value="">None</option>
+                        {draft.fields
+                          .filter((f: Item) => f.type === "team")
+                          .map((f: Item) => (
+                            <option key={f.key} value={f.key}>
+                              {f.label}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </div>
+                  <section className="entity-settings-group">
+                    <h3>Default fields</h3>
+                    <p className="muted">
+                      Included when an App doesn't select specific fields.
+                    </p>
+                    <FieldChoices
+                      fields={draft.fields}
+                      value={draft.default_projection || []}
+                      onChange={(v) =>
+                        setDraft({ ...draft, default_projection: v })
+                      }
+                    />
+                  </section>
+                  <section className="entity-settings-group">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={!!draft.sharing}
+                        onChange={(e) =>
+                          setDraft({ ...draft, sharing: e.target.checked })
+                        }
+                      />{" "}
+                      Allow record sharing
+                    </label>
+                  </section>
+                  <div className="entity-settings-footer">
+                    <p className="muted">
+                      API key <code>{draft.key}</code>
+                    </p>
+                    <button
+                      className="secondary danger"
+                      disabled={busy || !!record?.pending_version_id}
+                      onClick={() => {
+                        if (
+                          confirm(
+                            record?.state === "archived"
+                              ? "Restore this entity?"
+                              : "Archive this entity? Its API will stop serving requests; data is preserved.",
+                          )
+                        )
+                          void run(async () => {
+                            const saved = dirty ? await save() : record!;
+                            const v = await api(
+                              "/v1/entities/" + saved.id,
+                              "PATCH",
+                              {
+                                definition: draft,
+                                state:
+                                  record?.state === "archived"
+                                    ? "active"
+                                    : "archived",
+                              },
+                              saved.revision,
+                            );
+                            setRecord(v);
+                            await load();
+                          });
+                      }}
+                    >
+                      {record?.state === "archived"
+                        ? "Restore entity"
+                        : "Archive entity"}
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </>
+          )}
+          {tab === "access" && (
+            <>
+              <div className="entity-toolbar">
+                <p>
+                  Access is denied until an allow rule matches. Administrative
+                  roles do not automatically grant data access.
+                </p>
+                <button
+                  className="primary"
+                  onClick={() =>
+                    setEditPermission({
+                      key: "",
+                      label: "",
+                      operation: "read",
+                      relationship: "member",
+                      fields: [],
+                    })
+                  }
+                >
+                  <Plus size={15} /> Add access rule
+                </button>
+              </div>
+              <div className="entity-rows">
+                {draft.permissions.map((p: Item) => (
+                  <EntityRow
+                    key={p.key}
+                    title={p.label}
+                    summary={
+                      <>
+                        {p.relationship ||
+                          p.roles
+                            ?.map(
+                              (id: string) =>
+                                roles.find((r) => r.id === id)?.display_name ||
+                                id,
+                            )
+                            .join(", ")}{" "}
+                        · {p.operation} ·{" "}
+                        {(p.fields || []).join(", ") || "Record"}
+                      </>
+                    }
+                    edit={() => setEditPermission({ ...p })}
+                    remove={() => remove("permissions", p.key)}
+                  />
+                ))}
+                {!draft.permissions.length && (
+                  <div className="entity-empty">
+                    Add a Viewer or Editor rule by choosing who, what they can
+                    do, and which fields.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {tab === "rules" && (
+            <>
+              <div className="entity-toolbar">
+                <p>Rules apply to every write, from every App.</p>
+                <button
+                  className="primary"
+                  onClick={() =>
+                    setEditRule({
+                      key: "",
+                      name: "",
+                      kind: "validation",
+                      assert: {
+                        op: "is_not_null",
+                        args: [{ field: draft.fields[0]?.key || "" }],
+                      },
+                      message: "",
+                    })
+                  }
+                >
+                  <Plus size={15} /> Add rule
+                </button>
+              </div>
+              <div className="entity-rows">
+                {draft.fields
+                  .filter((f: Item) => f.default || f.calculation)
+                  .map((f: Item) => (
+                    <EntityRow
+                      key={f.key}
+                      title={f.label}
+                      summary={f.calculation ? "Calculation" : "Default"}
+                      edit={() => setEditField({ ...f })}
+                    />
+                  ))}
+                {draft.rules.map((rule: Item) => (
+                  <EntityRow
+                    key={rule.key}
+                    title={rule.name || rule.key}
+                    summary={
+                      <>
+                        {rule.kind === "change"
+                          ? "Allowed change"
+                          : "Validation"}{" "}
+                        · {rule.message}
+                      </>
+                    }
+                    edit={() => setEditRule({ ...rule })}
+                    remove={() => remove("rules", rule.key)}
+                  />
+                ))}
+                {!draft.rules.length &&
+                  !draft.fields.some(
+                    (f: Item) => f.default || f.calculation,
+                  ) && (
+                    <p className="entity-empty">
+                      Add validation or allowed-change rules here. Set defaults
+                      and calculations in a field's editor.
+                    </p>
+                  )}
+              </div>
+            </>
+          )}
+          {tab === "test" && (
+            <EntityTest
+              draft={draft}
+              record={record!}
+              tenant={tenant}
+              space={space}
+              me={me}
+            />
+          )}
+          {review && (
+            <EditorDialog
+              title="Review and publish"
+              close={() => setReview(false)}
+            >
+              <p>
+                Apps inherit the published definition. Your current draft stays
+                separate until publication succeeds.
+              </p>
+              <ReviewDiff before={record?.active_definition} after={draft} />
+              {draft.fields.some(
+                (f: Item) =>
+                  f.calculation &&
+                  draft.permissions.some(
+                    (p: Item) =>
+                      p.operation === "read" && p.fields?.includes(f.key),
+                  ),
+              ) && (
+                <p className="muted">
+                  Calculated fields with view access can reveal information
+                  about their inputs. Review their access alongside the formula.
+                </p>
+              )}
+              {record?.diagnostics?.length > 0 && (
+                <p className="muted">
+                  Saved draft has diagnostics. Validation below checks your
+                  latest changes.
+                </p>
+              )}
+              {record?.diagnostics?.map((d: Item, i: number) => (
+                <p className="error" key={i}>
+                  {d.path}: {d.message}
+                </p>
+              ))}
+              <div className="entity-dialog-actions">
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      const v = await api(
+                        "/v1/entities/" + record!.id + "/validate",
+                        "POST",
+                        { definition: draft },
+                      );
+                      setRecord({ ...record, diagnostics: v.diagnostics });
+                      if (!v.diagnostics.length)
+                        setError("Validation passed. Ready to publish.");
+                    })
+                  }
+                >
+                  Validate
+                </button>
+                <button
+                  className="primary"
+                  disabled={busy || !!record?.pending_version_id}
+                  onClick={() =>
+                    void run(async () => {
+                      const saved = dirty ? await save() : record!;
+                      await api(
+                        "/v1/entities/" + saved.id + "/publications",
+                        "POST",
+                        {},
+                        saved.revision,
+                      );
+                      const v = await api("/v1/entities/" + saved.id);
+                      setRecord(v);
+                      setReview(false);
+                    })
+                  }
+                >
+                  Publish
+                </button>
+              </div>
+            </EditorDialog>
+          )}
+          {record?.publications?.[0]?.state === "failed" && (
+            <div className="error" role="alert">
+              Publishing failed: {record.publications[0].error_message} Review
+              changes and publish again.
+            </div>
+          )}
+          {editField && (
+            <EditorDialog
+              title={editField.key ? "Edit field" : "Add field"}
+              close={() => setEditField(null)}
+            >
+              <FieldEditor
+                field={editField}
+                fields={draft.fields}
+                catalog={catalog}
+                space={space}
+                published={
+                  !!record?.active_definition?.fields.some(
+                    (f: Item) => f.key === editField.key,
+                  )
+                }
+                save={(f) => {
+                  replace("fields", editField.key, f);
+                  setEditField(null);
+                }}
+              />
+            </EditorDialog>
+          )}
+          {editPermission && (
+            <EditorDialog
+              title="Access rule"
+              close={() => setEditPermission(null)}
+            >
+              <PermissionEditor
+                value={editPermission}
+                definition={draft}
+                roles={roles}
+                catalog={catalog}
+                tenant={tenant}
+                save={(v) => {
+                  replace("permissions", editPermission.key, v);
+                  setEditPermission(null);
+                }}
+              />
+            </EditorDialog>
+          )}
+          {editRule && (
+            <EditorDialog title="Business rule" close={() => setEditRule(null)}>
+              <RuleEditor
+                value={editRule}
+                fields={draft.fields}
+                catalog={catalog}
+                save={(v) => {
+                  replace("rules", editRule.key, v);
+                  setEditRule(null);
+                }}
+              />
+            </EditorDialog>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+function EntityRow({
+  title,
+  summary,
+  edit,
+  remove,
+}: {
+  title: string;
+  summary: React.ReactNode;
+  edit: () => void;
+  remove?: () => void;
+}) {
+  return (
+    <article className="entity-row">
+      <div className="entity-row-copy">
+        <strong>{title}</strong>
+        <small>{summary}</small>
+      </div>
+      <div className="entity-row-actions">
+        <button
+          className="secondary"
+          aria-label={"Edit " + title}
+          onClick={edit}
+        >
+          <Pencil size={13} /> Edit
+        </button>
+        {remove && (
+          <button
+            className="icon danger"
+            aria-label={"Remove " + title}
+            title={"Remove " + title}
+            onClick={remove}
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+export function EditorDialog({
+  title,
+  close,
+  children,
+}: {
+  title: string;
+  close: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const active = document.activeElement as HTMLElement;
+    ref.current?.showModal();
+    return () => {
+      ref.current?.close();
+      active?.focus();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="modal entity-dialog"
+      aria-label={title}
+      onCancel={(e) => {
+        e.preventDefault();
+        close();
+      }}
+    >
+      <header>
+        <h2>{title}</h2>
+        <button className="icon" aria-label="Close editor" onClick={close}>
+          <X size={18} />
+        </button>
+      </header>
+      <div className="entity-dialog-body">{children}</div>
+    </dialog>
+  );
+}
+function FieldEditor({
+  field,
+  fields,
+  catalog,
+  space,
+  published,
+  save,
+}: {
+  field: Item;
+  fields: Item[];
+  catalog: Item;
+  space: string;
+  published: boolean;
+  save: (v: Item) => void;
+}) {
+  const [f, set] = useState<Item>({ ...field }),
+    [error, setError] = useState(""),
+    [choice, setChoice] = useState<string>((field.values || []).join(", "));
+  const patch = (v: Item) => set({ ...f, ...v });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (fields.some((x) => x.key === f.key && x.key !== field.key)) {
+          setError(
+            "Another field already uses this key. Choose a different key.",
+          );
+          return;
+        }
+        const value = { ...f };
+        if (value.type === "choice")
+          value.values = choice
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean);
+        if (value.type === "choice" && value.value_labels)
+          value.value_labels = Object.fromEntries(
+            Object.entries(value.value_labels).filter(([key]) =>
+              value.values.includes(key),
+            ),
+          );
+        save(value);
+      }}
+    >
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <label className="field">
+        <span>Name</span>
+        <input
+          autoFocus
+          required
+          value={f.label}
+          onChange={(e) =>
+            patch({
+              label: e.target.value,
+              ...(!field.key ? { key: keyOf(e.target.value) } : {}),
+            })
+          }
+        />
+      </label>
+      <label className="field">
+        <span>Type</span>
+        <select
+          value={f.type}
+          disabled={published}
+          onChange={(e) =>
+            set({
+              ...catalog.field_defaults[e.target.value],
+              key: f.key,
+              label: f.label,
+            })
+          }
+        >
+          {catalog.types.map((type: string) => (
+            <option key={type} value={type}>
+              {fieldLabel(type)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={!!f.required}
+          onChange={(e) => patch({ required: e.target.checked })}
+        />
+        Required
+      </label>
+      {f.type === "text" && (
+        <label className="field">
+          <span>Maximum length</span>
+          <input
+            type="number"
+            required
+            max={catalog.field_constraints.max_text_length}
+            min={catalog.field_constraints.min_text_length}
+            value={f.max_length ?? ""}
+            onChange={(e) => patch({ max_length: Number(e.target.value) })}
+          />
+        </label>
+      )}
+      {f.type === "decimal" && (
+        <div className="entity-toolbar">
+          {["precision", "scale"].map((key) => (
+            <label className="field" key={key}>
+              <span>{fieldLabel(key)}</span>
+              <input
+                type="number"
+                required
+                value={f[key]}
+                onChange={(e) => patch({ [key]: Number(e.target.value) })}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      {f.type === "choice" && (
+        <label className="field">
+          <span>Choices, separated by commas</span>
+          <input
+            required
+            value={choice}
+            onChange={(e) => setChoice(e.target.value)}
+          />
+        </label>
+      )}
+      {f.type === "choice" && (
+        <details>
+          <summary>Choice display labels</summary>
+          <p className="muted">Keep keys stable; change their labels here.</p>
+          {choice
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean)
+            .map((key) => (
+              <label className="field" key={key}>
+                <span>{key}</span>
+                <input
+                  value={choiceLabel(f, key)}
+                  onChange={(e) =>
+                    patch({
+                      value_labels: {
+                        ...f.value_labels,
+                        [key]: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+            ))}
+        </details>
+      )}
+      {f.type === "reference" && (
+        <label className="field">
+          <span>Related entity</span>
+          <RemoteSelect
+            path={"/v1/spaces/" + space + "/entities"}
+            label="Related entity"
+            value={f.target || ""}
+            initial={[]}
+            labelKey="label"
+            onChange={(value) => patch({ target: value })}
+          />
+        </label>
+      )}
+      {["integer", "decimal"].includes(f.type) && (
+        <div className="entity-toolbar">
+          {["minimum", "maximum"].map((key) => (
+            <label className="field" key={key}>
+              <span>{fieldLabel(key)}</span>
+              <input
+                value={f[key] ?? ""}
+                onChange={(e) =>
+                  patch({
+                    [key]:
+                      e.target.value === ""
+                        ? undefined
+                        : f.type === "integer"
+                          ? Number(e.target.value)
+                          : e.target.value,
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      <details>
+        <summary>Defaults, calculation and query options</summary>
+        <label className="field">
+          <span>Value source</span>
+          <select
+            value={
+              f.calculation ? "calculation" : f.default ? "default" : "input"
+            }
+            onChange={(e) =>
+              patch({
+                default:
+                  e.target.value === "default" ? { literal: "" } : undefined,
+                calculation:
+                  e.target.value === "calculation"
+                    ? { field: fields[0]?.key || "" }
+                    : undefined,
+              })
+            }
+          >
+            <option value="input">User input</option>
+            <option value="default">Default when omitted</option>
+            <option value="calculation">Calculated</option>
+          </select>
+        </label>
+        {(f.default || f.calculation) && (
+          <Expression
+            value={f.calculation || f.default}
+            onChange={(value) =>
+              patch(f.calculation ? { calculation: value } : { default: value })
+            }
+            fields={fields}
+            catalog={catalog}
+            label={f.calculation ? "Formula" : "Default"}
+            formula={!!f.calculation}
+            defaultOnly={!!f.default}
+            contextType={f.default ? f.type : undefined}
+            allowContext={!f.calculation}
+          />
+        )}
+        {["filterable", "sortable"].map((key) => (
+          <label key={key}>
+            <input
+              type="checkbox"
+              checked={!!f[key]}
+              onChange={(e) => patch({ [key]: e.target.checked })}
+            />
+            {key === "filterable" ? "Allow filtering" : "Allow sorting"}
+          </label>
+        ))}
+        <label className="field">
+          <span>Uniqueness</span>
+          <select
+            value={f.unique || ""}
+            onChange={(e) => patch({ unique: e.target.value })}
+          >
+            <option value="">None</option>
+            <option value="entity">Across this entity</option>
+            <option value="owner">Per owner</option>
+            <option value="team">Per team</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Stable key</span>
+          <input
+            required
+            pattern="[a-z][a-z0-9_]*"
+            value={f.key}
+            disabled={!!field.key}
+            onChange={(e) => patch({ key: e.target.value })}
+          />
+        </label>
+      </details>
+      <button className="primary">Save field</button>
+    </form>
+  );
+}
+function PermissionEditor({
+  value,
+  definition,
+  roles,
+  catalog,
+  tenant,
+  save,
+}: {
+  value: Item;
+  definition: Item;
+  roles: Item[];
+  catalog: Item;
+  tenant: string;
+  save: (v: Item) => void;
+}) {
+  const [p, set] = useState({ ...value });
+  const patch = (v: Item) => set({ ...p, ...v });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(p);
+      }}
+    >
+      <label className="field">
+        <span>Name</span>
+        <input
+          autoFocus
+          required
+          value={p.label}
+          onChange={(e) =>
+            patch({
+              label: e.target.value,
+              ...(!value.key ? { key: keyOf(e.target.value) } : {}),
+            })
+          }
+        />
+      </label>
+      <label className="field">
+        <span>Who</span>
+        <select
+          value={p.roles ? "roles" : p.relationship}
+          onChange={(e) =>
+            patch(
+              e.target.value === "roles"
+                ? { roles: [], relationship: undefined }
+                : { roles: undefined, relationship: e.target.value },
+            )
+          }
+        >
+          <option value="roles">Space roles</option>
+          {catalog.relationships.map((t: string) => (
+            <option key={t} value={t}>
+              {(
+                {
+                  member: "All active Tenant members",
+                  owner: "Record owner",
+                  team_member: "Members of record's team",
+                  team_reviewer: "Reviewers of record's team",
+                  team_admin: "Admins of record's team",
+                  user: "Specific user",
+                  team: "Specific team",
+                } as Record<string, string>
+              )[t] || t}
+            </option>
+          ))}
+        </select>
+      </label>
+      {p.roles && (
+        <div className="field-choices">
+          {roles.map((role) => (
+            <label key={role.id}>
+              <input
+                type="checkbox"
+                checked={p.roles.includes(role.id)}
+                onChange={(e) =>
+                  patch({
+                    roles: e.target.checked
+                      ? [...p.roles, role.id]
+                      : p.roles.filter((v: string) => v !== role.id),
+                  })
+                }
+              />
+              {role.display_name}
+            </label>
+          ))}
+          {!roles.length && (
+            <p>Create a business role in Space → Access → Manage roles.</p>
+          )}
+        </div>
+      )}
+      {["user", "team"].includes(p.relationship) && (
+        <label className="field">
+          <span>Recipient</span>
+          <RemoteSelect
+            initial={[]}
+            path={
+              "/v1/tenants/" +
+              tenant +
+              (p.relationship === "user" ? "/recipients" : "/teams")
+            }
+            label="Recipient"
+            value={p.subject || ""}
+            onChange={(v) => patch({ subject: v })}
+          />
+        </label>
+      )}
+      <label className="field">
+        <span>Can</span>
+        <select
+          value={p.operation}
+          onChange={(e) => patch({ operation: e.target.value })}
+        >
+          {catalog.operations.map((op: string) => (
+            <option key={op} value={op}>
+              {op === "acl.manage" ? "Manage record access (advanced)" : op}
+            </option>
+          ))}
+        </select>
+      </label>
+      {["read", "create", "update"].includes(p.operation) && (
+        <>
+          <p>Which fields</p>
+          <FieldChoices
+            fields={definition.fields.filter(
+              (f: Item) => p.operation === "read" || !f.calculation,
+            )}
+            value={p.fields || []}
+            onChange={(v) => patch({ fields: v })}
+          />
+        </>
+      )}
+      <label>
+        <input
+          type="checkbox"
+          checked={!!p.when}
+          onChange={(e) =>
+            patch({
+              when: e.target.checked
+                ? {
+                    op: "eq",
+                    args: [
+                      { field: definition.fields[0]?.key || "" },
+                      { literal: "" },
+                    ],
+                  }
+                : undefined,
+            })
+          }
+        />{" "}
+        Limit to records matching a condition
+      </label>
+      {p.when && (
+        <Expression
+          value={p.when}
+          onChange={(v) => patch({ when: v })}
+          fields={definition.fields}
+          catalog={catalog}
+        />
+      )}
+      {p.operation === "update" && (
+        <>
+          <label>
+            <input
+              type="checkbox"
+              checked={!!p.change_when}
+              onChange={(e) =>
+                patch({
+                  change_when: e.target.checked
+                    ? {
+                        op: "eq",
+                        args: [
+                          { field: "old." + (definition.fields[0]?.key || "") },
+                          { literal: "" },
+                        ],
+                      }
+                    : undefined,
+                })
+              }
+            />{" "}
+            Authorize a particular change
+          </label>
+          {p.change_when && (
+            <Expression
+              value={p.change_when}
+              onChange={(v) => patch({ change_when: v })}
+              fields={definition.fields}
+              catalog={catalog}
+              transition
+            />
+          )}
+        </>
+      )}
+      {p.operation === "acl.manage" && (
+        <>
+          <p>Permissions this user can share</p>
+          <FieldChoices
+            fields={definition.permissions
+              .filter(
+                (v: Item) =>
+                  v.roles?.length &&
+                  !["create", "acl.manage"].includes(v.operation),
+              )
+              .map((v: Item) => ({ key: v.key, label: v.label }))}
+            value={p.delegable || []}
+            onChange={(v) => patch({ delegable: v })}
+          />
+        </>
+      )}
+      <button className="primary">Save access rule</button>
+    </form>
+  );
+}
+function RuleEditor({
+  value,
+  fields,
+  catalog,
+  save,
+}: {
+  value: Item;
+  fields: Item[];
+  catalog: Item;
+  save: (v: Item) => void;
+}) {
+  const [r, set] = useState({ ...value });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(r);
+      }}
+    >
+      <label className="field">
+        <span>Name</span>
+        <input
+          autoFocus
+          required
+          value={r.name || ""}
+          onChange={(e) =>
+            set({
+              ...r,
+              name: e.target.value,
+              ...(!value.key ? { key: keyOf(e.target.value) } : {}),
+            })
+          }
+        />
+      </label>
+      <label className="field">
+        <span>Rule type</span>
+        <select
+          value={r.kind}
+          onChange={(e) => set({ ...r, kind: e.target.value })}
+        >
+          <option value="validation">Validate resulting record</option>
+          <option value="change">Allowed change</option>
+        </select>
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={!!r.when}
+          onChange={(e) =>
+            set({
+              ...r,
+              when: e.target.checked
+                ? {
+                    op: "eq",
+                    args: [{ field: fields[0]?.key || "" }, { literal: "" }],
+                  }
+                : undefined,
+            })
+          }
+        />{" "}
+        Apply only when
+      </label>
+      {r.when && (
+        <Expression
+          value={r.when}
+          onChange={(v) => set({ ...r, when: v })}
+          fields={fields}
+          catalog={catalog}
+          transition={r.kind === "change"}
+          label="When"
+          allowContext={false}
+        />
+      )}
+      <Expression
+        value={r.assert}
+        onChange={(v) => set({ ...r, assert: v })}
+        fields={fields}
+        catalog={catalog}
+        transition={r.kind === "change"}
+        label="Must be true"
+        allowContext={false}
+      />
+      <label className="field">
+        <span>Message shown to the user</span>
+        <input
+          required
+          value={r.message}
+          onChange={(e) => set({ ...r, message: e.target.value })}
+        />
+      </label>
+      <label className="field">
+        <span>Show error on field</span>
+        <select
+          value={r.field || ""}
+          onChange={(e) => set({ ...r, field: e.target.value })}
+        >
+          <option value="">Whole record</option>
+          {fields.map((f) => (
+            <option key={f.key} value={f.key}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button className="primary">Save rule</button>
+    </form>
+  );
+}
+function EntityTest({
+  draft,
+  record,
+  tenant,
+  space,
+  me,
+}: {
+  draft: Item;
+  record: Item;
+  tenant: string;
+  space: string;
+  me: Item;
+}) {
+  const [scenario, set] = useState<Item>({
+      user_id: me.id,
+      app_id: "",
+      operation: "create",
+      record: {},
+      values: {},
+    }),
+    [result, setResult] = useState<Item | null>(null),
+    [error, setError] = useState("");
+  return (
+    <form
+      className="panel entity-test"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError("");
+        api("/v1/entities/" + record.id + "/test", "POST", {
+          definition: draft,
+          ...scenario,
+        })
+          .then(setResult)
+          .catch((e) => setError(e.message));
+      }}
+    >
+      <h3>Try a synthetic scenario</h3>
+      <p>
+        This uses the backend evaluator with sample values. It never reads or
+        writes business records.
+      </p>
+      <label className="field">
+        <span>Test as user</span>
+        <RemoteSelect
+          initial={[]}
+          path={"/v1/tenants/" + tenant + "/recipients"}
+          label="Test as user"
+          value={scenario.user_id}
+          onChange={(v) => set({ ...scenario, user_id: v })}
+        />
+      </label>
+      <label className="field">
+        <span>App context (optional)</span>
+        <RemoteSelect
+          initial={[]}
+          path={"/v1/tenants/" + tenant + "/apps?space_id=" + space}
+          label="App context"
+          value={scenario.app_id}
+          onChange={(v) => set({ ...scenario, app_id: v })}
+        />
+      </label>
+      <label className="field">
+        <span>Operation</span>
+        <select
+          value={scenario.operation}
+          onChange={(e) => set({ ...scenario, operation: e.target.value })}
+        >
+          {["create", "read", "update", "delete"].map((v) => (
+            <option key={v}>{v}</option>
+          ))}
+        </select>
+      </label>
+      {scenario.operation !== "create" && (
+        <>
+          <h4>Existing sample record</h4>
+          <ValueInputs
+            fields={draft.fields}
+            value={scenario.record}
+            onChange={(v) => set({ ...scenario, record: v })}
+          />
+        </>
+      )}
+      {["create", "update"].includes(scenario.operation) && (
+        <>
+          <h4>Proposed values</h4>
+          <ValueInputs
+            fields={draft.fields}
+            value={scenario.values}
+            onChange={(v) => set({ ...scenario, values: v })}
+          />
+        </>
+      )}
+      <button className="primary">Run test</button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {result && (
+        <section className="entity-result">
+          <h3>{result.allowed ? "Allowed" : "Denied or invalid"}</h3>
+          {result.error && <p>{result.error}</p>}
+          {result.diagnostics?.map((d: Item, i: number) => (
+            <p key={i}>
+              {d.path}: {d.message}
+            </p>
+          ))}
+          <p>Not checked: {result.not_checked?.join(", ")}</p>
+          {result.permission_paths?.map((p: Item) => (
+            <p key={p.key}>
+              {p.matches_complete_path ? "✓" : "–"} {p.label} ·{" "}
+              {(p.fields || []).join(", ") || "Record"}
+            </p>
+          ))}
+          {result.candidate && (
+            <pre>{JSON.stringify(result.candidate, null, 2)}</pre>
+          )}
+        </section>
+      )}
+    </form>
+  );
+}
+function ReviewDiff({ before, after }: { before?: Item; after: Item }) {
+  if (!before)
+    return (
+      <div className="panel">
+        <strong>New entity</strong>
+        <p>
+          {after.fields.length} fields · {after.permissions.length} access rules
+          · {after.rules.length} business rules
+        </p>
+        <p>No data is accessible until an access rule grants it.</p>
+      </div>
+    );
+  return (
+    <ul className="entity-diff">
+      {["fields", "permissions", "rules"].flatMap((k) => {
+        const previous = before[k] || [],
+          next = after[k] || [];
+        return [
+          ...next
+            .filter((n: Item) => !previous.some((p: Item) => p.key === n.key))
+            .map((v: Item) => (
+              <li key={k + v.key}>
+                Add {k}: {v.label || v.name || v.key}
+                {k === "fields" ? " — select access explicitly" : ""}
+              </li>
+            )),
+          ...next
+            .filter((n: Item) =>
+              previous.some(
+                (p: Item) =>
+                  p.key === n.key && JSON.stringify(n) !== JSON.stringify(p),
+              ),
+            )
+            .map((v: Item) => (
+              <li key={k + v.key}>
+                Change {k}: {v.label || v.name || v.key}
+                {k === "permissions"
+                  ? " — review recipients, fields and conditions; existing shares may become inactive"
+                  : ""}
+              </li>
+            )),
+          ...previous
+            .filter((p: Item) => !next.some((n: Item) => n.key === p.key))
+            .map((v: Item) => (
+              <li key={k + v.key}>
+                Remove {k}: {v.label || v.name || v.key}
+                {k === "fields" ? " — unsupported for published fields" : ""}
+              </li>
+            )),
+        ];
+      })}
+      <li>
+        Every inheriting App uses the newly published version. Existing records
+        are checked before activation.
+      </li>
+    </ul>
+  );
+}

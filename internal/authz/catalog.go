@@ -30,13 +30,13 @@ type Role struct {
 	Permissions []string `json:"permissions"`
 }
 
-var actions = []string{"platform.admin", "tenant.read", "tenant.manage", "membership.read", "membership.manage", "team.read", "team.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read"}
+var actions = []string{"platform.admin", "tenant.read", "tenant.manage", "membership.read", "membership.manage", "team.read", "team.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read", "entity.manage", "entity.publish"}
 var catalog = []Role{
 	{SuperRole, "platform.superadmin", "Platform superadmin", Platform, []string{"platform.admin"}},
-	{TenantAdminRole, "tenant.admin", "Tenant administrator", Tenant, []string{"tenant.read", "tenant.manage", "membership.read", "membership.manage", "team.read", "team.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read"}},
+	{TenantAdminRole, "tenant.admin", "Tenant administrator", Tenant, []string{"tenant.read", "tenant.manage", "membership.read", "membership.manage", "team.read", "team.manage", "authorization.read", "authorization.manage", "database.read", "database.manage", "space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "audit.read", "entity.manage", "entity.publish"}},
 	{TeamAdminRole, "team.admin", "Team administrator", Team, []string{"team.read", "team.manage", "authorization.read", "authorization.manage"}},
 	{TeamReviewerRole, "team.reviewer", "Team Reviewer", Team, []string{"team.read"}},
-	{SpaceManagerRole, "space.manager", "Space manager", Space, []string{"space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "authorization.read", "authorization.manage"}},
+	{SpaceManagerRole, "space.manager", "Space manager", Space, []string{"space.read", "space.manage", "app.read", "app.manage", "microapp.read", "microapp.manage", "authorization.read", "authorization.manage", "entity.manage", "entity.publish"}},
 	{AppManagerRole, "app.manager", "App manager", App, []string{"app.read", "app.manage", "microapp.read", "microapp.manage", "authorization.read", "authorization.manage"}},
 }
 

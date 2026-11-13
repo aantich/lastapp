@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width"
+  /><title>Lastapp data App</title
+  ><link rel="stylesheet" href="style.css" />
+  <main>
+    <small>LASTAPP · ISOLATED DATA TEST APP</small>
+    <h1>Your Space, connected.</h1>
+    <p>
+      Connect as your signed-in user to exercise the real entity API. The SDK
+      keeps the App token in memory.
+    </p>
+    <form id="connect">
+      <label
+        >API origin<input
+          name="origin"
+          value="http://127.0.0.1:8787"
+          required /></label
+      ><label>App ID<input name="app" required placeholder="App UUID" /></label
+      ><button>Connect App</button>
+    </form>
+    <p id="status" role="status"></p>
+    <section id="data" hidden>
+      <div class="data-toolbar">
+        <div class="field">
+          <label for="entity">Entity</label
+          ><select id="entity"></select>
+        </div>
+        <button id="refresh">Load records</button>
+      </div>
+      <pre id="records"></pre>
+      <details>
+        <summary>Create a record</summary>
+        <p>Use the generated entity field names.</p>
+        <textarea id="values" rows="6">{}</textarea
+        ><button id="create">Create</button>
+      </details>
+      <details>
+        <summary>Record sharing</summary>
+        <label>Record ID<input id="record-id" /></label
+        ><label>Permission ID<input id="permission-id" /></label
+        ><label
+          >Recipient kind<select id="recipient-kind">
+            <option>user</option>
+            <option>team</option>
+          </select></label
+        ><label>Recipient ID<input id="recipient-id" /></label
+        ><button id="shares">List shares</button
+        ><button id="share">Grant</button><button id="revoke">Revoke</button>
+        <pre id="share-result"></pre>
+      </details>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</html>

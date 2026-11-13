@@ -1,0 +1,495 @@
+.entity-designer,
+.entity-app-access,
+.entity-dialog {
+  --entity-gap: var(--ui-form-gap);
+  --entity-padding: var(--ui-panel-padding);
+  --entity-control-height: var(--ui-control-height);
+  line-height: 1.5;
+}
+.entity-designer {
+  display: grid;
+  gap: var(--entity-gap);
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: 0;
+  padding: 24px 0;
+}
+.entity-designer h2 {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.entity-app-access h2 {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.entity-intro {
+  display: grid;
+  gap: 8px;
+}
+.entity-intro p {
+  max-width: 640px;
+  color: var(--ui-muted);
+}
+.entity-heading,
+.entity-heading-actions,
+.entity-dialog-actions,
+.entity-toolbar,
+.entity-create,
+.entity-row-actions,
+.entity-settings-footer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.entity-heading {
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--entity-gap);
+}
+.entity-title,
+.entity-title-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.entity-title > .text-button {
+  justify-self: start;
+}
+.entity-title-copy {
+  gap: 4px;
+}
+.entity-title-copy h2 {
+  overflow-wrap: anywhere;
+}
+.entity-title-copy small {
+  margin: 0;
+}
+.entity-heading-actions {
+  gap: 8px;
+}
+.entity-tabs {
+  padding-inline: 0;
+}
+.entity-toolbar,
+.entity-create {
+  align-items: flex-end;
+  gap: 16px;
+}
+.entity-toolbar > p {
+  flex: 1 1 240px;
+  align-self: center;
+  color: var(--ui-muted);
+}
+.entity-toolbar > .field,
+.entity-create > .field {
+  flex: 1 1 160px;
+}
+.entity-create {
+  padding: var(--entity-padding);
+}
+.entity-fields-toolbar > .field {
+  flex: 1 1 240px;
+  max-width: 360px;
+}
+.entity-fields-toolbar > button {
+  margin-left: auto;
+}
+.entity-rows {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  overflow: hidden;
+  min-width: 0;
+}
+.entity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+}
+.entity-row + .entity-row {
+  border-top: 1px solid var(--ui-border);
+}
+.entity-row-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.entity-row-copy strong {
+  font-size: 13px;
+}
+.entity-row small,
+.entity-card small {
+  display: block;
+  color: var(--ui-muted);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.entity-row-actions {
+  --entity-control-height: 32px;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+.entity-row-actions .secondary {
+  padding: 5px 10px;
+  box-shadow: none;
+}
+.entity-row-actions .icon {
+  min-width: 32px;
+  min-height: 32px;
+}
+.entity-empty {
+  padding: var(--entity-padding);
+  color: var(--ui-muted);
+}
+.entity-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+  gap: 16px;
+}
+.entity-card {
+  padding: var(--entity-padding);
+  text-align: left;
+  display: grid;
+  justify-content: stretch;
+  gap: 8px;
+}
+.entity-card strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.entity-card span {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+.entity-advanced {
+  padding: var(--entity-padding);
+  display: grid;
+  gap: var(--entity-gap);
+}
+.entity-settings {
+  border-style: solid;
+}
+.entity-settings > summary {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 18px var(--entity-padding);
+  padding-right: 52px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.entity-settings > summary::-webkit-details-marker {
+  display: none;
+}
+.entity-settings > summary::after {
+  content: "";
+  position: absolute;
+  right: 26px;
+  top: 25px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--ui-muted);
+  border-bottom: 1.5px solid var(--ui-muted);
+  transform: rotate(45deg);
+}
+.entity-settings[open] > summary::after {
+  transform: rotate(225deg);
+  top: 29px;
+}
+.entity-settings > summary small {
+  margin: 0;
+  font-weight: 400;
+}
+.entity-settings[open] > summary {
+  border-bottom: 1px solid var(--ui-border);
+}
+.entity-settings-content {
+  display: grid;
+  gap: var(--entity-gap);
+  padding: var(--entity-padding);
+}
+.entity-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--entity-gap);
+}
+.entity-settings-group {
+  display: grid;
+  gap: 8px;
+}
+.entity-settings-group h3 {
+  font-size: 12px;
+}
+.entity-settings-group p {
+  font-size: 12px;
+}
+.entity-settings-footer {
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: var(--entity-gap);
+  border-top: 1px solid var(--ui-border);
+}
+.entity-settings-footer p {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.entity-settings-footer code {
+  border-radius: var(--ui-radius);
+  background: var(--ui-subtle);
+  padding: 3px 7px;
+  color: var(--ui-text);
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access) .field {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access)
+  .field
+  > span:first-child {
+  font-size: 12px;
+  font-weight: 500;
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access)
+  :is(input:not([type="checkbox"]), select, textarea) {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  padding: 8px 12px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  line-height: 20px;
+  min-width: 0;
+  width: 100%;
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access)
+  :is(input:not([type="checkbox"]), select, button.primary, button.secondary) {
+  min-height: var(--entity-control-height);
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access)
+  label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  min-width: 0;
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access)
+  input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--ui-primary);
+}
+:is(.entity-designer, .entity-dialog, .entity-app-access) textarea {
+  max-width: 100%;
+  font-family: ui-monospace, monospace;
+}
+:is(.entity-designer, .entity-dialog) .error {
+  margin: 0;
+}
+dialog.entity-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: 90dvh;
+  overflow: auto;
+  margin: auto;
+  padding: 0;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: calc(var(--ui-radius) + 3px);
+}
+dialog.entity-dialog::backdrop {
+  background: var(--ui-overlay);
+  backdrop-filter: blur(3px);
+}
+.entity-dialog > header {
+  padding: 20px var(--entity-padding);
+  align-items: center;
+  gap: 16px;
+}
+.entity-dialog > header h2 {
+  font-size: 18px;
+}
+.entity-dialog-body,
+.entity-dialog form {
+  display: grid;
+  gap: var(--entity-gap);
+  min-width: 0;
+}
+.entity-dialog-body {
+  padding: var(--entity-padding);
+}
+.entity-dialog form > .primary,
+.entity-dialog-body > button,
+.entity-app-access > .primary {
+  justify-self: end;
+}
+.entity-dialog-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--ui-border);
+  padding-top: var(--entity-gap);
+}
+.entity-dialog form > details {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  padding: 16px;
+  min-width: 0;
+}
+.entity-dialog summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.entity-dialog details > :not(summary) {
+  margin-top: 16px;
+}
+.expression {
+  border: 1px solid var(--ui-border);
+  padding: 12px;
+  border-radius: var(--ui-radius);
+  min-width: 0;
+  margin: 0;
+}
+.expression legend {
+  font-size: 12px;
+  color: var(--ui-muted);
+  padding: 0 4px;
+}
+.expression-head {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.expression-head > * {
+  flex: 1 1 100px;
+  min-width: 0;
+}
+.expression-args {
+  display: grid;
+  gap: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--ui-border);
+  margin-top: 16px;
+}
+.field-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  min-width: 0;
+}
+.field-choices label {
+  overflow-wrap: anywhere;
+}
+.entity-test {
+  display: grid;
+  gap: var(--entity-gap);
+  padding: var(--entity-padding);
+  border-style: solid;
+}
+.entity-test h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+.entity-test > .primary {
+  justify-self: start;
+}
+.entity-value-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 16px;
+}
+.entity-result {
+  padding: 20px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  min-width: 0;
+}
+.entity-result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 12px;
+}
+.entity-diff {
+  display: grid;
+  gap: 12px;
+  padding: 0 0 0 20px;
+  margin: 0;
+  list-style: disc;
+}
+.entity-app-access {
+  max-width: 1120px;
+  margin-top: 24px;
+}
+.entity-gates {
+  display: grid;
+  gap: 16px;
+}
+.entity-gates > button {
+  justify-self: start;
+}
+.entity-app-access fieldset {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  padding: 20px;
+  margin: 0;
+}
+.entity-app-access legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+@media (max-width: 650px) {
+  .entity-designer {
+    padding: 20px 0;
+  }
+  .entity-heading {
+    align-items: flex-start;
+  }
+  .entity-heading-actions {
+    width: 100%;
+  }
+  .entity-fields-toolbar > .field {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .entity-fields-toolbar > button {
+    margin-left: 0;
+    width: 100%;
+  }
+  .entity-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .entity-create > .field {
+    flex-basis: 100%;
+  }
+  .entity-create > button {
+    width: 100%;
+  }
+  .entity-row {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+  .entity-settings-footer {
+    align-items: flex-start;
+  }
+  .entity-dialog > header {
+    padding-block: 16px;
+  }
+  .expression-args {
+    padding-left: 7px;
+  }
+}

@@ -5,17 +5,53 @@ export async function login(
   origin = "http://127.0.0.1:8787",
 ) {
   await page.goto(origin + "/console/");
-  await page.getByRole("link", { name: "Sign in to Lastapp" }).click();
+  await page.getByRole("link", { name: "Continue with SSO" }).click();
   await page.locator("select[name=subject]").selectOption(subject);
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(origin + "/console/");
   await expect(
     page.getByRole("heading", {
-      name: subject === "operator" ? "Overview" : "Home",
+      name: subject === "operator" ? "Tenants" : "Apps",
       exact: true,
+      level: 1,
     }),
   ).toBeVisible();
+}
+export async function menu(page: Page) {
+  if (
+    !(await page
+      .locator(".profile-menu")
+      .evaluate((e: HTMLDetailsElement) => e.open))
+  )
+    await page.getByLabel("Account menu", { exact: true }).click();
+}
+export async function logout(page: Page) {
+  await menu(page);
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Sign in", exact: true }),
+  ).toBeVisible();
+}
+export async function nav(page: Page, name: string) {
+  await page.locator("nav").getByRole("button", { name, exact: true }).click();
+}
+export async function choose(
+  page: Page,
+  label: string,
+  query: string,
+  match?: string,
+) {
+  const field = page.getByRole("combobox", { name: label, exact: true });
+  await field.fill(query);
+  const options = page
+    .getByRole("listbox", { name: label, exact: true })
+    .getByRole("option");
+  await (match ? options.filter({ hasText: match }) : options).first().click();
+}
+export async function selectTenant(page: Page, tenant: string) {
+  const field = page.getByRole("combobox", { name: "Tenant", exact: true });
+  if (await field.count()) await choose(page, "Tenant", tenant);
+  await expect(page).toHaveURL(new RegExp("/tenants/" + tenant + "/"));
 }
 export async function post(
   page: Page,
@@ -49,35 +85,15 @@ export async function post(
     { path, data, method, revision },
   );
 }
-export async function selectTenant(page: Page, tenant: string) {
-  const picker = page.getByRole("combobox", { name: "Tenant", exact: true });
-  if (await picker.count()) {
-    await page
-      .getByRole("textbox", { name: "Search Tenant", exact: true })
-      .fill(tenant);
-    await picker.selectOption(tenant);
-    await expect
-      .poll(async () => {
-        const field = await picker.boundingBox();
-        const sidebar = await page.locator(".sidebar").boundingBox();
-        return field && sidebar
-          ? field.x + field.width - (sidebar.x + sidebar.width)
-          : 1;
-      })
-      .toBeLessThanOrEqual(0);
-  }
-  await expect
-    .poll(async () => {
-      const r = await page.request.get(`/v1/tenants/${tenant}/capabilities`);
-      return r.status();
-    })
-    .toBe(200);
-}
 export async function fixtureTenant(page: Page, label = "UI workspace") {
-  const users = (await (await page.request.get("/admin/v1/users")).json())
-    .items;
-  const owner = users.find((u: any) => u.oidc_subject === "tenant-admin");
-  const outsider = users.find((u: any) => u.oidc_subject === "outsider");
+  const [owners, outsiders] = await Promise.all([
+    page.request.get("/admin/v1/users?q=tenant-admin").then((r) => r.json()),
+    page.request.get("/admin/v1/users?q=outsider").then((r) => r.json()),
+  ]);
+  const owner = owners.items.find(
+      (u: any) => u.oidc_subject === "tenant-admin",
+    ),
+    outsider = outsiders.items.find((u: any) => u.oidc_subject === "outsider");
   const tenant = crypto.randomUUID();
   expect(
     (
@@ -90,5 +106,5 @@ export async function fixtureTenant(page: Page, label = "UI workspace") {
       })
     ).status,
   ).toBe(201);
-  return { tenant, owner, outsider, base: `/v1/tenants/${tenant}` };
+  return { tenant, owner, outsider, base: "/v1/tenants/" + tenant };
 }

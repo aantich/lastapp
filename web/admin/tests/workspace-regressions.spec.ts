@@ -1,5 +1,12 @@
 import { test, expect, type Route } from "@playwright/test";
-import { login, post, selectTenant, fixtureTenant } from "./helpers";
+import {
+  login,
+  post,
+  selectTenant,
+  fixtureTenant,
+  logout,
+  menu,
+} from "./helpers";
 
 test("only platform admins create global credentials; Tenant admins add existing accounts", async ({
   page,
@@ -18,12 +25,20 @@ test("only platform admins create global credentials; Tenant admins add existing
   await dialog
     .getByRole("button", { name: "Generate password", exact: true })
     .click();
-  const initial = await dialog
+  const generated = await dialog
     .getByLabel("Initial password", { exact: true })
     .inputValue();
-  expect(initial.length).toBeGreaterThanOrEqual(15);
+  const policy = (await (await page.request.get("/v1/config")).json())
+    .password_policy;
+  expect(generated.length).toBeGreaterThanOrEqual(policy.min_length);
+  expect(generated.length).toBeLessThanOrEqual(policy.max_length);
+  const initial = "User8!ab";
+  await dialog.getByLabel("Initial password", { exact: true }).fill(initial);
+  await expect(
+    dialog.getByLabel("Initial password", { exact: true }),
+  ).toHaveJSProperty("validationMessage", "");
   await dialog
-    .getByRole("button", { name: "Save changes", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
   const user = (
@@ -32,7 +47,7 @@ test("only platform admins create global credentials; Tenant admins add existing
   expect(user.email).toBe(email);
   expect(user.platform_admin).toBeFalsy();
   const { tenant, base } = await fixtureTenant(page, "Trusted accounts");
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await logout(page);
   await login(page, "tenant-admin");
   await selectTenant(page, tenant);
   const malicious = {
@@ -45,10 +60,8 @@ test("only platform admins create global credentials; Tenant admins add existing
   ).toBe(403);
   expect((await post(page, "/admin/v1/users", malicious)).status).toBe(403);
   await page.getByRole("button", { name: "People", exact: true }).click();
-  await page.getByRole("button", { name: "Add member", exact: true }).click();
-  await expect(dialog).toContainText(
-    "A platform administrator creates new global accounts",
-  );
+  await page.getByRole("button", { name: "Add person", exact: true }).click();
+  await expect(dialog).toContainText("Ask a platform administrator");
   await expect(
     dialog.getByRole("option", {
       name: "Create an email/password account",
@@ -56,9 +69,7 @@ test("only platform admins create global credentials; Tenant admins add existing
     }),
   ).toHaveCount(0);
   await dialog.getByLabel("Email", { exact: true }).fill(email);
-  await dialog
-    .getByRole("button", { name: "Save changes", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Add person", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("row").filter({ hasText: email })).toBeVisible();
   const members = (await (await page.request.get(base + "/memberships")).json())
@@ -86,7 +97,7 @@ test("only platform admins create global credentials; Tenant admins add existing
     .getByRole("button", { name: "Save password", exact: true })
     .click();
   await expect(
-    member.getByRole("heading", { name: "Home", exact: true }),
+    member.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
   await expect(member.locator(".company-name")).toContainText(
     "Trusted accounts",
@@ -104,7 +115,8 @@ test("only platform admins create global credentials; Tenant admins add existing
   });
   await member.getByRole("button", { name: "Refresh", exact: true }).click();
   const held = await pending;
-  await member.locator(".profile-button").click();
+  await menu(member);
+  await member.getByRole("button", { name: "My account", exact: true }).click();
   await member.getByLabel("Current password", { exact: true }).fill(personal);
   await member
     .getByLabel("New password", { exact: true })
@@ -115,9 +127,7 @@ test("only platform admins create global credentials; Tenant admins add existing
   await member
     .getByRole("button", { name: "Save password", exact: true })
     .click();
-  await expect(member.getByRole("status")).toContainText(
-    "Password changed successfully",
-  );
+  await expect(member.getByRole("status")).toContainText("Password changed.");
   const oldResponse = await held.fetch();
   expect(oldResponse.status()).toBe(401);
   const finished = member.waitForResponse(
@@ -140,7 +150,7 @@ test("only platform admins create global credentials; Tenant admins add existing
   await context.close();
 });
 
-test("App-only managers can page, search and open Apps beyond the six recent links", async ({
+test("App-only managers can page, search and open all their Apps", async ({
   page,
 }) => {
   await login(page);
@@ -148,7 +158,7 @@ test("App-only managers can page, search and open Apps beyond the six recent lin
     page,
     "App directory",
   );
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await logout(page);
   await login(page, "tenant-admin");
   await selectTenant(page, tenant);
   expect(
@@ -193,22 +203,18 @@ test("App-only managers can page, search and open Apps beyond the six recent lin
       })
     ).status,
   ).toBe(201);
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await logout(page);
   await login(page, "outsider");
   await selectTenant(page, tenant);
-  await expect(page.locator(".app-card")).toHaveCount(6);
+  await expect(
+    page.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+  ).toBeVisible();
   expect(
     (await (await page.request.get(base + "/spaces")).json()).items,
   ).toHaveLength(0);
   expect((await page.request.get(base + "/spaces/" + space)).status()).toBe(
     403,
   );
-  await page
-    .getByRole("button", { name: "View all Apps", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "All Apps", exact: true, level: 1 }),
-  ).toBeVisible();
   await expect(
     page.getByRole("row").filter({ hasText: "Delegated 000" }),
   ).toHaveCount(0);
@@ -221,10 +227,10 @@ test("App-only managers can page, search and open Apps beyond the six recent lin
     .fill("Delegated 000");
   await expect(
     page.getByRole("button", { name: "Previous records", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Next records", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await page
     .getByRole("row")
     .filter({ hasText: "Delegated 000" })
@@ -233,9 +239,8 @@ test("App-only managers can page, search and open Apps beyond the six recent lin
   await expect(
     page.getByRole("heading", { name: "Delegated 000", exact: true, level: 1 }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Micro-apps", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Register micro-app", exact: true }),
+    page.getByRole("button", { name: "Add micro-app", exact: true }),
   ).toBeVisible();
   expect(
     (await (await page.request.get(base + "/apps?q=Private%20sibling")).json())
@@ -251,28 +256,36 @@ test("expired sessions return to login and signing out an expired session succee
   page.on("pageerror", (e) => errors.push(e.message));
   await login(page, "tenant-admin");
   await context.clearCookies();
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  // An in-flight request may detect expiration before Refresh can be clicked.
+  // Either request must recover the same mounted UI to the login screen.
+  await page
+    .getByRole("button", { name: "Refresh", exact: true })
+    .click({ timeout: 2000 })
+    .catch(async (error) => {
+      if (!(await page.getByRole("button", { name: "Sign in", exact: true }).isVisible()))
+        throw error;
+    });
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
+    page.getByRole("heading", { name: "Apps", exact: true }),
   ).toHaveCount(0);
   // Complete another login directly from the recovered UI, without a reload.
-  await page.getByRole("link", { name: "Sign in to Lastapp" }).click();
+  await page.getByRole("link", { name: "Continue with SSO" }).click();
   await page.locator("select[name=subject]").selectOption("tenant-admin");
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
+    page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
   await context.clearCookies();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await logout(page);
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
+    page.getByRole("heading", { name: "Apps", exact: true }),
   ).toHaveCount(0);
   expect(errors).toEqual([]);
 });

@@ -108,7 +108,7 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) erro
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin FROM users ORDER BY display_name", SuperRole)
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
 	if e == nil {
 		sendPage(w, r, v)
 	}

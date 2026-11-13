@@ -1,18 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Layers3, LoaderCircle, ArrowUpRight, LogOut } from "lucide-react";
 import { api } from "./api";
+import { useConsoleConfig } from "./console-config";
+import { NewPasswordInput, usePasswordPolicy } from "./new-password-input";
 
 export function LoginScreen({ done }: { done: () => Promise<void> }) {
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [oidc, setOidc] = useState(false);
-  useEffect(() => {
-    api("/v1/config")
-      .then((v) => setOidc(v.oidc_enabled))
-      .catch(() => {});
-  }, []);
+  const { config } = useConsoleConfig();
   return (
     <div className="welcome">
       <div className="welcome-card">
@@ -68,15 +65,22 @@ export function LoginScreen({ done }: { done: () => Promise<void> }) {
             {busy ? <LoaderCircle className="spin" size={18} /> : "Sign in"}
           </button>
         </form>
-        {oidc && (
+        {config.oidc_enabled && (
           <a
             className="secondary sso-link"
+            onClick={() => {
+              try {
+                sessionStorage.setItem(
+                  "lastapp-return-path",
+                  location.pathname + location.search,
+                );
+              } catch {}
+            }}
             href={
               "/auth/login?return_origin=" + encodeURIComponent(location.origin)
             }
           >
-            Sign in to Lastapp <ArrowUpRight size={16} />
-            <small>with single sign-on</small>
+            Continue with SSO <ArrowUpRight size={16} />
           </a>
         )}
         <small>Use the account provided by your administrator.</small>
@@ -106,6 +110,9 @@ export function PasswordScreen({
     [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const policy = usePasswordPolicy();
+  const Heading = required ? "h1" : "h2";
   return (
     <section
       className={
@@ -118,7 +125,9 @@ export function PasswordScreen({
             <Layers3 size={28} />
           </span>
         )}
-        <h1>{required ? "Set your own password" : "Change password"}</h1>
+        <Heading>
+          {required ? "Set your own password" : "Change password"}
+        </Heading>
         <p>
           {required
             ? "Replace your initial password before opening your workspace."
@@ -134,6 +143,7 @@ export function PasswordScreen({
             }
             setBusy(true);
             setError("");
+            setSuccess("");
             try {
               await api("/auth/password", "POST", {
                 current_password: current,
@@ -143,6 +153,7 @@ export function PasswordScreen({
               setNext("");
               setConfirm("");
               await done();
+              setSuccess("Password changed.");
             } catch (e) {
               setError((e as Error).message);
             } finally {
@@ -162,18 +173,16 @@ export function PasswordScreen({
           </label>
           <label>
             New password
-            <input
+            <NewPasswordInput
               type="password"
               autoComplete="new-password"
               aria-label="New password"
               required
-              minLength={15}
-              maxLength={128}
               value={next}
               onChange={(e) => setNext(e.target.value)}
             />
             <small>
-              15–128 characters. Spaces and passphrases are welcome.
+              {policy.length_hint} Spaces and passphrases are welcome.
             </small>
           </label>
           <label>
@@ -186,6 +195,7 @@ export function PasswordScreen({
               onChange={(e) => setConfirm(e.target.value)}
             />
           </label>
+          {success && <p role="status">{success}</p>}
           {error && (
             <div className="error" role="alert">
               {error}

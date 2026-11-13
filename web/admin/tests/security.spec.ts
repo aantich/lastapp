@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import { selectTenant } from "./helpers";
+import { selectTenant, logout, choose } from "./helpers";
 
 async function signIn(
   page: Page,
@@ -7,15 +7,18 @@ async function signIn(
   subject = "operator",
 ) {
   await page.goto(origin + "/console/");
-  await page.getByRole("link", { name: "Sign in to Lastapp" }).click();
+  await page
+    .getByRole("link", { name: "Continue with SSO", exact: true })
+    .click();
   await page.locator("select[name=subject]").selectOption(subject);
-  await page.getByLabel("Password").fill("lastapp-local");
+  await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(origin + "/console/");
+  await expect(page).toHaveURL(new RegExp("^" + origin + "/console/"));
   await expect(
     page.getByRole("heading", {
-      name: subject === "operator" ? "Overview" : "Home",
+      name: subject === "operator" ? "Tenants" : "Apps",
       exact: true,
+      level: 1,
     }),
   ).toBeVisible();
 }
@@ -55,7 +58,7 @@ test("server paging, search and option pickers reach records beyond the first pa
       (u: any) => u.oidc_subject === "tenant-admin",
     ).id,
   });
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await logout(page);
   await signIn(page, "http://127.0.0.1:8787", "tenant-admin");
   await selectTenant(page, tenant);
   const space = crypto.randomUUID();
@@ -72,11 +75,11 @@ test("server paging, search and option pickers reach records beyond the first pa
       target_id: "20000000-0000-4000-8000-000000000001",
     },
   });
-  let lastRole = "";
+
   for (let i = 0; i < 101; i++) {
     // Populate at the documented administrative request rate.
     if (i > 0 && i % 20 === 0) await page.waitForTimeout(1000);
-    lastRole = crypto.randomUUID();
+    const lastRole = crypto.randomUUID();
     await create(page, `/v1/tenants/${tenant}/spaces/${space}/roles`, {
       id: lastRole,
       code: `paged-${i}`,
@@ -90,7 +93,7 @@ test("server paging, search and option pickers reach records beyond the first pa
     .getByRole("button", { name: "Open", exact: true })
     .click();
   await page.getByRole("button", { name: "Access", exact: true }).click();
-  await page.getByRole("button", { name: "Roles", exact: true }).click();
+  await page.getByRole("button", { name: "Manage roles", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "PageRole 100" }),
   ).toHaveCount(0);
@@ -106,19 +109,32 @@ test("server paging, search and option pickers reach records beyond the first pa
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Previous records", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Next records", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Role assignments", exact: true })
+    .getByRole("button", { name: "People and teams", exact: true })
     .click();
-  await page.getByRole("button", { name: "Assign role", exact: true }).click();
-  await page
-    .getByRole("textbox", { name: "Search Role", exact: true })
-    .fill("PageRole 100");
-  await page.getByLabel("Role", { exact: true }).selectOption(lastRole);
-  await expect(page.getByLabel("Role", { exact: true })).toHaveValue(lastRole);
+  await page.getByRole("button", { name: "Add access", exact: true }).click();
+  const role = page.getByRole("combobox", { name: "Role", exact: true });
+  await role.click();
+  const choices = page
+    .getByRole("listbox", { name: "Role", exact: true })
+    .getByRole("option");
+  await expect(choices).toHaveCount(50);
+  await page.getByRole("button", { name: "Load more", exact: true }).click();
+  await expect(choices).toHaveCount(100);
+  await page.getByRole("button", { name: "Load more", exact: true }).click();
+  await expect(choices.filter({ hasText: "PageRole 100" })).toBeVisible();
+  await role.press("Escape");
+  await expect(
+    page.getByRole("dialog", { name: "Add access", exact: true }),
+  ).toBeVisible();
+  await choose(page, "Role", "PageRole 100");
+  await expect(
+    page.getByRole("combobox", { name: "Role", exact: true }),
+  ).toHaveValue("PageRole 100");
 });
 
 test("Vite login returns to the development UI and authenticated writes succeed", async ({
@@ -130,13 +146,17 @@ test("Vite login returns to the development UI and authenticated writes succeed"
     .getByRole("button", { name: "Create Tenant", exact: true })
     .click();
   const suffix = Date.now().toString();
-  await page
-    .getByLabel("Administrator account", { exact: true })
-    .selectOption("existing");
+  await page.getByLabel("Account", { exact: true }).selectOption("existing");
+  await choose(page, "Existing account", "Tenant administrator");
   await page.getByLabel("Name", { exact: true }).fill("AAA Proxy " + suffix);
-  await page.getByLabel("Slug", { exact: true }).fill("proxy-" + suffix);
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create Tenant", exact: true })
+    .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page
+    .getByRole("textbox", { name: "Search records", exact: true })
+    .fill("AAA Proxy " + suffix);
   await expect(
     page.getByRole("row").filter({ hasText: "AAA Proxy " + suffix }),
   ).toBeVisible();

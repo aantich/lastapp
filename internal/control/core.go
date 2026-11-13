@@ -25,6 +25,8 @@ import (
 
 	mariadb "github.com/aantich/go-mariadb"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 )
@@ -53,17 +55,21 @@ type Config struct {
 }
 
 type Server struct {
-	limiter        requestLimiter
-	loginLimiter   requestLimiter
-	passwordSlots  chan struct{}
-	trustedProxies []netip.Prefix
-	DB             *sql.DB
-	Config         Config
-	key            cipher.AEAD
-	registryName   string
-	mux            *http.ServeMux
-	auth           *oidcAuth
-	Log            *slog.Logger
+	tenantDataSlots inFlightTenants
+	dataSlots       chan struct{}
+	dataPools       data.Pools
+	definitions     definitionCache
+	limiter         requestLimiter
+	loginLimiter    requestLimiter
+	passwordSlots   chan struct{}
+	trustedProxies  []netip.Prefix
+	DB              *sql.DB
+	Config          Config
+	key             cipher.AEAD
+	registryName    string
+	mux             *http.ServeMux
+	auth            *oidcAuth
+	Log             *slog.Logger
 }
 type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -161,7 +167,7 @@ func Open(c Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed")
 	}
-	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), trustedProxies: proxies}
+	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies}
 	return s, nil
 }
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -176,7 +182,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 }
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 2 {
+	if e != nil || v != 4 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
@@ -278,7 +284,7 @@ func rows(ctx context.Context, q Queryer, query string, args ...any) ([]Row, err
 		for i, k := range cols {
 			switch t := vals[i].(type) {
 			case []byte:
-				if strings.HasSuffix(k, "_json") {
+				if strings.HasSuffix(k, "_json") && !strings.HasPrefix(k, "f_") {
 					var obj any
 					if json.Unmarshal(t, &obj) == nil {
 						v[k] = obj
@@ -314,6 +320,11 @@ func str(v any) string {
 }
 func integer(v any) int64 {
 	switch n := v.(type) {
+	case bool:
+		if n {
+			return 1
+		}
+		return 0
 	case int64:
 		return n
 	case uint64:
@@ -348,8 +359,11 @@ func send(w http.ResponseWriter, status int, value any) {
 }
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var ae *APIError
+	var ed entity.Diagnostic
 	var me *mariadb.MySQLError
 	if errors.As(err, &ae) {
+	} else if errors.As(err, &ed) {
+		ae = &APIError{400, ed.Code, ed.Message}
 	} else if errors.As(err, &me) {
 		switch me.Number {
 		case 1062:
@@ -369,7 +383,21 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if ae.Status == 429 {
 		w.Header().Set("Retry-After", "1")
 	}
-	send(w, ae.Status, Row{"error": Row{"code": ae.Code, "message": ae.Message, "request_id": r.Header.Get("X-Request-ID")}})
+	payload := Row{"code": ae.Code, "message": ae.Message, "request_id": r.Header.Get("X-Request-ID"), "retryable": ae.Code == "retry_transaction" || ae.Code == "publication_in_progress" || ae.Status == 429}
+	if ed.Path != "" {
+		payload["field_or_rule"] = ed.Path
+		if ed.Code == "invalid_value" {
+			payload["field"] = ed.Path
+		}
+	}
+	var rf entity.RuleFailure
+	if errors.As(err, &rf) {
+		if rf.Field != "" {
+			payload["field"] = rf.Field
+		}
+		payload["rule"] = rf.Rule
+	}
+	send(w, ae.Status, Row{"error": payload})
 }
 func expectedRevision(r *http.Request) (int64, error) {
 	v := strings.Trim(r.Header.Get("If-Match"), `"`)

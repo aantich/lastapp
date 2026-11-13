@@ -36,7 +36,7 @@ func main() {
 	if e != nil {
 		log.Fatal(e)
 	}
-	defer s.DB.Close()
+	defer s.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	switch command {
@@ -87,7 +87,9 @@ func main() {
 		}
 		go s.RunWorker(ctx)
 		server := &http.Server{Addr: c.Address, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+		stopped := make(chan struct{})
 		go func() {
+			defer close(stopped)
 			<-ctx.Done()
 			shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -96,6 +98,7 @@ func main() {
 		log.Printf("Lastapp listening at %s/console/", c.PublicURL)
 		e = server.ListenAndServe()
 		if e == http.ErrServerClosed {
+			<-stopped
 			e = nil
 		}
 	default:
