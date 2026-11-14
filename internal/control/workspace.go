@@ -11,7 +11,7 @@ func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p Principal) e
 	if e := s.authorize(r.Context(), s.DB, p, "space.read", Resource{Tenant: t, Space: space}, false); e != nil {
 		return e
 	}
-	v, e := row(r.Context(), s.DB, "SELECT sp.id,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", t, space)
+	v, e := row(r.Context(), s.DB, "SELECT sp.id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", t, space)
 	if e == nil {
 		send(w, 200, v)
 	}

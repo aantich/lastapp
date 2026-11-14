@@ -18,6 +18,10 @@ integration:
 	LASTAPP_SECURITY_CONFIG=$(CURDIR)/.local/config.json LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/control
 	cd web/admin && npm run test:e2e
 
+.PHONY: mcp-test
+mcp-test:
+	LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/control -run 'TestAgent'
+
 .PHONY: client
 client:
 	web/admin/node_modules/.bin/tsc -p packages/client/tsconfig.json

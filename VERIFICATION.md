@@ -1,5 +1,83 @@
 # Lastapp verification
 
+## Agent onboarding documentation and final review — 14 November 2026
+
+AGENTS.md now directs new agents to current architecture, source contracts, API
+boundaries, security rules and verification commands. CLAUDE.md imports those
+same instructions. DEVELOPMENT.md maps the implementation and separates shipped
+features from future client hosting, design packages, runners and connectors.
+MCP.md documents connection/consent, all management tools, context discovery,
+entity authoring, delegation ceilings, replay/revisions and worker guardrails.
+README links to these guides; foundation/entity guides and historical-plan status
+notes were reconciled with the implemented runtime and MCP.
+
+The canonical SQL document was missing the MCP additions. It now derives from
+all executable migrations. The existing schema utility supports offline `--check`
+and `--write`; CI checks parity alongside driver integrity. Its default database
+validation behavior remains intact.
+
+Executed checks:
+
+- **120 local Markdown link targets valid**; the MCP guide matches all **14** tool
+  names from the Go catalog; CLAUDE.md imports AGENTS.md.
+- Offline schema parity and generation: **PASS**. An isolated temporary fixture
+  confirms stale SQL is rejected, only Up migrations are generated, regenerated
+  SQL passes parity and mutually exclusive modes are rejected without database
+  access.
+- Default schema validator plus the real local foundation SQL/API test: **PASS**,
+  control package **2.611 seconds**.
+- Final MCP review rerun before these documentation-only/runtime-neutral changes:
+  `make mcp-test` **PASS with race detection**, **48.934 seconds**. No new actionable
+  findings in that pass. The preceding full backend/browser results remain below.
+- `git diff --check` and pinned driver verification: **PASS**, **42/42 unchanged**.
+
+These checks use the existing local MariaDB; no new engine/version matrix or
+benchmark ran. The CI parity step is locally verified, not a claim of a completed
+remote workflow run.
+
+## Second MCP review fixes — 14 November 2026
+
+All six findings from the follow-up review are fixed:
+
+- Tenant targets require a valid bound Tenant ID before entering the shared management API. An empty Tenant target cannot be interpreted as platform scope and bypass `platform.manage`. Target normalization uses a private copy, preserving request-key inputs.
+- Each MCP POST accepts one bounded JSON-RPC object. Legacy batches, including requests without a protocol header, are rejected before SDK dispatch; one admitted request cannot fan out into many tool executions or responses.
+- App entity inventories apply authorization, search and paging before response serialization. The shared paging helper validates selectors and reports completeness; hidden entities and fields remain filtered by the App ceiling.
+- Entity checks use the shared validator's diagnostics-only response. Large valid definitions can complete checks without embedding generated schema and TypeScript. Results retain candidate identity and synthetic-case diagnostics; agents can inspect generated contracts separately with the existing get tool.
+- Queued database and entity-publication jobs retain the delegating user, grant and OAuth client in terminal audit events, including work rejected after revocation. Audit metadata is separate from execution authority and local to each job.
+- Creating a Space that reuses an existing shared database requires resource-management authority. Actual allocation still passes the shared provisioning permission, target, mode and quota checks.
+
+Permanent regressions cover the platform escalation through a real MCP request, legacy batch admission, oversized requests, large entity checks, authorized App inventory pages, shared database reuse versus allocation, and successful/revoked worker audit attribution. The Chrome paging test also reuses the searchable fixture helper rather than assuming its administrator is on the first user page.
+
+Validation on the existing local MariaDB and pinned driver:
+
+- Full backend integration/race/security suite: **PASS**, control package **108.213 seconds**, including live provisioning/publication and all new regressions. Only the explicitly opt-in fixture-preparation helper skips locally.
+- Complete installed-Chrome suite after the fixture correction: **25/25 PASS (1.4 minutes)**.
+- `go test ./...`, `go vet ./...`, TypeScript/Vite production build and `git diff --check`: **PASS**.
+- Driver verifier: **42/42 pinned files unchanged**. Registry schema remains **8**.
+- Backend and embedded console rebuilt and restarted; `/readyz` returns `ready`. Existing local data and keys are preserved.
+
+Earlier attempts are retained in ignored `.local/mcp-review2/`: a host-interrupted MCP run was followed by a successful focused rerun of both affected cases (**9.331 seconds**). The first complete browser run passed 24/25 and exposed the fixture's first-page assumption; the corrected full browser rerun passed all 25. The backend pass is in `fixes-integration.log` and the final browser pass in `fixes-browser-rerun.log`.
+
+## MCP review fixes — 14 November 2026
+
+All seven findings from the MCP implementation review are fixed:
+
+- Managed allocation and retry share the same grant target/mode/quota checks. Claiming an existing resource consumes a slot; retrying the same resource does not consume another. Requeued work records the current agent/user and stops after revocation. Explicit human retries clear the previous agent binding.
+- Access-token validation loads its exact grant revision and permissions in one database statement. Subsequent checks reject stale snapshots; an old access token cannot acquire an expanded grant without refresh/reconnection.
+- Anonymous registration/metadata setup, token endpoints and MCP token validation have bounded admission budgets. Bootstrap and validation rate maps are separate from ordinary authenticated request limits. Bearer admission runs before database lookups, and anonymous bootstrap cannot occupy authenticated MCP execution slots.
+- The in-process response adapter retains writer and JSON decoding errors. Oversized reads report `response_limit`; oversized responses after a committed mutation return the compact resource receipt and explicit response error. Replaying the same request key remains safe. Entity inspection supports separate draft/published definitions, individual generated sections and explicitly marked single-field contracts. App inspection continues to omit hidden fields and policy expressions; App inventory uses concise metadata.
+- The existing list tool supports typed user/team recipient discovery through the shared authorized endpoint. Space/App context includes both recipient inventories with selector-preserving continuation guidance.
+- Unapproved registrations have a separate bounded quota and expire after ten minutes. Invalid authorization attempts cannot renew their lifetime. Approved clients do not consume anonymous quota; cleanup preserves live grants and in-progress consent/code exchanges. An index supports pending-client checks (registry schema 8).
+- Clipboard and revoke failures leave the loaded connection list and its actions usable. Failed loads are tracked separately from action errors.
+
+Validation on the existing local MariaDB and pinned driver:
+
+- Full backend `make integration` race/security run: **PASS**, control package **85.380 seconds**, including the new regressions and real provisioning/publication checks. Only the explicitly opt-in fixture-preparation helper skips locally.
+- Complete installed-Chrome suite: **25/25 PASS (1.3 minutes)**, including denied clipboard access and a rejected stale revoke followed by refresh/recovery. Desktop connection and mobile edit screenshots inspected.
+- `go test ./...`, `go vet ./...`, TypeScript/Vite production build and `git diff --check`: **PASS**.
+- Driver verifier: **42/42 pinned files unchanged**. No database-version matrix or benchmark run.
+- Backend and embedded console rebuilt; `/readyz` returns `ready` at the existing local service. Existing local data and keys are preserved.
+
 ## Single-source password policy — current, 12 November 2026
 
 DRY is recorded as the main foundational engineering principle in `AGENTS.md`, README and the foundation contract. Password limits are defined once in `internal/control/passwords.go`. Validation, error text and public `GET /v1/config.password_policy` derive from that source. The running server publishes 8–128 characters with `Cache-Control: no-store`; the embedded console/index is also served without caching.
@@ -346,3 +424,108 @@ the actual authenticated screen, and the permanent regression verifies that
 flow. These audit issues are not counted as application failures or passing
 checks. Screenshot artifacts remain ignored; prior data and uncommitted work
 were preserved. No commit, push or remote deployment was performed.
+
+## Delegated management MCP — 14 November 2026
+
+Implemented the management-only MCP endpoint in the existing Go service using
+the official Go SDK and Streamable HTTP. Its 14 typed tools reuse the existing
+management handlers, authorization, mutations and workers. Context includes
+paginated inventories, full authorized entity definitions, published App
+contracts, revisions, current grant limits and explicit unavailable features.
+Canonical guides are shared between the describe tool and MCP resources.
+Micro-app registration does not yet build or host source; business-record
+access and robot identities are outside this release.
+
+OAuth authorization-code/S256 PKCE consent delegates an existing user's current
+authority within an explicit Tenant, team, Space, App or platform ceiling.
+Audience-bound, hashed credentials, rotating refresh tokens, grant revision
+checks and revocation apply to requests and queued work. Provisioning has
+approved-target and allocation limits. Mutation receipts make unchanged retries
+safe, and shared audit entries retain the human and agent identity. Agents
+cannot expand grants, retrieve credentials or execute arbitrary SQL/code.
+Native clients require registration; public HTTPS Client ID Metadata Documents
+are also supported. The URL-only connection follow-up below adds automatic
+dynamic client registration to this initial implementation.
+
+The console now provides consent plus My account → Agent access, with editing,
+expiry and revocation; Tenant administrators can inspect and revoke Tenant
+connections in Settings. Permissions, presets, eligibility and limits come from
+the backend contract. Desktop consent and mobile consent/edit screens were
+visually inspected; browser checks cover control sizes, overflow, modal bounds,
+SSO return, approval and denial.
+
+Final validation passed:
+
+- `make integration`: the full backend race/integration suite passed in
+  63.240 seconds, followed by **25/25 browser scenarios in 1.4 minutes**.
+- `go test ./...`, `go vet ./...` and `git diff --check` passed. All 42 pinned
+  MariaDB-driver file hashes matched; the driver was not modified.
+- The official MCP client exercised real OAuth, schemas/tool discovery,
+  resource/role/membership management, managed database provisioning and entity
+  publication. Security cases include sibling-scope denial, narrowed context,
+  App contract filtering, stale edits, idempotency conflicts, invalid PKCE,
+  refresh replay, grant changes/revocation, token audience isolation across
+  endpoints sharing one registry, unsafe origins and provisioning ceilings.
+- A deterministic regression verifies that publication queued before database
+  provisioning waits for storage readiness. Recursive expression schemas are
+  checked against actual default/calculated-field and App-gate expressions.
+- The rebuilt local server reports ready and advertises the exact
+  `http://127.0.0.1:8787/mcp` OAuth resource. The registry is at schema version 6.
+
+Final log: `.local/mcp-release-validation.log`. Screenshots remain ignored in
+`web/admin/test-results/mcp-{consent-desktop,consent-mobile,edit-mobile,connections-desktop}.png`.
+The console remains running at <http://127.0.0.1:8787/console/>. Existing local
+data was preserved. No database-version matrix, commit, push or remote deployment
+was performed.
+
+### URL-only agent connection follow-up — 14 November 2026
+
+The user-facing flow now starts in the agent client with the MCP URL, followed
+by Lastapp sign-in and consent. Static client registration, secrets, tokens and
+manual OAuth scope configuration are unnecessary. Discovery supports both Client
+ID Metadata Documents and an advertised RFC 7591 registration endpoint. A
+registration stores bounded public metadata only; it cannot grant authority.
+S256 PKCE, exact registered host/path matching, dynamic native loopback ports
+(including Claude's localhost callback), explicit consent and audience checks
+still apply. Registration is rate/concurrency limited and serialized at its
+registry cap; cleanup retains clients with live grants.
+
+Discovery offers the supported capabilities so users can choose App/Entity
+author permissions on the first connection. Consent still initially selects
+inspection only, and issued tokens contain only the selected permissions.
+Explicitly requested narrower scopes remain narrow. The console shows the
+return address and offers Copy MCP URL with a short connection explanation.
+Policy limits and scope lists continue to derive from the backend contract.
+
+Native-client smoke checks used the installed Codex CLI
+`0.162.0-alpha.17.2` (default CIMD and explicit DCR) and Claude Code `2.1.263`
+(default CIMD). Each discovered OAuth using only the server URL. Following each
+real client-generated authorization URL returned HTTP 302 to Lastapp consent;
+both vendors' real metadata documents and native callback formats were accepted.
+These checks deliberately stopped before approval, so they did not authorize a
+connection or save access tokens. Headless commands ended at their callback
+input prompt. Claude used an isolated disposable profile; normal client
+configuration was not changed.
+
+Two new backend integration scenarios exercise automatic discovery/registration,
+mandatory PKCE, redirect pinning, explicit approval, token exchange and the
+official MCP client, plus rejection of unsafe/oversized registration metadata.
+They verify that registration creates no grant, offered capabilities do not
+become authority, and cleanup preserves a live connection. The browser consent
+scenario now registers its own public client with no configured scope list and
+checks the exact approved token scopes. Consent/account screenshots were
+visually inspected. The desktop account capture now opens the account at the
+desktop viewport, verifies panel/sidebar alignment and disables transient
+animations while taking its image.
+
+The full backend race/integration run passed in 68.647 seconds and all **25
+browser scenarios passed in 1.4 minutes**. The final two-scenario MCP browser
+confirmation, including the settled desktop capture, passed in 4.1 seconds.
+`go test ./...`, `go vet ./...`, driver integrity (42 pinned files) and
+`git diff --check` passed. The local console was rebuilt and remains running.
+
+Evidence: `.local/mcp-auto-focused.log`, `.local/mcp-auto-final-validation.log`
+and `.local/mcp-native-{codex,codex-dcr,claude}.log`. Schema version 7 adds the
+public client metadata table. These ignored local logs contain transient OAuth
+request state and should not be published. No native-client approval, commit,
+push or remote deployment was performed.

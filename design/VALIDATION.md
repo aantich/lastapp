@@ -1,6 +1,6 @@
 # Historical provisioning schema validation
 
-The results below apply to the pre-foundation schema at checkpoint `fa31720`. They do not describe the current role model. Current schema checks are maintained in the Go foundation/integration suites; see [VERIFICATION.md](../VERIFICATION.md) and [FOUNDATION.md](../FOUNDATION.md). `validate_schema.py` now checks the canonical DDL against bootstrap SQL and runs the current Go foundation checks on the existing local development server.
+The results below apply to the pre-foundation schema at checkpoint `fa31720`. They do not describe the current role model. Current schema checks are maintained in the Go foundation/entity/MCP/integration suites; see [VERIFICATION.md](../VERIFICATION.md) and [DEVELOPMENT.md](../DEVELOPMENT.md). The ordered migrations are authoritative. `python3 design/validate_schema.py --write` regenerates the SQL document, `--check` checks parity offline, and the default invocation also runs the current Go foundation checks on the existing local development server. That focused test does not replace entity/MCP integration tests. The historical results below remain unchanged.
 
 # Control Plane Schema Validation
 

@@ -545,6 +545,9 @@ export function TenantWorkspace({
             ? [
                 ["general", "General"],
                 ...(all("database.read") ? [["databases", "Databases"]] : []),
+                ...(all("authorization.manage")
+                  ? [["agents", "Agent access"]]
+                  : []),
               ]
             : [];
   const title =
@@ -692,6 +695,7 @@ export function TenantWorkspace({
       )}
       {route.page === "account" ? (
         <>
+          <AgentAccess me={me} />
           <section className="panel workspace-section">
             <p>
               {me.display_name} · {me.email}
@@ -987,6 +991,9 @@ export function TenantWorkspace({
               ]}
             />
           )}
+          {route.page === "settings" && route.tab === "agents" && (
+            <AgentAccess key={tenant} me={me} tenant={tenant} />
+          )}
           {route.page === "settings" && route.tab === "general" && (
             <section className="panel workspace-section">
               <dl className="workspace-facts">
@@ -1182,3 +1189,4 @@ export function TenantWorkspace({
     </ConsoleShell>
   );
 }
+import { AgentAccess } from "./agent-access";

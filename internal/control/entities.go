@@ -117,11 +117,44 @@ func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p Principal) 
 	if e != nil {
 		return e
 	}
+	if section := r.URL.Query().Get("section"); section != "" {
+		version := r.URL.Query().Get("version")
+		if version == "" {
+			version = "draft"
+		}
+		definition := v["draft_json"]
+		if version == "published" {
+			if v["active_version_id"] == nil {
+				return missing()
+			}
+			active, err := row(r.Context(), s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", v["active_version_id"])
+			if err != nil {
+				return err
+			}
+			definition = active["definition_json"]
+		} else if version != "draft" {
+			return bad("version must be draft or published.")
+		}
+		d, err := defOf(definition)
+		if err != nil {
+			return err
+		}
+		value, err := entitySection(d, section, r.URL.Query().Get("field"))
+		if err != nil {
+			return err
+		}
+		send(w, 200, Row{"id": v["id"], "space_id": v["space_id"], "revision": v["revision"], "version": version, "active_version_id": v["active_version_id"], "definition_hash": entity.Hash(d), "section": section, "field": r.URL.Query().Get("field"), "partial": r.URL.Query().Get("field") != "", "value": value})
+		return nil
+	}
+	if r.URL.Query().Get("field") != "" || r.URL.Query().Get("version") != "" {
+		return bad("field/version require a section.")
+	}
 	d, e := defOf(v["draft_json"])
 	if e != nil {
 		return e
 	}
 	v["diagnostics"] = d.Validate()
+	v["draft_contract"] = Row{"definition_hash": entity.Hash(d), "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()}
 	versions, e := rows(r.Context(), s.DB, "SELECT id,state,error_message,definition_hash,base_version_id,created_at FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", v["id"])
 	if e != nil {
 		return e
@@ -133,6 +166,11 @@ func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p Principal) 
 			return e
 		}
 		v["active_definition"] = active["definition_json"]
+		published, e := defOf(active["definition_json"])
+		if e != nil {
+			return e
+		}
+		v["published_contract"] = Row{"version_id": v["active_version_id"], "definition_hash": entity.Hash(published), "json_schema": published.JSONSchema(), "create_schema": published.Schema("create"), "update_schema": published.Schema("update"), "typescript": published.TypeScript()}
 	}
 	send(w, 200, v)
 	return nil
@@ -267,11 +305,19 @@ func (s *Server) entityValidate(w http.ResponseWriter, r *http.Request, p Princi
 	if e = decode(w, r, &in); e != nil {
 		return e
 	}
+	view := r.URL.Query().Get("view")
+	if view != "" && view != "diagnostics" {
+		return bad("Unknown validation view.")
+	}
 	diags := in.Definition.Validate()
 	if e = s.validateEntityRefs(r.Context(), s.DB, in.Definition, v); e != nil {
 		diags = append(diags, entity.Diagnostic{Code: "invalid_reference", Path: "permissions", Message: e.Error()})
 	}
-	send(w, 200, Row{"diagnostics": diags, "schema": in.Definition.JSONSchema(), "typescript": in.Definition.TypeScript()})
+	out := Row{"diagnostics": diags}
+	if view != "diagnostics" {
+		out["schema"], out["typescript"] = in.Definition.JSONSchema(), in.Definition.TypeScript()
+	}
+	send(w, 200, out)
 	return nil
 }
 func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -283,7 +329,7 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 	if e != nil {
 		return e
 	}
-	version := newID()
+	version := operationID(r.Context())
 	e = s.mutate(r.Context(), p, "entity.publish", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		v, e = row(r.Context(), tx, "SELECT * FROM entity_definitions WHERE id=? FOR UPDATE", v["id"])
 		if e != nil {
@@ -323,6 +369,9 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 			return e
 		}
 		_, e = tx.ExecContext(r.Context(), "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v["id"])
+		if e == nil && p.Agent != nil {
+			_, e = tx.ExecContext(r.Context(), "UPDATE entity_versions SET agent_grant_id=? WHERE id=?", p.Agent.ID, version)
+		}
 		return e
 	})
 	if e != nil {
@@ -484,12 +533,15 @@ func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principa
 		return e
 	}
 	manager := s.authorize(r.Context(), s.DB, p, "entity.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, true) == nil
-	vs, e := rows(r.Context(), s.DB, "SELECT e.id,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label", v["space_id"])
+	vs, e := rows(r.Context(), s.DB, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", v["space_id"])
 	if e != nil {
 		return e
 	}
-	out := []any{}
+	out := []Row{}
 	for _, value := range vs {
+		if selected := r.URL.Query().Get("entity_id"); selected != "" && selected != str(value["id"]) {
+			continue
+		}
 		d, e := defOf(value["definition_json"])
 		if e != nil {
 			return e
@@ -525,13 +577,52 @@ func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principa
 		d.Fields = fields
 		d.Permissions = nil
 		d.Rules = nil
-		out = append(out, Row{"id": value["id"], "definition": Row{"key": d.Key, "label": d.Label, "fields": publicEntityFields(fields), "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
+		section, field := r.URL.Query().Get("section"), r.URL.Query().Get("field")
+		if version := r.URL.Query().Get("version"); version != "" && version != "published" {
+			return bad("App contracts are always published.")
+		}
+		if section == "inventory" {
+			if field != "" {
+				return bad("field requires a generated contract section.")
+			}
+			out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
+			continue
+		}
+		if section != "" {
+			var part any
+			if section == "definition" {
+				if field != "" {
+					return bad("field applies only to generated contract sections.")
+				}
+				part = Row{"key": d.Key, "label": d.Label, "fields": publicEntityFields(fields), "permissions": perms}
+			} else {
+				part, e = entitySection(d, section, field)
+				if e != nil {
+					return e
+				}
+			}
+			out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "section": section, "field": field, "partial": field != "", "value": part})
+			continue
+		}
+		if field != "" {
+			return bad("field requires a generated contract section.")
+		}
+		out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "definition": Row{"key": d.Key, "label": d.Label, "fields": publicEntityFields(fields), "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
 	roles, e := rows(r.Context(), s.DB, "SELECT id,display_name FROM roles WHERE app_id=? AND domain='data' AND state='active'", v["id"])
 	if e != nil {
 		return e
 	}
-	send(w, 200, Row{"entities": out, "roles": roles})
+	response := Row{"app_id": v["id"], "space_id": v["space_id"], "app_revision": v["revision"], "entities": out, "roles": roles}
+	if r.URL.Query().Get("section") == "inventory" {
+		var page pageInfo
+		out, page, e = pageItems(out, r.URL.Query())
+		if e != nil {
+			return e
+		}
+		response["entities"], response["pagination"] = out, page
+	}
+	send(w, 200, response)
 	return nil
 }
 func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -573,4 +664,47 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	send(w, 200, Row{"ok": true})
 	return nil
+}
+
+// Reuse the canonical entity generators; selecting a section/field bounds agent
+// context without inventing a second schema or exposing App-hidden rules/ACLs.
+func entitySection(d entity.Definition, section, field string) (any, error) {
+	if section == "definition" {
+		if field != "" {
+			return nil, bad("field applies only to generated contract sections.")
+		}
+		return d, nil
+	}
+	if field != "" {
+		found := false
+		for _, f := range d.Fields {
+			if f.Key == field {
+				d.Fields = []entity.Field{f}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, missing()
+		}
+	}
+	switch section {
+	case "json_schema":
+		return d.JSONSchema(), nil
+	case "create_schema":
+		return d.Schema("create"), nil
+	case "update_schema":
+		return d.Schema("update"), nil
+	case "typescript":
+		return d.TypeScript(), nil
+	default:
+		return nil, bad("Unknown entity section.")
+	}
+}
+func fieldInventory(fields []entity.Field) []Row {
+	out := []Row{}
+	for _, f := range fields {
+		out = append(out, Row{"key": f.Key, "label": f.Label, "type": f.Type, "target_entity_id": f.Target})
+	}
+	return out
 }

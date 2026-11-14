@@ -1,20 +1,20 @@
 # Lastapp Space and Authorization Design
 
-**Foundation and initial entity/ACL runtime implemented — 12 November 2026.**
+**Historical design and approved principles — current status updated 14 November 2026.**
 
 The [entity design and implementation plan](ENTITY_DESIGN_IMPLEMENTATION_PLAN.md) governs the implemented entity stage, including its authoring contract, ACL semantics, publication and API. The [runtime guide](ENTITY_RUNTIME.md) records its actual API and supported boundaries. This refines the corresponding original proposals below.
 
-The implemented scope and exact management API are documented in [FOUNDATION.md](FOUNDATION.md). Following the discussion, this delivery covers global identities, memberships, teams, fixed administrative roles, scoped Space/App business-role definitions/assignments and the console. The entity policy language, authorized query compiler, record ACLs, App credentials/runner and SDK below remain later-stage design direction, to be finalized with their developer API before implementation.
+Current behavior is documented in [DEVELOPMENT.md](DEVELOPMENT.md), [FOUNDATION.md](FOUNDATION.md), [ENTITY_RUNTIME.md](ENTITY_RUNTIME.md) and [MCP.md](MCP.md). Global roles/scopes, the entity policy/evaluator, authorized query compiler, record ACLs/sharing, App-bound sessions, SDK and management MCP are implemented. App execution/hosting, App-private entities, connectors and container scheduling remain deferred. Proposed endpoint names and entity-language details below are historical; current guides and source contracts take precedence.
 
 Make the Space the reusable business backend. A Space owns its database binding, entity definitions, invariants, business permissions and shared roles. Apps normally inherit this backend and assemble browser experiences from it. App-specific permissions, roles and entities are optional extensions governed by the Space.
 
 Identity and authorization remain shared platform capabilities. One registry, one set of identity and role tables, one policy representation and one Go enforcement library serve all Tenants and Apps. Tenant and team roles come from a fixed platform catalog. Custom business roles belong to a Space or App. Each role assignment has one scope; there is no arbitrary scope-combination language.
 
-The broader direction includes a generic MariaDB entity backend and console/SDK support. The approved foundation corrects the existing roles/scopes and preserves provisioning, security corrections and UI work; it does not implement that entity runtime yet.
+The ordinary implementation now includes the MariaDB entity backend and console/SDK support. Its authoritative definition is the typed Go entity model; JSON Schema is generated, rather than maintained as a separate policy/storage language.
 
 Lastapp is in local development and has no deployed installations. Implement the corrected model directly; there are no production grants to convert, legacy clients to support or deployment cutovers to coordinate.
 
-The ordinary path is small: create a Space, publish its entities and permissions, assign roles, and let Apps inherit them. Sharing, App roles and private entities are optional. The [review findings](review/authorization-plan-2026-11-12/REVIEW.md) explain the corrections made before this proposal. The delivered provisioning plan remains historical; this proposal governs the next implementation phase if approved.
+The ordinary path is small: create a Space, publish its entities and permissions, assign roles, and let Apps reuse them through approved access settings. Sharing and App-role restrictions are implemented options; private entities remain deferred. The [review findings](review/authorization-plan-2026-11-12/REVIEW.md) explain corrections made before this design. This document preserves the hierarchy and rationale, not a new implementation request.
 
 ## 1 Ownership and inheritance
 

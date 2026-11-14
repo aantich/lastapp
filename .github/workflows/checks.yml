@@ -26,11 +26,12 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/admin/package-lock.json
-      - name: Build UI and verify pinned driver
+      - name: Build UI and verify source contracts
         run: |
           npm ci --prefix web/admin
           npm run build --prefix web/admin
           python3 scripts/verify_driver.py
+          python3 design/validate_schema.py --check
       - name: Prepare disposable test registry
         env:
           DATABASE_CONTAINER: ${{ job.services.mariadb.id }}

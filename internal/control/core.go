@@ -38,38 +38,45 @@ const TenantAdminRole = authz.TenantAdminRole
 var migrationFiles embed.FS
 
 type Config struct {
-	DevelopmentUIOrigin string   `json:"development_ui_origin"`
-	AppOrigin           string   `json:"app_origin"`
-	Address             string   `json:"address"`
-	PublicURL           string   `json:"public_url"`
-	RegistryDSN         string   `json:"registry_dsn"`
-	EncryptionKey       string   `json:"encryption_key"`
-	EncryptionKeyID     string   `json:"encryption_key_id"`
-	OIDCIssuer          string   `json:"oidc_issuer"`
-	OIDCClientID        string   `json:"oidc_client_id"`
-	OIDCClientSecret    string   `json:"oidc_client_secret"`
-	Development         bool     `json:"development"`
-	AllowedNetworks     []string `json:"allowed_networks"`
-	TrustedProxies      []string `json:"trusted_proxies"`
-	RuntimeAccountHost  string   `json:"runtime_account_host"`
+	AgentClients        []AgentClient `json:"agent_clients"`
+	DevelopmentUIOrigin string        `json:"development_ui_origin"`
+	AppOrigin           string        `json:"app_origin"`
+	Address             string        `json:"address"`
+	PublicURL           string        `json:"public_url"`
+	RegistryDSN         string        `json:"registry_dsn"`
+	EncryptionKey       string        `json:"encryption_key"`
+	EncryptionKeyID     string        `json:"encryption_key_id"`
+	OIDCIssuer          string        `json:"oidc_issuer"`
+	OIDCClientID        string        `json:"oidc_client_id"`
+	OIDCClientSecret    string        `json:"oidc_client_secret"`
+	Development         bool          `json:"development"`
+	AllowedNetworks     []string      `json:"allowed_networks"`
+	TrustedProxies      []string      `json:"trusted_proxies"`
+	RuntimeAccountHost  string        `json:"runtime_account_host"`
 }
 
 type Server struct {
-	tenantDataSlots inFlightTenants
-	dataSlots       chan struct{}
-	dataPools       data.Pools
-	definitions     definitionCache
-	limiter         requestLimiter
-	loginLimiter    requestLimiter
-	passwordSlots   chan struct{}
-	trustedProxies  []netip.Prefix
-	DB              *sql.DB
-	Config          Config
-	key             cipher.AEAD
-	registryName    string
-	mux             *http.ServeMux
-	auth            *oidcAuth
-	Log             *slog.Logger
+	agentSlots             chan struct{}
+	agentBootstrapSlots    chan struct{}
+	agentTokenSlots        chan struct{}
+	agentValidationSlots   chan struct{}
+	agentBootstrapLimiter  requestLimiter
+	agentValidationLimiter requestLimiter
+	tenantDataSlots        inFlightTenants
+	dataSlots              chan struct{}
+	dataPools              data.Pools
+	definitions            definitionCache
+	limiter                requestLimiter
+	loginLimiter           requestLimiter
+	passwordSlots          chan struct{}
+	trustedProxies         []netip.Prefix
+	DB                     *sql.DB
+	Config                 Config
+	key                    cipher.AEAD
+	registryName           string
+	mux                    *http.ServeMux
+	auth                   *oidcAuth
+	Log                    *slog.Logger
 }
 type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -98,6 +105,18 @@ func LoadConfig(path string) (Config, error) {
 	return c, e
 }
 func Open(c Config) (*Server, error) {
+	seenClients := map[string]bool{}
+	for _, client := range c.AgentClients {
+		if client.ID == "" || len(client.ID) > 500 || client.Name == "" || len(client.Name) > 160 || seenClients[client.ID] || len(client.Redirects) == 0 || len(client.Redirects) > agentMaxClientRedirects {
+			return nil, fmt.Errorf("invalid or duplicate agent client registration")
+		}
+		seenClients[client.ID] = true
+		for _, redirect := range client.Redirects {
+			if !validAgentRedirect(redirect) {
+				return nil, fmt.Errorf("invalid agent client redirect")
+			}
+		}
+	}
 	proxies, e := parseTrustedProxies(c.TrustedProxies)
 	if e != nil {
 		return nil, e
@@ -167,7 +186,7 @@ func Open(c Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed")
 	}
-	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies}
+	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	return s, nil
 }
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -182,7 +201,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 }
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 4 {
+	if e != nil || v != 8 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
@@ -414,6 +433,13 @@ func checkRevision(got, want int64) error {
 	return nil
 }
 func audit(ctx context.Context, q Queryer, tenant, user, action, kind, record, request string, details any) error {
+	identity, _ := ctx.Value(agentAuditKey{}).(agentAuditIdentity)
+	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
+		identity = agentAuditIdentity{Grant: a.Grant.ID, Client: a.Grant.Client}
+	}
+	if identity.Grant != "" {
+		details = Row{"agent_grant_id": identity.Grant, "agent_client_id": identity.Client, "details": details}
+	}
 	b, _ := json.Marshal(details)
 	_, e := q.ExecContext(ctx, "INSERT INTO audit_events (tenant_id,actor_user_id,action,resource_type,resource_id,request_id,details_json) VALUES (?,?,?,?,?,?,?)", nullable(tenant), nullable(user), action, kind, nullable(record), request, string(b))
 	return e
@@ -444,8 +470,20 @@ func (s *Server) mutate(ctx context.Context, p Principal, action string, res Res
 	if e = s.authorize(ctx, tx, p, action, res, true); e != nil {
 		return e
 	}
+	if e = s.agentMutationBegin(ctx, tx); e != nil {
+		return e
+	}
 	if e = fn(tx); e != nil {
 		return e
 	}
-	return tx.Commit()
+	if e = s.agentMutationFinish(ctx, tx); e != nil {
+		return e
+	}
+	if e = tx.Commit(); e != nil {
+		return e
+	}
+	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
+		a.Committed = true
+	}
+	return nil
 }

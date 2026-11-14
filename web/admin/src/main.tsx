@@ -10,6 +10,8 @@ import { PlatformWorkspace } from "./platform-workspace";
 import type { Item } from "./console-forms";
 import { ConsoleConfigProvider, useConsoleConfig } from "./console-config";
 import { AppLaunch } from "./entity-designer/launch";
+import { AgentConsent } from "./agent-access";
+import "./agent-access.css";
 function App() {
   const { refresh: refreshConfig } = useConsoleConfig();
   const appearanceControls = useAppearance();
@@ -85,6 +87,8 @@ function App() {
   if (auth === "password")
     return <PasswordScreen required done={loadMe} signOut={signOut} />;
   if (location.pathname === "/console/launch") return <AppLaunch />;
+  if (location.pathname === "/console/agent-consent")
+    return <AgentConsent me={me!} />;
   return (
     <>
       {error && (

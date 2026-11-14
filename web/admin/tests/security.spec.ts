@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import { selectTenant, logout, choose } from "./helpers";
+import { selectTenant, logout, choose, fixtureTenant } from "./helpers";
 
 async function signIn(
   page: Page,
@@ -47,17 +47,7 @@ test("server paging, search and option pickers reach records beyond the first pa
   page,
 }) => {
   await signIn(page);
-  const tenant = crypto.randomUUID();
-  const users = await (await page.request.get("/admin/v1/users")).json();
-  await create(page, "/admin/v1/tenants", {
-    id: tenant,
-    slug: "paging-" + tenant,
-    display_name: "AAA Paging " + tenant.slice(0, 8),
-    plan_id: "10000000-0000-4000-8000-000000000001",
-    initial_admin_user_id: users.items.find(
-      (u: any) => u.oidc_subject === "tenant-admin",
-    ).id,
-  });
+  const { tenant, owner } = await fixtureTenant(page, "AAA Paging");
   await logout(page);
   await signIn(page, "http://127.0.0.1:8787", "tenant-admin");
   await selectTenant(page, tenant);
@@ -66,9 +56,7 @@ test("server paging, search and option pickers reach records beyond the first pa
     id: space,
     slug: "paging",
     display_name: "Paging",
-    initial_manager_user_id: users.items.find(
-      (u: any) => u.oidc_subject === "tenant-admin",
-    ).id,
+    initial_manager_user_id: owner.id,
     database: {
       mode: "managed",
       layout: "shared",

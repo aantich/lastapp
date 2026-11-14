@@ -760,6 +760,7 @@ export function PlatformWorkspace({
         </>
       ) : page === "account" ? (
         <>
+          <AgentAccess me={me} />
           <section className="panel workspace-section">
             <p>
               {me.display_name} · {me.email}
@@ -786,3 +787,4 @@ export function PlatformWorkspace({
     </ConsoleShell>
   );
 }
+import { AgentAccess } from "./agent-access";

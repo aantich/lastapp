@@ -18,6 +18,26 @@ type metadataPatch struct {
 	Artifact *string `json:"artifact_ref"`
 	Order    *int    `json:"navigation_order"`
 }
+type spaceCreateInput struct {
+	namedInput
+	Manager  string `json:"initial_manager_user_id,omitempty"`
+	Database struct {
+		Resource string `json:"resource_id,omitempty"`
+		Mode     string `json:"mode,omitempty"`
+		Layout   string `json:"layout,omitempty"`
+		Target   string `json:"target_id,omitempty"`
+	} `json:"database"`
+}
+type appCreateInput struct {
+	namedInput
+	Manager string `json:"initial_manager_user_id,omitempty"`
+	Compute string `json:"compute_mode,omitempty"`
+}
+type microappCreateInput struct {
+	namedInput
+	Artifact string `json:"artifact_ref,omitempty"`
+	Order    int    `json:"navigation_order,omitempty"`
+}
 
 func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
@@ -34,16 +54,7 @@ func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) err
 	return e
 }
 func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		namedInput
-		Manager  string `json:"initial_manager_user_id"`
-		Database struct {
-			Resource string `json:"resource_id"`
-			Mode     string `json:"mode"`
-			Layout   string `json:"layout"`
-			Target   string `json:"target_id"`
-		} `json:"database"`
-	}
+	var in spaceCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
@@ -164,11 +175,7 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error
 	return e
 }
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		namedInput
-		Manager string `json:"initial_manager_user_id"`
-		Compute string `json:"compute_mode"`
-	}
+	var in appCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
@@ -237,11 +244,7 @@ func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) 
 	return e
 }
 func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		namedInput
-		Artifact string `json:"artifact_ref"`
-		Order    int    `json:"navigation_order"`
-	}
+	var in microappCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}

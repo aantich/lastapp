@@ -350,6 +350,9 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Princi
 	if _, e = tx.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", p.ID); e != nil {
 		return e
 	}
+	if _, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE user_id=? AND state='active'", p.ID); e != nil {
+		return e
+	}
 	session, csrf, e := newConsoleSession(r.Context(), tx, p.ID, "password")
 	if e != nil {
 		return e

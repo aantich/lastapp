@@ -84,6 +84,7 @@ func (s *Server) Handler() http.Handler {
 		return e
 	})
 	s.entityRoutes()
+	s.agentRoutes()
 	s.api("GET /v1/roles/catalog", s.roleCatalog)
 	s.api("GET /v1/tenants/{tenant}/my-role-assignments", s.myRoles)
 	s.api("GET /v1/tenants/{tenant}/capabilities", s.capabilities)

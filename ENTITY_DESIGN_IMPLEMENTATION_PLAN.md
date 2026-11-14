@@ -2,7 +2,7 @@
 
 **Status: approved for implementation; core milestones and optional sharing implemented. Date: 12 November 2026.**
 
-See [the runtime guide](ENTITY_RUNTIME.md) for current usage and supported boundaries, and [verification](VERIFICATION.md) for executed checks.
+This is the approved stage design and delivery history. See [the runtime guide](ENTITY_RUNTIME.md) for current usage, finalized API routes and supported boundaries, [the maintainer guide](DEVELOPMENT.md) for source contracts, [MCP.md](MCP.md) for the subsequent agent surface, and [verification](VERIFICATION.md) for executed checks. Proposed examples/checklists here do not override the implemented contracts or authorize deferred extensions.
 
 Build a reusable Space backend that lets authors describe business entities, grant access, define rules, test the result and publish a working API. Authors work with business concepts. Lastapp creates and manages tables, constraints, indexes and runtime metadata behind the scenes. Apps inherit the Space backend without copying its definitions.
 

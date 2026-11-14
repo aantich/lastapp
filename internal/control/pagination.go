@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -17,25 +18,32 @@ type pageContextKey struct{}
 
 // Every collection is bounded, including default reads. Permission predicates
 // stay inside the original query, before search and LIMIT/OFFSET.
-func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]Row, error) {
-	values := r.URL.Query()
+func collectionPage(values url.Values) (pageInfo, string, error) {
 	info := pageInfo{Page: 1, Limit: 100}
 	var e error
 	if values.Has("page") {
 		info.Page, e = strconv.Atoi(values.Get("page"))
 		if e != nil || info.Page < 1 || info.Page > 10000 {
-			return nil, bad("Page must be between 1 and 10000.")
+			return info, "", bad("Page must be between 1 and 10000.")
 		}
 	}
 	if values.Has("limit") {
 		info.Limit, e = strconv.Atoi(values.Get("limit"))
 		if e != nil || info.Limit < 1 || info.Limit > 200 {
-			return nil, bad("Limit must be between 1 and 200.")
+			return info, "", bad("Limit must be between 1 and 200.")
 		}
 	}
 	search := values.Get("q")
 	if len(search) > 120 {
-		return nil, bad("Search must be at most 120 bytes.")
+		return info, "", bad("Search must be at most 120 bytes.")
+	}
+	return info, search, nil
+}
+func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]Row, error) {
+	values := r.URL.Query()
+	info, search, e := collectionPage(values)
+	if e != nil {
+		return nil, e
 	}
 	// Only static, output-column names enter SQL. All user search text is bound.
 	key := path.Base(r.URL.Path)
@@ -71,6 +79,8 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 		columns = "id,display_name,slug,state"
 	case "users":
 		columns = "id,display_name,email,oidc_issuer,oidc_subject,state"
+	case "agent-access":
+		columns, order = "id,client_name,client_id,scope_kind,state", "created_at DESC,id"
 	}
 	query = "SELECT * FROM (" + query + ") AS collection"
 	if search != "" {
@@ -96,4 +106,27 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 func sendPage(w http.ResponseWriter, r *http.Request, v []Row) {
 	info, _ := r.Context().Value(pageContextKey{}).(*pageInfo)
 	send(w, 200, Row{"items": v, "pagination": info})
+}
+
+// Only pass already-authorized metadata here. Filtering must precede paging;
+// serialize the resulting page rather than an oversized complete inventory.
+func pageItems(items []Row, values url.Values) ([]Row, pageInfo, error) {
+	info, search, err := collectionPage(values)
+	if err != nil {
+		return nil, info, err
+	}
+	filtered := []Row{}
+	for _, v := range items {
+		if search != "" {
+			text := strings.ToLower(str(v["id"]) + " " + str(v["label"]) + " " + str(v["display_name"]) + " " + str(v["key"]) + " " + str(v["entity_key"]) + " " + str(v["code"]) + " " + str(v["description"]))
+			if !strings.Contains(text, strings.ToLower(search)) {
+				continue
+			}
+		}
+		filtered = append(filtered, v)
+	}
+	start := min((info.Page-1)*info.Limit, len(filtered))
+	end := min(start+info.Limit, len(filtered))
+	info.HasMore = end < len(filtered)
+	return filtered[start:end], info, nil
 }

@@ -1,6 +1,8 @@
 # Lastapp Platform Concept
 
-**Draft for Anton’s review — updated 12 November 2026**
+**Product direction and decision history — current status updated 14 November 2026.**
+
+For implemented behavior, start with [DEVELOPMENT.md](DEVELOPMENT.md), [FOUNDATION.md](FOUNDATION.md), [ENTITY_RUNTIME.md](ENTITY_RUNTIME.md) and [MCP.md](MCP.md). Provisioning, identity/scoped roles, the entity/rules/ACL runtime, App sessions/SDK and delegated management MCP are implemented. Source/build/static publishing, shared micro-app components, browser Node/WASM runners, external connectors and App container scheduling remain future work. Requirements and architecture diagrams below include that broader direction; they are not claims that those features run today or instructions to implement them without an agreed scope.
 
 The detailed [business entity, ACL and rules implementation plan](ENTITY_DESIGN_IMPLEMENTATION_PLAN.md) is implemented for the initial entity stage; see [the runtime guide](ENTITY_RUNTIME.md). It specifies entity-only authoring with generated storage and a single authoritative document, refining the earlier working entity-language proposal below.
 
@@ -21,7 +23,7 @@ The central design principle is **a stable backend contract with freely programm
 - Identity and authorization are shared platform capabilities. Global users, Tenant memberships, teams, fixed Tenant/team role definitions, Space/App custom roles and scoped assignments live in shared system tables; each App runtime uses the same backend authorization implementation. Tenant creation adds rows, not another identity/permission schema.
 - The framework will be open source.
 - Apps can address arbitrary business needs. CRM examples illustrate the model; they do not define its limits.
-- Client code is real executable code, with React and CSS as the initial UI direction. Tailwind is a possible styling tool.
+- Client code is real executable code, with React and CSS as the initial UI direction. React/Tailwind is the implemented console stack and starting design direction for generated clients; the micro-app runner remains deferred.
 - UI flows, navigation and client computations run in the browser. Backend rules and permissions remain authoritative for API operations.
 - Agents generate and modify code that is stored in a library, published and delivered to users.
 - Apps reuse components, styles and API tooling so a company can maintain a consistent experience across many independently generated micro-apps.
@@ -101,7 +103,7 @@ The host provides the same context and API contract to either execution mode. Th
 
 A Space's backend definition declares entities, field types, validation, relationships, identifiers, business rules and access policies over its database binding. Apps reuse these definitions by default; advanced App-owned entities are still registered and governed through the Space. Reusable entity templates help tenants begin with common objects while allowing their own extensions. Rules that must hold for data shared across Apps require enforcement across every writing path.
 
-**Working proposal:** use JSON Schema for data shape and validation, with a small, explicitly defined set of platform metadata for relationships, policy references and query capabilities. JSON Schema is a useful foundation for describing objects; it is not by itself the specification for storage mappings, permissions or business operations. [JSON Schema object reference](https://json-schema.org/understanding-json-schema/reference/object)
+**Settled for the implemented entity stage:** use one typed entity document defined by the Go model, including fields, rules and ACLs. SQL/storage plans, permission projections, JSON Schema and TypeScript contracts are generated from it. JSON Schema is an output contract, not an independent source for storage mappings, policies or business operations. See [ENTITY_RUNTIME.md](ENTITY_RUNTIME.md) and `internal/entity`.
 
 Database independence applies to the public entity contract. Adapters implement that contract using the selected SQL or document database. Types, missing values versus nulls, dates, decimals and relationship behavior need explicit semantics so an adapter change does not quietly change application behavior.
 
@@ -109,9 +111,9 @@ Entity evolution also needs a migration contract. Existing data and published cl
 
 ### Operations and queries
 
-The API supports single-object and bulk create, read, update and delete operations. Reads need filtering, sorting, pagination and field selection. The precise supported relationships, aggregates and search operations remain to be specified.
+The implemented API supports single-object and bounded atomic bulk mutations, plus authorized field selection, structured filtering, sorting, cursor pagination and count. Same-Space references are supported. Arbitrary joins, aggregates, full-text/vector search and cross-Space references remain deferred; the exact type/operator/limit catalog is published by the entity capability API.
 
-**Working proposal:** represent requests as a small structured query format. Validate fields and operators, apply permissions, then compile the validated request into parameterized SQL or MongoDB operations. Backend business rules can contribute constraints to that compilation.
+The implemented compiler validates a small structured query AST, applies authorization and compiles parameterized MariaDB SQL. Rules share the typed expression semantics used by the Go evaluator. Another adapter is a possible later extension, not a current MongoDB implementation or a reason to add a universal storage abstraction now.
 
 This compiler handles a defined language. Natural-language requests or agent-generated code must first produce that language and pass validation. An LLM is not needed in the normal execution path of an already defined query.
 
@@ -129,7 +131,7 @@ Search belongs behind the App API so clients can remain independent of the stora
 
 ### Permissions and backend rules
 
-ACL-based access extends the deployed provisioning foundation through the proposed [Space and authorization design](SPACE_AUTHORIZATION_PLAN.md). Tenant/team roles are platform-defined; Space/App business roles can be authored within their scope. Space policies reference ownership, team roles and explicit role assignments. Entity/record/field checks and optional App ceilings compile into the data operation; default deny and additive grants apply beneath mandatory guards. Large record-ACL datasets may live beside business records while identities and policy definitions remain centrally managed.
+ACL-based access extends the implemented local foundation; see the current [entity runtime guide](ENTITY_RUNTIME.md) and the historical [Space and authorization design](SPACE_AUTHORIZATION_PLAN.md). Tenant/team roles are platform-defined; Space/App business roles can be authored within their scope. Space policies reference ownership, team roles and explicit role assignments. Entity/record/field checks and optional App ceilings compile into the data operation; default deny and additive grants apply beneath mandatory guards. Record shares live beside business records while identities and policy definitions remain centrally managed.
 
 The backend enforces every operation, including bulk requests. A hidden button or a client-side flow cannot authorize a mutation. Where Apps receive restricted capabilities, effective access is the intersection of the user’s permissions and the installed App’s grants.
 
@@ -173,7 +175,7 @@ Shared packages provide consistency and reuse. Arbitrary generated CSS can overr
 
 ## Arbitrary packages and execution modes
 
-The platform accepts arbitrary npm dependency declarations and evaluates them against the requested execution environment. Compatibility is a property of the complete dependency tree and runtime behavior, not just the package name.
+This is a planned execution design, not a shipped runner. The intended authoring flow accepts arbitrary npm dependency declarations and evaluates them against the requested execution environment. Compatibility is a property of the complete dependency tree and runtime behavior, not just the package name. External runtime requirements and the linked vendor documentation must be revalidated when this feature is designed/implemented.
 
 | Mode | Published artifact | Execution |
 |---|---|---|
@@ -251,9 +253,9 @@ The proxy can preserve provider-native APIs to support broad integration functio
 
 Nango’s documented model provides connections and managed credentials that the application associates with its own users, organizations or projects. It does not replace the platform’s login-session and membership model. Nango plus direct OIDC would avoid adding a separate managed login vendor. Auth0 plus Token Vault is another option, with different connection and proxy responsibilities. [Nango auth guide](https://nango.dev/docs/guides/auth/auth-guide), [Auth0 Token Vault](https://auth0.com/docs/secure/call-apis-on-users-behalf/token-vault)
 
-## Decisions for review
+## Decision status and remaining design work
 
-The hierarchy, client/backend separation, arbitrary generated code and shared design are the foundation. The following choices need review before an implementation specification is frozen.
+The hierarchy and client/backend separation are settled. The table distinguishes the delivered backend from future client-hosting and integration decisions; current API guides take precedence over earlier proposals.
 
 | Decision | Current proposal or unresolved point |
 |---|---|
@@ -261,21 +263,22 @@ The hierarchy, client/backend separation, arbitrary generated code and shared de
 | Database placement | Settled: both Tenant-shared and Space-dedicated databases, controlled by configuration and subscription policy |
 | Provisioning methods | Settled: managed creation and registration of existing databases |
 | Administration | Settled: superadmins create Tenants; tenant administrators manage their Spaces and Apps |
-| First database adapter | MariaDB is the current integration target; pin the driver after its review |
-| Entity specification | JSON Schema plus small platform metadata; define types, relationships and schema evolution |
-| Query contract | Define portable filters, sorting, pagination, bulk semantics, search and aggregates |
-| Permission model | Shared identities, teams, roles and scoped grants; define entity/record/field semantics and App capability limits with the business runtime |
+| First database adapter | Implemented: MariaDB through the reviewed, pinned `aantich/go-mariadb` snapshot |
+| Entity specification | Implemented: typed Go entity document; generated JSON Schema, TypeScript, storage and permission projections |
+| Query contract | Implemented bounded AST, field selection, sorting, cursor paging/count and bulk writes; joins, aggregates and full-text/vector search deferred |
+| Permission model | Implemented global identities/roles/scopes, entity/record/field ACLs, record shares and Space-bounded App access |
+| Agent management | Implemented existing-user OAuth delegation, contextual typed MCP tools and console approval/revocation; robot accounts and record tools deferred |
 | Shared design | Versioned components and themes; decide Tenant, Space and App overrides and update behavior |
 | Client execution | Browser and WebContainer modes; validate isolation, supported browsers and concurrent Node projects |
 | Publication policy | Define review expectations and capability grants for trusted and third-party code |
 | Authentication and integrations | Direct OIDC plus Nango is a working option; vendor selection remains open |
 | WASM modules | Preserve the extension path; choose a host interface and toolchain when specifying this capability |
-| Open source release | Settled: open-source framework; choose module path, license and release packaging |
+| Open source release | Public repository/module: `github.com/aantich/lastapp`; license and release/public package packaging still need an explicit decision |
 
-## Proposed starting shape
+## Current foundation and next product work
 
-Begin with the Go control plane and its system database, following the [provisioning plan](PROVISIONING_PLAN.md). It records Tenants, Spaces, database resources, Apps and micro-app installations.
+The Go control plane and system database already record Tenants, Spaces, databases, Apps and micro-app installations. Global authorization, entity publication, the secured data API, a small browser SDK and management MCP are implemented. See the [maintainer guide](DEVELOPMENT.md) and [verification](VERIFICATION.md).
 
-Then implement the common business-object runtime, one database adapter and integration gateway; a static browser App host with the two runner interfaces; shared UI and SDK packages; and a library/publisher for versioned artifacts. The backend runtime supports shared and dedicated App pools using the same engine.
+Next product directions are a versioned source/library/build/static publishing flow, shared micro-app components/design, an isolated browser host, optional Node/WASM execution, integration connections and App placement. Their boundaries still need design/approval; they do not require splitting the current service in advance. Shared/dedicated App runtime pools are a target, not implemented scheduling.
 
 Prove that different Apps in the same Space can reuse stored data with coordinated shared invariants, that shared design survives independently generated code, and that both execution modes use the same host and API contract. Resolve runtime isolation and compatibility before treating WebContainer support as complete. Additional services and abstractions should follow demonstrated needs.

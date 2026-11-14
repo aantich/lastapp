@@ -1,8 +1,8 @@
 # Lastapp Superadmin Provisioning Plan
 
-**Final proposal — updated 12 November 2026**
+**Historical first-phase specification — 12 November 2026.**
 
-The implemented [identity/roles/scopes foundation](FOUNDATION.md) supersedes this phase’s Tenant custom-role model with fixed Tenant/team roles and scoped Space/App business roles. The [broader Space authorization plan](SPACE_AUTHORIZATION_PLAN.md) records future entity/ACL direction. This document preserves the earlier provisioning specification; use FOUNDATION.md and README.md for current behavior.
+The implemented [identity/roles/scopes foundation](FOUNDATION.md) supersedes this phase’s Tenant custom-role model with fixed Tenant/team roles and scoped Space/App business roles. The [entity runtime](ENTITY_RUNTIME.md) and [management MCP](MCP.md) are also implemented. This document preserves the earlier provisioning specification; use [DEVELOPMENT.md](DEVELOPMENT.md), FOUNDATION.md and README.md for current behavior. The linked SQL document now derives from all current migrations, not only this phase's original tables.
 
 Build one Go application containing the management API, a provisioning worker and a small React administration console. One central MariaDB database records Tenants, Spaces, their databases, Apps and micro-app installations, together with shared identities and authorization metadata. Tenant business data stays in the databases bound to Spaces.
 

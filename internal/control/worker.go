@@ -52,6 +52,15 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			if _, e = cleanupSessions(ctx, conn); e != nil {
 				return e
 			}
+			if _, e = conn.ExecContext(ctx, "DELETE FROM agent_token_sessions WHERE grant_id IN (SELECT id FROM agent_grants WHERE state='revoked' OR expires_at<=UTC_TIMESTAMP(6)) LIMIT 1000"); e != nil {
+				return e
+			}
+			if _, e = conn.ExecContext(ctx, "DELETE FROM agent_oauth_requests WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
+				return e
+			}
+			if e = cleanupAgentClients(ctx, conn); e != nil {
+				return e
+			}
 			cleanedAt = time.Now()
 		}
 		if _, err := s.publicationJob(ctx, conn, &lastPublicationTenant); err != nil {
@@ -71,6 +80,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			continue
 		}
 		record, tenant := str(job["id"]), str(job["tenant_id"])
+		jobCtx := agentAuditContext(ctx, str(job["agent_grant_id"]), str(job["agent_client_id"]))
 		lastTenant = tenant
 		tx, e := conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if e != nil {
@@ -78,6 +88,28 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		}
 		var active string
 		e = tx.QueryRowContext(ctx, "SELECT state FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&active)
+		if e == nil && str(job["agent_grant_id"]) != "" {
+			if denied := s.agentJobAllowed(ctx, tx, str(job["agent_grant_id"]), str(job["agent_user_id"]), Resource{Tenant: tenant}, "databases.provision", str(job["target_id"])); denied != nil {
+				var ae *APIError
+				if !errors.As(denied, &ae) {
+					tx.Rollback()
+					return denied
+				}
+				_, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='failed',last_error_code='agent_access_revoked',last_error_message='Agent authority expired or was revoked before this job started.',revision=revision+1 WHERE id=? AND state='pending'", record)
+				if e != nil {
+					tx.Rollback()
+					return e
+				}
+				if e = audit(jobCtx, tx, tenant, str(job["agent_user_id"]), "database.failed", "database", record, newID(), Row{"error_code": "agent_access_revoked"}); e != nil {
+					tx.Rollback()
+					return e
+				}
+				if e = tx.Commit(); e != nil {
+					return e
+				}
+				continue
+			}
+		}
 		if e == nil && active == "active" {
 			_, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='provisioning',attempts=attempts+1,revision=revision+1 WHERE id=? AND state='pending'", record)
 		}
@@ -105,7 +137,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state=?,last_error_code=?,last_error_message=?,last_verified_at=IF(?='ready',UTC_TIMESTAMP(6),last_verified_at),revision=revision+1 WHERE id=? AND state='provisioning'", state, nullable(code), nullable(message), state, record); e == nil {
-			e = audit(ctx, tx, tenant, "", "database."+state, "database", record, newID(), Row{"error_code": code})
+			e = audit(jobCtx, tx, tenant, str(job["agent_user_id"]), "database."+state, "database", record, newID(), Row{"error_code": code})
 		}
 		if e != nil {
 			tx.Rollback()
@@ -323,7 +355,7 @@ func releasePinnedLock(conn *sql.Conn, name string) {
 // Round-robin Tenants, oldest job within each Tenant. A slow Tenant can consume
 // at most one 45-second attempt before another waiting Tenant gets a turn.
 func nextJob(ctx context.Context, q Queryer, lastTenant string) (Row, error) {
-	return row(ctx, q, "SELECT d.id,d.tenant_id FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
+	return row(ctx, q, "SELECT d.id,d.tenant_id,d.target_id,d.agent_grant_id,d.agent_user_id,ag.client_id AS agent_client_id FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id LEFT JOIN agent_grants ag ON ag.id=d.agent_grant_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
 }
 
 func cleanupSessions(ctx context.Context, q Queryer) (sql.Result, error) {

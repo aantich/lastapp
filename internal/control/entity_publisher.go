@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"regexp"
@@ -46,18 +47,55 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	if len(cursor) > 0 {
 		last = *cursor[0]
 	}
-	v, e := row(ctx, q, "SELECT v.*,e.active_version_id,e.pending_version_id,sp.database_resource_id FROM entity_versions v JOIN entity_definitions e ON e.id=v.entity_id JOIN spaces sp ON sp.id=v.space_id AND sp.state='active' JOIN tenants t ON t.id=v.tenant_id AND t.state='active' WHERE v.state IN ('queued','publishing') ORDER BY (v.tenant_id>?) DESC,v.tenant_id,v.created_at,v.id LIMIT 1", last)
+	// A newly created Space is authorable before managed provisioning finishes.
+	// Do not fail its queued definition merely because storage is still starting;
+	// skip it so this same worker can provision storage and return to publication.
+	v, e := row(ctx, q, "SELECT v.*,ag.client_id AS agent_client_id,e.active_version_id,e.pending_version_id,sp.database_resource_id FROM entity_versions v JOIN entity_definitions e ON e.id=v.entity_id JOIN spaces sp ON sp.id=v.space_id AND sp.state='active' JOIN database_resources d ON d.id=sp.database_resource_id JOIN tenants t ON t.id=v.tenant_id AND t.state='active' LEFT JOIN agent_grants ag ON ag.id=v.agent_grant_id WHERE v.state IN ('queued','publishing') AND (v.state='publishing' OR d.state NOT IN ('pending','provisioning')) ORDER BY (v.tenant_id>?) DESC,v.tenant_id,v.created_at,v.id LIMIT 1", last)
 	if e != nil {
 		if ae, ok := e.(*APIError); ok && ae.Status == 404 {
 			return false, nil
 		}
 		return false, e
 	}
+	ctx = agentAuditContext(ctx, str(v["agent_grant_id"]), str(v["agent_client_id"]))
 	if len(cursor) > 0 {
 		*cursor[0] = str(v["tenant_id"])
 	}
 	attempt := newID()
-	if _, e = q.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v["id"]); e != nil {
+	if v["state"] == "queued" && str(v["agent_grant_id"]) != "" {
+		tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if err != nil {
+			return true, err
+		}
+		defer tx.Rollback()
+		var locked string
+		if err = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", v["tenant_id"]).Scan(&locked); err != nil {
+			return true, err
+		}
+		denied := s.agentJobAllowed(ctx, tx, str(v["agent_grant_id"]), str(v["created_by"]), Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, "entities.publish")
+		if denied != nil {
+			var ae *APIError
+			if !errors.As(denied, &ae) {
+				return true, denied
+			}
+			if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message='Agent authority expired or was revoked before this job started.',finished_at=UTC_TIMESTAMP(6) WHERE id=? AND state='queued'", v["id"]); err != nil {
+				return true, err
+			}
+			if _, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", v["entity_id"], v["id"]); err != nil {
+				return true, err
+			}
+			if err = audit(ctx, tx, str(v["tenant_id"]), str(v["created_by"]), "entity.publication_failed", "entity", str(v["entity_id"]), newID(), Row{"version": v["id"], "error_code": "agent_access_revoked"}); err != nil {
+				return true, err
+			}
+			return true, tx.Commit()
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v["id"]); err != nil {
+			return true, err
+		}
+		if err = tx.Commit(); err != nil {
+			return true, err
+		}
+	} else if _, e = q.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v["id"]); e != nil {
 		return true, e
 	}
 	v["attempt_id"] = attempt
@@ -91,6 +129,9 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=? AND (active_version_id IS NULL OR active_version_id<>?)", v["entity_id"], v["id"], v["id"])
 	if err != nil {
+		return true, err
+	}
+	if err = audit(ctx, tx, str(v["tenant_id"]), str(v["created_by"]), "entity.publication_failed", "entity", str(v["entity_id"]), newID(), Row{"version": v["id"]}); err != nil {
 		return true, err
 	}
 	return true, tx.Commit()

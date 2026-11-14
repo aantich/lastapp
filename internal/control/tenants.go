@@ -160,6 +160,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 			}
 		}
 		if in.State == "disabled" {
+			if _, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE user_id=? AND state='active'", record); e != nil {
+				return e
+			}
 			if _, e = tx.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", record); e != nil {
 				return e
 			}

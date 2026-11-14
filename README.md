@@ -1,10 +1,14 @@
-# Lastapp — provisioning and authorization foundation
+# Lastapp — shared business backend and agent tooling
 
-A Go API and React/Tailwind console with separate Platform and Tenant workspaces, email/password accounts and optional OIDC, real MariaDB provisioning, shared identities/teams and scoped roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. The entity designer, generated storage, business-object ACLs/rules, App sessions and TypeScript data SDK are implemented.
+A Go API and React/Tailwind console with separate Platform and Tenant workspaces, email/password accounts and optional OIDC, real MariaDB provisioning, shared identities/teams and scoped roles. See [FOUNDATION.md](FOUNDATION.md) for the implemented role model and APIs. The entity designer, generated storage, business-object ACLs/rules, App sessions, TypeScript data SDK and delegated management MCP are implemented.
 
 **Foundational principle: DRY.** Rules and policies have one authoritative source, shared by all consumers. Keep implementations simple and reuse existing contracts and components. See [AGENTS.md](AGENTS.md) for the persistent engineering rules.
 
 **Business entities:** [Usage and implementation guide](ENTITY_RUNTIME.md) · [Design and delivery plan](ENTITY_DESIGN_IMPLEMENTATION_PLAN.md). In a Tenant workspace, open **Space → Entities**. App origins and ceilings are approved under **App → Settings → App data access**.
+
+**Agent MCP:** connect your agent to `http://127.0.0.1:8787/mcp` (or your deployment's HTTPS URL). The client discovers OAuth and opens Lastapp for sign-in and explicit approval; there are no API keys or manual client registrations to create. The URL is also under **My account → Agent access**. Agents manage configuration using the same guarded backend operations as the console. See [MCP.md](MCP.md) for connection, tools, context, delegation, retries and security boundaries.
+
+**For new contributors and agents:** start with [AGENTS.md](AGENTS.md) and [DEVELOPMENT.md](DEVELOPMENT.md). [CLAUDE.md](CLAUDE.md) imports the same instructions. These current guides distinguish implemented behavior from historical plans and deferred product ideas.
 
 **Open locally:** http://127.0.0.1:8787/console/
 
@@ -45,7 +49,7 @@ Do not delete `.local/config.json` while retaining its database: its encryption 
 1. As **Platform operator**, open **Tenants → Create Tenant**. Choose a plan, enter the administrator's name/email/initial password (or generate one), or select an existing account. An existing account's password is never replaced.
 2. Sign out, then sign in with that email/password. Replace the initial password to unlock the workspace. Alternatively, use the development **Tenant administrator** SSO account to inspect the Northstar demo.
 3. Tenant users land on **Apps**, the complete searchable, paginated directory. The sidebar is **Apps, Spaces, People, Activity, Settings**, filtered by authority. App-only managers need no parent-Space visibility. A single searchable Tenant switcher appears for multiple memberships.
-4. **Spaces → Create Space:** enter a name. The current user becomes manager; managed creation uses the effective Tenant/plan database layout and an eligible server, reusing the Tenant's shared database where applicable. **Advanced** exposes slug, manager, layout/server and existing-resource choices. A Space opens on **Apps**, with **Access** and **Settings**; database details are in Settings.
+4. **Spaces → Create Space:** enter a name. The current user becomes manager; managed creation uses the effective Tenant/plan database layout and an eligible server, reusing the Tenant's shared database where applicable. **Advanced** exposes slug, manager, layout/server and existing-resource choices. A Space opens on **Apps**, with **Entities**, **Access** and **Settings**; database details are in Settings.
 5. An App opens on **Micro-apps**, with **Access** and **Settings**. Create Apps and micro-app registrations by name; technical metadata and compute preferences are under Advanced. The compute preference remains editable under App **Settings → Edit App → Advanced**. These preferences and registrations do not execute Apps.
 6. **People → Members:** Tenant administrator checkboxes and Tenant access controls are directly on member rows. Add existing local accounts by email. **Teams** opens a team's members with Administrator/Reviewer checkboxes on the same rows. Space/App **Access → Manage roles** is the secondary custom-role editor. The last active Tenant administrator remains protected. Existing roles can be revoked while the account or access is disabled; new assignments require active recipients.
 7. Tenant **Settings** contains general information, plan limits and databases. Existing database registration preserves business tables; connection checks/retries, credential replacement and retirement use the provisioning API. The **account menu** contains **My account**, **Appearance** and **Sign out**.
@@ -63,7 +67,7 @@ The `Starter` plan allows one shared managed database, three Spaces and ten Apps
 - `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
-- `design/control_plane.sql`: canonical registry schema, kept equal to the executable migrations. It includes local accounts, entity drafts/publications and App-bound sessions.
+- `design/control_plane.sql`: canonical registry schema, kept equal to the executable migrations. It includes local accounts, entities/publications, App-bound sessions and agent OAuth/delegation/receipt tables. Regenerate from migrations with `python3 design/validate_schema.py --write`; check parity with `--check`.
 - `third_party/go-mariadb`: source snapshot of **[aantich/go-mariadb](https://github.com/aantich/go-mariadb)** from sibling `../go-mariadb`, including its compression implementation and license notices. `SNAPSHOT.json` records hashes. All connectivity uses its `mariadb` package and `database/sql` connector. No MySQL fallback driver is installed. The snapshot avoids silently changing Lastapp when another chat edits the driver; intentionally refresh/pin it when adopting a reviewed driver change.
 
 The hierarchy is **Tenant → Space → App → micro-app installation**. A Space has one fixed database binding. Spaces can share only within the same Tenant, and dedicated bindings are exclusive. All identities, memberships, groups, permission definitions, roles and assignments live in the central registry. Record-specific shares and business audit stay beside the records and reference global identities and permissions.
@@ -98,9 +102,11 @@ The deployment encryption key is a base64 32-byte key. This first version uses o
 
 Implemented: centralized identity/inventory, scoped role management, fixed Tenant/team catalogs, custom Space/App business roles and assignments, plan quotas, lifecycle management, real database provisioning/registration, retries/recovery, auditing and the matching admin UI.
 
+Implemented agent stage: OAuth discovery/automatic connection, existing-user scoped delegation, typed management tools, live context/contracts, receipt-safe mutations and console consent/access management. No business-record tools or robot accounts. See [the MCP guide](MCP.md).
+
 Implemented entity stage: Space-owned definitions and publishing, generated storage, entity/record/field ACLs, defaults/calculations/validation/allowed changes, bulk CRUD and filtered/paginated reads, optional record sharing, App-bound authentication and a small TypeScript SDK. See [the entity guide](ENTITY_RUNTIME.md).
 
-Later: micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Collection APIs always return bounded pages (`?page=1&limit=100&q=search`, maximum limit 200) with `pagination: {page, limit, has_more}`. Scope predicates apply before search and pagination. The console pages and searches collections and selection lists on the server; audit history and group members are paged too.
+Later: micro-app build/execution, App container scheduling, external connectors, billing and production operations. `compute_mode` records a preference; it does not start containers. Artifact references are metadata. Inventory collections use bounded pages (`?page=1&limit=100&q=search`, maximum limit 200) with `pagination: {page, limit, has_more}`. Scope predicates apply before search and pagination. The console pages/searches those lists and selection controls, including audit history and group members. The entity designer uses the complete Space entity inventory within its entity-count limit; MCP entity inventories expose explicit pagination/completeness. Business-record queries use the separate SDK cursor contract, not management page numbers.
 
 See [FOUNDATION.md](FOUNDATION.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md). The provisioning plan describes the earlier implementation; its Tenant custom-role model is superseded by the foundation.
 

@@ -1,0 +1,190 @@
+# Lastapp maintainer guide
+
+Current implementation, 14 November 2026. Start with [AGENTS.md](AGENTS.md).
+This guide maps the running framework to its authoritative contracts. The
+[concept](CONCEPT.md) and historical plans explain intent, not additional shipped
+capabilities.
+
+## Architecture and decisions
+
+```text
+Go service
+├── Management API + embedded React console + management MCP
+├── Shared identity, authorization and entity operations
+├── Durable database provisioning / entity publication worker
+└── App-bound data API
+    ├── Central MariaDB registry: identities, inventory, roles, definitions,
+    │   publication jobs, sessions and agent delegations/receipts
+    └── Space-bound MariaDB databases: generated entity tables, record shares,
+        local write gates and business-data audit
+
+Tenant
+├── Members and teams
+└── Space: one database binding + shared entities / rules / ACLs
+    └── App: approved client origin + inherited/narrowed access
+        └── Micro-app registrations
+```
+
+One service currently serves multiple Tenants, Spaces and Apps. An App is the
+intended logical deployment/scaling unit, but shared/dedicated container placement
+and replicas are not scheduled by this release. A compute preference does not
+create a container. Scaling is bounded by databases and runtime capacity; there
+is no claim of infinite throughput.
+
+Spaces can reuse a shared database within their Tenant or have an exclusive
+dedicated binding, subject to plan policy. Managed provisioning and existing
+database registration both work. Space database bindings and resource ancestry
+are immutable through ordinary updates. Registering an existing database does
+not map its existing tables into entities: authors still describe entities and
+Lastapp owns the generated storage namespace.
+
+Global users are not copied per Tenant. Membership connects a user to a Tenant;
+teams, fixed control roles, custom scoped business roles and assignments remain
+in the registry. One role assignment selects one scope, not arbitrary scope
+combinations. A team-scoped Reviewer assignment and a team receiving a Space
+role are distinct relationships. See [FOUNDATION.md](FOUNDATION.md).
+
+Space definitions are the reusable backend contract. Apps may inherit or narrow
+it through approved ceilings and restrictions. Custom App roles add narrowing
+requirements; they cannot create authority beyond the Space. Administrative
+authority is separate from business-record access, although entity publication
+is powerful enough to deliberately change ACLs. Record shares live with the data
+and reference global identities/permissions. See [ENTITY_RUNTIME.md](ENTITY_RUNTIME.md).
+
+Clients contain presentation, actions, navigation and ordinary business workflows.
+Server rules protect shared invariants on every write, including bulk operations.
+There is no general backend workflow engine or arbitrary backend code runtime.
+Client checks improve UX; they never replace server authorization or validation.
+
+## Implemented versus planned
+
+| Implemented | Still planned / unavailable |
+| --- | --- |
+| Platform and Tenant consoles; local/OIDC accounts; provisioning and inventory | Generated micro-app source library, build pipeline, static publishing and runner |
+| Shared roles, memberships and entity/record/field ACLs | App-private entity authoring, cross-Space relationships, arbitrary joins |
+| Entity designer, draft/test/publish, safe storage evolution | Destructive schema conversions, general backfills, nested JSON queries, full-text/vector search |
+| App origin approval, PKCE browser sessions, data SDK and isolated static example | Shared micro-app UI/design package; finer isolation between micro-apps |
+| Existing-user delegated OAuth management MCP | Robot accounts and business-record tools in MCP |
+| Managed/existing MariaDB storage through the pinned driver | Additional database engines, container scheduling, connectors, billing and production operations |
+
+Arbitrary generated React/CSS, shared component versions, browser Node projects
+and possible WASM execution remain product directions. No runner currently makes
+every npm/native package compatible with a browser. Trusted and third-party Apps
+must have an explicit isolation model before hosting is added. Existing App data
+access requires separate hosts from the console and other Apps; a different port
+alone does not isolate cookies.
+
+External integrations will need authorized server-side connection handling;
+connector implementation and identity/integration vendor selection remain open.
+Do not add external tokens to generated clients or assume a Nango/Auth0 integration
+exists. The current login and management OAuth server are implemented in Lastapp.
+
+## Contract and implementation map
+
+| Change area | Authoritative source / reuse point |
+| --- | --- |
+| Management routes and console-session wrapper | `internal/control/http.go`; domain handlers in `internal/control` |
+| Fixed role IDs/actions/scope categories | `internal/authz/catalog.go`; `auth.go`, `roles.go` resolve current authority |
+| Password policy and public settings | `internal/control/passwords.go` → `GET /v1/config`; shared frontend controls |
+| Entity document, types, expressions, ACL semantics and limits | `internal/entity`; `GET /v1/entity-capabilities` |
+| Generated JSON Schema / TypeScript | `internal/entity/contracts.go`; entity/App contract endpoints |
+| SQL query/storage compilation and pools | `internal/data`; runtime orchestration in `internal/control/entity_data.go` |
+| Publication and database provisioning | `entities.go`, `entity_publisher.go`, `databases.go`, `worker.go` |
+| App origin approval, launch/session authentication | `app_sessions.go`, `entity_data.go`; `packages/client/src/index.ts` |
+| MCP schemas, tool catalog and typed adapters | `agent_tools.go`; schemas derive from shared Go input types |
+| Agent permissions, limits and live checks | `agents.go` → `GET /v1/agent-access/config` |
+| OAuth consent, code/refresh flow and client registration | `agent_oauth.go`, `agent_clients.go` |
+| Agent context and canonical runtime documentation | `agent_context.go` → `lastapp_context`, `lastapp_describe`, `lastapp://docs/*` |
+| Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
+| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes |
+
+Do not add a second policy language, ORM, query compiler, permission cache or MCP
+service to make a local feature easier. Extend the existing typed contract and
+shared operations. Keep the Go evaluator and parameterized SQL semantics aligned,
+including exact decimals, nulls, permission paths and old/new update checks.
+
+## API boundaries
+
+| Surface | Authentication and purpose | Contract entry points |
+| --- | --- | --- |
+| `/auth/*`, `/v1/*`, `/admin/v1/*` | Console session; exact Origin and CSRF for writes; administrative/authoring operations | `http.go`, [FOUNDATION.md](FOUNDATION.md), [entity guide](ENTITY_RUNTIME.md) |
+| `/data/v1/*` | App-bound bearer, approved origin and current user authority; business-record APIs | SDK in `packages/client/src/index.ts`; dispatch in `entity_data.go` |
+| `/mcp` | OAuth bearer bound to this resource and explicit user delegation; management only | [MCP.md](MCP.md), generated tool schemas/catalog and runtime guides |
+| `/.well-known/oauth-*`, `/oauth/*` | Discovery, public-client setup and interactive delegated authorization | `agent_oauth.go`, `agent_clients.go`; no authority from registration alone |
+
+Console, App and MCP credentials are separate; none is a general-purpose token
+for the other surfaces. MCP invokes the same management operations in process,
+not an unauthenticated HTTP endpoint or a synthetic superadmin session.
+
+Important management groups are Tenant/Space/App/micro-app inventory, scoped
+`roles`, `role-assignments`, `recipients`, memberships/teams, database resources,
+Space `entities`, entity validation/test/publications, and App `data-access` and
+`entity-contracts`. See the actual route registrations rather than guessing paths
+from names. Role/permission projections are not an independent ACL editing API.
+
+Management inventory collections use page/limit/search metadata. The console
+entity designer loads its complete Space inventory within the entity-count cap;
+MCP entity inventories are explicitly paged. Entity data reads use the SDK's
+structured filter/sort/cursor contract. These are different interfaces.
+Consume `pagination.has_more` or `next_cursor` as appropriate. Do not assume the
+first page is a complete inventory. Use current revisions on guarded writes;
+stale revisions must fail rather than silently overwrite another author's work.
+
+## Local workflow and verification
+
+Run from the repository root. [README.md](README.md) covers prerequisites and
+development identities. `make dev` builds the embedded console/binaries and
+starts the owned local MariaDB, API and development issuer while preserving data.
+The console is at `http://127.0.0.1:8787/console/`; MCP is `/mcp` on the same origin.
+If Go is run directly in a restricted environment, set
+`GOCACHE="$PWD/.local/go-cache"`. Make targets already do this. Use the project's
+working Node selection (`NODE_BIN` if needed), not a global toolchain replacement.
+
+```sh
+make test                       # unit/build checks; DB tests may skip
+GOCACHE="$PWD/.local/go-cache" go vet ./...
+make mcp-test                   # MCP/OAuth/security + live worker regressions
+make integration                # full backend race/security + browser suite
+make client                     # SDK and isolated example's generated client.js
+python3 design/validate_schema.py --check  # offline DDL parity
+python3 scripts/verify_driver.py           # pinned driver integrity
+git diff --check
+```
+
+`make mcp-test` and `make integration` require the existing local development
+config/server. Database fixtures use disposable registries; worker tests clean
+their owned generated resources. Do not point them at production. Plain Go tests
+without explicit fixture config are not integration evidence. The browser suite
+uses installed Chrome locally and a Vite server on 5173; CI uses Chromium.
+Rebuild with `make dev` after Go or embedded-console changes before browser testing.
+
+For registry changes, add a forward Goose migration, update the compatibility
+check and runtime grants as needed, then regenerate the SQL document with
+`python3 design/validate_schema.py --write`. The default validator invocation also
+runs the foundation SQL/API test on the existing local server. It does not test
+every later feature; use the relevant entity/MCP/security suites too. Never edit
+the generated SQL independently of migrations.
+
+For security changes, add a regression that fails for the actual boundary being
+fixed. Reuse existing test fixtures/helpers and runtime policy catalogs. For UI
+changes, verify real flows, desktop/mobile layout, errors and stale editor state.
+Capture meaningful results in [VERIFICATION.md](VERIFICATION.md), including skips,
+failures and reruns; do not substitute a plan or old receipt for executed checks.
+
+Keep `.local/`, keys, passwords, build output, traces and screenshots out of git.
+No routine change requires resetting local data, refreshing the driver snapshot,
+testing other database versions or running driver benchmarks.
+
+## Documentation maintenance
+
+The current reading path is README → this guide → FOUNDATION / ENTITY_RUNTIME /
+MCP as needed. AGENTS.md is the policy entry point; CLAUDE.md imports it. Update
+the relevant current guide and runtime agent documentation when behavior changes.
+Schemas, limits, catalogs and generated contracts remain code-derived; prose
+explains their purpose instead of maintaining another executable definition.
+
+CONCEPT and the old provisioning/authorization/implementation plans preserve
+decisions and proposals. Their status banners link to current behavior. Historical
+review/verification records retain their original scope and dates. Do not revive
+superseded custom Tenant roles, table-mapping UI, a mandatory workflow DSL or
+unimplemented hosting/connector capabilities from those documents.

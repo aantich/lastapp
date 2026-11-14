@@ -21,6 +21,7 @@ type Principal struct {
 	Platform               bool
 	AuthMethod             string
 	PasswordChangeRequired bool
+	Agent                  *agentGrant
 }
 type Resource struct{ Tenant, Team, Space, App string }
 type oidcAuth struct {
@@ -227,6 +228,11 @@ func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant stri
 	return nil
 }
 func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, action string) (scopeSet, error) {
+	if p.Agent != nil {
+		if e := s.checkAgent(ctx, q, p, Resource{Tenant: tenant}, false); e != nil {
+			return scopeSet{}, e
+		}
+	}
 	if !controlAction(action) {
 		return scopeSet{}, problem(403, "unknown_action", "Unsupported control-plane action.")
 	}
@@ -235,14 +241,14 @@ func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, act
 		return scopeSet{}, e
 	}
 	if global {
-		return scopeSet{All: strings.HasSuffix(action, ".read")}, nil
+		return s.agentScope(ctx, q, p, scopeSet{All: strings.HasSuffix(action, ".read")}), nil
 	}
 	if e = s.member(ctx, q, p, tenant, false); e != nil {
 		return scopeSet{}, e
 	}
 	p.Platform = false // global authority was rechecked above, inside the mutation transaction
 	all, e := s.effectiveScopes(ctx, q, p, tenant)
-	return all[action], e
+	return s.agentScope(ctx, q, p, all[action]), e
 }
 
 // effectiveAssignments is shared by management checks and the caller context.
@@ -345,6 +351,11 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 	}
 	if res.Space != "" {
 		if _, e := row(ctx, q, "SELECT id FROM spaces WHERE tenant_id=? AND id=?", res.Tenant, res.Space); e != nil {
+			return e
+		}
+	}
+	if p.Agent != nil {
+		if e := s.checkAgent(ctx, q, p, res, true); e != nil {
 			return e
 		}
 	}

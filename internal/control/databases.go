@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -210,6 +211,27 @@ func (s *Server) getDatabase(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	return e
 }
+
+// The Tenant mutation lock serializes allocation counts, including retries that
+// claim an existing resource. Retrying the same resource does not use a new slot.
+func (s *Server) agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Principal, resource, mode, target string) error {
+	if p.Agent == nil {
+		return nil
+	}
+	g := p.Agent
+	if !agentHas(g, "databases.provision") || mode != "managed" || !slices.Contains(g.Limits.TargetIDs, target) {
+		return problem(403, "needs_authorization", "Managed provisioning requires an approved target and databases.provision.")
+	}
+	var allocated int
+	if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_resources WHERE agent_grant_id=? AND id<>?", g.ID, resource).Scan(&allocated); e != nil {
+		return e
+	}
+	if allocated >= g.Limits.MaxDatabases {
+		return problem(403, "agent_limit", "This agent has reached its database allocation limit.")
+	}
+	return nil
+}
+
 func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, tenant string, in databaseInput, policy Row, request string) error {
 	if e := s.authorize(ctx, tx, p, "database.manage", Resource{Tenant: tenant}, true); e != nil {
 		return e
@@ -218,6 +240,9 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 		return e
 	}
 	if e := id(in.Target); e != nil {
+		return e
+	}
+	if e := s.agentDatabaseProvision(ctx, tx, p, in.ID, in.Mode, in.Target); e != nil {
 		return e
 	}
 	if e := layoutAllowed(policy, in.Layout); e != nil {
@@ -274,6 +299,11 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 	if e != nil {
 		return e
 	}
+	if p.Agent != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET agent_grant_id=?,agent_user_id=? WHERE id=?", p.Agent.ID, p.ID, in.ID); e != nil {
+			return e
+		}
+	}
 	return audit(ctx, tx, tenant, p.ID, "database.requested", "database", in.ID, request, Row{"management_mode": in.Mode, "layout": in.Layout})
 }
 func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -316,7 +346,7 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	tenant, record := r.PathValue("tenant"), r.PathValue("id")
 	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := row(r.Context(), tx, "SELECT revision,state,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
+		old, e := row(r.Context(), tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
 		if e != nil {
 			return e
 		}
@@ -342,6 +372,9 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			next = "retired"
 		}
 		if next == "pending" {
+			if e := s.agentDatabaseProvision(r.Context(), tx, p, record, str(old["management_mode"]), str(old["target_id"])); e != nil {
+				return e
+			}
 			if e := pendingDatabaseQuota(r.Context(), tx, tenant); e != nil {
 				return e
 			}
@@ -355,6 +388,17 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 				return e
 			}
 			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET runtime_credentials_enc=?,credential_generation=credential_generation+1 WHERE id=?", enc, record); e != nil {
+				return e
+			}
+		}
+		if next == "pending" {
+			var grant, user any
+			if p.Agent != nil {
+				grant, user = p.Agent.ID, p.ID
+			}
+			// Requeued work belongs to its current authorizer. A human retry
+			// explicitly takes ownership from any old, possibly revoked grant.
+			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET agent_grant_id=?,agent_user_id=? WHERE id=?", grant, user, record); e != nil {
 				return e
 			}
 		}

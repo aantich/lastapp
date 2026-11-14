@@ -74,12 +74,52 @@ catalog and templates. Entity drafts use one typed JSON document; generated SQL,
 JSON Schema, TypeScript declarations and permission links are projections. The
 console also consumes the fixed role catalog instead of maintaining role UUIDs.
 
+The authoritative format is `entity.Definition` in `internal/entity/model.go`,
+with expression/policy semantics and limits in the same package. JSON Schema is
+generated from that model; it is not a separate authoring language or independent
+source of rules. Inspect capabilities and generated contracts rather than copying
+type/operator lists or inventing storage mappings.
+
 Management routes are in `internal/control/entities.go`. Published data routes
 start at `/data/v1`; their context comes exclusively from the App token.
 `GET /data/v1/schema` returns only the actor/App-visible contracts, including
 stable entity IDs, versions, input/output schemas and generated client types.
 App authors have a separate ceiling-scoped contract endpoint. Neither surface
 returns executable policy bodies or hidden calculation/default expressions.
+
+### API map
+
+Console-session management endpoints and App bearer endpoints are separate.
+Management writes use Origin/CSRF and guarded revisions; App record updates and
+deletes use the record revision through the SDK. `{key}` is the published entity
+API key, while management `{entity}` is its registry UUID.
+
+| Endpoint group | Purpose |
+| --- | --- |
+| `GET /v1/entity-capabilities` | Authoritative types, operators, limits and templates |
+| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions |
+| `GET/PATCH /v1/entities/{entity}` | Inspect/replace a draft or change lifecycle |
+| `POST /v1/entities/{entity}/validate` and `/test` | Shared validator and synthetic evaluator |
+| `POST /v1/entities/{entity}/publications`; `GET .../publications/{version}` | Queue and inspect exact-version publication |
+| `GET/PATCH /v1/apps/{app}/data-access` | Approved origins, inheritance, ceilings and restrictions |
+| `GET /v1/apps/{app}/entity-contracts` | Author-visible published App contracts |
+| `POST /data/v1/session/exchange`; `GET /data/v1/schema` | App PKCE exchange and actor-visible contracts |
+| `POST /data/v1/entities/{key}/query` | Structured selection/filter/sort/cursor reads |
+| `POST .../records`; `GET/PATCH/DELETE .../records/{id}` | Single-record CRUD |
+| `POST .../bulk` and `.../capabilities` | Atomic bounded mutations and advisory per-record capabilities |
+| `GET .../reference-options`; `GET/POST/DELETE .../records/{id}/shares` | Authorized references and record sharing |
+
+The exact SDK request/response types live in
+[packages/client/src/index.ts](packages/client/src/index.ts); dispatch lives in
+[entity_data.go](internal/control/entity_data.go). Do not hand-maintain another
+data API client or treat management pagination as the data query contract.
+
+Management MCP exposes these same authoring operations through typed tools;
+see [MCP.md](MCP.md). Discover entity inventories, inspect full definitions and
+published contracts, then save/check/publish with current revisions and stable
+request keys. MCP has no business-record CRUD. Large checks use the shared
+`validate?view=diagnostics` path; full/generated contract sections are inspected
+separately, without a second validation engine.
 
 Read authorization retains each permission's fields with its own record predicate.
 Selected, filtered and sorted fields all contribute to row visibility before count,

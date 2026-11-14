@@ -76,7 +76,7 @@ def main():
    if not listening(8787) and not listening(8788):break
    time.sleep(.1)
  run([LOCAL/'lastapp','migrate','-config',LOCAL/'migrate.json']);# Runtime credentials can append/read audit history but cannot change it.
- for table in ['users','sessions','plans','tenants','tenant_memberships','database_targets','database_resources','spaces','apps','microapp_installations','groups','group_memberships','local_accounts','roles','role_permissions','access_grants','permissions','entity_definitions','entity_versions']:
+ for table in ['users','sessions','plans','tenants','tenant_memberships','database_targets','database_resources','spaces','apps','microapp_installations','groups','group_memberships','local_accounts','roles','role_permissions','access_grants','permissions','entity_definitions','entity_versions','agent_grants','agent_oauth_requests','agent_token_sessions','agent_oauth_clients']:
   sql(f"GRANT UPDATE,DELETE ON {REGISTRY}.`{table}` TO 'lastapp_control'@'127.0.0.1';")
  run([LOCAL/'lastapp','seed-development','-config',configfile,'-provisioner-file',LOCAL/'provisioner.secret'])
  start('devoidc',[LOCAL/'devoidc']);wait_url('http://127.0.0.1:8788/.well-known/openid-configuration')
