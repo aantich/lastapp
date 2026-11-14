@@ -13,6 +13,10 @@ import (
 
 // Agent permissions are delegation ceilings, never independent user roles.
 var agentPermissions = []Row{
+	{"code": "workspaces.write", "label": "Create isolated workspaces", "description": "Allocate bounded, empty development databases on the Space target or platform-configured development target and manage your own workspaces. Never copies production records."},
+	{"code": "workspaces.test", "label": "Test workspace Apps", "description": "Issue short-lived browser test sessions for your own workspace Apps. Normal business ACLs still apply. No production records."},
+	{"code": "releases.write", "label": "Upload and test releases", "description": "Upload bounded static builds and capture immutable development App releases."},
+	{"code": "production.deploy", "label": "Deploy to production", "description": "Explicitly authorize production configuration changes and activation of reviewed App releases. Separate from workspace development."},
 	{"code": "read", "label": "Inspect configuration", "description": "Read authorized inventories, contracts, roles, documentation and operational audit; no business records."},
 	{"code": "resources.write", "label": "Create and edit resources", "description": "Create/edit Spaces, Apps, micro-app registrations and teams. An initial manager defaults to you; choosing another manager also requires access-management authority. Reusing existing shared storage needs no provisioning grant; actual allocation does."},
 	{"code": "entities.draft", "label": "Edit entity drafts", "description": "Create/edit full entity drafts, including proposed rules and ACLs; never activates them."},
@@ -25,6 +29,7 @@ var agentPermissions = []Row{
 }
 var agentDefaultPermissions = []string{"read"}
 var agentPresets = []Row{
+	{"label": "Workspace author", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
 	{"label": "Inspect only", "permissions": []string{"read"}},
 	{"label": "App author", "permissions": []string{"read", "resources.write"}},
 	{"label": "Entity author", "permissions": []string{"read", "entities.draft", "entities.check"}},
@@ -36,7 +41,7 @@ func agentPermissionKinds(code string) []string {
 		return []string{"platform", "tenant", "team", "space", "app"}
 	case "resources.write":
 		return []string{"tenant", "team", "space", "app"}
-	case "entities.draft", "entities.check", "entities.publish":
+	case "workspaces.write", "workspaces.test", "releases.write", "production.deploy", "entities.draft", "entities.check", "entities.publish":
 		return []string{"tenant", "space"}
 	case "databases.provision":
 		return []string{"tenant"}
@@ -174,7 +179,9 @@ func (s *Server) checkAgent(ctx context.Context, q Queryer, p Principal, res Res
 			return nil
 		}
 	case "space":
-		if !exact || res.Space == g.Scope {
+		workspaceScope := ""
+		_ = q.QueryRowContext(ctx, "SELECT production_space_id FROM development_workspaces WHERE backing_space_id=? AND owner_user_id=? AND owner_agent_grant_id=? AND state<>'archived'", res.Space, p.ID, g.ID).Scan(&workspaceScope)
+		if !exact || res.Space == g.Scope || workspaceScope == g.Scope {
 			return nil
 		}
 	case "app":
@@ -197,8 +204,14 @@ func (s *Server) agentScope(ctx context.Context, q Queryer, p Principal, sc scop
 			out.Teams = []string{g.Scope}
 		}
 	case "space":
+		own, _ := rows(ctx, q, "SELECT backing_space_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? AND owner_agent_grant_id=? AND state='ready'", g.Scope, p.ID, g.ID)
+		for _, v := range own {
+			if sc.All || slices.Contains(sc.Spaces, str(v["backing_space_id"])) {
+				out.Spaces = append(out.Spaces, str(v["backing_space_id"]))
+			}
+		}
 		if sc.All || slices.Contains(sc.Spaces, g.Scope) {
-			out.Spaces = []string{g.Scope}
+			out.Spaces = append(out.Spaces, g.Scope)
 		}
 		for _, app := range sc.Apps {
 			var parent string
@@ -281,6 +294,12 @@ func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user str
 		return problem(403, "agent_limit", "The queued target is no longer approved for this connection.")
 	}
 	action := "entity.publish"
+	if permission == "production.deploy" {
+		action = "production.deploy"
+	}
+	if permission == "workspaces.write" {
+		action = "workspace.manage"
+	}
 	if permission == "databases.provision" {
 		action = "database.manage"
 	}

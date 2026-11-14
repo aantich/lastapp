@@ -15,6 +15,7 @@ export type PasswordPolicy = {
   length_hint: string;
 };
 type ConsoleConfig = {
+  development_policy: { max_release_microapps: number };
   oidc_enabled: boolean;
   password_policy: PasswordPolicy;
   role_catalog: { id: string; code: string }[];

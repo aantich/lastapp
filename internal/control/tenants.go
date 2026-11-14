@@ -363,6 +363,12 @@ func quota(ctx context.Context, q Queryer, tenant, table, column string, policy 
 	}
 	var n int
 	state := "state<>'archived'"
+	if table == "spaces" {
+		state += " AND workspace_id IS NULL"
+	}
+	if table == "apps" {
+		state += " AND NOT EXISTS(SELECT 1 FROM spaces sp WHERE sp.id=apps.space_id AND sp.workspace_id IS NOT NULL)"
+	}
 	if table == "database_resources" {
 		state = "1=1"
 	}

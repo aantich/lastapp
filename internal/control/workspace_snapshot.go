@@ -1,0 +1,412 @@
+package control
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+
+	"strings"
+	"time"
+
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
+)
+
+func remapSnapshot(base spaceSnapshot, ids map[string]string) spaceSnapshot {
+	// Only typed identity references are rewritten. Labels, formulas and arbitrary
+	// literal JSON are data; a UUID-looking string is not automatically a reference.
+	b, _ := json.Marshal(base)
+	var out spaceSnapshot
+	_ = json.Unmarshal(b, &out)
+	remap := func(v string) string {
+		if n, ok := ids[v]; ok {
+			return n
+		}
+		return v
+	}
+	permissions := map[string]string{}
+	for i := range out.Entities {
+		e := &out.Entities[i]
+		old := e.ID
+		e.ID = remap(e.ID)
+		for j := range e.Definition.Fields {
+			f := &e.Definition.Fields[j]
+			if f.Type == "reference" {
+				f.Target = remap(f.Target)
+			}
+		}
+		for j := range e.Definition.Permissions {
+			p := &e.Definition.Permissions[j]
+			permissions[entity.PermissionID(old, p.Key)] = entity.PermissionID(e.ID, p.Key)
+			for k := range p.Roles {
+				p.Roles[k] = remap(p.Roles[k])
+			}
+		}
+	}
+	gates := func(gs []entity.Gate) {
+		for i := range gs {
+			g := &gs[i]
+			if p, ok := permissions[g.Permission]; ok {
+				g.Permission = p
+			}
+			for j := range g.Roles {
+				g.Roles[j] = remap(g.Roles[j])
+			}
+		}
+	}
+	for i := range out.Roles {
+		v := &out.Roles[i]
+		v.ID = remap(v.ID)
+		v.App = remap(v.App)
+	}
+	for i := range out.Apps {
+		v := &out.Apps[i]
+		v.ID = remap(v.ID)
+		v.Access.Origin = ""
+		gates(v.Access.Ceiling)
+		gates(v.Access.Restrictions)
+	}
+	for i := range out.Microapps {
+		v := &out.Microapps[i]
+		v.ID = remap(v.ID)
+		v.App = remap(v.App)
+	}
+	return out
+}
+func snapshotIDs(base spaceSnapshot) map[string]string {
+	ids := map[string]string{}
+	for _, v := range base.Entities {
+		ids[v.ID] = "entity"
+	}
+	for _, v := range base.Roles {
+		ids[v.ID] = "role"
+	}
+	for _, v := range base.Apps {
+		ids[v.ID] = "app"
+	}
+	for _, v := range base.Microapps {
+		ids[v.ID] = "microapp"
+	}
+	return ids
+}
+func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
+	if len(base.Apps) > maxWorkspaceApps {
+		return conflict("Space exceeds the workspace App limit.")
+	}
+	if e := metadataQuota(ctx, tx, tenant, "roles", len(base.Roles)); e != nil {
+		return e
+	}
+	if e := metadataQuota(ctx, tx, tenant, "microapp_installations", len(base.Microapps)); e != nil {
+		return e
+	}
+	ids := map[string]string{}
+	for old, kind := range snapshotIDs(base) {
+		ids[old] = newID()
+		if _, e := tx.ExecContext(ctx, "INSERT INTO workspace_items(workspace_id,kind,development_id,production_id) VALUES(?,?,?,?)", workspace, kind, ids[old], old); e != nil {
+			return e
+		}
+	}
+	copy := remapSnapshot(base, ids)
+	for _, v := range copy.Apps {
+		b, _ := json.Marshal(v.Access)
+		if _, e := tx.ExecContext(ctx, "INSERT INTO apps(id,tenant_id,space_id,slug,display_name,state,compute_mode,data_access_json) VALUES(?,?,?,?,?,?,'shared',?)", v.ID, tenant, space, v.Slug, v.Name, v.State, b); e != nil {
+			return e
+		}
+	}
+	for _, v := range copy.Roles {
+		kind, owner := "space", "s:"+space
+		if v.App != "" {
+			kind, owner = "app", "a:"+v.App
+		}
+		if _, e := tx.ExecContext(ctx, "INSERT INTO roles(id,tenant_id,space_id,app_id,owner_key,scope_kind,domain,code,display_name,state) VALUES(?,?,?,?,?,?,'data',?,?,?)", v.ID, tenant, space, nullable(v.App), owner, kind, v.Code, v.Name, v.State); e != nil {
+			return e
+		}
+	}
+	for _, v := range copy.Entities {
+		b, _ := json.Marshal(v.Definition)
+		if _, e := tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,state,draft_json) VALUES(?,?,?,?,?,?,?)", v.ID, tenant, space, v.Definition.Key, v.Definition.Label, v.State, b); e != nil {
+			return e
+		}
+	}
+	for _, v := range copy.Microapps {
+		if _, e := tx.ExecContext(ctx, "INSERT INTO microapp_installations(id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state) VALUES(?,?,?,?,?,?,?,?)", v.ID, tenant, v.App, v.Slug, v.Name, nullable(v.Artifact), v.Order, v.State); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// The single publication capture routine is shared by the authoring endpoint and
+// bounded snapshot jobs. Candidate references are accepted only for a captured
+// batch whose tables are prepared before any version can activate.
+func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v Row, version string, candidates map[string]bool) error {
+	d, e := defOf(v["draft_json"])
+	if e != nil {
+		return e
+	}
+	if ds := d.Validate(); len(ds) > 0 {
+		return bad(ds[0].Path + ": " + ds[0].Message)
+	}
+	if e = s.validateEntityRefsCandidates(ctx, tx, d, v, candidates); e != nil {
+		return e
+	}
+	if v["pending_version_id"] != nil {
+		return conflict("A publication is already pending.")
+	}
+	b, _ := json.Marshal(d)
+	plan := data.Plan(str(v["id"]), "lastapp:"+entity.Hash(s.registryName)[:16]+":"+str(v["id"]), d)
+	pb, _ := json.Marshal(plan)
+	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", version, v["tenant_id"], v["space_id"], v["id"], v["active_version_id"], b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
+		return e
+	}
+	_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v["id"])
+	return e
+}
+func agentID(p Principal) any {
+	if p.Agent != nil {
+		return p.Agent.ID
+	}
+	return nil
+}
+
+// Empty tables are prepared without foreign keys, then the ordinary publisher
+// verifies/adds those keys before activation. This also supports cyclic references.
+func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []Row) error {
+	db, e := s.businessDB(ctx, resource, true)
+	if e != nil {
+		return e
+	}
+	defer db.Close()
+	for _, v := range entities {
+		if v["active_version_id"] != nil {
+			continue
+		}
+		d, e := defOf(v["draft_json"])
+		if e != nil {
+			return e
+		}
+		if ds := d.Validate(); len(ds) > 0 {
+			return bad(ds[0].Message)
+		}
+		marker := "lastapp:" + entity.Hash(s.registryName)[:16] + ":" + str(v["id"])
+		var comment string
+		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(str(v["id"])), "`")).Scan(&comment)
+		if e == nil {
+			if comment != marker {
+				return ownershipConflict()
+			}
+			continue
+		}
+		if e != sql.ErrNoRows {
+			return e
+		}
+		if _, e = db.ExecContext(ctx, data.SkeletonSQL(str(v["id"]), marker, d)); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
+	vs, e := rows(ctx, q, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.state='preparing' ORDER BY w.created_at LIMIT 1")
+	if e != nil || len(vs) == 0 {
+		return e
+	}
+	v := vs[0]
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	ctx = context.WithValue(ctx, workspaceOperationKey{}, str(v["id"]))
+	p := Principal{ID: str(v["owner_user_id"])}
+	if str(v["owner_agent_grant_id"]) != "" {
+		p.Agent, e = s.readAgentGrant(ctx, q, str(v["owner_agent_grant_id"]))
+		if e != nil {
+			return e
+		}
+	}
+	run := func() error {
+		if p.Agent != nil {
+			if e = requireAgent(p.Agent, "workspaces.write"); e != nil {
+				return e
+			}
+		}
+		if e = s.workspaceOwner(ctx, q, p, v); e != nil {
+			return e
+		}
+		if v["database_state"] == "pending" || v["database_state"] == "provisioning" {
+			return nil
+		}
+		if v["database_state"] != "ready" {
+			return conflict("Workspace storage failed. Inspect database setup and retry workspace preparation.")
+		}
+		defs, e := rows(ctx, q, "SELECT * FROM entity_definitions WHERE space_id=? ORDER BY id", v["backing_space_id"])
+		if e != nil {
+			return e
+		}
+		if e = s.prepareSnapshotTables(ctx, str(v["database_resource_id"]), defs); e != nil {
+			return e
+		}
+		candidates := map[string]bool{}
+		for _, d := range defs {
+			candidates[str(d["id"])] = true
+		}
+		tx, e := s.DB.BeginTx(ctx, nil)
+		if e != nil {
+			return e
+		}
+		defer tx.Rollback()
+		if e = lockTenant(ctx, tx, str(v["tenant_id"])); e != nil {
+			return e
+		}
+		if e = s.workspaceOwner(ctx, tx, p, v); e != nil {
+			return e
+		}
+		ready := true
+		for _, d := range defs {
+			if d["active_version_id"] != nil {
+				continue
+			}
+			ready = false
+			if d["pending_version_id"] != nil {
+				continue
+			}
+			// A previous failure is surfaced rather than silently retried forever.
+			var failures int
+			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_versions WHERE entity_id=? AND state='failed'", d["id"]).Scan(&failures); e != nil {
+				return e
+			}
+			if failures > 0 {
+				return conflict("Workspace entity preparation failed. Review publications before retrying.")
+			}
+			// The workspace job owns baseline publication authority; ordinary later
+			// agent publications keep their own grants and permission checks.
+			if e = s.queueDefinition(ctx, tx, Principal{ID: p.ID}, d, newID(), candidates); e != nil {
+				return e
+			}
+		}
+		if ready {
+			apps, err := rows(ctx, tx, "SELECT id,data_access_json FROM apps WHERE space_id=?", v["backing_space_id"])
+			if err != nil {
+				return err
+			}
+			for _, a := range apps {
+				access, err := accessOf(a)
+				if err != nil {
+					return err
+				}
+				if err = projectAppPermissions(ctx, tx, str(a["id"]), access); err != nil {
+					return err
+				}
+			}
+			if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state='ready',revision=revision+1 WHERE id=? AND state='preparing'", v["id"]); e != nil {
+				return e
+			}
+		}
+		return tx.Commit()
+	}
+	if e = run(); e == nil {
+		return nil
+	}
+	var message = "Workspace preparation failed. Check storage and publications, then retry."
+	if ae, ok := e.(*APIError); ok {
+		message = ae.Message
+	} else {
+		s.Log.Warn("workspace preparation failed", diagnostic(e)...)
+	}
+	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v["id"])
+	return err
+}
+
+func ensureReferenceConstraints(ctx context.Context, q Queryer, entityID string, d entity.Definition) error {
+	for _, f := range d.Fields {
+		if f.Type != "reference" {
+			continue
+		}
+		target := strings.Trim(data.Table(f.Target), "`")
+		var n int
+		if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? AND REFERENCED_TABLE_NAME=? AND REFERENCED_COLUMN_NAME='id'", strings.Trim(data.Table(entityID), "`"), "f_"+f.Key, target).Scan(&n); e != nil {
+			return e
+		}
+		if n > 0 {
+			continue
+		}
+		name := "fk_" + entity.Hash([]string{entityID, f.Key, f.Target})[:24]
+		_, e := q.ExecContext(ctx, "ALTER TABLE "+data.Table(entityID)+" ADD CONSTRAINT `"+name+"` FOREIGN KEY (`tenant_id`,`space_id`,"+data.FieldColumn(f.Key)+") REFERENCES "+data.Table(f.Target)+" (`tenant_id`,`space_id`,`id`)")
+		if e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v Row) (map[string]bool, error) {
+	if v["deployment_id"] != nil {
+		job, e := row(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", v["deployment_id"])
+		if e != nil {
+			return nil, e
+		}
+		plan, e := decodeDeployment(job)
+		if e != nil {
+			return nil, e
+		}
+		ids := map[string]bool{}
+		for _, d := range plan.Snapshot.Entities {
+			if d.State == "active" {
+				ids[d.ID] = true
+			}
+		}
+		return ids, nil
+	}
+	var n int
+	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM development_workspaces WHERE backing_space_id=? AND state='preparing'", v["space_id"]).Scan(&n); e != nil {
+		return nil, e
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	vs, e := rows(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v["space_id"])
+	if e != nil {
+		return nil, e
+	}
+	ids := map[string]bool{}
+	for _, d := range vs {
+		ids[str(d["id"])] = true
+	}
+	return ids, nil
+}
+
+func snapshotContractHash(v spaceSnapshot) string {
+	b, _ := json.Marshal(v)
+	var copy spaceSnapshot
+	_ = json.Unmarshal(b, &copy)
+	copy.Revision = 0
+	for i := range copy.Entities {
+		copy.Entities[i].Revision = 0
+	}
+	for i := range copy.Roles {
+		copy.Roles[i].Revision = 0
+	}
+	for i := range copy.Apps {
+		copy.Apps[i].Revision = 0
+	}
+	for i := range copy.Microapps {
+		copy.Microapps[i].Revision = 0
+	}
+	return entity.Hash(copy)
+}
+
+func (s *Server) ensureSnapshotReady(ctx context.Context, q Queryer, space string) error {
+	drafts, e := rows(ctx, q, "SELECT e.draft_json,e.pending_version_id,ev.definition_hash FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.space_id=? AND e.state='active'", space)
+	if e != nil {
+		return e
+	}
+	for _, draft := range drafts {
+		d, e := defOf(draft["draft_json"])
+		if e != nil {
+			return e
+		}
+		if draft["pending_version_id"] != nil || entity.Hash(d) != str(draft["definition_hash"]) {
+			return conflict("Publish every active entity draft before capturing a workspace or release.")
+		}
+	}
+	return nil
+}

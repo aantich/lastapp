@@ -31,11 +31,21 @@ func Type(f entity.Field) string {
 		return "VARCHAR(160) COLLATE utf8mb4_nopad_bin"
 	}
 }
-func CreateSQL(id, marker string, d entity.Definition) string {
+func CreateSQL(id, marker string, d entity.Definition) string { return createSQL(id, marker, d, true) }
+
+// SkeletonSQL prepares an empty batch before cyclic foreign keys can be installed.
+func SkeletonSQL(id, marker string, d entity.Definition) string {
+	return createSQL(id, marker, d, false)
+}
+func createSQL(id, marker string, d entity.Definition, references bool) string {
 	cols := []string{"`id` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`tenant_id` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`space_id` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`revision` BIGINT UNSIGNED NOT NULL DEFAULT 1", "`created_at` VARCHAR(32) NOT NULL", "`updated_at` VARCHAR(32) NOT NULL", "`created_by` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`updated_by` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "PRIMARY KEY (`tenant_id`,`space_id`,`id`)"}
 	for _, f := range d.Fields {
 		cols = append(cols, FieldColumn(f.Key)+" "+Type(f)+Nullability(f))
-		cols = append(cols, Indexes(f, d)...)
+		for _, index := range Indexes(f, d) {
+			if references || !strings.HasPrefix(index, "FOREIGN KEY") {
+				cols = append(cols, index)
+			}
+		}
 	}
 	return "CREATE TABLE " + Table(id) + " (" + strings.Join(cols, ",") + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_nopad_bin COMMENT='" + marker + "'"
 }

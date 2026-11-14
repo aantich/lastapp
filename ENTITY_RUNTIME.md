@@ -42,7 +42,7 @@ The small TypeScript SDK is in [packages/client](packages/client). Build it with
 `make client`. The [isolated example](examples/data-app/README.md) shows the full
 flow using real data. It uses a static server, an approval popup, PKCE and an
 opaque App token kept in memory. No App token is stored in localStorage. The
-backend rechecks the parent console session, membership, App state, origin
+backend rechecks the parent console session (or live delegated workspace grant), membership, App state, origin
 approval and current permissions. App tokens cannot call management APIs.
 
 ```ts
@@ -153,7 +153,11 @@ write gate, activates registry projections transactionally, then opens the exact
 version. Recovery can finish an activation interrupted before opening. Failed
 preparation restores the previous gate only when its physical layout is verified
 compatible. No recovery path drops business data. Publication attempts are fenced,
-Tenant queues are bounded and work rotates across Tenants.
+Tenant queues are bounded and work rotates across Tenants. Release-owned versions
+stop at `prepared`; the deployment activates their registry versions/projections
+in the same transaction as role states and App policies. The physical-version
+fence prevents requests from mixing old policy with a new storage version. See
+[WORKSPACES.md](WORKSPACES.md) for deployment failure/recovery behavior.
 
 Supported changes include new entities, nullable additions, labels, policies,
 defaults and compatible rule/constraint changes. Existing data is checked under
@@ -175,3 +179,5 @@ limits reserve capacity for other Tenants, and opening a slow database does not
 hold the shared pool-cache lock. Warm model-cache hits do not reload definition
 documents from the registry. The current implementation uses the pinned MariaDB
 driver and does not add another database engine or a database-version matrix.
+
+Workspace Apps use this same engine and SDK against an isolated database. Their optional delegated development sessions use PKCE and live grant revisions, without an administrator ACL bypass. Releases deploy captured definitions through the existing publisher. See [WORKSPACES.md](WORKSPACES.md).

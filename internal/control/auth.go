@@ -354,6 +354,9 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 			return e
 		}
 	}
+	if e := s.workspaceGuard(ctx, q, p, res.Space); e != nil {
+		return e
+	}
 	if p.Agent != nil {
 		if e := s.checkAgent(ctx, q, p, res, true); e != nil {
 			return e

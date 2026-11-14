@@ -333,7 +333,7 @@ func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p Principal) err
 	if e := s.authorize(r.Context(), s.DB, p, "app.read", Resource{Tenant: t, App: a}, false); e != nil {
 		return e
 	}
-	v, e := row(r.Context(), s.DB, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", t, a)
+	v, e := row(r.Context(), s.DB, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", t, a)
 	if e == nil {
 		send(w, 200, v)
 	}

@@ -9,6 +9,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api } from "./api";
+import { DevelopmentWorkspaces, DevelopmentBanner } from "./development-workspaces";
+import { AppReleases } from "./app-releases";
 import { EntityDesigner } from "./entity-designer/designer";
 import { AppDataAccess } from "./entity-designer/app-access";
 import { Collection } from "./collection";
@@ -343,7 +345,9 @@ export function TenantWorkspace({
     setModal({
       title: "Create App",
       submit: "Create App",
-      description: "The App reuses its Space’s database and definitions.",
+      description: route.space === space.id && space.workspace_id
+        ? "Develop this App in your isolated workspace. Production capacity is checked when you deploy."
+        : "The App reuses its Space’s database and definitions.",
       initial: {
         id: crypto.randomUUID(),
         initial_manager_user_id: me.id,
@@ -526,6 +530,7 @@ export function TenantWorkspace({
     route.page === "space"
       ? [
           ["apps", "Apps"],
+          ...(!space.workspace_id && scoped("workspace.manage") ? [["development", "Development"]] : []),
           ...(scoped("entity.manage") ? [["entities", "Entities"]] : []),
           ...(scoped("authorization.read") ? [["access", "Access"]] : []),
           ["settings", "Settings"],
@@ -533,6 +538,7 @@ export function TenantWorkspace({
       : route.page === "app"
         ? [
             ["microapps", "Micro-apps"],
+            ...(scoped("release.manage") ? [["releases", "Releases"]] : []),
             ...(scoped("authorization.read") ? [["access", "Access"]] : []),
             ["settings", "Settings"],
           ]
@@ -674,6 +680,7 @@ export function TenantWorkspace({
           </button>
         </div>
       )}
+      {detailReady && (route.page === "space" || route.page === "app") && detail.workspace_id && <DevelopmentBanner workspace={detail.workspace_id} openSpace={id=>go("space",{space:id})}/>}
       {!!tabs.length && (
         <div className="tabs workspace-tabs">
           {tabs.map(([id, label]) => (
@@ -767,6 +774,7 @@ export function TenantWorkspace({
           )}
           {route.page === "space" && detailReady && (
             <>
+              {route.tab === "development" && !space.workspace_id && <DevelopmentWorkspaces space={space.id} openSpace={id=>go("space",{space:id})}/>}
               {route.tab === "apps" && (
                 <Collection
                   key={space.id + "apps"}
@@ -855,6 +863,7 @@ export function TenantWorkspace({
           )}
           {route.page === "app" && detailReady && (
             <>
+              {route.tab === "releases" && <AppReleases key={app.id} app={app} tenant={tenant} refresh={refresh} openWorkspaces={()=>go("space",{space:app.space_id,tab:"development"})}/>}
               {route.tab === "microapps" && (
                 <Collection
                   key={app.id + "microapps"}

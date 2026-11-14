@@ -14,12 +14,16 @@ var metadataLimits = map[string]int{
 	"roles": 2000, "access_grants": 10000, "microapp_installations": 1000,
 }
 
-func metadataQuota(ctx context.Context, q Queryer, tenant, table string) error {
+func metadataQuota(ctx context.Context, q Queryer, tenant, table string, additional ...int) error {
+	required := 1
+	if len(additional) > 0 {
+		required = additional[0]
+	}
 	var n int
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE tenant_id=?", tenant).Scan(&n); e != nil {
 		return e
 	}
-	if n >= metadataLimits[table] {
+	if n+required > metadataLimits[table] {
 		return problem(409, "metadata_limit", "The Tenant's administrative metadata limit has been reached.")
 	}
 	return nil

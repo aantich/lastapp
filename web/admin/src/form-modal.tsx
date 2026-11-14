@@ -211,6 +211,16 @@ export function FormModal({
                           setValues({ ...values, [f.key]: value })
                         }
                       />
+                    ) : f.type === "json" ? (
+                      <textarea
+                        aria-label={f.label}
+                        required={f.required}
+                        rows={5}
+                        value={values[f.key] ?? "{}"}
+                        onChange={(e) =>
+                          setValues({ ...values, [f.key]: e.target.value })
+                        }
+                      />
                     ) : f.type === "select" ? (
                       <select
                         aria-label={f.label}

@@ -1,0 +1,139 @@
+.development-page {
+  display: grid;
+  gap: 24px;
+}
+.development-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.development-heading h2,
+.development-heading h3 {
+  margin: 0 0 8px;
+}
+.development-heading p {
+  margin: 0;
+  color: var(--ui-muted);
+}
+.development-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.development-actions button {
+  white-space: nowrap;
+}
+.development-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: color-mix(in srgb, var(--ui-primary) 9%, var(--ui-surface));
+  border: 1px solid color-mix(in srgb, var(--ui-primary) 32%, var(--ui-border));
+  padding: 18px 22px;
+  border-radius: 10px;
+  margin-bottom: 24px;
+}
+.development-banner > div {
+  display: grid;
+  gap: 4px;
+}
+.development-banner span {
+  color: var(--ui-muted);
+  font-size: 0.9rem;
+}
+.release-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr);
+  gap: 24px;
+  align-items: start;
+}
+.release-list,
+.release-review {
+  padding: 24px;
+}
+.release-item {
+  display: grid;
+  width: 100%;
+  text-align: left;
+  gap: 4px;
+  padding: 14px 12px;
+  margin-top: 8px;
+  border-color: transparent;
+  background: transparent;
+}
+.release-item.selected {
+  border-color: var(--ui-primary);
+  background: color-mix(in srgb, var(--ui-primary) 7%, var(--ui-surface));
+}
+.release-item small {
+  color: var(--ui-muted);
+}
+.release-review h4 {
+  margin: 28px 0 12px;
+}
+.release-review details {
+  margin-top: 16px;
+}
+.release-review pre {
+  max-height: 400px;
+  overflow: auto;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.release-field-list {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+}
+.release-field-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+.release-field-list span {
+  color: var(--ui-muted);
+}
+.deployment-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+}
+.uploaded-builds {
+  padding: 20px 24px;
+}
+.uploaded-builds .development-heading {
+  padding-top: 18px;
+}
+.development-page .muted {
+  color: var(--ui-muted);
+}
+.development-page small.muted {
+  display: block;
+  margin-top: 4px;
+}
+@media (max-width: 800px) {
+  .development-heading,
+  .development-banner {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .release-layout {
+    grid-template-columns: 1fr;
+  }
+  .development-actions {
+    width: 100%;
+  }
+  .release-list,
+  .release-review {
+    padding: 20px;
+  }
+  .release-review .development-actions {
+    justify-content: flex-start;
+  }
+}

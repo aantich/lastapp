@@ -233,7 +233,12 @@ func (s *Server) agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Princ
 }
 
 func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, tenant string, in databaseInput, policy Row, request string) error {
-	if e := s.authorize(ctx, tx, p, "database.manage", Resource{Tenant: tenant}, true); e != nil {
+	allocation, workspaceAllocation := ctx.Value(workspaceAllocationKey{}).(Resource)
+	action, res := "database.manage", Resource{Tenant: tenant}
+	if workspaceAllocation {
+		action, res = "workspace.manage", allocation
+	}
+	if e := s.authorize(ctx, tx, p, action, res, true); e != nil {
 		return e
 	}
 	if e := id(in.ID); e != nil {
@@ -242,8 +247,10 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 	if e := id(in.Target); e != nil {
 		return e
 	}
-	if e := s.agentDatabaseProvision(ctx, tx, p, in.ID, in.Mode, in.Target); e != nil {
-		return e
+	if !workspaceAllocation {
+		if e := s.agentDatabaseProvision(ctx, tx, p, in.ID, in.Mode, in.Target); e != nil {
+			return e
+		}
 	}
 	if e := layoutAllowed(policy, in.Layout); e != nil {
 		return e

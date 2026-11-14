@@ -71,6 +71,10 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 		columns, order = "id,action,resource_type,resource_id,actor_name,details_json", "id DESC"
 	case "roles":
 		columns, order = "id,display_name,code,state", "protected DESC,display_name,id"
+	case "builds":
+		columns, order = "id,content_hash,entrypoint", "created_at DESC,id"
+	case "releases", "workspaces":
+		columns, order = "id,display_name", "created_at DESC,id"
 	case "spaces", "apps":
 		columns, order = "id,display_name,slug,state", "created_at DESC,id"
 	case "microapps":

@@ -58,10 +58,19 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			if _, e = conn.ExecContext(ctx, "DELETE FROM agent_oauth_requests WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
 				return e
 			}
+			if _, e = conn.ExecContext(ctx, "DELETE FROM artifact_uploads WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
+				return e
+			}
 			if e = cleanupAgentClients(ctx, conn); e != nil {
 				return e
 			}
 			cleanedAt = time.Now()
+		}
+		if e = s.deploymentJob(ctx, conn); e != nil {
+			return e
+		}
+		if e = s.workspaceJob(ctx, conn); e != nil {
+			return e
 		}
 		if _, err := s.publicationJob(ctx, conn, &lastPublicationTenant); err != nil {
 			return err
@@ -89,7 +98,13 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		var active string
 		e = tx.QueryRowContext(ctx, "SELECT state FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&active)
 		if e == nil && str(job["agent_grant_id"]) != "" {
-			if denied := s.agentJobAllowed(ctx, tx, str(job["agent_grant_id"]), str(job["agent_user_id"]), Resource{Tenant: tenant}, "databases.provision", str(job["target_id"])); denied != nil {
+			res, permission := Resource{Tenant: tenant}, "databases.provision"
+			ws, _ := row(ctx, tx, "SELECT w.production_space_id FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id WHERE sp.database_resource_id=? AND w.state='preparing'", record)
+			if ws != nil {
+				res.Space = str(ws["production_space_id"])
+				permission = "workspaces.write"
+			}
+			if denied := s.agentJobAllowed(ctx, tx, str(job["agent_grant_id"]), str(job["agent_user_id"]), res, permission, str(job["target_id"])); denied != nil {
 				var ae *APIError
 				if !errors.As(denied, &ae) {
 					tx.Rollback()

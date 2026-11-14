@@ -27,7 +27,7 @@ func agentSecurityFixture(t *testing.T) (*Server, testClient, Principal, string,
 		}
 	}
 	grant := newID()
-	perms, _ := json.Marshal([]string{"read", "resources.write", "entities.draft", "databases.provision"})
+	perms, _ := json.Marshal([]string{"read", "production.deploy", "resources.write", "entities.draft", "databases.provision"})
 	limits, _ := json.Marshal(agentLimits{TargetIDs: []string{allowed}, MaxDatabases: 1})
 	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'review-client','Review client',?,'tenant',?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, owner, tenant, perms, limits, s.mcpURL()); e != nil {
 		t.Fatal(e)

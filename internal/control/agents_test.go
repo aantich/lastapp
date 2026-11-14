@@ -22,7 +22,7 @@ import (
 func TestAgentToolContracts(t *testing.T) {
 	s := &Server{}
 	tools := s.agentTools()
-	if len(tools) != 14 {
+	if len(tools) != 16 {
 		t.Fatal("unexpected tool surface", len(tools))
 	}
 	for _, tool := range tools {
@@ -178,7 +178,7 @@ func TestAgentManagementMCP(t *testing.T) {
 		}
 		return out
 	}
-	permissions := []string{"read", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}
+	permissions := []string{"production.deploy", "read", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}
 	session, grant, access, refresh := connect(permissions, "space", space)
 	otherEndpoint := &Server{DB: s.DB, Config: s.Config, agentTokenSlots: make(chan struct{}, agentTokenConcurrent)}
 	otherEndpoint.Config.PublicURL = "http://127.0.0.1:8999"
@@ -196,7 +196,13 @@ func TestAgentManagementMCP(t *testing.T) {
 		t.Fatal("refresh audience crossed endpoint boundary", foreignResponse.Code)
 	}
 	tools, e := session.ListTools(context.Background(), nil)
-	if e != nil || len(tools.Tools) != 13 {
+	expectedTools := 0
+	for _, spec := range s.agentTools() {
+		if agentToolVisible(spec, &agentGrant{Permissions: permissions}) {
+			expectedTools++
+		}
+	}
+	if e != nil || len(tools.Tools) != expectedTools {
 		t.Fatal("tool discovery", e, len(tools.Tools))
 	}
 	contextResult := call(session, "lastapp_context", Row{}, true)

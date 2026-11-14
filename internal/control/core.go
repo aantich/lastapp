@@ -38,24 +38,27 @@ const TenantAdminRole = authz.TenantAdminRole
 var migrationFiles embed.FS
 
 type Config struct {
-	AgentClients        []AgentClient `json:"agent_clients"`
-	DevelopmentUIOrigin string        `json:"development_ui_origin"`
-	AppOrigin           string        `json:"app_origin"`
-	Address             string        `json:"address"`
-	PublicURL           string        `json:"public_url"`
-	RegistryDSN         string        `json:"registry_dsn"`
-	EncryptionKey       string        `json:"encryption_key"`
-	EncryptionKeyID     string        `json:"encryption_key_id"`
-	OIDCIssuer          string        `json:"oidc_issuer"`
-	OIDCClientID        string        `json:"oidc_client_id"`
-	OIDCClientSecret    string        `json:"oidc_client_secret"`
-	Development         bool          `json:"development"`
-	AllowedNetworks     []string      `json:"allowed_networks"`
-	TrustedProxies      []string      `json:"trusted_proxies"`
-	RuntimeAccountHost  string        `json:"runtime_account_host"`
+	WorkspaceDatabaseTarget string        `json:"workspace_database_target_id"`
+	ArtifactDirectory       string        `json:"artifact_directory"`
+	AgentClients            []AgentClient `json:"agent_clients"`
+	DevelopmentUIOrigin     string        `json:"development_ui_origin"`
+	AppOrigin               string        `json:"app_origin"`
+	Address                 string        `json:"address"`
+	PublicURL               string        `json:"public_url"`
+	RegistryDSN             string        `json:"registry_dsn"`
+	EncryptionKey           string        `json:"encryption_key"`
+	EncryptionKeyID         string        `json:"encryption_key_id"`
+	OIDCIssuer              string        `json:"oidc_issuer"`
+	OIDCClientID            string        `json:"oidc_client_id"`
+	OIDCClientSecret        string        `json:"oidc_client_secret"`
+	Development             bool          `json:"development"`
+	AllowedNetworks         []string      `json:"allowed_networks"`
+	TrustedProxies          []string      `json:"trusted_proxies"`
+	RuntimeAccountHost      string        `json:"runtime_account_host"`
 }
 
 type Server struct {
+	uploadSlots            chan struct{}
 	agentSlots             chan struct{}
 	agentBootstrapSlots    chan struct{}
 	agentTokenSlots        chan struct{}
@@ -105,6 +108,9 @@ func LoadConfig(path string) (Config, error) {
 	return c, e
 }
 func Open(c Config) (*Server, error) {
+	if c.WorkspaceDatabaseTarget != "" && id(c.WorkspaceDatabaseTarget) != nil {
+		return nil, fmt.Errorf("invalid workspace_database_target_id")
+	}
 	seenClients := map[string]bool{}
 	for _, client := range c.AgentClients {
 		if client.ID == "" || len(client.ID) > 500 || client.Name == "" || len(client.Name) > 160 || seenClients[client.ID] || len(client.Redirects) == 0 || len(client.Redirects) > agentMaxClientRedirects {
@@ -129,8 +135,10 @@ func Open(c Config) (*Server, error) {
 	}
 	adminURL, _ := url.Parse(c.PublicURL)
 	appURL, _ := url.Parse(c.AppOrigin)
-	if c.AppOrigin != "" && (appURL == nil || strings.EqualFold(strings.TrimSuffix(appURL.Hostname(), "."), strings.TrimSuffix(adminURL.Hostname(), ".")) || !validOrigin(c.AppOrigin, false) || c.AppOrigin == c.PublicURL || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
-		return nil, fmt.Errorf("app_origin must be a separate secure origin")
+	appNamespace := appHostNamespace(c.AppOrigin)
+	adminHost := strings.TrimSuffix(strings.ToLower(adminURL.Hostname()), ".")
+	if c.AppOrigin != "" && (appURL == nil || !validOrigin(c.AppOrigin, false) || adminHost == strings.TrimPrefix(appNamespace, ".") || appNamespace != "" && strings.HasSuffix(adminHost, appNamespace) || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
+		return nil, fmt.Errorf("app_origin must use a separate secure host namespace that does not contain public_url")
 	}
 	host, _, e := net.SplitHostPort(c.Address)
 	if e != nil {
@@ -186,7 +194,7 @@ func Open(c Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed")
 	}
-	s := &Server{DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
+	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	return s, nil
 }
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -201,7 +209,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 }
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 8 {
+	if e != nil || v != 12 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
@@ -468,6 +476,9 @@ func (s *Server) mutate(ctx context.Context, p Principal, action string, res Res
 		}
 	}
 	if e = s.authorize(ctx, tx, p, action, res, true); e != nil {
+		return e
+	}
+	if e = s.productionMutationGuard(ctx, tx, p, action, res); e != nil {
 		return e
 	}
 	if e = s.agentMutationBegin(ctx, tx); e != nil {

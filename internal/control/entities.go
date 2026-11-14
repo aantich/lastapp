@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"net/http"
 	"slices"
@@ -245,6 +244,9 @@ func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal)
 	return s.entityGet(w, r, p)
 }
 func (s *Server) validateEntityRefs(ctx context.Context, q Queryer, d entity.Definition, v Row) error {
+	return s.validateEntityRefsCandidates(ctx, q, d, v, nil)
+}
+func (s *Server) validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Definition, v Row, candidates map[string]bool) error {
 	tenant, space, entityID := str(v["tenant_id"]), str(v["space_id"]), str(v["id"])
 	for _, p := range d.Permissions {
 		for _, rid := range p.Roles {
@@ -252,7 +254,7 @@ func (s *Server) validateEntityRefs(ctx context.Context, q Queryer, d entity.Def
 				return e
 			}
 			var n int
-			if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND space_id=? AND app_id IS NULL AND domain='data' AND state='active'", rid, tenant, space).Scan(&n); e != nil {
+			if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND space_id=? AND app_id IS NULL AND domain='data' AND (state='active' OR ?=1)", rid, tenant, space, candidates != nil).Scan(&n); e != nil {
 				return e
 			}
 			if n != 1 {
@@ -264,11 +266,14 @@ func (s *Server) validateEntityRefs(ctx context.Context, q Queryer, d entity.Def
 				return e
 			}
 			var n int
-			query := "SELECT COUNT(*) FROM groups WHERE id=? AND tenant_id=? AND state='active'"
+			// Captured batches copy already-published ACLs. A later suspension
+			// must keep that reference inert, rather than making copying fail.
+			// Live actor resolution still excludes inactive users and teams.
+			query := "SELECT COUNT(*) FROM groups WHERE id=? AND tenant_id=? AND (state='active' OR ?=1)"
 			if p.Relationship == "user" {
-				query = "SELECT COUNT(*) FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.user_id=? AND m.tenant_id=? AND m.state='active'"
+				query = "SELECT COUNT(*) FROM tenant_memberships m JOIN users u ON u.id=m.user_id WHERE m.user_id=? AND m.tenant_id=? AND ((u.state='active' AND m.state='active') OR ?=1)"
 			}
-			if e := q.QueryRowContext(ctx, query, p.Subject, tenant).Scan(&n); e != nil {
+			if e := q.QueryRowContext(ctx, query, p.Subject, tenant, candidates != nil).Scan(&n); e != nil {
 				return e
 			}
 			if n != 1 {
@@ -282,7 +287,7 @@ func (s *Server) validateEntityRefs(ctx context.Context, q Queryer, d entity.Def
 				return e
 			}
 		}
-		if f.Type == "reference" && f.Target != entityID {
+		if f.Type == "reference" && f.Target != entityID && !candidates[f.Target] {
 			var n int
 			if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_definitions WHERE id=? AND tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL", f.Target, tenant, space).Scan(&n); e != nil {
 				return e
@@ -342,7 +347,7 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 			return conflict("A publication is already pending.")
 		}
 		var queued int
-		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM entity_versions WHERE tenant_id=? AND state IN ('queued','publishing')", v["tenant_id"]).Scan(&queued); e != nil {
+		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM entity_versions WHERE tenant_id=? AND state IN ('queued','publishing','prepared')", v["tenant_id"]).Scan(&queued); e != nil {
 			return e
 		}
 		if queued >= 16 {
@@ -351,28 +356,7 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 		if v["state"] != "active" {
 			return conflict("Archived entities cannot publish.")
 		}
-		d, e := defOf(v["draft_json"])
-		if e != nil {
-			return e
-		}
-		if ds := d.Validate(); len(ds) > 0 {
-			return bad(ds[0].Path + ": " + ds[0].Message)
-		}
-		if e = s.validateEntityRefs(r.Context(), tx, d, v); e != nil {
-			return e
-		}
-		b, _ := json.Marshal(d)
-		plan := data.Plan(str(v["id"]), "lastapp:"+entity.Hash(s.registryName)[:16]+":"+str(v["id"]), d)
-		planJSON, _ := json.Marshal(plan)
-		_, e = tx.ExecContext(r.Context(), "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash) VALUES(?,?,?,?,?,?,?,?,?,?)", version, v["tenant_id"], v["space_id"], v["id"], v["active_version_id"], b, entity.Hash(d), p.ID, planJSON, entity.Hash(plan))
-		if e != nil {
-			return e
-		}
-		_, e = tx.ExecContext(r.Context(), "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v["id"])
-		if e == nil && p.Agent != nil {
-			_, e = tx.ExecContext(r.Context(), "UPDATE entity_versions SET agent_grant_id=? WHERE id=?", p.Agent.ID, version)
-		}
-		return e
+		return s.queueDefinition(r.Context(), tx, p, v, version, nil)
 	})
 	if e != nil {
 		return e

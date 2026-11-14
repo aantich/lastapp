@@ -262,7 +262,11 @@ test("expired sessions return to login and signing out an expired session succee
     .getByRole("button", { name: "Refresh", exact: true })
     .click({ timeout: 2000 })
     .catch(async (error) => {
-      if (!(await page.getByRole("button", { name: "Sign in", exact: true }).isVisible()))
+      if (
+        !(await page
+          .getByRole("button", { name: "Sign in", exact: true })
+          .isVisible())
+      )
         throw error;
     });
   await expect(
@@ -279,8 +283,21 @@ test("expired sessions return to login and signing out an expired session succee
   await expect(
     page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
+  // Finish the initial collection load and open the menu before expiring the
+  // session. Otherwise a delayed GET can correctly return to login before the
+  // test reaches Sign out, leaving no mounted button to click.
+  await expect(
+    page.locator(".list-panel .toolbar").getByText(/^\d+ records$/),
+  ).toBeVisible();
+  await menu(page);
+  const expiredLogout = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/auth/logout" &&
+      response.request().method() === "POST",
+  );
   await context.clearCookies();
-  await logout(page);
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  expect((await expiredLogout).status()).toBe(401);
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();

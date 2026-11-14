@@ -2,7 +2,7 @@
 
 Implemented management MCP, 14 November 2026. The existing Go service exposes
 Streamable HTTP at `/mcp`, using the official Go SDK. It manages configuration;
-it does not execute business-record CRUD, retrieve credentials, run code/SQL or
+it does not execute business-record CRUD, retrieve database/vendor credentials, run backend code/SQL or
 fetch artifact URLs. [DEVELOPMENT.md](DEVELOPMENT.md) maps the implementation.
 
 ## Connect and authorize
@@ -93,9 +93,11 @@ delegation; ordinary user authority is checked again during execution.
 | `lastapp_membership` | Manage existing-user Tenant/team membership within delegated authority |
 | `lastapp_app_access_update` | Update App access settings; Space authority controls origins/ceilings |
 | `lastapp_database_provision` | Allocate managed storage or retry a resource within approved limits |
+| `lastapp_workspace` | Create/archive/retry owned isolated copies; issue PKCE development launch codes |
+| `lastapp_release` | Issue upload tickets, capture releases, activate previews or explicitly deploy |
 
 Authoritative guides are served through `lastapp_describe` and the same
-`lastapp://docs/{hierarchy,entities,access,client,reuse,safety}` resources. Describe
+`lastapp://docs/{hierarchy,entities,access,client,reuse,safety,development}` resources. Describe
 also exposes `capabilities`, `roles`, `entity_schema` and `tools`. They derive
 from the current Go catalogs. [agent_context.go](internal/control/agent_context.go)
 is their source; update it when changing agent-facing behavior.
@@ -130,10 +132,28 @@ assignments can activate access; do not infer permission from a display name.
 For a team membership mutation, obtain the containing team's current revision,
 including for add. Tenant membership changes use the membership revision.
 
-Micro-app creation records metadata only. Context explicitly reports that
-source/build/static hosting and the shared micro-app UI library are unavailable.
-The local SDK and isolated example exist, but public npm publication is not part
-of this release. Report missing capabilities rather than inventing them.
+Micro-app registrations are combined by the author's local build. A release pins
+one static App build plus exact micro-app versions by slug and shared package
+versions. Hosted source/Git, a shared package registry and browser Node runners
+remain unavailable. Public npm publication is deferred; obtain the authoritative
+SDK and complete starter using get `resource=starter`, ID = owned workspace App.
+
+For the complete deployed SaaS → local agent build/test → production flow, read
+[WORKSPACES.md](WORKSPACES.md) and describe `topic=development`. Approve the
+**Workspace author** preset for development. Create a workspace under the source
+Space, poll `resource=workspace`, and author against its `backing_space_id`.
+Ordinary list/get/context expose entities, contracts, workspace/build/release
+inventories and deployment status. Direct agent production mutations and release
+activation require separately approved `production.deploy` authority. Development
+PKCE codes and upload tickets are short-lived, narrowly scoped credentials; never
+embed them in source or artifacts. The server never executes uploaded backend code.
+
+Undeployed release inspection requires the same workspace owner and agent grant
+as development authoring. Queued/failed deployments do not remove that boundary.
+Successful releases are readable as authorized production history after workspace
+archive. Preview activation checks the settled Space snapshot inside the mutation
+transaction. Workspace Apps use their own metadata cap; subscription App capacity
+is enforced on production creation/restoration and deployment.
 
 ## Mutation and security guardrails
 
@@ -183,5 +203,23 @@ Run `make mcp-test` against the existing local development MariaDB for protocol,
 OAuth, delegation, isolation, replay, response-limit and worker regressions. Run
 `make integration` for the full backend and console browser suite. See
 [VERIFICATION.md](VERIFICATION.md) for actual results and retained failure/rerun
-history. A passing management suite does not claim generated App hosting,
-production load testing or additional database-engine support.
+history. Workspace/release integration tests include a real locally compiled React
+build exercised in Chrome against development and production APIs. This does not
+claim production load testing or additional database-engine support.
+
+### Deployment status and security activation
+
+`lastapp_get resource=app_deployment`, with `id` equal to a development or
+production App ID, recovers the latest deployment or the current shared Space
+blocker after a lost response. It returns `{deployment: null}` when none exists.
+App context includes this job automatically. The console uses the same authorized
+`GET /v1/apps/{app}/deployment` operation; no new delegation permission is needed.
+A known job is still inspected with `resource=deployment` and its job ID.
+
+Release publications reach `prepared` without activating registry authority.
+After all storage is prepared, entity ACLs, role states, App policies and client
+selection activate in one registry transaction. Physical version gates fail
+closed across that boundary. Failed preparation/activation keeps previous live
+security policies, and restores old gates only for verified compatible layouts.
+Published references to users/teams disabled after publication remain inert when
+copied into a workspace; this never allows a new ordinary grant to inactive users.

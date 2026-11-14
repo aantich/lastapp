@@ -57,7 +57,14 @@ test("entity designer creates, tests and publishes a real shared backend", async
   await page.getByRole("button", { name: "Add field", exact: true }).click();
   await dialog.getByLabel("Name", { exact: true }).fill("Website");
   await dialog.getByRole("button", { name: "Save field", exact: true }).click();
+  const draftSaved = page.waitForResponse(
+    (r) =>
+      r.request().method() === "PATCH" &&
+      /\/v1\/entities\/[a-f0-9-]+$/.test(new URL(r.url()).pathname) &&
+      r.status() === 200,
+  );
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await draftSaved;
   const entities = await (
     await page.request.get("/v1/spaces/" + space + "/entities")
   ).json();

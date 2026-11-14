@@ -130,6 +130,11 @@ export class Lastapp {
       window.addEventListener("message", receive);
       popup.location.href = this.apiOrigin + "/console/launch?" + q;
     });
+    await this.connectDevelopment({code,verifier,nonce});
+    popup.close();
+  }
+  /** Exchange a one-use workspace launch code. Never persist these credentials. */
+  async connectDevelopment({code,verifier,nonce}:{code:string;verifier:string;nonce:string}) {
     const result = await this.request<{
       access_token: string;
       expires_in: number;
@@ -142,7 +147,6 @@ export class Lastapp {
     );
     this.bearer = result.access_token;
     this.expires = Date.now() + result.expires_in * 1000;
-    popup.close();
   }
   disconnect() {
     this.bearer = "";

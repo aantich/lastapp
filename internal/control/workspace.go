@@ -11,7 +11,7 @@ func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p Principal) e
 	if e := s.authorize(r.Context(), s.DB, p, "space.read", Resource{Tenant: t, Space: space}, false); e != nil {
 		return e
 	}
-	v, e := row(r.Context(), s.DB, "SELECT sp.id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", t, space)
+	v, e := row(r.Context(), s.DB, "SELECT sp.id,sp.workspace_id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", t, space)
 	if e == nil {
 		send(w, 200, v)
 	}
@@ -69,8 +69,8 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	out := Row{"tenant": profile}
 	for _, spec := range []struct{ key, action, query, space, app string }{
-		{"spaces", "space.read", "FROM spaces sp WHERE sp.tenant_id=? AND sp.state<>'archived'", "sp.id", ""},
-		{"apps", "app.read", "FROM apps a WHERE a.tenant_id=? AND a.state<>'archived'", "a.space_id", "a.id"},
+		{"spaces", "space.read", "FROM spaces sp WHERE sp.tenant_id=? AND sp.state<>'archived' AND sp.workspace_id IS NULL", "sp.id", ""},
+		{"apps", "app.read", "FROM apps a WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)", "a.space_id", "a.id"},
 		{"microapps", "microapp.read", "FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND m.state<>'archived'", "a.space_id", "m.app_id"},
 	} {
 		filter, args := scopeSQL(caps[spec.action], spec.space, spec.app)
@@ -83,7 +83,7 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	filter, args := scopeSQL(caps["app.read"], "a.space_id", "a.id")
 	args = append([]any{t}, args...)
-	recent, e := rows(r.Context(), s.DB, "SELECT a.id,a.space_id,a.display_name,a.state,sp.display_name AS space_name FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
+	recent, e := rows(r.Context(), s.DB, "SELECT a.id,a.space_id,a.display_name,a.state,sp.display_name AS space_name FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
 	if e != nil {
 		return e
 	}

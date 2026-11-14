@@ -66,6 +66,12 @@ func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Princip
 		if e = checkRevision(integer(v["revision"]), rev); e != nil {
 			return e
 		}
+		workspace := false
+		var wid sql.NullString
+		if e = tx.QueryRowContext(r.Context(), "SELECT workspace_id FROM spaces WHERE id=?", v["space_id"]).Scan(&wid); e != nil {
+			return e
+		}
+		workspace = wid.Valid
 		old, e := accessOf(v)
 		if e != nil {
 			return e
@@ -78,7 +84,7 @@ func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Princip
 			u, _ := url.Parse(in.Origin)
 			admin, _ := url.Parse(s.Config.PublicURL)
 			loopback := u != nil && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
-			if !validOrigin(in.Origin, false) || u == nil || len(in.Origin) > 500 || u.Scheme != "https" && !(s.Config.Development && loopback) || u.Hostname() != strings.ToLower(u.Hostname()) || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(admin.Hostname(), ".")) {
+			if !validOrigin(in.Origin, false) || u == nil || len(in.Origin) > 500 || u.Scheme != "https" && !((s.Config.Development || workspace) && loopback) || u.Hostname() != strings.ToLower(u.Hostname()) || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(admin.Hostname(), ".")) {
 				return bad("App origin must use a separate host from the console.")
 			}
 		}
@@ -120,7 +126,7 @@ func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Princip
 			}
 		}
 		host := ""
-		if in.Origin != "" {
+		if in.Origin != "" && !workspace {
 			parsed, _ := url.Parse(in.Origin)
 			host = strings.ToLower(parsed.Hostname())
 			var occupied int
@@ -163,6 +169,9 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	if v["state"] != "active" {
 		return missing()
+	}
+	if e = s.workspaceGuard(r.Context(), s.DB, p, str(v["space_id"])); e != nil {
+		return e
 	}
 	if e = s.member(r.Context(), s.DB, p, str(v["tenant_id"]), true); e != nil {
 		return e
@@ -207,9 +216,12 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		return e
 	}
 	defer tx.Rollback()
-	v, e := row(r.Context(), tx, "SELECT l.* FROM sessions l JOIN sessions parent ON parent.token_hash=l.parent_hash AND parent.user_id=l.user_id AND parent.purpose='console' AND parent.state='active' AND parent.expires_at>UTC_TIMESTAMP(6) JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(in.Code))
+	v, e := row(r.Context(), tx, "SELECT l.* FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(in.Code))
 	if e != nil {
 		return problem(401, "invalid_exchange", "Launch code is invalid or expired.")
+	}
+	if e = s.appSessionParent(r.Context(), tx, v); e != nil {
+		return e
 	}
 	challenge := base64.RawURLEncoding.EncodeToString(hash(in.Verifier))
 	if subtle.ConstantTimeCompare([]byte(challenge), []byte(str(v["challenge"]))) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(str(v["nonce"]))) != 1 || r.Header.Get("Origin") != str(v["origin"]) {
@@ -220,7 +232,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	if e != nil {
 		return e
 	}
-	_, e = tx.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,expires_at) VALUES(?,?,?,'app',?,?,?,?,?,?,?)", hash(raw), v["user_id"], hash(""), v["parent_hash"], v["tenant_id"], v["space_id"], v["app_id"], v["origin"], v["origin_generation"], time.Now().Add(appTokenLifetime))
+	_, e = tx.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,'app',?,?,?,?,?,?,?,?,?)", hash(raw), v["user_id"], hash(""), v["parent_hash"], v["tenant_id"], v["space_id"], v["app_id"], v["origin"], v["origin_generation"], v["agent_grant_id"], v["agent_grant_revision"], time.Now().Add(appTokenLifetime))
 	if e != nil {
 		return e
 	}
@@ -237,9 +249,12 @@ func (s *Server) dataSession(ctx context.Context, r *http.Request) (Row, error) 
 	if raw == "" || raw == r.Header.Get("Authorization") || len(raw) > 128 {
 		return nil, problem(401, "unauthenticated", "An App bearer token is required.")
 	}
-	v, e := row(ctx, s.DB, "SELECT l.user_id,l.tenant_id,l.space_id,l.app_id,l.origin,l.origin_generation,sp.database_resource_id FROM sessions l JOIN sessions parent ON parent.token_hash=l.parent_hash AND parent.user_id=l.user_id AND parent.purpose='console' AND parent.state='active' AND parent.expires_at>UTC_TIMESTAMP(6) JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) AND (parent.auth_method='oidc' OR la.must_change_password=0)", hash(raw))
+	v, e := row(ctx, s.DB, "SELECT l.user_id,l.tenant_id,l.space_id,l.app_id,l.origin,l.origin_generation,l.parent_hash,l.agent_grant_id,l.agent_grant_revision,sp.database_resource_id FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", hash(raw))
 	if e != nil {
 		return nil, problem(401, "unauthenticated", "App session expired or revoked.")
+	}
+	if e = s.appSessionParent(ctx, s.DB, v); e != nil {
+		return nil, e
 	}
 	if r.Header.Get("Origin") != str(v["origin"]) {
 		return nil, problem(403, "invalid_origin", "App origin mismatch.")
@@ -269,8 +284,11 @@ func projectAppPermissions(ctx context.Context, tx *sql.Tx, app string, a entity
 }
 
 func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := row(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", r.PathValue("app"))
+	v, e := row(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", r.PathValue("app"))
 	if e != nil {
+		return e
+	}
+	if e = s.workspaceGuard(r.Context(), s.DB, p, str(v["space_id"])); e != nil {
 		return e
 	}
 	if e = s.member(r.Context(), s.DB, p, str(v["tenant_id"]), true); e != nil {

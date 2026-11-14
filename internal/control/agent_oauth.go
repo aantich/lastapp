@@ -305,6 +305,12 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 		switch permission {
 		case "read":
 			continue
+		case "workspaces.write", "workspaces.test":
+			action = "workspace.manage"
+		case "releases.write":
+			action = "release.manage"
+		case "production.deploy":
+			action = "production.deploy"
 		case "resources.write":
 			action = "space.manage"
 			if in.Kind == "space" {

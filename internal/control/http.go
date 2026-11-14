@@ -51,7 +51,7 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "password_policy": publicPasswordPolicy(), "role_catalog": authz.Roles()})
+		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": publicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
@@ -85,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.entityRoutes()
 	s.agentRoutes()
+	s.workspaceRoutes()
+	s.releaseRoutes()
 	s.api("GET /v1/roles/catalog", s.roleCatalog)
 	s.api("GET /v1/tenants/{tenant}/my-role-assignments", s.myRoles)
 	s.api("GET /v1/tenants/{tenant}/capabilities", s.capabilities)
@@ -180,6 +182,9 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/console/", 302) })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.serveAppHost(w, r) {
+			return
+		}
 		rid := newID()
 		r.Header.Set("X-Request-ID", rid)
 		w.Header().Set("X-Request-ID", rid)

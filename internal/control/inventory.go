@@ -47,7 +47,7 @@ func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) err
 	}
 	filter, args := scopeSQL(sc, "sp.id", "")
 	args = append([]any{tenant}, args...)
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT sp.id,sp.tenant_id,sp.slug,sp.display_name,sp.database_resource_id,sp.database_layout,sp.state,sp.revision,sp.created_at,d.database_name,d.state AS database_state,(SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND "+filter+" ORDER BY sp.created_at DESC", args...)
+	v, e := pageRows(r.Context(), s.DB, r, "SELECT sp.id,sp.tenant_id,sp.slug,sp.display_name,sp.database_resource_id,sp.database_layout,sp.state,sp.revision,sp.created_at,d.database_name,d.state AS database_state,(SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
 	if e == nil {
 		sendPage(w, r, v)
 	}
@@ -83,6 +83,13 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 		}
 		resource, layout := in.Database.Resource, in.Database.Layout
 		if resource != "" {
+			var private int
+			if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM spaces WHERE database_resource_id=? AND workspace_id IS NOT NULL", resource).Scan(&private); err != nil {
+				return err
+			}
+			if private > 0 {
+				return bad("Development storage cannot be bound to a production Space.")
+			}
 			db, e := row(r.Context(), tx, "SELECT id,layout,state FROM database_resources WHERE tenant_id=? AND id=?", tenant, resource)
 			if e != nil {
 				return e
@@ -163,10 +170,15 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error
 	}
 	filter, args := scopeSQL(sc, "a.space_id", "a.id")
 	args = append([]any{tenant}, args...)
-	query := "SELECT a.id,a.tenant_id,a.space_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
+	query := "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
 	if space := r.URL.Query().Get("space_id"); space != "" {
+		if e = s.authorize(r.Context(), s.DB, p, "app.read", Resource{Tenant: tenant, Space: space}, false); e != nil {
+			return e
+		}
 		query += " AND a.space_id=?"
 		args = append(args, space)
+	} else {
+		query += " AND sp.workspace_id IS NULL"
 	}
 	v, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY a.created_at DESC", args...)
 	if e == nil {
@@ -204,7 +216,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 		if e != nil {
 			return e
 		}
-		if e = quota(r.Context(), tx, tenant, "apps", "max_apps", policy); e != nil {
+		if e = appQuota(r.Context(), tx, tenant, space, policy, true); e != nil {
 			return e
 		}
 		if in.Compute == "dedicated" && integer(policy["allow_dedicated_compute"]) != 1 {
@@ -234,8 +246,13 @@ func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) 
 	args = append([]any{tenant}, args...)
 	query := "SELECT m.id,m.tenant_id,m.app_id,m.slug,m.display_name,m.artifact_ref,m.navigation_order,m.state,m.revision,m.created_at,a.display_name AS app_name,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
 	if app := r.URL.Query().Get("app_id"); app != "" {
+		if e = s.authorize(r.Context(), s.DB, p, "microapp.read", Resource{Tenant: tenant, App: app}, false); e != nil {
+			return e
+		}
 		query += " AND m.app_id=?"
 		args = append(args, app)
+	} else {
+		query += " AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)"
 	}
 	v, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
 	if e == nil {
@@ -359,7 +376,12 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 				if e != nil {
 					return e
 				}
-				if e = quota(r.Context(), tx, res.Tenant, table, "max_"+table, policy); e != nil {
+				if table == "apps" {
+					e = appQuota(r.Context(), tx, res.Tenant, res.Space, policy, false)
+				} else {
+					e = quota(r.Context(), tx, res.Tenant, table, "max_"+table, policy)
+				}
+				if e != nil {
 					return e
 				}
 			}

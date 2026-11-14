@@ -1,5 +1,94 @@
 # Lastapp verification
 
+## Follow-up workspace/release review fixes — 14 November 2026
+
+All four findings from the next review are fixed:
+
+- Undeployed release inspection uses the shared workspace ownership/delegation
+  guard. Another human manager or another grant for the same human cannot read
+  private snapshots through the API/MCP. Only successful deployments expose a
+  snapshot as authorized production history, which remains inspectable after
+  workspace archive without opening its private backing Space.
+- Preview activation validates the settled Space snapshot and identity mappings
+  inside the same locked mutation transaction that selects the client release.
+  The regression observes the actual preview request waiting on the Tenant lock,
+  commits a concurrent role change and verifies rejection without client changes.
+- Startup rejects console hostnames equal to or below the App base hostname,
+  including case/trailing-dot/port variations and UUID-shaped console names.
+  Startup and static routing use one shared hostname namespace definition.
+- Workspace App creation/restoration share one quota check. Development uses
+  its metadata cap; production creation/restoration and deployment retain the
+  subscription quota. The console explains this distinction without copying
+  backend limits. Current workspace/MCP guides and runtime agent context agree.
+
+Executed checks:
+
+- Full backend race/security suite using both local fixture configurations:
+  `go test -race -count=1 ./...` **PASS**, control package **160.511 seconds**.
+- Focused new regressions with race detection: **PASS**, **10.005 seconds**.
+  Coverage includes private API/MCP reads, completed versus queued/failed release
+  history, archived workspaces, real concurrent preview mutation, separate quota
+  limits, restoration at the workspace cap and deployment quota rejection.
+- Full Chrome final rerun: **28/28 PASS (1.9 minutes)**. The initial run passed
+  27/28; its expired-session
+  test cleared cookies while initial collection requests were still starting.
+  The UI correctly returned to login before the test clicked Sign out. The
+  isolated unchanged test then passed. Its setup now waits for the collection
+  and opens the menu before expiry, and asserts the actual logout 401 response;
+  that check passes in the complete final rerun.
+- Console TypeScript/Vite build, `go vet ./...`, canonical schema parity,
+  `git diff --check`, **42 pinned driver files** and **23 current-guide local
+  links**: **PASS**. Desktop/mobile workspace-create screenshots were inspected;
+  the new browser flow verifies successful development App creation at full
+  production capacity with unchanged production inventory and no mobile overflow.
+- Local service rebuilt/restarted, registry remains at migration 12; `/readyz`
+  returns **ready**. Existing local data and keys are preserved. No commit/push.
+
+Local MariaDB and installed Chrome were used; no remote SaaS deployment or native
+Codex/Claude connection was exercised. Logs are retained in ignored
+`.local/review-pass2/`, including the initial browser failure and its reruns.
+
+## Workspace/release review fixes — 14 November 2026
+
+All five reported findings are fixed. Release storage publications now stop at
+`prepared`; role states, entity versions/ACL projections, App policies and client
+selection commit together. Physical version checks deny old runtime snapshots
+across activation. Failure rolls back live registry authority, clears pending
+versions and restores only verified compatible gates. Gate opening is idempotent
+across a process loss before registry commit.
+
+Published ACL references to subsequently disabled users/teams copy into a
+workspace without authorizing those recipients; ordinary authoring still rejects
+new inactive recipients. App host routing canonicalizes default ports and keeps
+the static hostname namespace separate from management for alternate port forms.
+The shared App deployment-status operation restores UI/MCP context after a lost
+response or reload; transient UI polling errors retry automatically.
+
+Executed against the final implementation:
+
+- Complete backend race/security suite with both local fixture configurations:
+  `go test -race -count=1 ./...` **PASS**; control package **164.072 seconds**.
+  This includes role-reactivation/removal ordering, inactive user/team baselines,
+  lost-build failure, activation-transaction failure, old API restoration,
+  interrupted gate opening/restart, status authorization and cross-agent denial.
+- Full Chrome suite: **27 passed (1.8 minutes)**. A real local React build is
+  uploaded, previewed against isolated data and deployed to production. Status
+  survives reload; an injected 503 is retried without user action; failed jobs
+  remain visible after reload. Desktop/mobile screenshots were inspected and
+  the mobile viewport has no horizontal overflow.
+- Console TypeScript/Vite build, `go vet ./...`, canonical schema parity,
+  `git diff --check` and all **42 pinned driver files**: **PASS**.
+- Local service rebuilt/restarted with registry migration 12; `/readyz`: **ready**.
+  Existing local data and keys preserved. Changes remain uncommitted.
+
+The initial full backend pass also succeeded before the additional restart
+regression identified MariaDB's zero-changed-row retry behavior; the idempotence
+fix and the final full rerun above supersede that receipt. No alternate MariaDB
+version, remote SaaS deployment or native remote-agent session was tested.
+Compatible DDL/draft metadata can remain after deployment failure, and changed
+entity APIs can pause during preparation; no destructive rollback is provided.
+
+
 ## Agent onboarding documentation and final review — 14 November 2026
 
 AGENTS.md now directs new agents to current architecture, source contracts, API
@@ -529,3 +618,45 @@ and `.local/mcp-native-{codex,codex-dcr,claude}.log`. Schema version 7 adds the
 public client metadata table. These ignored local logs contain transient OAuth
 request state and should not be published. No native-client approval, commit,
 push or remote deployment was performed.
+
+## 14 November 2026 — isolated workspaces and static App releases
+
+Implemented the agreed remote-management/local-authoring flow: owned per-agent
+Space copies with empty managed databases, typed identity mapping, development
+PKCE sessions, authoritative React/SDK starter files and ZIP download, bounded
+immutable filesystem uploads, pinned App release manifests and durable explicit
+production preparation/activation. The console exposes Space Development and
+App Releases. Current contracts and deployment prerequisites are in WORKSPACES.md;
+AGENTS.md and CLAUDE.md reference that guide.
+
+Final validation:
+
+- `LASTAPP_TEST_CONFIG=.local/config.json LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./...` passed; control integration/security package: **143.667 seconds**.
+- All **26 Chrome scenarios passed in 1.8 minutes**. The new scenario writes the
+  returned starter files to a disposable local directory, compiles React using
+  the console's identical pinned dependency tree, uploads through the UI,
+  authenticates with real App PKCE and performs workspace CRUD. The same compiled
+  files then run on the production App host with its production App ID and an
+  empty production dataset. Desktop viewport and mobile captures were visually
+  inspected; geometry assertions cover sidebar/content alignment and overflow.
+- Integration coverage includes production-record preservation during additive
+  schema promotion, cyclic-reference baseline copying, immutable release bases,
+  workspace rebasing after success, cross-agent denial for the same user,
+  development-only authority, grant-revision session revocation, artifact path
+  confinement, upload replay and corrupt-build rejection.
+- `go vet ./...`, UI TypeScript/Vite build, generated SQL parity, driver integrity
+  (**42 unchanged pinned files**) and `git diff --check` passed. Registry migrations
+  9–11 are applied locally; the development service was rebuilt and restarted.
+
+Expanded validation found and corrected a missing build-list pagination contract
+and a reference-column ALTER operation that combined incompatible foreign-key
+and online-column steps. The existing entity browser scenario also read a draft
+revision before its asynchronous save had completed; it now waits for the actual
+successful save response. Focused reruns and the final complete suites passed.
+
+Evidence stays ignored locally: `.local/workspaces-final-go.log`,
+`.local/workspaces-final-browser.log`, `.local/workspace-focused.log` and
+`web/admin/test-results/`. These files can contain transient test authorization
+state and must not be published. Native-client remote SaaS setup, wildcard TLS,
+shared-volume replica operation, production load and object storage were not
+exercised by these local checks. No commit, push or remote deployment was made.

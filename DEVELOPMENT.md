@@ -12,6 +12,8 @@ Go service
 ├── Management API + embedded React console + management MCP
 ├── Shared identity, authorization and entity operations
 ├── Durable database provisioning / entity publication worker
+├── Owned Space workspaces + durable release deployment worker
+├── Immutable filesystem builds served on isolated App hosts
 └── App-bound data API
     ├── Central MariaDB registry: identities, inventory, roles, definitions,
     │   publication jobs, sessions and agent delegations/receipts
@@ -60,19 +62,20 @@ Client checks improve UX; they never replace server authorization or validation.
 
 | Implemented | Still planned / unavailable |
 | --- | --- |
-| Platform and Tenant consoles; local/OIDC accounts; provisioning and inventory | Generated micro-app source library, build pipeline, static publishing and runner |
+| Platform and Tenant consoles; local/OIDC accounts; provisioning and inventory | Hosted source library, remote builds, object storage and browser Node runner |
 | Shared roles, memberships and entity/record/field ACLs | App-private entity authoring, cross-Space relationships, arbitrary joins |
 | Entity designer, draft/test/publish, safe storage evolution | Destructive schema conversions, general backfills, nested JSON queries, full-text/vector search |
 | App origin approval, PKCE browser sessions, data SDK and isolated static example | Shared micro-app UI/design package; finer isolation between micro-apps |
+| Owned workspaces, local starter/SDK, immutable static releases and explicit production deployment | Git integration, automatic merging, destructive rollback |
 | Existing-user delegated OAuth management MCP | Robot accounts and business-record tools in MCP |
 | Managed/existing MariaDB storage through the pinned driver | Additional database engines, container scheduling, connectors, billing and production operations |
 
-Arbitrary generated React/CSS, shared component versions, browser Node projects
-and possible WASM execution remain product directions. No runner currently makes
-every npm/native package compatible with a browser. Trusted and third-party Apps
-must have an explicit isolation model before hosting is added. Existing App data
-access requires separate hosts from the console and other Apps; a different port
-alone does not isolate cookies.
+Generated browser-compatible React/CSS can compile locally and publish through
+App releases. Micro-app/shared dependency versions are pinned in an immutable
+manifest. See [WORKSPACES.md](WORKSPACES.md) for the full remote-MCP → local
+build/test → isolated preview → explicit production flow. App hosts isolate the
+console and other Apps; modules compiled into the same App share its authority.
+No runner makes every Node/native npm package compatible with the browser.
 
 External integrations will need authorized server-side connection handling;
 connector implementation and identity/integration vendor selection remain open.
@@ -95,6 +98,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Agent permissions, limits and live checks | `agents.go` → `GET /v1/agent-access/config` |
 | OAuth consent, code/refresh flow and client registration | `agent_oauth.go`, `agent_clients.go` |
 | Agent context and canonical runtime documentation | `agent_context.go` → `lastapp_context`, `lastapp_describe`, `lastapp://docs/*` |
+| Static releases, coherent security activation and status recovery | `releases.go`, `deployment_worker.go`; `GET /v1/apps/{app}/deployment` |
 | Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
 | Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes |
 
@@ -178,7 +182,7 @@ testing other database versions or running driver benchmarks.
 ## Documentation maintenance
 
 The current reading path is README → this guide → FOUNDATION / ENTITY_RUNTIME /
-MCP as needed. AGENTS.md is the policy entry point; CLAUDE.md imports it. Update
+MCP / WORKSPACES as needed. AGENTS.md is the policy entry point; CLAUDE.md imports it. Update
 the relevant current guide and runtime agent documentation when behavior changes.
 Schemas, limits, catalogs and generated contracts remain code-derived; prose
 explains their purpose instead of maintaining another executable definition.
@@ -187,4 +191,4 @@ CONCEPT and the old provisioning/authorization/implementation plans preserve
 decisions and proposals. Their status banners link to current behavior. Historical
 review/verification records retain their original scope and dates. Do not revive
 superseded custom Tenant roles, table-mapping UI, a mandatory workflow DSL or
-unimplemented hosting/connector capabilities from those documents.
+unimplemented connector/runner capabilities from those documents.

@@ -58,11 +58,16 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 		return false, e
 	}
 	ctx = agentAuditContext(ctx, str(v["agent_grant_id"]), str(v["agent_client_id"]))
+	workspace, _ := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=?", v["space_id"])
+	if workspace != nil && workspace["state"] == "preparing" {
+		ctx = context.WithValue(ctx, workspaceOperationKey{}, str(workspace["id"]))
+	}
+
 	if len(cursor) > 0 {
 		*cursor[0] = str(v["tenant_id"])
 	}
 	attempt := newID()
-	if v["state"] == "queued" && str(v["agent_grant_id"]) != "" {
+	if v["state"] == "queued" && (str(v["agent_grant_id"]) != "" || workspace != nil || v["deployment_id"] != nil) {
 		tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if err != nil {
 			return true, err
@@ -72,7 +77,31 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 		if err = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", v["tenant_id"]).Scan(&locked); err != nil {
 			return true, err
 		}
-		denied := s.agentJobAllowed(ctx, tx, str(v["agent_grant_id"]), str(v["created_by"]), Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, "entities.publish")
+		permission := "entities.publish"
+		if v["deployment_id"] != nil {
+			permission = "production.deploy"
+		}
+		denied := s.agentJobAllowed(ctx, tx, str(v["agent_grant_id"]), str(v["created_by"]), Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, permission)
+		if denied == nil && v["deployment_id"] != nil {
+			job, err := row(ctx, tx, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", v["deployment_id"])
+			denied = err
+			if denied == nil {
+				_, denied = s.deploymentPrincipal(ctx, tx, job)
+			}
+		}
+		if denied == nil && workspace != nil {
+			actor := Principal{ID: str(workspace["owner_user_id"])}
+			if str(workspace["owner_agent_grant_id"]) != "" {
+				actor.Agent, denied = s.readAgentGrant(ctx, tx, str(workspace["owner_agent_grant_id"]))
+				if denied == nil {
+					denied = requireAgent(actor.Agent, "workspaces.write")
+				}
+			}
+			if denied == nil {
+				denied = s.workspaceOwner(ctx, tx, actor, workspace)
+			}
+		}
+
 		if denied != nil {
 			var ae *APIError
 			if !errors.As(denied, &ae) {
@@ -260,7 +289,9 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 			if n == 0 {
 				clauses := []string{"ADD COLUMN " + data.FieldColumn(f.Key) + " " + data.Type(f) + data.Nullability(f)}
 				for _, idx := range data.Indexes(f, d) {
-					clauses = append(clauses, "ADD "+idx)
+					if !strings.HasPrefix(idx, "FOREIGN KEY") {
+						clauses = append(clauses, "ADD "+idx)
+					}
 				}
 				if _, e = conn.ExecContext(ctx, "ALTER TABLE "+data.Table(entityID)+" "+strings.Join(clauses, ",")+", ALGORITHM=INPLACE, LOCK=NONE"); e != nil {
 					return e
@@ -331,6 +362,9 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 			}
 		}
 	}
+	if e = ensureReferenceConstraints(ctx, conn, entityID, d); e != nil {
+		return e
+	}
 	if e = verifyEntityColumns(ctx, conn, entityID, d); e != nil {
 		return e
 	}
@@ -344,43 +378,33 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	if e = rt.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&lockedTenant); e != nil {
 		return e
 	}
-	current, e := row(ctx, rt, "SELECT e.*,v.attempt_id FROM entity_definitions e JOIN entity_versions v ON v.id=? WHERE e.id=? FOR UPDATE", version, entityID)
-	if e != nil {
+	if v["deployment_id"] != nil {
+		job, err := row(ctx, rt, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", v["deployment_id"])
+		if err != nil {
+			return err
+		}
+		if _, err = s.deploymentPrincipal(ctx, rt, job); err != nil {
+			return err
+		}
+		// Storage is ready, but live roles, ACLs and App policies must switch
+		// together. Keep the old registry version and the local gate closed.
+		result, err := rt.ExecContext(ctx, "UPDATE entity_versions SET state='prepared',error_message=NULL WHERE id=? AND attempt_id=? AND state='publishing'", version, attempt)
+		if err != nil {
+			return err
+		}
+		if n, _ := result.RowsAffected(); n != 1 {
+			return conflict("Publication attempt superseded.")
+		}
+		return rt.Commit()
+	}
+	if e = s.activateEntityVersion(ctx, rt, v, d); e != nil {
 		return e
-	}
-	if str(current["attempt_id"]) != attempt {
-		return conflict("Publication attempt superseded.")
-	}
-	if str(current["active_version_id"]) != version {
-		if str(current["active_version_id"]) != str(v["base_version_id"]) || str(current["pending_version_id"]) != version {
-			return conflict("Publication base changed; review again.")
-		}
-		if e = s.authorize(ctx, rt, Principal{ID: str(v["created_by"])}, "entity.publish", Resource{Tenant: tenant, Space: space}, true); e != nil {
-			return e
-		}
-		if e = s.validateEntityRefs(ctx, rt, d, Row{"tenant_id": tenant, "space_id": space, "id": entityID}); e != nil {
-			return e
-		}
-		if e = s.projectPermissions(ctx, rt, v, d); e != nil {
-			return e
-		}
-		if _, e = rt.ExecContext(ctx, "UPDATE entity_definitions SET active_version_id=?,revision=revision+1 WHERE id=?", version, entityID); e != nil {
-			return e
-		}
-		if e = audit(ctx, rt, tenant, str(v["created_by"]), "entity.published", "entity", entityID, newID(), Row{"version": version, "hash": entity.Hash(d)}); e != nil {
-			return e
-		}
 	}
 	if e = rt.Commit(); e != nil {
 		return e
 	}
-	result, e := conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", version, plan.FieldsHash, entityID, attempt)
-	if e != nil {
+	if e = openPublicationGate(ctx, conn, v, plan.FieldsHash); e != nil {
 		return e
-	}
-	n, _ := result.RowsAffected()
-	if n != 1 {
-		return conflict("Storage publication fence changed.")
 	}
 	done, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
@@ -394,6 +418,25 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 		return e
 	}
 	return done.Commit()
+}
+
+func openPublicationGate(ctx context.Context, q Queryer, v Row, layoutHash string) error {
+	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v["id"], layoutHash, v["entity_id"], v["attempt_id"])
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		// A deployment can restart after opening storage but before its registry
+		// transaction commits. MariaDB reports zero changed rows on that retry.
+		var matched int
+		if err = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM _lastapp_entity_state WHERE entity_id=? AND attempt_id=? AND version_id=? AND layout_hash=? AND gate_open=1", v["entity_id"], v["attempt_id"], v["id"], layoutHash).Scan(&matched); err != nil {
+			return err
+		}
+		if matched != 1 {
+			return conflict("Storage publication fence changed.")
+		}
+	}
+	return nil
 }
 func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) error {
 	names := []string{"_lastapp_entity_state", "_lastapp_record_acl", "_lastapp_data_audit"}
@@ -520,4 +563,43 @@ func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 		return
 	}
 	conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"])
+}
+
+// activateEntityVersion changes only registry authority. Deployment workers call
+// it for every prepared entity in the same transaction as roles and App policies.
+func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v Row, d entity.Definition) error {
+	entityID, version, attempt := str(v["entity_id"]), str(v["id"]), str(v["attempt_id"])
+	tenant, space := str(v["tenant_id"]), str(v["space_id"])
+	current, e := row(ctx, tx, "SELECT e.*,v.attempt_id FROM entity_definitions e JOIN entity_versions v ON v.id=? WHERE e.id=? FOR UPDATE", version, entityID)
+	if e != nil {
+		return e
+	}
+	if str(current["attempt_id"]) != attempt {
+		return conflict("Publication attempt superseded.")
+	}
+	if str(current["active_version_id"]) != version {
+		if str(current["active_version_id"]) != str(v["base_version_id"]) || str(current["pending_version_id"]) != version {
+			return conflict("Publication base changed; review again.")
+		}
+		if e = s.authorize(ctx, tx, Principal{ID: str(v["created_by"])}, "entity.publish", Resource{Tenant: tenant, Space: space}, true); e != nil {
+			return e
+		}
+		candidates, err := s.publicationCandidates(ctx, tx, v)
+		if err != nil {
+			return err
+		}
+		if e = s.validateEntityRefsCandidates(ctx, tx, d, Row{"tenant_id": tenant, "space_id": space, "id": entityID}, candidates); e != nil {
+			return e
+		}
+		if e = s.projectPermissions(ctx, tx, v, d); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET active_version_id=?,revision=revision+1 WHERE id=?", version, entityID); e != nil {
+			return e
+		}
+		if e = audit(ctx, tx, tenant, str(v["created_by"]), "entity.published", "entity", entityID, newID(), Row{"version": version, "hash": entity.Hash(d)}); e != nil {
+			return e
+		}
+	}
+	return nil
 }
