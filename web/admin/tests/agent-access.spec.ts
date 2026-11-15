@@ -60,7 +60,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   expect(
     await page
       .locator(
-        '.agent-grant-form input:not([type="checkbox"]), .agent-grant-form select',
+        '.agent-grant-form input:not([type="checkbox"]), .agent-grant-form .select-trigger',
       )
       .evaluateAll((nodes) =>
         nodes.every((node) => node.getBoundingClientRect().height >= 36),

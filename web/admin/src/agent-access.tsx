@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
 import { RemoteSelect } from "./remote-select";
+import { Select } from "./select";
+import { NumberInput } from "./number-input";
 import { useDialogFocus } from "./appearance";
 
 type Item = Record<string, any>;
@@ -108,32 +110,31 @@ function AgentGrantForm({
           )}
           <label className="form-field">
             <span className="field-label">Access scope</span>
-            <select
+            <Select
               value={values.scope_kind}
-              onChange={(e) =>
+              onChange={(scope_kind) =>
                 setValues({
                   ...values,
-                  scope_kind: e.target.value,
+                  scope_kind,
                   scope_id: "",
                   permissions: values.permissions.filter((code) =>
-                    eligiblePermissions(e.target.value).some(
+                    eligiblePermissions(scope_kind).some(
                       (p: Item) => p.code === code,
                     ),
                   ),
                 })
               }
-            >
-              {(me.platform_admin
+              options={(me.platform_admin
                 ? ["platform"]
                 : ["tenant", "space", "app", "team"]
-              ).map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind === "tenant"
+              ).map((kind) => ({
+                value: kind,
+                label:
+                  kind === "tenant"
                     ? "Entire Tenant, including future resources"
-                    : kind[0].toUpperCase() + kind.slice(1)}
-                </option>
-              ))}
-            </select>
+                    : kind[0].toUpperCase() + kind.slice(1),
+              }))}
+            />
           </label>
           {!["tenant", "platform"].includes(values.scope_kind) &&
             values.tenant_id && (
@@ -259,18 +260,18 @@ function AgentGrantForm({
           ))}
           <label className="form-field">
             <span className="field-label">Maximum new databases</span>
-            <input
-              type="number"
+            <NumberInput
               min={1}
               max={config.max_databases}
               required
+              steppers
               value={values.limits.max_databases}
-              onChange={(e) =>
+              onChange={(n) =>
                 setValues({
                   ...values,
                   limits: {
                     ...values.limits,
-                    max_databases: Number(e.target.value),
+                    max_databases: Number(n),
                   },
                 })
               }
@@ -280,15 +281,13 @@ function AgentGrantForm({
       )}
       <label className="form-field agent-expiry">
         <span className="field-label">Access expires in days</span>
-        <input
-          type="number"
+        <NumberInput
           min={1}
           max={config.max_days}
           required
+          steppers
           value={values.days}
-          onChange={(e) =>
-            setValues({ ...values, days: Number(e.target.value) })
-          }
+          onChange={(n) => setValues({ ...values, days: Number(n) })}
         />
         <small className="muted">
           You can revoke access at any time. Closing the browser or signing out
