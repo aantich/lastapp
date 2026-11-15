@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"github.com/aantich/lastapp/internal/data"
-	"github.com/aantich/lastapp/internal/entity"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (*sql.DB, error) {
@@ -35,6 +36,7 @@ func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (
 	}
 	return s.targetDB(ctx, v, cred, str(v["database_name"]))
 }
+
 func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(), error) {
 	v, e := row(ctx, s.DB, "SELECT d.credential_generation FROM database_resources d JOIN database_targets t ON t.id=d.target_id AND t.state='active' WHERE d.id=? AND d.state='ready'", resource)
 	if e != nil {
@@ -42,6 +44,7 @@ func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(
 	}
 	return s.dataPools.Acquire(ctx, resource+":"+str(v["credential_generation"]), func() (*sql.DB, error) { return s.businessDB(ctx, resource, false) })
 }
+
 func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*string) (bool, error) {
 	last := ""
 	if len(cursor) > 0 {
@@ -165,6 +168,7 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	}
 	return true, tx.Commit()
 }
+
 func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	d, e := defOf(v["definition_json"])
 	if e != nil {
@@ -438,6 +442,7 @@ func openPublicationGate(ctx context.Context, q Queryer, v Row, layoutHash strin
 	}
 	return nil
 }
+
 func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) error {
 	names := []string{"_lastapp_entity_state", "_lastapp_record_acl", "_lastapp_data_audit"}
 	for i, name := range names {
@@ -455,6 +460,7 @@ func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) er
 	}
 	return nil
 }
+
 func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v Row, d entity.Definition) error {
 	previous, e := rows(ctx, tx, "SELECT id,state,security_hash,security_revision FROM permissions WHERE entity_id=?", v["entity_id"])
 	if e != nil {
@@ -527,6 +533,7 @@ func verifyEntityColumns(ctx context.Context, q Queryer, id string, d entity.Def
 	}
 	return nil
 }
+
 func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 	if v["base_version_id"] == nil {
 		return

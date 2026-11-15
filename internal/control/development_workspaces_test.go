@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	mariadb "github.com/aantich/go-mariadb"
+
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
@@ -26,6 +27,7 @@ func TestDevelopmentWorkspaceReleaseFlow(t *testing.T) {
 		t.Run(name, func(t *testing.T) { testDevelopmentWorkspaceReleaseFlow(t, failure) })
 	}
 }
+
 func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	s, c, _, owner, joe := foundationFixture(t)
 	s.Config.ArtifactDirectory = t.TempDir()
@@ -341,7 +343,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err = os.WriteFile(filepath.Join(s.Config.ArtifactDirectory, str(buildRow["content_hash"]), "index.html"), []byte("corrupt"), 0600); err != nil {
+				if err = os.WriteFile(filepath.Join(s.Config.ArtifactDirectory, str(buildRow["content_hash"]), "index.html"), []byte("corrupt"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

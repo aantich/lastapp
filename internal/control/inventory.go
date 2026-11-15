@@ -53,6 +53,7 @@ func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) err
 	}
 	return e
 }
+
 func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in spaceCreateInput
 	if e := decode(w, r, &in); e != nil {
@@ -162,6 +163,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	return result(w, r, s, "spaces", tenant, in.ID, 201)
 }
+
 func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	sc, e := s.scopes(r.Context(), s.DB, p, tenant, "app.read")
@@ -186,6 +188,7 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error
 	}
 	return e
 }
+
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in appCreateInput
 	if e := decode(w, r, &in); e != nil {
@@ -236,6 +239,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	return result(w, r, s, "apps", tenant, in.ID, 201)
 }
+
 func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	sc, e := s.scopes(r.Context(), s.DB, p, tenant, "microapp.read")
@@ -260,6 +264,7 @@ func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	return e
 }
+
 func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in microappCreateInput
 	if e := decode(w, r, &in); e != nil {
@@ -305,9 +310,11 @@ func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	return result(w, r, s, "microapp_installations", tenant, in.ID, 201)
 }
+
 func (s *Server) updateSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.patchInventory(w, r, p, "spaces", "space.manage", Resource{Tenant: r.PathValue("tenant"), Space: r.PathValue("id")})
 }
+
 func (s *Server) updateApp(w http.ResponseWriter, r *http.Request, p Principal) error {
 	parent, e := row(r.Context(), s.DB, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", r.PathValue("id"), r.PathValue("tenant"))
 	if e != nil {
@@ -315,6 +322,7 @@ func (s *Server) updateApp(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	return s.patchInventory(w, r, p, "apps", "app.manage", Resource{Tenant: r.PathValue("tenant"), Space: str(parent["space_id"]), App: r.PathValue("id")})
 }
+
 func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
 	parent, e := row(r.Context(), s.DB, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", r.PathValue("id"), r.PathValue("tenant"))
 	if e != nil {
@@ -322,6 +330,7 @@ func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	return s.patchInventory(w, r, p, "microapp_installations", "microapp.manage", Resource{Tenant: r.PathValue("tenant"), Space: str(parent["space_id"]), App: str(parent["app_id"])})
 }
+
 func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Principal, table, action string, res Resource) error {
 	var in metadataPatch
 	if e := decode(w, r, &in); e != nil {

@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aantich/lastapp/internal/authz"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 type Principal struct {
@@ -23,11 +24,14 @@ type Principal struct {
 	PasswordChangeRequired bool
 	Agent                  *agentGrant
 }
-type Resource struct{ Tenant, Team, Space, App string }
-type oidcAuth struct {
-	config   oauth2.Config
-	verifier *oidc.IDTokenVerifier
-}
+type (
+	Resource struct{ Tenant, Team, Space, App string }
+	oidcAuth struct {
+		config   oauth2.Config
+		verifier *oidc.IDTokenVerifier
+	}
+)
+
 type loginFlow struct {
 	ReturnOrigin           string
 	State, Nonce, Verifier string
@@ -64,6 +68,7 @@ func (s *Server) InitAuth(ctx context.Context) error {
 	s.auth = &oidcAuth{config: oauth2.Config{ClientID: s.Config.OIDCClientID, ClientSecret: s.Config.OIDCClientSecret, Endpoint: provider.Endpoint(), RedirectURL: s.Config.PublicURL + "/auth/callback", Scopes: []string{oidc.ScopeOpenID, "profile", "email"}}, verifier: provider.Verifier(&oidc.Config{ClientID: s.Config.OIDCClientID})}
 	return nil
 }
+
 func (s *Server) cookie(w http.ResponseWriter, name, value string, age int, httpOnly bool) {
 	http.SetCookie(w, &http.Cookie{Name: s.cookieName(name), Value: value, Path: "/", MaxAge: age, HttpOnly: httpOnly, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteLaxMode})
 }
@@ -87,6 +92,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.cookie(w, "lastapp_flow", base64.RawURLEncoding.EncodeToString(b), 300, true)
 	http.Redirect(w, r, s.auth.config.AuthCodeURL(flow.State, oidc.Nonce(flow.Nonce), oauth2.S256ChallengeOption(flow.Verifier)), http.StatusFound)
 }
+
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
 		writeError(w, r, problem(404, "oidc_unavailable", "Single sign-on is not configured."))
@@ -173,6 +179,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, flow.ReturnOrigin+"/console/", http.StatusFound)
 }
+
 func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, error) {
 	var p Principal
 	c, e := r.Cookie(s.cookieName("lastapp_session"))
@@ -189,6 +196,7 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 	p.Platform, e = isPlatform(ctx, s.DB, p.ID)
 	return p, e
 }
+
 func (s *Server) csrf(ctx context.Context, r *http.Request) error {
 	if !s.allowedOrigin(r.Header.Get("Origin")) {
 		return problem(403, "invalid_origin", "Request origin is not allowed.")
@@ -208,11 +216,13 @@ func (s *Server) csrf(ctx context.Context, r *http.Request) error {
 	}
 	return nil
 }
+
 func isPlatform(ctx context.Context, q Queryer, user string) (bool, error) {
 	var n int
 	e := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN roles ro ON ro.id=g.role_id AND ro.state='active' WHERE g.scope_kind='platform' AND g.domain='control' AND g.user_id=? AND g.role_id=?`, user, SuperRole).Scan(&n)
 	return n > 0, e
 }
+
 func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant string, mutating bool) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT t.state FROM tenants t JOIN tenant_memberships m ON m.tenant_id=t.id JOIN users u ON u.id=m.user_id WHERE t.id=? AND m.user_id=? AND m.state='active' AND u.state='active'", tenant, p.ID).Scan(&state)
@@ -227,6 +237,7 @@ func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant stri
 	}
 	return nil
 }
+
 func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, action string) (scopeSet, error) {
 	if p.Agent != nil {
 		if e := s.checkAgent(ctx, q, p, Resource{Tenant: tenant}, false); e != nil {
@@ -271,6 +282,7 @@ const effectiveAssignmentSQL = `SELECT g.id,g.scope_kind,g.scope_team_id,g.space
 func effectiveAssignments(ctx context.Context, q Queryer, user, tenant string) ([]Row, error) {
 	return rows(ctx, q, effectiveAssignmentSQL, user, tenant)
 }
+
 func (s *Server) effectiveScopes(ctx context.Context, q Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
 	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
@@ -319,6 +331,7 @@ func (s *Server) effectiveScopes(ctx context.Context, q Queryer, p Principal, te
 	}
 	return out, nil
 }
+
 func appendUnique(values []string, value string) []string {
 	for _, v := range values {
 		if v == value {
@@ -327,6 +340,7 @@ func appendUnique(values []string, value string) []string {
 	}
 	return append(values, value)
 }
+
 func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action string, res Resource, mutating bool) error {
 	if !controlAction(action) {
 		return problem(403, "unknown_action", "Unsupported control-plane action.")
@@ -415,6 +429,7 @@ func platformControlAction(action string, res Resource, mutating bool) bool {
 	}
 	return res.Tenant != "" && res.Team == "" && res.Space == "" && res.App == "" && (action == "membership.manage" || action == "authorization.manage")
 }
+
 func scopeSQL(sc scopeSet, spaceColumn, appColumn string) (string, []any) {
 	if sc.All {
 		return "1=1", nil
@@ -435,6 +450,7 @@ func scopeSQL(sc scopeSet, spaceColumn, appColumn string) (string, []any) {
 	}
 	return "(" + strings.Join(clauses, " OR ") + ")", args
 }
+
 func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email string) (string, error) {
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {

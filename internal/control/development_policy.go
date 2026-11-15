@@ -45,6 +45,7 @@ func appQuota(ctx context.Context, q Queryer, tenant, space string, policy Row, 
 	}
 	return nil
 }
+
 func (s *Server) snapshotAppQuota(ctx context.Context, q Queryer, tenant string, snap spaceSnapshot) error {
 	policy, e := policyFor(ctx, q, tenant)
 	if e != nil {

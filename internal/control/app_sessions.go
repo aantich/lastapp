@@ -6,30 +6,37 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/aantich/lastapp/internal/entity"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
-const appTokenLifetime = 30 * time.Minute
-const launchLifetime = 2 * time.Minute
+const (
+	appTokenLifetime = 30 * time.Minute
+	launchLifetime   = 2 * time.Minute
+)
 
-var verifierRE = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
-var pkceRE = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+var (
+	verifierRE = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+	pkceRE     = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+)
 
 func (s *Server) appRow(ctx context.Context, q Queryer, app string) (Row, error) {
 	return row(ctx, q, "SELECT * FROM apps WHERE id=?", app)
 }
+
 func accessOf(v Row) (entity.AppAccess, error) {
 	var a entity.AppAccess
 	b, _ := json.Marshal(v["data_access_json"])
 	e := json.Unmarshal(b, &a)
 	return a, e
 }
+
 func (s *Server) appAccessGet(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
 	if e != nil {
@@ -44,6 +51,7 @@ func (s *Server) appAccessGet(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	return e
 }
+
 func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in entity.AppAccess
 	if e := decode(w, r, &in); e != nil {
@@ -152,6 +160,7 @@ func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Princip
 	}
 	return s.appAccessGet(w, r, p)
 }
+
 func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		Challenge string `json:"challenge"`
@@ -199,6 +208,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 	send(w, 200, Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(launchLifetime.Seconds())})
 	return nil
 }
+
 func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Code     string `json:"code"`
@@ -244,6 +254,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	send(w, 200, Row{"access_token": raw, "expires_in": int(appTokenLifetime.Seconds()), "token_type": "Bearer"})
 	return nil
 }
+
 func (s *Server) dataSession(ctx context.Context, r *http.Request) (Row, error) {
 	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if raw == "" || raw == r.Header.Get("Authorization") || len(raw) > 128 {

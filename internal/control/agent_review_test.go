@@ -28,6 +28,7 @@ func agentSpaceFixture(t *testing.T) (*Server, testClient, Principal, string, st
 	c.want("POST", "/v1/tenants/"+tenant+"/spaces/"+space+"/apps", Row{"id": app, "slug": "review2", "display_name": "Review two", "initial_manager_user_id": p.ID}, 0, 201)
 	return s, c, p, tenant, space, app
 }
+
 func agentPublishedFixture(t *testing.T, s *Server, p Principal, tenant, space string, d entity.Definition) string {
 	t.Helper()
 	if ds := d.Validate(); len(ds) > 0 {
@@ -49,6 +50,7 @@ func agentPublishedFixture(t *testing.T, s *Server, p Principal, tenant, space s
 	}
 	return eid
 }
+
 func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	s, c, operator, _, _ := foundationFixture(t)
 	candidate := newID()
@@ -126,6 +128,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 		t.Fatal("approved assignment missing", e)
 	}
 }
+
 func agentTestJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, e := json.Marshal(v)
@@ -225,6 +228,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		}
 	}
 }
+
 func TestAgentLargeEntityCheck(t *testing.T) {
 	s, _, p, tenant, space, _ := agentSpaceFixture(t)
 	d := entity.Definition{Format: 1, Key: "large", Label: "Large", Rules: []entity.Rule{}, Permissions: []entity.Permission{}, Projection: []string{"choice_0"}}

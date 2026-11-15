@@ -15,8 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aantich/lastapp/internal/entity"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func TestAgentToolContracts(t *testing.T) {
@@ -48,7 +49,7 @@ func TestAgentToolContracts(t *testing.T) {
 		t.Fatal(e)
 	}
 	var instance any
-	encoded, _ := json.Marshal(agentEntityInput{Definition: &(entity.Templates()[2]), RequestKey: newID()})
+	encoded, _ := json.Marshal(agentEntityInput{Definition: &entity.Templates()[2], RequestKey: newID()})
 	json.Unmarshal(encoded, &instance)
 	if e = resolved.Validate(instance); e != nil {
 		t.Fatal("default/calculated expression pointers are not representable", e)
@@ -76,6 +77,7 @@ func (a agentRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone.Header.Set("Authorization", "Bearer "+a.token)
 	return http.DefaultTransport.RoundTrip(clone)
 }
+
 func TestAgentManagementMCP(t *testing.T) {
 	s, c, _, owner, joe := foundationFixture(t)
 	oc := c.as(owner)

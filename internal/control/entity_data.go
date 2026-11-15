@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/aantich/lastapp/internal/data"
-	"github.com/aantich/lastapp/internal/entity"
 	"net/http"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 type dataRuntime struct {
@@ -90,6 +91,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 	}
 }
+
 func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRuntime, error) {
 	rt := dataRuntime{session: se, permissionRevisions: map[string]int64{}}
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
@@ -163,6 +165,7 @@ func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRunti
 	}
 	return rt, nil
 }
+
 func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se Row) error {
 	path := strings.TrimPrefix(r.URL.Path, "/data/v1/")
 	if path == "schema" && r.Method == "GET" {
@@ -260,6 +263,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se Row) er
 	}
 	return missing()
 }
+
 func (rt dataRuntime) fieldExposed(k string) bool {
 	for _, p := range rt.d.Permissions {
 		if !slices.Contains(p.Fields, k) && !((k == "id" || k == "revision") && p.Operation == "read") {
@@ -278,6 +282,7 @@ func (rt dataRuntime) fieldExposed(k string) bool {
 	}
 	return false
 }
+
 func gateHas(gs []entity.Gate, id, k string, c entity.Context) bool {
 	for _, g := range gs {
 		if g.Permission == id && (slices.Contains(g.Fields, k) || k == "id" || k == "revision") {
@@ -295,6 +300,7 @@ func gateHas(gs []entity.Gate, id, k string, c entity.Context) bool {
 	}
 	return false
 }
+
 func businessRecord(d entity.Definition, raw Row) map[string]any {
 	out := map[string]any{}
 	for k, v := range raw {
@@ -320,6 +326,7 @@ func businessRecord(d entity.Definition, raw Row) map[string]any {
 	}
 	return out
 }
+
 func (rt dataRuntime) shareSQL(p entity.Permission) (string, []any) {
 	if !rt.d.Sharing {
 		return "1=0", nil
@@ -329,6 +336,7 @@ func (rt dataRuntime) shareSQL(p entity.Permission) (string, []any) {
 	s := "EXISTS(SELECT 1 FROM _lastapp_record_acl acl WHERE acl.tenant_id=r.tenant_id AND acl.space_id=r.space_id AND acl.entity_id=? AND acl.record_id=r.id AND acl.permission_id=? AND acl.security_revision=? AND ((acl.recipient_kind='user' AND acl.recipient_id=?) OR " + team + "))"
 	return s, append([]any{rt.entityID, pid, rt.permissionRevisions[pid], rt.actor.Actor}, args...)
 }
+
 func teamRecipientSQL(c entity.Context) (string, []any) {
 	keys := []string{}
 	for k := range c.Teams {
@@ -344,6 +352,7 @@ func teamRecipientSQL(c entity.Context) (string, []any) {
 	}
 	return "(acl.recipient_kind='team' AND acl.recipient_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",") + "))", args
 }
+
 func (rt dataRuntime) shared(ctx context.Context, q Queryer, record string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if !rt.d.Sharing {
@@ -363,6 +372,7 @@ func (rt dataRuntime) shared(ctx context.Context, q Queryer, record string) (map
 	}
 	return out, nil
 }
+
 func (rt dataRuntime) checkGate(ctx context.Context, q Queryer, lock bool) error {
 	suffix := ""
 	if lock {
@@ -580,6 +590,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	}
 	return nil
 }
+
 func uniqueStrings(v []string) []string {
 	out := []string{}
 	for _, k := range v {
@@ -589,6 +600,7 @@ func uniqueStrings(v []string) []string {
 	}
 	return out
 }
+
 func sortFields(v []dataSort) []string {
 	out := []string{}
 	for _, s := range v {
@@ -596,6 +608,7 @@ func sortFields(v []dataSort) []string {
 	}
 	return out
 }
+
 func cursorSQL(d entity.Definition, order []dataSort, values []any) (string, []any) {
 	parts := []string{}
 	args := []any{}
@@ -838,6 +851,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 	send(w, 200, Row{"items": out})
 	return nil
 }
+
 func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRuntime, old, next map[string]any) error {
 	refs := slices.Clone(rt.d.Fields)
 	sort.Slice(refs, func(i, j int) bool {

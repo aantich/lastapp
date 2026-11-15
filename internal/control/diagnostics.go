@@ -4,9 +4,11 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	mariadb "github.com/aantich/go-mariadb"
-	"github.com/aantich/lastapp/internal/authz"
 	"net"
+
+	mariadb "github.com/aantich/go-mariadb"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 // Never log Error(): server messages can include SQL containing credentials.

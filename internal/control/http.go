@@ -39,6 +39,7 @@ func (s *Server) api(pattern string, fn endpoint) {
 		}
 	})
 }
+
 func (s *Server) Handler() http.Handler {
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { send(w, 200, Row{"status": "ok"}) })
 	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +197,7 @@ func (s *Server) Handler() http.Handler {
 		s.mux.ServeHTTP(w, r)
 	})
 }
+
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	if !p.Platform {
@@ -214,6 +216,7 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principa
 	send(w, 200, Row{"permissions": out})
 	return nil
 }
+
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
@@ -239,6 +242,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 	send(w, 200, out)
 	return e
 }
+
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	action := "audit.read"
@@ -260,6 +264,7 @@ func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) err
 	}
 	return e
 }
+
 func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, record string, status int) error {
 	query := "SELECT id,revision FROM " + table + " WHERE id=?"
 	args := []any{record}
@@ -274,6 +279,7 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 	}
 	return e
 }
+
 func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (Row, error) {
 	query := "SELECT id,revision,state FROM " + table + " WHERE id=?"
 	args := []any{record}

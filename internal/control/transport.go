@@ -48,6 +48,7 @@ func (t secureTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	return t.base.RoundTrip(r)
 }
+
 func (s *Server) oidcClient() *http.Client {
 	c := &http.Client{Timeout: 10 * time.Second}
 	if !s.Config.Development {
@@ -61,9 +62,11 @@ func (s *Server) oidcClient() *http.Client {
 	}
 	return c
 }
+
 func (s *Server) allowedOrigin(origin string) bool {
 	return origin == s.Config.PublicURL || (s.Config.Development && s.Config.DevelopmentUIOrigin != "" && origin == s.Config.DevelopmentUIOrigin)
 }
+
 func (s *Server) cookieName(name string) string {
 	if strings.HasPrefix(s.Config.PublicURL, "https://") {
 		return "__Host-" + name

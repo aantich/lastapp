@@ -114,6 +114,7 @@ func TestAgentLargeEntityResponse(t *testing.T) {
 		t.Fatal("large committed write could not be replayed", err)
 	}
 }
+
 func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	s, c, p, tenant, allowed, _ := agentSecurityFixture(t)
 	resource, space, team := newID(), newID(), newID()
@@ -229,6 +230,7 @@ func agentFixtureToken(t *testing.T, s *Server, p Principal) string {
 	}
 	return access
 }
+
 func TestAgentTokenRevisionBinding(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
 	access := agentFixtureToken(t, s, p)
@@ -254,6 +256,7 @@ func TestAgentTokenRevisionBinding(t *testing.T) {
 		t.Fatal("old token upgraded to changed grant")
 	}
 }
+
 func TestAgentBootstrapIsolation(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
 	access := agentFixtureToken(t, s, p)
@@ -305,6 +308,7 @@ func TestAgentBootstrapIsolation(t *testing.T) {
 		t.Fatal("anonymous admission budget was not bounded", w.Code)
 	}
 }
+
 func TestAgentPreauthenticationAdmission(t *testing.T) {
 	// No database: these denied requests must never reach token lookup.
 	s := &Server{agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
@@ -329,6 +333,7 @@ func TestAgentPreauthenticationAdmission(t *testing.T) {
 		t.Fatal("invalid bearer rate admission was not enforced before database work")
 	}
 }
+
 func TestAgentUnapprovedClientRetention(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
 	ctx := context.Background()

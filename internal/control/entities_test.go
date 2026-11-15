@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/aantich/lastapp/internal/data"
-	"github.com/aantich/lastapp/internal/entity"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func TestEntityRuntime(t *testing.T) {

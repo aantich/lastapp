@@ -38,6 +38,7 @@ func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 		t.Fatal("tampering accepted")
 	}
 }
+
 func TestRequestValidation(t *testing.T) {
 	for _, body := range []string{`{"unknown":1}`, `{} {}`, `{`} {
 		r := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))

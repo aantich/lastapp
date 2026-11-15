@@ -5,10 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/aantich/lastapp/internal/entity"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func Table(id string) string      { return "`le_" + strings.ReplaceAll(id, "-", "") + "`" }
@@ -31,12 +32,14 @@ func Type(f entity.Field) string {
 		return "VARCHAR(160) COLLATE utf8mb4_nopad_bin"
 	}
 }
+
 func CreateSQL(id, marker string, d entity.Definition) string { return createSQL(id, marker, d, true) }
 
 // SkeletonSQL prepares an empty batch before cyclic foreign keys can be installed.
 func SkeletonSQL(id, marker string, d entity.Definition) string {
 	return createSQL(id, marker, d, false)
 }
+
 func createSQL(id, marker string, d entity.Definition, references bool) string {
 	cols := []string{"`id` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`tenant_id` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`space_id` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`revision` BIGINT UNSIGNED NOT NULL DEFAULT 1", "`created_at` VARCHAR(32) NOT NULL", "`updated_at` VARCHAR(32) NOT NULL", "`created_by` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "`updated_by` CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL", "PRIMARY KEY (`tenant_id`,`space_id`,`id`)"}
 	for _, f := range d.Fields {
@@ -49,6 +52,7 @@ func createSQL(id, marker string, d entity.Definition, references bool) string {
 	}
 	return "CREATE TABLE " + Table(id) + " (" + strings.Join(cols, ",") + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_nopad_bin COMMENT='" + marker + "'"
 }
+
 func Indexes(f entity.Field, d entity.Definition) []string {
 	out := []string{}
 	if f.Unique != "" {
@@ -161,9 +165,11 @@ func (p *Pools) Acquire(ctx context.Context, key string, open func() (*sql.DB, e
 		return db, p.release(v), nil
 	}
 }
+
 func (p *Pools) release(v *poolEntry) func() {
 	return func() { p.mu.Lock(); v.refs--; v.used = time.Now(); p.mu.Unlock() }
 }
+
 func (p *Pools) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

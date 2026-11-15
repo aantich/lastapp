@@ -2,12 +2,13 @@ package control
 
 import (
 	"context"
-	"github.com/aantich/lastapp/internal/authz"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 // The fixture owns only its new registry. Business resources below are metadata
@@ -63,6 +64,7 @@ func foundationFixture(t *testing.T) (*Server, testClient, string, string, strin
 	}
 	return s, (testClient{t: t, s: s, h: s.Handler()}).as(operator), operator, owner, joe
 }
+
 func hasAssignment(items any, role string) bool {
 	for _, v := range items.([]any) {
 		if str(v.(map[string]any)["role_id"]) == role {
@@ -71,6 +73,7 @@ func hasAssignment(items any, role string) bool {
 	}
 	return false
 }
+
 func TestAuthorizationFoundation(t *testing.T) {
 	s, c, operator, owner, joe := foundationFixture(t)
 	ownerClient, joeClient := c.as(owner), c.as(joe)

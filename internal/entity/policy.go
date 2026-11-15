@@ -2,9 +2,10 @@ package entity
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	"slices"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 func PermissionID(entity, key string) string {
@@ -52,6 +53,7 @@ func (d Definition) Activated(p Permission, c Context) bool {
 	}
 	return false
 }
+
 func includes(have, need []string) bool {
 	for _, k := range need {
 		if k == "id" || k == "revision" {
@@ -63,6 +65,7 @@ func includes(have, need []string) bool {
 	}
 	return true
 }
+
 func gateAllows(gates []Gate, id string, fields []string, c Context) bool {
 	for _, g := range gates {
 		if g.Permission != id || !includes(g.Fields, fields) || !Allows(g.When, c) {
@@ -81,9 +84,11 @@ func gateAllows(gates []Gate, id string, fields []string, c Context) bool {
 	}
 	return false
 }
+
 func (a AppAccess) Allows(id string, fields []string, c Context) bool {
 	return (a.Inherit || gateAllows(a.Ceiling, id, fields, c)) && (!a.Restricted || gateAllows(a.Restrictions, id, fields, c))
 }
+
 func (d Definition) Allowed(entity, op string, fields []string, c Context, a AppAccess, shared map[string]bool) bool {
 	c = d.Bind(c)
 	for _, p := range d.Permissions {
@@ -170,6 +175,7 @@ func (d Definition) ReadSQL(entity string, fields []string, c Context, a AppAcce
 	}
 	return "(" + strings.Join(parts, " AND ") + ")", args, nil
 }
+
 func (d Definition) gateSQL(gs []Gate, id string, fields []string, c Context) (string, []any, error) {
 	parts := []string{}
 	args := []any{}
@@ -198,6 +204,7 @@ func (d Definition) gateSQL(gs []Gate, id string, fields []string, c Context) (s
 	}
 	return "(" + strings.Join(parts, " OR ") + ")", args, nil
 }
+
 func (d Definition) activationSQL(p Permission, c Context) (string, []any) {
 	if len(p.Roles) > 0 {
 		if d.Activated(p, c) {
@@ -227,6 +234,7 @@ func (d Definition) activationSQL(p Permission, c Context) (string, []any) {
 	}
 	return "1=0", nil
 }
+
 func teamSQL(column string, teams map[string]bool) (string, []any) {
 	ks := []string{}
 	for k, v := range teams {
@@ -244,12 +252,14 @@ func teamSQL(column string, teams map[string]bool) (string, []any) {
 	}
 	return column + " IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ks)), ",") + ")", args
 }
+
 func Column(k string) string {
 	if slices.Contains(reserved, k) {
 		return "r.`" + k + "`"
 	}
 	return "r.`f_" + k + "`"
 }
+
 func (d Definition) ExprSQL(x *Expr, c Context) (string, []any, error) {
 	if x == nil {
 		return "1=1", nil, nil

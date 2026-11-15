@@ -24,15 +24,18 @@ import (
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
+	"github.com/google/uuid"
+	"github.com/pressly/goose/v3"
+
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
-	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 )
 
-const SuperRole = authz.SuperRole
-const TenantAdminRole = authz.TenantAdminRole
+const (
+	SuperRole       = authz.SuperRole
+	TenantAdminRole = authz.TenantAdminRole
+)
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
@@ -86,11 +89,13 @@ type Queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
-type Row map[string]any
-type APIError struct {
-	Status        int
-	Code, Message string
-}
+type (
+	Row      map[string]any
+	APIError struct {
+		Status        int
+		Code, Message string
+	}
+)
 
 func (e *APIError) Error() string                { return e.Code + ": " + e.Message }
 func problem(status int, code, msg string) error { return &APIError{status, code, msg} }
@@ -107,6 +112,7 @@ func LoadConfig(path string) (Config, error) {
 	e = json.Unmarshal(b, &c)
 	return c, e
 }
+
 func Open(c Config) (*Server, error) {
 	if c.WorkspaceDatabaseTarget != "" && id(c.WorkspaceDatabaseTarget) != nil {
 		return nil, fmt.Errorf("invalid workspace_database_target_id")
@@ -197,6 +203,7 @@ func Open(c Config) (*Server, error) {
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	return s, nil
 }
+
 func Migrate(ctx context.Context, db *sql.DB) error {
 	goose.SetBaseFS(migrationFiles)
 	if e := goose.SetDialect("mysql"); e != nil {
@@ -207,6 +214,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	return seedControlCatalog(ctx, db)
 }
+
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
 	if e != nil || v != 12 {
@@ -217,6 +225,7 @@ func CheckSchema(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
 func id(v string) error {
 	parsed, e := uuid.Parse(v)
 	if e != nil || parsed.String() != v || parsed == uuid.Nil {
@@ -237,9 +246,11 @@ func named(slug, name string) error {
 	}
 	return nil
 }
+
 func validState(state string) bool {
 	return state == "active" || state == "suspended" || state == "archived"
 }
+
 func token(n int) string {
 	b := make([]byte, n)
 	if _, e := rand.Read(b); e != nil {
@@ -247,12 +258,14 @@ func token(n int) string {
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
 func (s *Server) encryptionKeyID() string {
 	if s.Config.EncryptionKeyID != "" {
 		return s.Config.EncryptionKeyID
 	}
 	return "primary-v1"
 }
+
 func (s *Server) seal(purpose, record, tenant string, value any) ([]byte, error) {
 	b, e := json.Marshal(value)
 	if e != nil {
@@ -269,6 +282,7 @@ func (s *Server) seal(purpose, record, tenant string, value any) ([]byte, error)
 		Nonce, Data []byte
 	}{1, s.encryptionKeyID(), nonce, out})
 }
+
 func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) error {
 	var env struct {
 		Version     int    `json:"v"`
@@ -287,6 +301,7 @@ func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) er
 	}
 	return json.Unmarshal(b, out)
 }
+
 func rows(ctx context.Context, q Queryer, query string, args ...any) ([]Row, error) {
 	r, e := q.QueryContext(ctx, query, args...)
 	if e != nil {
@@ -329,6 +344,7 @@ func rows(ctx context.Context, q Queryer, query string, args ...any) ([]Row, err
 	}
 	return out, r.Err()
 }
+
 func row(ctx context.Context, q Queryer, query string, args ...any) (Row, error) {
 	rs, e := rows(ctx, q, query, args...)
 	if e != nil {
@@ -339,12 +355,14 @@ func row(ctx context.Context, q Queryer, query string, args ...any) (Row, error)
 	}
 	return rs[0], nil
 }
+
 func str(v any) string {
 	if v == nil {
 		return ""
 	}
 	return fmt.Sprint(v)
 }
+
 func integer(v any) int64 {
 	switch n := v.(type) {
 	case bool:
@@ -366,6 +384,7 @@ func integer(v any) int64 {
 		return i
 	}
 }
+
 func decode(w http.ResponseWriter, r *http.Request, out any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	d := json.NewDecoder(r.Body)
@@ -379,11 +398,13 @@ func decode(w http.ResponseWriter, r *http.Request, out any) error {
 	}
 	return nil
 }
+
 func send(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(value)
 }
+
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var ae *APIError
 	var ed entity.Diagnostic
@@ -426,6 +447,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	send(w, ae.Status, Row{"error": payload})
 }
+
 func expectedRevision(r *http.Request) (int64, error) {
 	v := strings.Trim(r.Header.Get("If-Match"), `"`)
 	n, e := strconv.ParseInt(v, 10, 64)
@@ -434,12 +456,14 @@ func expectedRevision(r *http.Request) (int64, error) {
 	}
 	return n, nil
 }
+
 func checkRevision(got, want int64) error {
 	if got != want {
 		return problem(412, "stale_revision", "This resource changed. Refresh before saving.")
 	}
 	return nil
 }
+
 func audit(ctx context.Context, q Queryer, tenant, user, action, kind, record, request string, details any) error {
 	identity, _ := ctx.Value(agentAuditKey{}).(agentAuditIdentity)
 	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
@@ -452,12 +476,14 @@ func audit(ctx context.Context, q Queryer, tenant, user, action, kind, record, r
 	_, e := q.ExecContext(ctx, "INSERT INTO audit_events (tenant_id,actor_user_id,action,resource_type,resource_id,request_id,details_json) VALUES (?,?,?,?,?,?,?)", nullable(tenant), nullable(user), action, kind, nullable(record), request, string(b))
 	return e
 }
+
 func nullable(v string) any {
 	if v == "" {
 		return nil
 	}
 	return v
 }
+
 func (s *Server) mutate(ctx context.Context, p Principal, action string, res Resource, request string, fn func(*sql.Tx) error) error {
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/aantich/lastapp/internal/authz"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 type testClient struct {
@@ -44,6 +45,7 @@ func (c testClient) req(method, path string, body any, revision int64) (int, Row
 	}
 	return w.Code, out
 }
+
 func (c testClient) want(method, path string, body any, revision int64, status int) Row {
 	c.t.Helper()
 	got, v := c.req(method, path, body, revision)
@@ -52,6 +54,7 @@ func (c testClient) want(method, path string, body any, revision int64, status i
 	}
 	return v
 }
+
 func (c testClient) as(uid string) testClient {
 	c.t.Helper()
 	session, csrf := token(32), token(32)
@@ -62,6 +65,7 @@ func (c testClient) as(uid string) testClient {
 	c.session, c.csrf = session, csrf
 	return c
 }
+
 func (c testClient) waitDB(tenant, record, state string) Row {
 	c.t.Helper()
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
@@ -77,6 +81,7 @@ func (c testClient) waitDB(tenant, record, state string) Row {
 	c.t.Fatal("database status timeout")
 	return nil
 }
+
 func TestMariaDBControlPlane(t *testing.T) {
 	configPath := os.Getenv("LASTAPP_TEST_CONFIG")
 	if configPath == "" {

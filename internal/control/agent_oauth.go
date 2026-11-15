@@ -56,6 +56,7 @@ func validAgentRedirect(raw string) bool {
 	}
 	return u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
 }
+
 func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClient, error) {
 	for _, c := range s.Config.AgentClients {
 		if c.ID == key {
@@ -128,6 +129,7 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 	}
 	return c, nil
 }
+
 func publicAgentIP(raw string) bool {
 	ip := net.ParseIP(raw)
 	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
@@ -147,6 +149,7 @@ func publicAgentIP(raw string) bool {
 	}
 	return true
 }
+
 func agentRedirectMatches(allowed, got string) bool {
 	if allowed == got {
 		return true
@@ -165,6 +168,7 @@ func agentRedirectMatches(allowed, got string) bool {
 	b.Host = b.Hostname()
 	return a.String() == b.String()
 }
+
 func agentScopeNames(raw string) ([]string, error) {
 	out := strings.Fields(raw)
 	if len(out) == 0 {
@@ -185,6 +189,7 @@ func agentScopeNames(raw string) ([]string, error) {
 	out = slices.Compact(out)
 	return out, nil
 }
+
 func (s *Server) agentAuthorize(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -354,6 +359,7 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 	}
 	return nil
 }
+
 func (s *Server) agentConsentInfo(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := row(r.Context(), s.DB, "SELECT id,client_name,client_id,redirect_uri,scopes,expires_at,resource_uri FROM agent_oauth_requests WHERE id=? AND resource_uri=? AND consumed=0 AND grant_id IS NULL AND expires_at>UTC_TIMESTAMP(6)", r.PathValue("request"), s.mcpURL())
 	if e != nil {
@@ -366,6 +372,7 @@ func (s *Server) agentConsentInfo(w http.ResponseWriter, r *http.Request, p Prin
 	send(w, 200, v)
 	return nil
 }
+
 func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in agentConsentInput
 	if e := decode(w, r, &in); e != nil {
@@ -433,6 +440,7 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p Principa
 	send(w, 200, Row{"redirect_url": target.String()})
 	return nil
 }
+
 func (s *Server) agentGrantList(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.URL.Query().Get("tenant_id")
 	filter := "g.user_id=?"
@@ -455,6 +463,7 @@ func (s *Server) agentGrantList(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	return e
 }
+
 func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in agentConsentInput
 	if e := decode(w, r, &in); e != nil {
@@ -521,9 +530,11 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 	send(w, 200, Row{"id": g.ID, "revision": rev + 1})
 	return nil
 }
+
 func oauthError(w http.ResponseWriter, code string) {
 	send(w, 400, Row{"error": code, "error_description": "OAuth request rejected. Reconnect through Lastapp if necessary."})
 }
+
 func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -629,6 +640,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 200, Row{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
 }
+
 func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()

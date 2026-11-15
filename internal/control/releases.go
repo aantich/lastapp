@@ -32,8 +32,10 @@ type deploymentPlan struct {
 	Versions map[string]string `json:"versions"`
 }
 
-var pinnedNameRE = regexp.MustCompile(`^[a-zA-Z0-9@][a-zA-Z0-9._/@-]{0,159}$`)
-var pinnedVersionRE = regexp.MustCompile(`^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|sha256:[a-f0-9]{64})$`)
+var (
+	pinnedNameRE    = regexp.MustCompile(`^[a-zA-Z0-9@][a-zA-Z0-9._/@-]{0,159}$`)
+	pinnedVersionRE = regexp.MustCompile(`^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|sha256:[a-f0-9]{64})$`)
+)
 
 func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in releaseCreateInput
@@ -98,7 +100,6 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 			if len(name) > 160 || !pinnedNameRE.MatchString(name) || !pinnedVersionRE.MatchString(version) {
 				return bad("Dependencies require bounded package names and exact versions (no ranges or latest).")
 			}
-
 		}
 		// Complete mappings are allocated once and survive later release captures.
 		ids := map[string]string{}
@@ -131,6 +132,7 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 	r.SetPathValue("release", record)
 	return s.releaseGet(w, r, p)
 }
+
 func (s *Server) releaseList(w http.ResponseWriter, r *http.Request, p Principal) error {
 	a, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
 	if e != nil {
@@ -145,6 +147,7 @@ func (s *Server) releaseList(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	return e
 }
+
 func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id string) (Row, error) {
 	v, e := row(ctx, q, "SELECT rel.*,ws.production_space_id,ws.backing_space_id,ws.owner_user_id,ws.owner_agent_grant_id,wi.production_id AS production_app_id FROM app_releases rel JOIN development_workspaces ws ON ws.id=rel.workspace_id JOIN workspace_items wi ON wi.workspace_id=ws.id AND wi.kind='app' AND wi.development_id=rel.app_id WHERE rel.id=?", id)
 	if e != nil {
@@ -166,6 +169,7 @@ func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id stri
 	}
 	return v, nil
 }
+
 func (s *Server) releaseGet(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.releaseRow(r.Context(), s.DB, p, r.PathValue("release"))
 	if e != nil {
@@ -176,6 +180,7 @@ func (s *Server) releaseGet(w http.ResponseWriter, r *http.Request, p Principal)
 	send(w, 200, v)
 	return nil
 }
+
 func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Principal) error {
 	rel, e := s.releaseRow(r.Context(), s.DB, p, r.PathValue("release"))
 	if e != nil {
@@ -239,6 +244,7 @@ func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Princi
 	send(w, 200, Row{"id": rel["id"], "url": origin + "/"})
 	return nil
 }
+
 func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal, res Resource) error {
 	var active int
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE tenant_id=? AND id=? AND state='active' AND workspace_id IS NULL", res.Tenant, res.Space).Scan(&active); e != nil {
@@ -259,6 +265,7 @@ func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal
 	}
 	return nil
 }
+
 func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p Principal) error {
 	rel, e := s.releaseRow(r.Context(), s.DB, p, r.PathValue("release"))
 	if e != nil {
@@ -343,6 +350,7 @@ func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p Princip
 	send(w, 202, Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."})
 	return nil
 }
+
 func (s *Server) deploymentGet(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := row(r.Context(), s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", r.PathValue("deployment"))
 	if e != nil {

@@ -32,7 +32,9 @@ func random() string {
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
 func encode(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
+
 func main() {
 	address := flag.String("address", "127.0.0.1:8788", "loopback address")
 	origin := flag.String("app-origin", "http://127.0.0.1:8787", "allowed Lastapp origin")

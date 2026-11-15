@@ -18,6 +18,7 @@ func decodeDeployment(v Row) (deploymentPlan, error) {
 	}
 	return plan, e
 }
+
 func (s *Server) deploymentPrincipal(ctx context.Context, q Queryer, v Row) (Principal, error) {
 	p := Principal{ID: str(v["created_by"])}
 	if str(v["agent_grant_id"]) != "" {
@@ -32,6 +33,7 @@ func (s *Server) deploymentPrincipal(ctx context.Context, q Queryer, v Row) (Pri
 	}
 	return p, s.deploymentAuthority(ctx, q, p, Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])})
 }
+
 func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 	jobs, e := rows(ctx, q, "SELECT d.*,sp.database_resource_id FROM release_deployments d JOIN spaces sp ON sp.id=d.space_id WHERE d.state IN ('queued','preparing','publishing') ORDER BY d.created_at LIMIT 1")
 	if e != nil || len(jobs) == 0 {
@@ -290,6 +292,7 @@ func (s *Server) failDeployment(ctx context.Context, job Row, message string) er
 	}
 	return nil
 }
+
 func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, space string, snapshot spaceSnapshot, activate bool) error {
 	if e := s.snapshotAppQuota(ctx, tx, tenant, snapshot); e != nil {
 		return e

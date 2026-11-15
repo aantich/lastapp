@@ -16,10 +16,12 @@ import (
 	"unicode"
 )
 
-const MaxBytes = 16 << 20
-const MaxFileBytes = 8 << 20
-const MaxFiles = 512
-const MaxBody = 24 << 20
+const (
+	MaxBytes     = 16 << 20
+	MaxFileBytes = 8 << 20
+	MaxFiles     = 512
+	MaxBody      = 24 << 20
+)
 
 var Limits = map[string]int{"max_bytes": MaxBytes, "max_file_bytes": MaxFileBytes, "max_files": MaxFiles, "max_body_bytes": MaxBody}
 
@@ -55,6 +57,7 @@ func ValidPath(name string) bool {
 	}
 	return !strings.HasPrefix(name, "_lastapp/")
 }
+
 func Inspect(files []File, entry string) (Build, error) {
 	b := Build{Entry: entry, Files: []FileInfo{}}
 	if !ValidPath(entry) || path.Ext(entry) != ".html" || len(files) == 0 || len(files) > MaxFiles {
@@ -82,11 +85,12 @@ func Inspect(files []File, entry string) (Build, error) {
 	b.Hash = hex.EncodeToString(h[:])
 	return b, nil
 }
+
 func Store(directory string, files []File, b Build) error {
 	if directory == "" {
 		return fmt.Errorf("artifact directory not configured")
 	}
-	if e := os.MkdirAll(directory, 0700); e != nil {
+	if e := os.MkdirAll(directory, 0o700); e != nil {
 		return e
 	}
 	stage, e := os.MkdirTemp(directory, "upload-")
@@ -96,15 +100,15 @@ func Store(directory string, files []File, b Build) error {
 	defer os.RemoveAll(stage)
 	for _, f := range files {
 		dest := filepath.Join(stage, filepath.FromSlash(f.Path))
-		if e = os.MkdirAll(filepath.Dir(dest), 0700); e != nil {
+		if e = os.MkdirAll(filepath.Dir(dest), 0o700); e != nil {
 			return e
 		}
-		if e = os.WriteFile(dest, f.Content, 0600); e != nil {
+		if e = os.WriteFile(dest, f.Content, 0o600); e != nil {
 			return e
 		}
 	}
 	encoded, _ := json.Marshal(b)
-	if e = os.WriteFile(filepath.Join(stage, ".manifest.json"), encoded, 0600); e != nil {
+	if e = os.WriteFile(filepath.Join(stage, ".manifest.json"), encoded, 0o600); e != nil {
 		return e
 	}
 	dest := filepath.Join(directory, b.Hash)
@@ -118,6 +122,7 @@ func Store(directory string, files []File, b Build) error {
 	}
 	return e
 }
+
 func Read(directory, hash, name string) (io.ReadCloser, error) {
 	if len(hash) != 64 || !ValidPath(name) {
 		return nil, os.ErrNotExist

@@ -39,6 +39,7 @@ func collectionPage(values url.Values) (pageInfo, string, error) {
 	}
 	return info, search, nil
 }
+
 func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]Row, error) {
 	values := r.URL.Query()
 	info, search, e := collectionPage(values)
@@ -107,6 +108,7 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 	}
 	return v, nil
 }
+
 func sendPage(w http.ResponseWriter, r *http.Request, v []Row) {
 	info, _ := r.Context().Value(pageContextKey{}).(*pageInfo)
 	send(w, 200, Row{"items": v, "pagination": info})

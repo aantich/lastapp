@@ -310,7 +310,6 @@ func TestSecurityRegressions(t *testing.T) {
 		if e = admin.DB.QueryRow("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME IN (?,?)", "la_"+strings.ReplaceAll(ids[0], "-", ""), "la_"+strings.ReplaceAll(ids[1], "-", "")).Scan(&physical); e != nil || physical != 1 {
 			t.Fatalf("retirement released physical quota: count=%d error=%v", physical, e)
 		}
-
 	})
 	t.Run("ProductionRegistryRejectsPlaintextTCP", func(t *testing.T) {
 		production := source
@@ -322,7 +321,6 @@ func TestSecurityRegressions(t *testing.T) {
 			opened.DB.Close()
 			t.Fatal("production accepted plaintext registry TCP")
 		}
-
 	})
 	t.Run("GlobalGrantOptionRejected", func(t *testing.T) {
 		name := "rv_" + strings.ReplaceAll(newID(), "-", "")

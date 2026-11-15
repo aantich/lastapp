@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/aantich/lastapp/internal/entity"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func (s *Server) entityRoutes() {
@@ -32,6 +33,7 @@ func (s *Server) entityRoutes() {
 	s.api("POST /v1/apps/{app}/launch", s.appLaunch)
 	s.mux.HandleFunc("/data/v1/", s.dataHandler)
 }
+
 func (s *Server) entityRow(ctx context.Context, q Queryer, p Principal, key, action string) (Row, error) {
 	v, e := row(ctx, q, "SELECT * FROM entity_definitions WHERE id=?", key)
 	if e != nil {
@@ -40,6 +42,7 @@ func (s *Server) entityRow(ctx context.Context, q Queryer, p Principal, key, act
 	e = s.authorize(ctx, q, p, action, Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, true)
 	return v, e
 }
+
 func (s *Server) spaceForEntity(ctx context.Context, p Principal, space string) (Row, error) {
 	v, e := row(ctx, s.DB, "SELECT * FROM spaces WHERE id=? AND state='active'", space)
 	if e != nil {
@@ -48,6 +51,7 @@ func (s *Server) spaceForEntity(ctx context.Context, p Principal, space string) 
 	e = s.authorize(ctx, s.DB, p, "entity.manage", Resource{Tenant: str(v["tenant_id"]), Space: space}, true)
 	return v, e
 }
+
 func defOf(v any) (entity.Definition, error) {
 	b, e := json.Marshal(v)
 	if e != nil {
@@ -55,6 +59,7 @@ func defOf(v any) (entity.Definition, error) {
 	}
 	return entity.Decode(b)
 }
+
 func (s *Server) entityList(w http.ResponseWriter, r *http.Request, p Principal) error {
 	sp, e := s.spaceForEntity(r.Context(), p, r.PathValue("space"))
 	if e != nil {
@@ -66,6 +71,7 @@ func (s *Server) entityList(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	return e
 }
+
 func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		ID         string            `json:"id"`
@@ -111,6 +117,7 @@ func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p Principa
 	r.SetPathValue("entity", in.ID)
 	return s.entityGet(w, r, p)
 }
+
 func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.entityRow(r.Context(), s.DB, p, r.PathValue("entity"), "entity.manage")
 	if e != nil {
@@ -174,6 +181,7 @@ func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p Principal) 
 	send(w, 200, v)
 	return nil
 }
+
 func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		Definition entity.Definition `json:"definition"`
@@ -243,9 +251,11 @@ func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	return s.entityGet(w, r, p)
 }
+
 func (s *Server) validateEntityRefs(ctx context.Context, q Queryer, d entity.Definition, v Row) error {
 	return s.validateEntityRefsCandidates(ctx, q, d, v, nil)
 }
+
 func (s *Server) validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Definition, v Row, candidates map[string]bool) error {
 	tenant, space, entityID := str(v["tenant_id"]), str(v["space_id"]), str(v["id"])
 	for _, p := range d.Permissions {
@@ -299,6 +309,7 @@ func (s *Server) validateEntityRefsCandidates(ctx context.Context, q Queryer, d 
 	}
 	return nil
 }
+
 func (s *Server) entityValidate(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.entityRow(r.Context(), s.DB, p, r.PathValue("entity"), "entity.manage")
 	if e != nil {
@@ -325,6 +336,7 @@ func (s *Server) entityValidate(w http.ResponseWriter, r *http.Request, p Princi
 	send(w, 200, out)
 	return nil
 }
+
 func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Principal) error {
 	rev, e := expectedRevision(r)
 	if e != nil {
@@ -364,6 +376,7 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 	send(w, 202, Row{"id": version, "state": "queued"})
 	return nil
 }
+
 func (s *Server) entityPublication(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.entityRow(r.Context(), s.DB, p, r.PathValue("entity"), "entity.manage")
 	if e != nil {
@@ -375,6 +388,7 @@ func (s *Server) entityPublication(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	return e
 }
+
 func (s *Server) entityTest(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.entityRow(r.Context(), s.DB, p, r.PathValue("entity"), "entity.manage")
 	if e != nil {
@@ -457,6 +471,7 @@ func (s *Server) entityTest(w http.ResponseWriter, r *http.Request, p Principal)
 	send(w, 200, out)
 	return nil
 }
+
 func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error) {
 	c := entity.Context{Actor: user, Now: time.Now().UTC(), Roles: map[string]bool{}, Teams: map[string]bool{}, ReviewTeams: map[string]bool{}, AdminTeams: map[string]bool{}}
 	a := entity.AppAccess{Inherit: true}
@@ -609,6 +624,7 @@ func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principa
 	send(w, 200, response)
 	return nil
 }
+
 func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in credentials
 	if e := decode(w, r, &in); e != nil {
@@ -685,6 +701,7 @@ func entitySection(d entity.Definition, section, field string) (any, error) {
 		return nil, bad("Unknown entity section.")
 	}
 }
+
 func fieldInventory(fields []entity.Field) []Row {
 	out := []Row{}
 	for _, f := range fields {

@@ -31,6 +31,7 @@ func securitySnapshot(ctx context.Context, q Queryer, table, tenant, record stri
 	}
 	return v, nil
 }
+
 func auditChange(ctx context.Context, q Queryer, tenant, user, action, table, kind, record, request string, before Row) error {
 	after, e := securitySnapshot(ctx, q, table, tenant, record)
 	if e != nil {
