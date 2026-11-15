@@ -115,7 +115,9 @@ func (s *Server) updateMembership(w http.ResponseWriter, r *http.Request, p Prin
 		n, _ := res.RowsAffected()
 		if n == 0 {
 			var found int
-			tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=? AND user_id=?", t, u).Scan(&found)
+			if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=? AND user_id=?", t, u).Scan(&found); e != nil {
+				return e
+			}
 			if found == 0 {
 				return missing()
 			}

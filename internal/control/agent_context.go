@@ -396,9 +396,9 @@ func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMess
 		}
 		var v Row
 		if in.Resource == "role" {
-			scope, e := authzScope(res, target)
-			if e != nil {
-				return nil, e
+			scope, err := authzScope(res, target)
+			if err != nil {
+				return nil, err
 			}
 			v, e = row(ctx, s.DB, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", in.ID, scope.Kind, scope.OwnerKey())
 		} else {
