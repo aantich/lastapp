@@ -74,7 +74,9 @@ export function LoginScreen({ done }: { done: () => Promise<void> }) {
                   "lastapp-return-path",
                   location.pathname + location.search,
                 );
-              } catch {}
+              } catch {
+                // sessionStorage can be unavailable (private mode, blocked storage)
+              }
             }}
             href={
               "/auth/login?return_origin=" + encodeURIComponent(location.origin)

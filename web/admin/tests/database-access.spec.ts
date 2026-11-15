@@ -19,7 +19,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     stdio: ["pipe", "pipe", "pipe"],
   });
   await login(page);
-  const { tenant, base, outsider } = await fixtureTenant(
+  const { tenant, base } = await fixtureTenant(
     page,
     "Registered database",
   );

@@ -7,7 +7,6 @@ import {
   post,
   fixtureTenant,
   selectTenant,
-  menu,
 } from "./helpers";
 
 test("Tenant creation and one-step administrator management lead to a complete Tenant workspace", async ({

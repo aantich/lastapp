@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { login, logout, fixtureTenant, choose, menu } from "./helpers";
+import { login, logout, fixtureTenant, choose } from "./helpers";
 
 test("OAuth consent scopes an agent and account settings edit and revoke it", async ({
   page,

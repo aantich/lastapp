@@ -30,7 +30,9 @@ function App() {
           history.replaceState(null, "", back);
           window.dispatchEvent(new PopStateEvent("popstate"));
         }
-      } catch {}
+      } catch {
+        // sessionStorage can be unavailable (private mode, blocked storage)
+      }
     }
   }
   function endSession() {
@@ -54,7 +56,9 @@ function App() {
         history.replaceState(null, "", "/console/");
         try {
           sessionStorage.removeItem("lastapp-return-path");
-        } catch {}
+        } catch {
+          // sessionStorage can be unavailable (private mode, blocked storage)
+        }
       })
       .catch((e) => {
         if (e.status === 401) endSession();

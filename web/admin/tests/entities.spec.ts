@@ -50,7 +50,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
     page.getByRole("heading", { name: "Deal", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Add field", exact: true }).click();
-  let dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Name", { exact: true }).fill("Name");
   await dialog.getByLabel("Required", { exact: true }).check();
   await dialog.getByRole("button", { name: "Save field", exact: true }).click();
