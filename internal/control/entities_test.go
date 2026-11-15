@@ -30,15 +30,19 @@ func TestEntityRuntime(t *testing.T) {
 	}
 	exec("CREATE DATABASE `" + name + "`")
 	for _, cred := range []credentials{runtime, ddl} {
-		exec("CREATE USER '" + cred.Username + "'@'127.0.0.1' IDENTIFIED BY '" + cred.Password + "'")
+		exec("CREATE USER '" + cred.Username + "'@'" + s.Config.RuntimeAccountHost + "' IDENTIFIED BY '" + cred.Password + "'")
 	}
-	exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + runtime.Username + "'@'127.0.0.1'")
-	exec("GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + ddl.Username + "'@'127.0.0.1'")
+	exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + runtime.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
+	exec("GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + ddl.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
 	t.Cleanup(func() {
 		s.dataPools.Close()
-		s.DB.Exec("DROP DATABASE `" + name + "`")
+		if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
+			t.Error("fixture database cleanup failed", err)
+		}
 		for _, cr := range []credentials{runtime, ddl} {
-			s.DB.Exec("DROP USER '" + cr.Username + "'@'127.0.0.1'")
+			if _, err := s.DB.Exec("DROP USER '" + cr.Username + "'@'" + s.Config.RuntimeAccountHost + "'"); err != nil {
+				t.Error("fixture account cleanup failed", err)
+			}
 		}
 	})
 	enc, _ := s.seal("database", resource, tenant, runtime)
