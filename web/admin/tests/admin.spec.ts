@@ -7,6 +7,7 @@ import {
   post,
   fixtureTenant,
   selectTenant,
+  pick,
 } from "./helpers";
 
 test("Tenant creation and one-step administrator management lead to a complete Tenant workspace", async ({
@@ -70,7 +71,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
   await page
     .getByRole("button", { name: "Add administrator", exact: true })
     .click();
-  await page.getByLabel("Account", { exact: true }).selectOption("new");
+  await pick(page.getByLabel("Account", { exact: true }), "new");
   await page
     .getByLabel("Account name", { exact: true })
     .fill("Second administrator");
@@ -300,7 +301,7 @@ test("People combines Tenant administration and team membership/roles, retaining
     .click();
   await page.getByRole("button", { name: "Edit team", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Marketing restored");
-  await page.getByLabel("Status", { exact: true }).selectOption("active");
+  await pick(page.getByLabel("Status", { exact: true }), "active");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Save", exact: true })

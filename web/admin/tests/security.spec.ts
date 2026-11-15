@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import { selectTenant, logout, choose, fixtureTenant } from "./helpers";
+import { selectTenant, logout, choose, fixtureTenant, pick } from "./helpers";
 
 async function signIn(
   page: Page,
@@ -134,7 +134,7 @@ test("Vite login returns to the development UI and authenticated writes succeed"
     .getByRole("button", { name: "Create Tenant", exact: true })
     .click();
   const suffix = Date.now().toString();
-  await page.getByLabel("Account", { exact: true }).selectOption("existing");
+  await pick(page.getByLabel("Account", { exact: true }), "existing");
   await choose(page, "Existing account", "Tenant administrator");
   await page.getByLabel("Name", { exact: true }).fill("AAA Proxy " + suffix);
   await page

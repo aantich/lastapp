@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { login, nav, choose, post, fixtureTenant } from "./helpers";
+import { login, nav, choose, post, fixtureTenant, pick } from "./helpers";
 const roleIds = {
   platform: "00000000-0000-4000-8000-000000000001",
   tenant: "00000000-0000-4000-8000-000000000002",
@@ -433,8 +433,8 @@ test("access refresh preserves stale editors and App compute preferences survive
   let dialog = admin.getByRole("dialog");
   await dialog.getByText("Advanced", { exact: true }).click();
   await expect(
-    dialog.getByLabel("Compute preference", { exact: true }),
-  ).toHaveValue("dedicated");
+    dialog.getByRole("combobox", { name: "Compute preference", exact: true }),
+  ).toHaveAttribute("data-value", "dedicated");
   await dialog.getByLabel("Name", { exact: true }).fill("Kept dedicated");
   await dialog
     .getByRole("button", { name: "Save changes", exact: true })
@@ -446,9 +446,10 @@ test("access refresh preserves stale editors and App compute preferences survive
   await admin.getByRole("button", { name: "Edit App", exact: true }).click();
   dialog = admin.getByRole("dialog");
   await dialog.getByText("Advanced", { exact: true }).click();
-  await dialog
-    .getByLabel("Compute preference", { exact: true })
-    .selectOption("shared");
+  await pick(
+    dialog.getByLabel("Compute preference", { exact: true }),
+    "shared",
+  );
   await dialog
     .getByRole("button", { name: "Save changes", exact: true })
     .click();

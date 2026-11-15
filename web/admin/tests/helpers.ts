@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 export async function login(
   page: Page,
   subject = "operator",
@@ -47,6 +47,21 @@ export async function choose(
     .getByRole("listbox", { name: label, exact: true })
     .getByRole("option");
   await (match ? options.filter({ hasText: match }) : options).first().click();
+}
+// Chooses an option of the console's Select control by value or label.
+export async function pick(field: Locator, option: string) {
+  // The open listbox shares the field's name, so resolve its id first.
+  const id = await field.getAttribute("aria-controls");
+  await field.click();
+  const list = field.page().locator(`[id="${id}"]`);
+  await expect(list).toBeVisible();
+  const byValue = list.locator(`[role="option"][data-value="${option}"]`);
+  await (
+    (await byValue.count())
+      ? byValue
+      : list.getByRole("option", { name: option, exact: true })
+  ).click();
+  await expect(field).toHaveAttribute("aria-expanded", "false");
 }
 export async function selectTenant(page: Page, tenant: string) {
   const field = page.getByRole("combobox", { name: "Tenant", exact: true });

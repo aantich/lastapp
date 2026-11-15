@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { RemoteSelect } from "./remote-select";
+import { Select } from "./select";
+import { NumberInput } from "./number-input";
 import { useDialogFocus } from "./appearance";
 import {
   NewPasswordInput,
@@ -222,28 +224,35 @@ export function FormModal({
                         }
                       />
                     ) : f.type === "select" ? (
-                      <select
+                      <Select
                         aria-label={f.label}
                         required={f.required}
                         value={values[f.key] ?? ""}
-                        onChange={(e) =>
-                          setValues({ ...values, [f.key]: e.target.value })
+                        options={(f.options || []).map((o) => ({
+                          value: o.value,
+                          label: o.label,
+                        }))}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
                         }
-                      >
-                        <option value="">Choose…</option>
-                        {f.options?.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
+                      />
+                    ) : f.type === "number" ? (
+                      <NumberInput
+                        aria-label={f.label}
+                        autoFocus={i === 0 && !advanced}
+                        required={f.required}
+                        min={0}
+                        value={values[f.key]}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
+                        }
+                      />
                     ) : (
                       <span className="form-input-group">
                         <Input
                           aria-label={f.label}
                           autoFocus={i === 0 && !advanced}
                           required={f.required}
-                          min={f.type === "number" ? 0 : undefined}
                           type={
                             f.type === "password" && visible.includes(f.key)
                               ? "text"

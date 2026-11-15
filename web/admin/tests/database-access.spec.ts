@@ -1,5 +1,12 @@
 import { test, expect } from "@playwright/test";
-import { login, fixtureTenant, selectTenant, nav, choose } from "./helpers";
+import {
+  login,
+  fixtureTenant,
+  selectTenant,
+  nav,
+  choose,
+  pick,
+} from "./helpers";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
@@ -19,10 +26,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     stdio: ["pipe", "pipe", "pipe"],
   });
   await login(page);
-  const { tenant, base } = await fixtureTenant(
-    page,
-    "Registered database",
-  );
+  const { tenant, base } = await fixtureTenant(page, "Registered database");
   const other = await fixtureTenant(page, "Switch destination");
   const context = await browser.newContext(),
     admin = await context.newPage();
@@ -33,7 +37,7 @@ test("existing database registration, shared access controls and Tenant-switch i
   await admin
     .getByRole("button", { name: "Add database", exact: true })
     .click();
-  await admin.getByLabel("Method", { exact: true }).selectOption("registered");
+  await pick(admin.getByLabel("Method", { exact: true }), "registered");
   await admin
     .getByLabel("Existing database name", { exact: true })
     .fill(dbName);
@@ -74,7 +78,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     .click();
   await admin.getByLabel("Name", { exact: true }).fill("Sales");
   await admin.getByText("Advanced", { exact: true }).click();
-  await admin.getByLabel("Database", { exact: true }).selectOption("existing");
+  await pick(admin.getByLabel("Database", { exact: true }), "existing");
   await choose(admin, "Existing database", dbName);
   await admin
     .getByRole("dialog")

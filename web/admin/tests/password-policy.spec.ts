@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from "@playwright/test";
-import { fixtureTenant, login, logout, menu, nav, post } from "./helpers";
+import { fixtureTenant, login, logout, menu, nav, post, pick } from "./helpers";
 
 test("all password forms and generation consume the server policy, including Unicode and focus updates", async ({
   page,
@@ -72,7 +72,7 @@ test("all password forms and generation consume the server policy, including Uni
   await page
     .getByRole("button", { name: "Add administrator", exact: true })
     .click();
-  await page.getByLabel("Account", { exact: true }).selectOption("new");
+  await pick(page.getByLabel("Account", { exact: true }), "new");
   await checkInput(page.getByLabel("Initial password", { exact: true }));
   await page.getByLabel("Close dialog", { exact: true }).click();
 
