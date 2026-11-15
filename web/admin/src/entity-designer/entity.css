@@ -262,7 +262,7 @@
   font-weight: 500;
 }
 :is(.entity-designer, .entity-dialog, .entity-app-access)
-  :is(input:not([type="checkbox"]), select, textarea) {
+  :is(input:not([type="checkbox"]), .select-trigger, textarea) {
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
   padding: 8px 12px;
@@ -274,7 +274,12 @@
   width: 100%;
 }
 :is(.entity-designer, .entity-dialog, .entity-app-access)
-  :is(input:not([type="checkbox"]), select, button.primary, button.secondary) {
+  :is(
+    input:not([type="checkbox"]),
+    .select-trigger,
+    button.primary,
+    button.secondary
+  ) {
   min-height: var(--entity-control-height);
 }
 :is(.entity-designer, .entity-dialog, .entity-app-access)

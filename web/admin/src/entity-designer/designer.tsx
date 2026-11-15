@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { RemoteSelect } from "../remote-select";
+import { Select } from "../select";
+import { NumberInput } from "../number-input";
 import type { Item } from "../console-forms";
 import {
   Expression,
@@ -263,17 +265,17 @@ export function EntityDesigner({
           >
             <label className="field">
               <span>Start from</span>
-              <select
+              <Select
                 value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-              >
-                <option value="">Blank entity</option>
-                {catalog.templates?.map((d: Item) => (
-                  <option key={d.key} value={d.key}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+                onChange={setTemplate}
+                options={[
+                  { value: "", label: "Blank entity" },
+                  ...(catalog.templates || []).map((d: Item) => ({
+                    value: d.key,
+                    label: d.label,
+                  })),
+                ]}
+              />
             </label>
             <label className="field">
               <span>Entity name</span>
@@ -437,39 +439,39 @@ export function EntityDesigner({
                   <div className="entity-form-grid">
                     <label className="field">
                       <span>Owner field</span>
-                      <select
+                      <Select
                         value={draft.owner_field || ""}
-                        onChange={(e) =>
-                          setDraft({ ...draft, owner_field: e.target.value })
+                        onChange={(owner_field) =>
+                          setDraft({ ...draft, owner_field })
                         }
-                      >
-                        <option value="">None</option>
-                        {draft.fields
-                          .filter((f: Item) => f.type === "user")
-                          .map((f: Item) => (
-                            <option key={f.key} value={f.key}>
-                              {f.label}
-                            </option>
-                          ))}
-                      </select>
+                        options={[
+                          { value: "", label: "None" },
+                          ...draft.fields
+                            .filter((f: Item) => f.type === "user")
+                            .map((f: Item) => ({
+                              value: f.key,
+                              label: f.label,
+                            })),
+                        ]}
+                      />
                     </label>
                     <label className="field">
                       <span>Owning team field</span>
-                      <select
+                      <Select
                         value={draft.team_field || ""}
-                        onChange={(e) =>
-                          setDraft({ ...draft, team_field: e.target.value })
+                        onChange={(team_field) =>
+                          setDraft({ ...draft, team_field })
                         }
-                      >
-                        <option value="">None</option>
-                        {draft.fields
-                          .filter((f: Item) => f.type === "team")
-                          .map((f: Item) => (
-                            <option key={f.key} value={f.key}>
-                              {f.label}
-                            </option>
-                          ))}
-                      </select>
+                        options={[
+                          { value: "", label: "None" },
+                          ...draft.fields
+                            .filter((f: Item) => f.type === "team")
+                            .map((f: Item) => ({
+                              value: f.key,
+                              label: f.label,
+                            })),
+                        ]}
+                      />
                     </label>
                   </div>
                   <section className="entity-settings-group">
@@ -946,23 +948,21 @@ function FieldEditor({
       </label>
       <label className="field">
         <span>Type</span>
-        <select
+        <Select
           value={f.type}
           disabled={published}
-          onChange={(e) =>
+          onChange={(type) =>
             set({
-              ...catalog.field_defaults[e.target.value],
+              ...catalog.field_defaults[type],
               key: f.key,
               label: f.label,
             })
           }
-        >
-          {catalog.types.map((type: string) => (
-            <option key={type} value={type}>
-              {fieldLabel(type)}
-            </option>
-          ))}
-        </select>
+          options={catalog.types.map((type: string) => ({
+            value: type,
+            label: fieldLabel(type),
+          }))}
+        />
       </label>
       <label>
         <input
@@ -975,13 +975,12 @@ function FieldEditor({
       {f.type === "text" && (
         <label className="field">
           <span>Maximum length</span>
-          <input
-            type="number"
+          <NumberInput
             required
             max={catalog.field_constraints.max_text_length}
             min={catalog.field_constraints.min_text_length}
-            value={f.max_length ?? ""}
-            onChange={(e) => patch({ max_length: Number(e.target.value) })}
+            value={f.max_length}
+            onChange={(n) => patch({ max_length: Number(n) })}
           />
         </label>
       )}
@@ -990,11 +989,10 @@ function FieldEditor({
           {["precision", "scale"].map((key) => (
             <label className="field" key={key}>
               <span>{fieldLabel(key)}</span>
-              <input
-                type="number"
+              <NumberInput
                 required
                 value={f[key]}
-                onChange={(e) => patch({ [key]: Number(e.target.value) })}
+                onChange={(n) => patch({ [key]: Number(n) })}
               />
             </label>
           ))}
@@ -1075,25 +1073,25 @@ function FieldEditor({
         <summary>Defaults, calculation and query options</summary>
         <label className="field">
           <span>Value source</span>
-          <select
+          <Select
             value={
               f.calculation ? "calculation" : f.default ? "default" : "input"
             }
-            onChange={(e) =>
+            onChange={(source) =>
               patch({
-                default:
-                  e.target.value === "default" ? { literal: "" } : undefined,
+                default: source === "default" ? { literal: "" } : undefined,
                 calculation:
-                  e.target.value === "calculation"
+                  source === "calculation"
                     ? { field: fields[0]?.key || "" }
                     : undefined,
               })
             }
-          >
-            <option value="input">User input</option>
-            <option value="default">Default when omitted</option>
-            <option value="calculation">Calculated</option>
-          </select>
+            options={[
+              { value: "input", label: "User input" },
+              { value: "default", label: "Default when omitted" },
+              { value: "calculation", label: "Calculated" },
+            ]}
+          />
         </label>
         {(f.default || f.calculation) && (
           <Expression
@@ -1122,15 +1120,16 @@ function FieldEditor({
         ))}
         <label className="field">
           <span>Uniqueness</span>
-          <select
+          <Select
             value={f.unique || ""}
-            onChange={(e) => patch({ unique: e.target.value })}
-          >
-            <option value="">None</option>
-            <option value="entity">Across this entity</option>
-            <option value="owner">Per owner</option>
-            <option value="team">Per team</option>
-          </select>
+            onChange={(unique) => patch({ unique })}
+            options={[
+              { value: "", label: "None" },
+              { value: "entity", label: "Across this entity" },
+              { value: "owner", label: "Per owner" },
+              { value: "team", label: "Per team" },
+            ]}
+          />
         </label>
         <label className="field">
           <span>Stable key</span>
@@ -1187,33 +1186,34 @@ function PermissionEditor({
       </label>
       <label className="field">
         <span>Who</span>
-        <select
+        <Select
           value={p.roles ? "roles" : p.relationship}
-          onChange={(e) =>
+          onChange={(who) =>
             patch(
-              e.target.value === "roles"
+              who === "roles"
                 ? { roles: [], relationship: undefined }
-                : { roles: undefined, relationship: e.target.value },
+                : { roles: undefined, relationship: who },
             )
           }
-        >
-          <option value="roles">Space roles</option>
-          {catalog.relationships.map((t: string) => (
-            <option key={t} value={t}>
-              {(
-                {
-                  member: "All active Tenant members",
-                  owner: "Record owner",
-                  team_member: "Members of record's team",
-                  team_reviewer: "Reviewers of record's team",
-                  team_admin: "Admins of record's team",
-                  user: "Specific user",
-                  team: "Specific team",
-                } as Record<string, string>
-              )[t] || t}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "roles", label: "Space roles" },
+            ...catalog.relationships.map((t: string) => ({
+              value: t,
+              label:
+                (
+                  {
+                    member: "All active Tenant members",
+                    owner: "Record owner",
+                    team_member: "Members of record's team",
+                    team_reviewer: "Reviewers of record's team",
+                    team_admin: "Admins of record's team",
+                    user: "Specific user",
+                    team: "Specific team",
+                  } as Record<string, string>
+                )[t] || t,
+            })),
+          ]}
+        />
       </label>
       {p.roles && (
         <div className="field-choices">
@@ -1256,16 +1256,14 @@ function PermissionEditor({
       )}
       <label className="field">
         <span>Can</span>
-        <select
+        <Select
           value={p.operation}
-          onChange={(e) => patch({ operation: e.target.value })}
-        >
-          {catalog.operations.map((op: string) => (
-            <option key={op} value={op}>
-              {op === "acl.manage" ? "Manage record access (advanced)" : op}
-            </option>
-          ))}
-        </select>
+          onChange={(operation) => patch({ operation })}
+          options={catalog.operations.map((op: string) => ({
+            value: op,
+            label: op === "acl.manage" ? "Manage record access (advanced)" : op,
+          }))}
+        />
       </label>
       {["read", "create", "update"].includes(p.operation) && (
         <>
@@ -1396,13 +1394,14 @@ function RuleEditor({
       </label>
       <label className="field">
         <span>Rule type</span>
-        <select
+        <Select
           value={r.kind}
-          onChange={(e) => set({ ...r, kind: e.target.value })}
-        >
-          <option value="validation">Validate resulting record</option>
-          <option value="change">Allowed change</option>
-        </select>
+          onChange={(kind) => set({ ...r, kind })}
+          options={[
+            { value: "validation", label: "Validate resulting record" },
+            { value: "change", label: "Allowed change" },
+          ]}
+        />
       </label>
       <label>
         <input
@@ -1452,17 +1451,14 @@ function RuleEditor({
       </label>
       <label className="field">
         <span>Show error on field</span>
-        <select
+        <Select
           value={r.field || ""}
-          onChange={(e) => set({ ...r, field: e.target.value })}
-        >
-          <option value="">Whole record</option>
-          {fields.map((f) => (
-            <option key={f.key} value={f.key}>
-              {f.label}
-            </option>
-          ))}
-        </select>
+          onChange={(field) => set({ ...r, field })}
+          options={[
+            { value: "", label: "Whole record" },
+            ...fields.map((f) => ({ value: f.key, label: f.label })),
+          ]}
+        />
       </label>
       <button className="primary">Save rule</button>
     </form>
@@ -1531,14 +1527,14 @@ function EntityTest({
       </label>
       <label className="field">
         <span>Operation</span>
-        <select
+        <Select
           value={scenario.operation}
-          onChange={(e) => set({ ...scenario, operation: e.target.value })}
-        >
-          {["create", "read", "update", "delete"].map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
+          onChange={(operation) => set({ ...scenario, operation })}
+          options={["create", "read", "update", "delete"].map((v) => ({
+            value: v,
+            label: v,
+          }))}
+        />
       </label>
       {scenario.operation !== "create" && (
         <>
