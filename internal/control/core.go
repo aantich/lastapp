@@ -402,7 +402,8 @@ func decode(w http.ResponseWriter, r *http.Request, out any) error {
 func send(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(value)
+	// Headers are already sent; a failed write means the client went away.
+	_ = json.NewEncoder(w).Encode(value)
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, err error) {

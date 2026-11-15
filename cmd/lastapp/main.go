@@ -28,7 +28,7 @@ func main() {
 	email := flags.String("email", "", "bootstrap email")
 	provisionerFile := flags.String("provisioner-file", "", "local development provisioning credential file")
 	passwordFile := flags.String("password-file", "", "initial password file for a local bootstrap account")
-	flags.Parse(os.Args[2:])
+	_ = flags.Parse(os.Args[2:]) // ExitOnError: Parse exits on failure
 	c, e := control.LoadConfig(*config)
 	if e != nil {
 		log.Fatal(e)
@@ -94,7 +94,9 @@ func main() {
 			<-ctx.Done()
 			shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			server.Shutdown(shutdown)
+			if e := server.Shutdown(shutdown); e != nil {
+				log.Printf("shutdown: %v", e)
+			}
 		}()
 		log.Printf("Lastapp listening at %s/console/", c.PublicURL)
 		e = server.ListenAndServe()

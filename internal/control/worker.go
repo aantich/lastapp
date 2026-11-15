@@ -371,7 +371,9 @@ func releasePinnedLock(conn *sql.Conn, name string) {
 	defer cancel()
 	var released sql.NullInt64
 	if e := conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", name).Scan(&released); e != nil || !released.Valid || released.Int64 != 1 {
-		conn.Raw(func(any) error { return driver.ErrBadConn })
+		// Returning ErrBadConn makes database/sql discard the session; the
+		// returned error is that same sentinel, so there is nothing to handle.
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 	}
 }
 

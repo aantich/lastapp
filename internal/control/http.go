@@ -174,7 +174,7 @@ func (s *Server) Handler() http.Handler {
 				http.Error(w, "Build the admin UI before compiling Lastapp (make build).", 503)
 				return
 			}
-			w.Write(b)
+			_, _ = w.Write(b) // client disconnects are not actionable
 			return
 		}
 		clone := r.Clone(r.Context())

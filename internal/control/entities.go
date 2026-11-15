@@ -593,7 +593,11 @@ func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principa
 				if field != "" {
 					return bad("field applies only to generated contract sections.")
 				}
-				part = Row{"key": d.Key, "label": d.Label, "fields": publicEntityFields(fields), "permissions": perms}
+				public, e := publicEntityFields(fields)
+				if e != nil {
+					return e
+				}
+				part = Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}
 			} else {
 				part, e = entitySection(d, section, field)
 				if e != nil {
@@ -606,7 +610,11 @@ func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principa
 		if field != "" {
 			return bad("field requires a generated contract section.")
 		}
-		out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "definition": Row{"key": d.Key, "label": d.Label, "fields": publicEntityFields(fields), "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
+		public, e := publicEntityFields(fields)
+		if e != nil {
+			return e
+		}
+		out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "definition": Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
 	roles, e := rows(r.Context(), s.DB, "SELECT id,display_name FROM roles WHERE app_id=? AND domain='data' AND state='active'", v["id"])
 	if e != nil {

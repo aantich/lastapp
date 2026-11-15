@@ -189,7 +189,9 @@ func TestAuthorizationFoundation(t *testing.T) {
 	joeClient.want("PATCH", base+"/apps/"+apps[1], Row{"display_name": "Denied"}, 1, 403)
 	// Data/control join separation and nullable scope checks also hold in SQL.
 	var permission string
-	s.DB.QueryRow("SELECT id FROM permissions WHERE code='app.manage'").Scan(&permission)
+	if e := s.DB.QueryRow("SELECT id FROM permissions WHERE code='app.manage'").Scan(&permission); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = s.DB.Exec("INSERT INTO role_permissions(role_id,permission_id,domain) VALUES (?,?,'control')", role, permission); e == nil {
 		t.Fatal("data role acquired control permission through SQL")
 	}

@@ -31,7 +31,9 @@ func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 		}
 	}
 	var env map[string]any
-	json.Unmarshal(enc, &env)
+	if e := json.Unmarshal(enc, &env); e != nil {
+		t.Fatal(e)
+	}
 	env["Data"] = "AAAA"
 	tampered, _ := json.Marshal(env)
 	if s.unseal("database", "resource-a", "tenant-a", tampered, &out) == nil {

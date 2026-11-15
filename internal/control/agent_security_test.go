@@ -56,7 +56,9 @@ func TestAgentRetryTargetGuard(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		s.DB.Exec("UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", p.Agent.ID)
+		if _, e = s.DB.Exec("UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
+			t.Fatal(e)
+		}
 		allowed := s.agentJobAllowed(context.Background(), s.DB, str(row["agent_grant_id"]), p.ID, Resource{Tenant: tenant}, "databases.provision", denied) == nil
 		t.Fatalf("unapproved retry accepted: state=%v, grant_id=%v, still runnable after revocation=%v; result=%v", row["state"], row["agent_grant_id"], allowed, result)
 	}
@@ -388,7 +390,10 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 func TestAgentOperationResponseErrors(t *testing.T) {
 	s := &Server{}
 	for _, payload := range []string{strings.Repeat("x", agentMaxResponse+1), `not-json`} {
-		_, e := s.executeManagement(context.Background(), Principal{}, func(w http.ResponseWriter, r *http.Request, p Principal) error { w.Write([]byte(payload)); return nil }, "GET", "/test", nil, nil, 0)
+		_, e := s.executeManagement(context.Background(), Principal{}, func(w http.ResponseWriter, r *http.Request, p Principal) error {
+			_, e := w.Write([]byte(payload))
+			return e
+		}, "GET", "/test", nil, nil, 0)
 		if e == nil {
 			t.Fatal("write/JSON error silently became successful empty response")
 		}

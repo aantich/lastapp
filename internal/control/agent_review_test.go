@@ -87,7 +87,9 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 		t.Fatal(e)
 	}
 	var instance any
-	json.Unmarshal(args, &instance)
+	if e = json.Unmarshal(args, &instance); e != nil {
+		t.Fatal(e)
+	}
 	if e = resolved.Validate(instance); e != nil {
 		t.Fatal("probe input is not an accepted MCP schema", e)
 	}

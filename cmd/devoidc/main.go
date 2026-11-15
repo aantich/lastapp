@@ -60,7 +60,7 @@ func main() {
 	codes := map[string]login{}
 	reply := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(v)
+		_ = json.NewEncoder(w).Encode(v) // client disconnects are not actionable
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func main() {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+*origin+" "+*devUI+"; frame-ancestors 'none'")
 		if r.Method == "GET" {
-			page.Execute(w, nil)
+			_ = page.Execute(w, nil) // static template; only write errors are possible
 			return
 		}
 		if r.Method != "POST" {
@@ -91,10 +91,13 @@ func main() {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
-		r.ParseForm()
+		if r.ParseForm() != nil {
+			http.Error(w, "Invalid form", 400)
+			return
+		}
 		sub := r.PostForm.Get("subject")
 		if (sub != "operator" && sub != "tenant-admin" && sub != "outsider" && sub != "joe") || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("password")), []byte(*password)) != 1 {
-			page.Execute(w, map[string]string{"Error": "Invalid credentials."})
+			_ = page.Execute(w, map[string]string{"Error": "Invalid credentials."}) // only write errors are possible
 			return
 		}
 		code := random()
@@ -115,7 +118,10 @@ func main() {
 	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
-		r.ParseForm()
+		if r.ParseForm() != nil {
+			http.Error(w, "Invalid form", 400)
+			return
+		}
 		client := r.Form.Get("client_id")
 		if client == "" {
 			client, _, _ = r.BasicAuth()

@@ -3,8 +3,10 @@ package control
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,7 +52,9 @@ func TestAgentToolContracts(t *testing.T) {
 	}
 	var instance any
 	encoded, _ := json.Marshal(agentEntityInput{Definition: &entity.Templates()[2], RequestKey: newID()})
-	json.Unmarshal(encoded, &instance)
+	if e = json.Unmarshal(encoded, &instance); e != nil {
+		t.Fatal(e)
+	}
 	if e = resolved.Validate(instance); e != nil {
 		t.Fatal("default/calculated expression pointers are not representable", e)
 	}
@@ -126,7 +130,9 @@ func TestAgentManagementMCP(t *testing.T) {
 		w := httptest.NewRecorder()
 		c.h.ServeHTTP(w, r)
 		out := Row{}
-		json.Unmarshal(w.Body.Bytes(), &out)
+		if e := json.Unmarshal(w.Body.Bytes(), &out); e != nil {
+			t.Fatalf("token response %d: %v", w.Code, e)
+		}
 		return w.Code, out
 	}
 	connect := func(permissions []string, scopeKind, scopeID string) (*mcp.ClientSession, string, string, string) {
@@ -174,7 +180,9 @@ func TestAgentManagementMCP(t *testing.T) {
 		}
 		b, _ := json.Marshal(result.StructuredContent)
 		out := Row{}
-		json.Unmarshal(b, &out)
+		if e = json.Unmarshal(b, &out); e != nil {
+			t.Fatal(name, e)
+		}
 		if out["ok"] != wantOK {
 			t.Fatalf("%s: %s", name, b)
 		}
@@ -296,7 +304,9 @@ func TestAgentManagementMCP(t *testing.T) {
 		t.Fatal(e)
 	}
 	var publicationState string
-	s.DB.QueryRow("SELECT state FROM entity_versions WHERE id=?", publication["id"]).Scan(&publicationState)
+	if e := s.DB.QueryRow("SELECT state FROM entity_versions WHERE id=?", publication["id"]).Scan(&publicationState); e != nil {
+		t.Fatal(e)
+	}
 	if publicationState != "failed" {
 		t.Fatal("revoked queued publication started", publicationState)
 	}
@@ -321,7 +331,9 @@ func TestAgentManagementMCP(t *testing.T) {
 	request := oauthRequest("read resources.write")
 	c.as(joe).want("POST", "/v1/agent-access/requests/"+request, Row{"tenant_id": tenant, "scope_kind": "space", "scope_id": sibling, "permissions": []string{"read", "resources.write"}, "days": 1}, 0, 403)
 	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM microapp_installations WHERE id=?", id).Scan(&count)
+	if e := s.DB.QueryRow("SELECT COUNT(*) FROM microapp_installations WHERE id=?", id).Scan(&count); e != nil {
+		t.Fatal(e)
+	}
 	if count != 1 {
 		t.Fatal("duplicate mutation")
 	}
@@ -349,10 +361,19 @@ func TestAgentManagementMCP(t *testing.T) {
 		for _, r := range resources {
 			var comment string
 			name := str(r["database_name"])
-			s.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment)
+			if err := s.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					t.Error("cleanup lookup failed", err)
+				}
+				continue
+			}
 			if generatedRE.MatchString(name) && comment == "lastapp:"+str(r["id"])+":"+str(r["ownership_hex"]) {
-				s.DB.Exec("DROP DATABASE `" + name + "`")
-				s.DB.Exec("DROP USER IF EXISTS '" + name + "'@'" + s.Config.RuntimeAccountHost + "'")
+				if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
+					t.Error("managed database cleanup failed", err)
+				}
+				if _, err := s.DB.Exec("DROP USER IF EXISTS '" + name + "'@'" + s.Config.RuntimeAccountHost + "'"); err != nil {
+					t.Error("managed account cleanup failed", err)
+				}
 			}
 		}
 	})
@@ -382,7 +403,9 @@ func TestAgentManagementMCP(t *testing.T) {
 		t.Fatal("publication must wait for pending Space storage", started, e)
 	}
 	var queued string
-	s.DB.QueryRow("SELECT state FROM entity_versions WHERE id=?", job["id"]).Scan(&queued)
+	if e := s.DB.QueryRow("SELECT state FROM entity_versions WHERE id=?", job["id"]).Scan(&queued); e != nil {
+		t.Fatal(e)
+	}
 	if queued != "queued" {
 		t.Fatal("waiting publication was failed", queued)
 	}

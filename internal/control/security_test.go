@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -66,7 +67,12 @@ func TestSecurityRegressions(t *testing.T) {
 		for _, r := range resources {
 			name := str(r["database_name"])
 			var comment string
-			admin.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment)
+			if err := admin.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					t.Error("cleanup lookup failed", err)
+				}
+				continue
+			}
 			if generatedRE.MatchString(name) && comment == "lastapp:"+str(r["id"])+":"+str(r["ownership_hex"]) {
 				if _, err := admin.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
 					t.Error("review database cleanup failed", err)
@@ -99,9 +105,15 @@ func TestSecurityRegressions(t *testing.T) {
 	}
 	h := s.Handler()
 	var operator, owner, outsideUser string
-	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='operator'").Scan(&operator)
-	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='tenant-admin'").Scan(&owner)
-	s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='outsider'").Scan(&outsideUser)
+	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='operator'").Scan(&operator); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='tenant-admin'").Scan(&owner); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='outsider'").Scan(&outsideUser); e != nil {
+		t.Fatal(e)
+	}
 	c := (testClient{t: t, s: s, h: h}).as(operator)
 	ownerClient := c.as(owner)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -250,14 +262,20 @@ func TestSecurityRegressions(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			switch r.URL.Path {
 			case "/.well-known/openid-configuration":
-				json.NewEncoder(w).Encode(Row{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}})
+				if err := json.NewEncoder(w).Encode(Row{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}}); err != nil {
+					t.Error(err)
+				}
 			case "/jwks":
-				json.NewEncoder(w).Encode(Row{"keys": []any{Row{"kty": "RSA", "kid": "review", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
+				if err := json.NewEncoder(w).Encode(Row{"keys": []any{Row{"kty": "RSA", "kid": "review", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}}); err != nil {
+					t.Error(err)
+				}
 			case "/token":
 				unsigned := encode(Row{"alg": "RS256", "kid": "review"}) + "." + encode(Row{"iss": issuer, "sub": "review-victim ", "aud": cfg.OIDCClientID, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "nonce": nonce, "name": "Distinct provider account"})
 				digest := sha256.Sum256([]byte(unsigned))
 				signature, _ := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
-				json.NewEncoder(w).Encode(Row{"access_token": "review-access-token", "token_type": "Bearer", "expires_in": 60, "id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)})
+				if err := json.NewEncoder(w).Encode(Row{"access_token": "review-access-token", "token_type": "Bearer", "expires_in": 60, "id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)}); err != nil {
+					t.Error(err)
+				}
 			default:
 				http.NotFound(w, r)
 			}
@@ -292,7 +310,9 @@ func TestSecurityRegressions(t *testing.T) {
 		me := httptest.NewRecorder()
 		h.ServeHTTP(me, meReq)
 		var identity Row
-		json.Unmarshal(me.Body.Bytes(), &identity)
+		if err := json.Unmarshal(me.Body.Bytes(), &identity); err != nil {
+			t.Fatal(err)
+		}
 		if str(identity["id"]) == victim || identity["platform_admin"] != false {
 			t.Fatalf("distinct signed identity inherited another account: %v", identity)
 		}
@@ -336,7 +356,11 @@ func TestSecurityRegressions(t *testing.T) {
 				t.Error("review database cleanup failed", err)
 			}
 		}()
-		defer admin.DB.Exec("DROP USER '" + name + "'@'" + cfg.RuntimeAccountHost + "'")
+		defer func() {
+			if _, err := admin.DB.Exec("DROP USER '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); err != nil {
+				t.Error("review account cleanup failed", err)
+			}
+		}()
 		if _, e = admin.DB.Exec("GRANT USAGE ON *.* TO '" + name + "'@'" + cfg.RuntimeAccountHost + "' WITH GRANT OPTION"); e != nil {
 			t.Fatal(e)
 		}

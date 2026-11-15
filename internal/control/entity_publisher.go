@@ -569,7 +569,10 @@ func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 	if s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v["entity_id"]).Scan(&current) != nil || current != str(v["base_version_id"]) {
 		return
 	}
-	conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"])
+	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"]); e != nil {
+		// Best effort: if this fails the gate stays closed, which fails closed.
+		s.Log.Warn("restore publication base failed", append([]any{"entity_id", str(v["entity_id"])}, diagnostic(e)...)...)
+	}
 }
 
 // activateEntityVersion changes only registry authority. Deployment workers call

@@ -673,16 +673,21 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	return agentWriteResult(ctx, data, e)
 }
 
-func compactFields(v any) Row {
-	b, _ := json.Marshal(v)
+func compactFields(v any) (Row, error) {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return nil, e
+	}
 	out := Row{}
-	json.Unmarshal(b, &out)
+	if e = json.Unmarshal(b, &out); e != nil {
+		return nil, e
+	}
 	for k, value := range out {
 		if value == nil {
 			delete(out, k)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
@@ -746,7 +751,9 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		if target.Kind != "platform" || in.Plan == nil {
 			return nil, bad("Plan update requires platform scope and the complete plan object.")
 		}
-		body = compactFields(in.Plan)
+		if body, e = compactFields(in.Plan); e != nil {
+			return nil, e
+		}
 		fn = s.updatePlan
 		permissions = []string{"platform.manage"}
 	default:
@@ -923,7 +930,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v["draft_json"]), "published_version": v["active_version_id"], "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
 	cases := []Row{}
 	for _, c := range in.Cases {
-		body := compactFields(c)
+		body, e := compactFields(c)
+		if e != nil {
+			return nil, e
+		}
 		body["definition"] = in.Definition
 		data, e := s.executeManagement(ctx, p, s.entityTest, "POST", "/v1/entities/"+in.Entity+"/test", paths, body, 0)
 		if e != nil {

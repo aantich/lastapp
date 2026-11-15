@@ -195,10 +195,17 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se Row) er
 			d.Owner = ""
 			d.Team = ""
 			d.Projection = slices.DeleteFunc(slices.Clone(d.Projection), func(k string) bool { return !rt.fieldExposed(k) })
-			publicJSON, _ := json.Marshal(d)
+			publicJSON, e := json.Marshal(d)
+			if e != nil {
+				return e
+			}
 			public := Row{}
-			json.Unmarshal(publicJSON, &public)
-			public["fields"] = publicEntityFields(allowed)
+			if e = json.Unmarshal(publicJSON, &public); e != nil {
+				return e
+			}
+			if public["fields"], e = publicEntityFields(allowed); e != nil {
+				return e
+			}
 			out = append(out, Row{"id": rt.entityID, "entity": public, "version": rt.version, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 		}
 		send(w, 200, Row{"entities": out, "capabilities": entity.Capabilities()})
@@ -914,17 +921,22 @@ func businessAudit(ctx context.Context, q Queryer, rt dataRuntime, record, actio
 	return e
 }
 
-func publicEntityFields(fields []entity.Field) []Row {
+func publicEntityFields(fields []entity.Field) ([]Row, error) {
 	out := []Row{}
 	for _, field := range fields {
-		b, _ := json.Marshal(field)
+		b, e := json.Marshal(field)
+		if e != nil {
+			return nil, e
+		}
 		m := Row{}
-		json.Unmarshal(b, &m)
+		if e = json.Unmarshal(b, &m); e != nil {
+			return nil, e
+		}
 		m["read_only"] = field.Calculation != nil
 		m["has_default"] = field.Default != nil
 		delete(m, "default")
 		delete(m, "calculation")
 		out = append(out, m)
 	}
-	return out
+	return out, nil
 }
