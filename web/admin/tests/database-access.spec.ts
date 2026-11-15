@@ -6,8 +6,9 @@ import {
   nav,
   choose,
   pick,
+  rootSQL,
+  accountHost,
 } from "./helpers";
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
 test("existing database registration, shared access controls and Tenant-switch isolation", async ({
@@ -16,15 +17,10 @@ test("existing database registration, shared access controls and Tenant-switch i
 }) => {
   const suffix = Date.now().toString(),
     dbName = "ui_" + suffix,
-    password = randomBytes(24).toString("hex"),
-    accountHost = process.env.CI ? "%" : "127.0.0.1";
-  const args = process.env.CI
-    ? ["--protocol=TCP", "--host=127.0.0.1", "--port=33317"]
-    : ["--protocol=SOCKET", "--socket=../../.local/mariadb.sock"];
-  execFileSync("mariadb", ["--no-defaults", ...args, "-uroot"], {
-    input: `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data(id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES(7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+    password = randomBytes(24).toString("hex");
+  rootSQL(
+    `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data(id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES(7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
+  );
   await login(page);
   const { tenant, base } = await fixtureTenant(page, "Registered database");
   const other = await fixtureTenant(page, "Switch destination");
@@ -59,18 +55,7 @@ test("existing database registration, shared access controls and Tenant-switch i
       .getByText("ready", { exact: true }),
   ).toBeVisible({ timeout: 30000 });
   expect(
-    execFileSync(
-      "mariadb",
-      [
-        "--no-defaults",
-        ...args,
-        "-uroot",
-        "-N",
-        "-e",
-        `SELECT id FROM ${dbName}.existing_data`,
-      ],
-      { encoding: "utf8" },
-    ).trim(),
+    rootSQL(`SELECT id FROM ${dbName}.existing_data;`, ["-N"]).trim(),
   ).toBe("7");
   await nav(admin, "Spaces");
   await admin
