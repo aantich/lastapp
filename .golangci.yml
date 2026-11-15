@@ -1,0 +1,49 @@
+# Linter set mirrors forge (govet, errcheck, ineffassign, staticcheck incl. gosimple,
+# unused, gofumpt, gci) in golangci-lint v2 format. Run with `make lint`.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - govet
+    - errcheck
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      # forge enables staticcheck + gosimple (v1), i.e. bug (SA) and simplification (S)
+      # checks; stylecheck (ST) and quickfix (QF) are not part of its set.
+      checks: ["SA*", "S1*"]
+    errcheck:
+      exclude-functions:
+        # Rollback after a failed step: the original error is what gets returned.
+        - (*database/sql.Tx).Rollback
+  exclusions:
+    generated: strict
+    presets:
+      - std-error-handling # unchecked Close/Rollback/Flush and fmt.Fprint* in defers
+    paths:
+      - third_party # pinned driver snapshot; never edited for lint (see AGENTS.md)
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/aantich/lastapp)
+      custom-order: true
+  exclusions:
+    paths:
+      - third_party
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
