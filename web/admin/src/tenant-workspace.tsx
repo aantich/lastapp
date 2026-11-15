@@ -19,6 +19,7 @@ import { useConsoleURL } from "./console-url";
 import { FormModal, type Field, type Modal } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
+import { errorMessage, useAction } from "./use-action";
 import { RemoteSelect } from "./remote-select";
 import { AccessControl } from "./access-control";
 import { TenantPeople } from "./tenant-people";
@@ -119,6 +120,10 @@ export function TenantWorkspace({
     (caps[action]?.spaces || []).includes(spaceID) ||
     (caps[action]?.apps || []).includes(appID);
   const refresh = () => setReload((r) => r + 1);
+  const { busy, run: act } = useAction(url, {
+    onSuccess: () => done(),
+    onError: setError,
+  });
   function go(page: string, v: Partial<typeof route> = {}) {
     if (page === "account") {
       navigate("/console/account");
@@ -205,15 +210,6 @@ export function TenantWorkspace({
   function done() {
     setModal(null);
     refresh();
-  }
-  async function act(fn: () => Promise<any>) {
-    const started = url;
-    try {
-      await fn();
-      if (currentContext.current === started) done();
-    } catch (e) {
-      if (currentContext.current === started) setError((e as Error).message);
-    }
   }
   function edit(
     row: Item,
@@ -338,7 +334,7 @@ export function TenantWorkspace({
           }),
       });
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     }
   }
   function createApp() {
@@ -505,7 +501,7 @@ export function TenantWorkspace({
           }),
       });
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     }
   }
 
@@ -1059,6 +1055,7 @@ export function TenantWorkspace({
                         {["ready", "failed"].includes(r.state) && (
                           <button
                             className="text-button"
+                            disabled={busy}
                             onClick={() =>
                               act(() =>
                                 api(
@@ -1159,6 +1156,7 @@ export function TenantWorkspace({
                         {!["provisioning", "retired"].includes(r.state) && (
                           <button
                             className="text-button danger"
+                            disabled={busy}
                             onClick={() => {
                               if (
                                 confirm(

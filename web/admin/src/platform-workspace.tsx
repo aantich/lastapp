@@ -1,5 +1,5 @@
 import { useBuiltinRoles } from "./console-config";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Building2,
   Users,
@@ -15,6 +15,7 @@ import { useConsoleURL } from "./console-url";
 import { FormModal, type Modal, type Field } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
+import { useAction } from "./use-action";
 import {
   accountFields,
   accountPayload,
@@ -52,11 +53,12 @@ export function PlatformWorkspace({
     [reload, setReload] = useState(0),
     [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [plans, setPlans] = useState<Item[]>([]);
-  const current = useRef(path);
-  current.current = path;
   const refresh = () => setReload((r) => r + 1);
+  const { busy, run: act } = useAction(path, {
+    onSuccess: refresh,
+    onError: setError,
+  });
   function go(page: string) {
     navigate("/console/platform/" + page);
   }
@@ -95,20 +97,6 @@ export function PlatformWorkspace({
     };
   }, [tenant, reload]);
   const profile = overview.tenant || {};
-  async function act(fn: () => Promise<any>) {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    const started = path;
-    try {
-      await fn();
-      if (current.current === started) refresh();
-    } catch (e) {
-      if (current.current === started) setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
   function done() {
     setModal(null);
     refresh();

@@ -9,6 +9,7 @@ import {
   usePasswordPolicy,
   generatePassword,
 } from "./new-password-input";
+import { errorMessage } from "./use-action";
 type Item = Record<string, any>;
 export type Field = {
   key: string;
@@ -71,7 +72,7 @@ export function FormModal({
       if (mounted.current) done();
     } catch (e) {
       if (mounted.current) {
-        setError((e as Error).message);
+        setError(errorMessage(e));
         setBusy(false);
       }
     }

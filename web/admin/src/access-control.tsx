@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
+import { useAction } from "./use-action";
 import { status, type Item } from "./console-forms";
 const spaceManager = "00000000-0000-4000-8000-000000000005",
   appManager = "00000000-0000-4000-8000-000000000006";
@@ -24,10 +25,11 @@ export function AccessControl({
   const [view, setView] = useState("assignments"),
     [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState(""),
-    [meta, setMeta] = useState<Item>({}),
-    [busy, setBusy] = useState(false);
-  const current = useRef(path);
-  current.current = path;
+    [meta, setMeta] = useState<Item>({});
+  const { busy, run: act } = useAction(path, {
+    onSuccess: () => changed(),
+    onError: setError,
+  });
   useEffect(() => {
     let live = true;
     if (scopeKind === "app")
@@ -57,19 +59,6 @@ export function AccessControl({
   function changed() {
     setModal(null);
     refresh();
-  }
-  async function act(fn: () => Promise<any>) {
-    if (busy) return;
-    setBusy(true);
-    const started = path;
-    try {
-      await fn();
-      if (current.current === started) changed();
-    } catch (e) {
-      if (current.current === started) setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
   }
   function assign() {
     setModal({

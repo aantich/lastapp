@@ -12,6 +12,7 @@ import {
   choiceLabel,
 } from "./expression";
 import "./entity.css";
+import { errorMessage } from "../use-action";
 const keyOf = (name: string) => {
   const bare = name
     .normalize("NFKD")
@@ -150,7 +151,7 @@ export function EntityDesigner({
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }

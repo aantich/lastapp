@@ -5,6 +5,7 @@ import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
 import { status, type Item } from "./console-forms";
 import "./development-workspaces.css";
+import { errorMessage } from "./use-action";
 
 export function DevelopmentWorkspaces({
   space,
@@ -26,7 +27,7 @@ export function DevelopmentWorkspaces({
       );
       setReload((x) => x + 1);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     }
   }
   return (

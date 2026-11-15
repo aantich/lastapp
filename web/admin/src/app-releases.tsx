@@ -5,6 +5,7 @@ import { useConsoleConfig } from "./console-config";
 import { FormModal, type Modal } from "./form-modal";
 import { status, type Item } from "./console-forms";
 import "./development-workspaces.css";
+import { errorMessage } from "./use-action";
 
 async function encode(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -105,7 +106,7 @@ export function AppReleases({
       } catch (e) {
         if (!alive) return;
         setDeploymentError(
-          `Could not refresh deployment status: ${(e as Error).message}`,
+          `Could not refresh deployment status: ${errorMessage(e)}`,
         );
         if ([401, 403, 404].includes((e as { status?: number }).status || 0))
           return;
@@ -125,7 +126,7 @@ export function AppReleases({
     try {
       await action();
     } catch (e) {
-      if (live.current) setError((e as Error).message);
+      if (live.current) setError(errorMessage(e));
     } finally {
       if (live.current) setBusy(false);
     }

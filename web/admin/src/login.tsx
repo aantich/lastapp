@@ -3,6 +3,7 @@ import { Layers3, LoaderCircle, ArrowUpRight, LogOut } from "lucide-react";
 import { api } from "./api";
 import { useConsoleConfig } from "./console-config";
 import { NewPasswordInput, usePasswordPolicy } from "./new-password-input";
+import { errorMessage } from "./use-action";
 
 export function LoginScreen({ done }: { done: () => Promise<void> }) {
   const [email, setEmail] = useState(""),
@@ -30,7 +31,7 @@ export function LoginScreen({ done }: { done: () => Promise<void> }) {
               setPassword("");
               await done();
             } catch (e) {
-              setError((e as Error).message);
+              setError(errorMessage(e));
             } finally {
               setBusy(false);
             }
@@ -157,7 +158,7 @@ export function PasswordScreen({
               await done();
               setSuccess("Password changed.");
             } catch (e) {
-              setError((e as Error).message);
+              setError(errorMessage(e));
             } finally {
               setBusy(false);
             }

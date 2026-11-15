@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "./api";
+import { errorMessage } from "./use-action";
 
 export type PasswordPolicy = {
   min_length: number;
@@ -49,7 +50,7 @@ export function ConsoleConfigProvider({ children }: { children: ReactNode }) {
         setError("");
       }
     } catch (e) {
-      if (request.current === current) setError((e as Error).message);
+      if (request.current === current) setError(errorMessage(e));
       throw e;
     }
   }, []);

@@ -5,6 +5,7 @@ import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
 import { NumberInput } from "./number-input";
 import { useDialogFocus } from "./appearance";
+import { errorMessage } from "./use-action";
 
 type Item = Record<string, any>;
 type GrantValues = {
@@ -82,7 +83,7 @@ function AgentGrantForm({
         try {
           await submit(values);
         } catch (e) {
-          setError((e as Error).message);
+          setError(errorMessage(e));
         } finally {
           setBusy(false);
         }
@@ -350,7 +351,7 @@ export function AgentConsent({ me }: { me: Item }) {
       });
       location.assign(result.redirect_url);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     }
   }
   return (
@@ -505,7 +506,7 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
     } catch (e) {
       if (request === generation.current) {
         setLoadFailed(true);
-        setError((e as Error).message);
+        setError(errorMessage(e));
       }
     } finally {
       if (request === generation.current) setLoading(false);
@@ -629,7 +630,7 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
                           );
                           await load();
                         } catch (e) {
-                          setError((e as Error).message);
+                          setError(errorMessage(e));
                         } finally {
                           setBusy("");
                         }
