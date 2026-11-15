@@ -6,7 +6,7 @@ export async function login(
 ) {
   await page.goto(origin + "/console/");
   await page.getByRole("link", { name: "Continue with SSO" }).click();
-  await page.locator("select[name=subject]").selectOption(subject);
+  await page.locator(`input[name=subject][value="${subject}"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(

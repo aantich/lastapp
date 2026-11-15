@@ -219,7 +219,7 @@ test("agent consent returns after signing in and can be denied", async ({
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Continue with SSO" }).click();
-  await page.locator("select[name=subject]").selectOption("operator");
+  await page.locator('input[name=subject][value="operator"]').check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(

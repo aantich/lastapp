@@ -10,7 +10,7 @@ async function signIn(
   await page
     .getByRole("link", { name: "Continue with SSO", exact: true })
     .click();
-  await page.locator("select[name=subject]").selectOption(subject);
+  await page.locator(`input[name=subject][value="${subject}"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(new RegExp("^" + origin + "/console/"));
