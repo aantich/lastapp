@@ -221,7 +221,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 			if e != nil {
 				return e
 			}
-			old, e := accessOf(current.Access)
+			old, e := registry.AccessOf(current.Access)
 			if e != nil {
 				return e
 			}
@@ -362,7 +362,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 				_, e = tx.ExecContext(ctx, "UPDATE roles SET display_name=?,state=?,revision=revision+1 WHERE id=? AND domain='data'", v.Name, v.State, v.ID)
 			}
 		} else {
-			if e = metadataQuota(ctx, tx, tenant, "roles"); e != nil {
+			if e = registry.MetadataQuota(ctx, tx, tenant, "roles"); e != nil {
 				return e
 			}
 			kind, owner := "space", "s:"+space
@@ -402,7 +402,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 			}
 			_, e = tx.ExecContext(ctx, "UPDATE microapp_installations SET display_name=?,artifact_ref=?,navigation_order=?,state=?,revision=revision+1 WHERE id=?", v.Name, registry.Nullable(v.Artifact), v.Order, v.State, v.ID)
 		} else if errors.Is(e, sql.ErrNoRows) {
-			if e = metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
+			if e = registry.MetadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 				return e
 			}
 			_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations(id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state) VALUES(?,?,?,?,?,?,?,?)", v.ID, tenant, v.App, v.Slug, v.Name, registry.Nullable(v.Artifact), v.Order, v.State)

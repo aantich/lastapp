@@ -164,7 +164,7 @@ func TestWorkspaceAppQuota(t *testing.T) {
 	}
 	// The independent workspace cap still bounds all stored Apps, even archived
 	// ones. Restoring one of those slots must remain possible at that cap.
-	for i := 2; i < maxWorkspaceApps; i++ {
+	for i := 2; i < registry.MaxWorkspaceApps; i++ {
 		if _, e := f.s.DB.Exec("INSERT INTO apps(id,tenant_id,space_id,slug,display_name,compute_mode) VALUES(?,?,?,?,?,'shared')", registry.NewID(), f.tenant, f.backing, fmt.Sprintf("cap-%d", i), "Cap fixture"); e != nil {
 			t.Fatal(e)
 		}

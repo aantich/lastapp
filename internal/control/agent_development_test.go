@@ -101,7 +101,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	// Development mode remains disabled for this policy check.
 	s.Config.Development = false
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5190", Inherit: true}, 1, 200)
-	verifier, nonce := token(32), token(32)
+	verifier, nonce := registry.Token(32), registry.Token(32)
 	raw, _ = json.Marshal(agentWorkspaceInput{Action: "launch", App: app, Launch: &developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(hash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
 	launch, e := s.toolAgentWorkspace(ctx, p, raw)
 	if e != nil {

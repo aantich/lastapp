@@ -95,7 +95,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Agent fixture','127.0.0.2',33317,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
-	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: token(32)})
+	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: registry.Token(32)})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -109,7 +109,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	app := registry.NewID()
 	oc.want("POST", base+"/spaces/"+space+"/apps", registry.Row{"id": app, "slug": "sales", "display_name": "Sales", "initial_manager_user_id": owner}, 0, 201)
 
-	verifier := token(48)
+	verifier := registry.Token(48)
 	sum := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
 	redirect := "http://127.0.0.1:8790/callback"
@@ -149,7 +149,7 @@ func TestAgentManagementMCP(t *testing.T) {
 		code := u.Query().Get("code")
 		form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {"lastapp-development"}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code_verifier": {verifier}}
 		bad, _ := url.ParseQuery(form.Encode())
-		bad.Set("code_verifier", token(48))
+		bad.Set("code_verifier", registry.Token(48))
 		if status, _ := tokenRequest(bad); status != 400 {
 			t.Fatal("bad PKCE accepted")
 		}

@@ -182,7 +182,7 @@ func TestSecurityRegressions(t *testing.T) {
 		if len(later) != 2 {
 			t.Fatal("group member pagination incomplete", later)
 		}
-		for i := 1; i < metadataLimits["groups"]; i++ {
+		for i := 1; i < registry.MetadataLimits["groups"]; i++ {
 			if _, e = s.DB.Exec("INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", registry.NewID(), tenant, fmt.Sprintf("group-%03d", i), "Bounded"); e != nil {
 				t.Fatal(e)
 			}
@@ -210,11 +210,11 @@ func TestSecurityRegressions(t *testing.T) {
 		}
 	})
 	t.Run("ExpiredSessionsAreRemovedWithoutRevokingLiveSessions", func(t *testing.T) {
-		expired, live := token(32), token(32)
-		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,created_at,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)-INTERVAL 2 HOUR,UTC_TIMESTAMP(6)-INTERVAL 1 HOUR)", hash(expired), operator, hash(token(32))); e != nil {
+		expired, live := registry.Token(32), registry.Token(32)
+		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,created_at,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)-INTERVAL 2 HOUR,UTC_TIMESTAMP(6)-INTERVAL 1 HOUR)", hash(expired), operator, hash(registry.Token(32))); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR)", hash(live), operator, hash(token(32))); e != nil {
+		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR)", hash(live), operator, hash(registry.Token(32))); e != nil {
 			t.Fatal(e)
 		}
 		if _, e = cleanupSessions(context.Background(), s.DB); e != nil {
@@ -347,7 +347,7 @@ func TestSecurityRegressions(t *testing.T) {
 	})
 	t.Run("GlobalGrantOptionRejected", func(t *testing.T) {
 		name := "rv_" + strings.ReplaceAll(registry.NewID(), "-", "")
-		password := token(32)
+		password := registry.Token(32)
 		if _, e = admin.DB.Exec("CREATE DATABASE `" + name + "`"); e != nil {
 			t.Fatal(e)
 		}
@@ -418,7 +418,7 @@ func TestSecurityRegressions(t *testing.T) {
 			t.Fatal(e)
 		}
 		defer tx.Rollback()
-		if _, e = policyFor(context.Background(), tx, first); e != nil {
+		if _, e = registry.PolicyFor(context.Background(), tx, first); e != nil {
 			t.Fatal(e)
 		}
 		other, e := s.DB.BeginTx(context.Background(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -428,7 +428,7 @@ func TestSecurityRegressions(t *testing.T) {
 		defer other.Rollback()
 		short, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		defer cancel()
-		_, e = policyFor(short, other, second)
+		_, e = registry.PolicyFor(short, other, second)
 		if e != nil {
 			t.Fatal("unrelated Tenant allocation blocked", e)
 		}

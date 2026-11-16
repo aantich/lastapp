@@ -12,53 +12,6 @@ import (
 	"github.com/aantich/lastapp/internal/registry"
 )
 
-// Plan is a subscription plan: allowed database layouts and methods, compute
-// and the Tenant quotas (nil is unlimited).
-type Plan struct {
-	AllowDedicatedCompute  registry.Bit `json:"allow_dedicated_compute"`
-	AllowDedicatedDatabase registry.Bit `json:"allow_dedicated_database"`
-	AllowManaged           registry.Bit `json:"allow_managed_database"`
-	AllowRegistered        registry.Bit `json:"allow_registered_database"`
-	AllowSharedDatabase    registry.Bit `json:"allow_shared_database"`
-	Code                   string       `json:"code"`
-	CreatedAt              time.Time    `json:"created_at"`
-	DefaultLayout          string       `json:"default_layout"`
-	Name                   string       `json:"display_name"`
-	ID                     string       `json:"id"`
-	MaxApps                *int64       `json:"max_apps"`
-	MaxDatabases           *int64       `json:"max_databases"`
-	MaxSpaces              *int64       `json:"max_spaces"`
-	Revision               int64        `json:"revision"`
-}
-
-const planColumns = "allow_dedicated_compute,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_shared_database,code,created_at,default_layout,display_name,id,max_apps,max_databases,max_spaces,revision"
-
-func (p *Plan) ScanFields() []any {
-	return []any{&p.AllowDedicatedCompute, &p.AllowDedicatedDatabase, &p.AllowManaged, &p.AllowRegistered, &p.AllowSharedDatabase, &p.Code, &p.CreatedAt, &p.DefaultLayout, &p.Name, &p.ID, &p.MaxApps, &p.MaxDatabases, &p.MaxSpaces, &p.Revision}
-}
-
-// Policy is the plan of an active Tenant with the Tenant's own defaults.
-type Policy struct {
-	Plan
-	TenantState           string
-	TenantLayout          string // empty when the Tenant uses the plan default
-	DefaultSharedDatabase string // empty until the first shared database exists
-}
-
-func (p *Policy) ScanFields() []any {
-	return append(p.Plan.ScanFields(), &p.TenantState, &p.TenantLayout, &p.DefaultSharedDatabase)
-}
-
-// allowsLayout reports whether the plan permits a database layout.
-func (p Plan) allowsLayout(layout string) bool {
-	return layout == "shared" && bool(p.AllowSharedDatabase) || layout == "dedicated" && bool(p.AllowDedicatedDatabase)
-}
-
-// allowsMethod reports whether the plan permits a database provisioning mode.
-func (p Plan) allowsMethod(mode string) bool {
-	return mode == "managed" && bool(p.AllowManaged) || mode == "registered" && bool(p.AllowRegistered)
-}
-
 type planInput struct {
 	ID         string  `json:"id"`
 	Code       string  `json:"code"`
@@ -87,18 +40,18 @@ func (in planInput) validate() error {
 	return registry.Bad("The default layout must be allowed by this plan.")
 }
 
-func (v *inventory) Plans(ctx context.Context, a op.Actor, page op.PageRequest) (op.Page[Plan], error) {
+func (v *inventory) Plans(ctx context.Context, a op.Actor, page op.PageRequest) (op.Page[registry.Plan], error) {
 	if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-		return op.Page[Plan]{}, e
+		return op.Page[registry.Plan]{}, e
 	}
-	return op.PageScan[Plan](ctx, v.db, page, op.CollectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+	return op.PageScan[registry.Plan](ctx, v.db, page, op.CollectionFor("plans"), "SELECT "+registry.PlanColumns+" FROM plans ORDER BY display_name")
 }
 
-func (v *inventory) Plan(ctx context.Context, a op.Actor, record string) (Plan, error) {
+func (v *inventory) Plan(ctx context.Context, a op.Actor, record string) (registry.Plan, error) {
 	if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-		return Plan{}, e
+		return registry.Plan{}, e
 	}
-	return registry.ScanOne[Plan](ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
+	return registry.ScanOne[registry.Plan](ctx, v.db, "SELECT "+registry.PlanColumns+" FROM plans WHERE id=?", record)
 }
 
 func (v *inventory) CreatePlan(ctx context.Context, a op.Actor, in planInput) (op.Ref, error) {
@@ -228,7 +181,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Pri
 	}
 	record := r.PathValue("id")
 	e = s.mutate(r.Context(), p, "platform.admin", access.Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := lockRecord(r.Context(), tx, "users", "", record)
+		old, e := registry.LockRecord(r.Context(), tx, "users", "", record)
 		if e != nil {
 			return e
 		}
@@ -249,11 +202,11 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Pri
 		if e != nil {
 			return e
 		}
-		if e = ensurePlatformAdmin(r.Context(), tx); e != nil {
+		if e = access.EnsurePlatformAdmin(r.Context(), tx); e != nil {
 			return e
 		}
 		for _, t := range ts {
-			if e = ensureTenantAdmin(r.Context(), tx, t); e != nil {
+			if e = access.EnsureTenantAdmin(r.Context(), tx, t); e != nil {
 				return e
 			}
 		}
@@ -371,11 +324,11 @@ func (v *inventory) CreateTenant(ctx context.Context, a op.Actor, in tenantCreat
 				return e
 			}
 		}
-		policy, e := registry.ScanOne[Plan](ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
+		policy, e := registry.ScanOne[registry.Plan](ctx, tx, "SELECT "+registry.PlanColumns+" FROM plans WHERE id=?", in.Plan)
 		if e != nil {
 			return e
 		}
-		if e = layoutAllowed(policy, in.Layout); e != nil {
+		if e = registry.LayoutAllowed(policy, in.Layout); e != nil {
 			return e
 		}
 		var user string
@@ -438,13 +391,13 @@ func (v *inventory) UpdateTenant(ctx context.Context, a op.Actor, record string,
 		if in.Plan != nil {
 			plan = *in.Plan
 		}
-		policy, e := registry.ScanOne[Plan](ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
+		policy, e := registry.ScanOne[registry.Plan](ctx, tx, "SELECT "+registry.PlanColumns+" FROM plans WHERE id=?", plan)
 		if e != nil {
 			return e
 		}
 		if in.Layout != nil {
 			layout = *in.Layout
-			if e = layoutAllowed(policy, layout); e != nil {
+			if e = registry.LayoutAllowed(policy, layout); e != nil {
 				return e
 			}
 		}
@@ -469,7 +422,7 @@ func (v *inventory) UpdateTenantProfile(ctx context.Context, a op.Actor, tenant,
 		return op.Ref{}, op.RevisionRequired()
 	}
 	e := v.run.Mutate(ctx, a, "tenant.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
-		before, e := lockRecord(ctx, tx, "tenants", "", tenant)
+		before, e := registry.LockRecord(ctx, tx, "tenants", "", tenant)
 		if e != nil {
 			return e
 		}
@@ -539,79 +492,6 @@ func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p a
 		sendRef(w, 200, v)
 	}
 	return e
-}
-
-func layoutAllowed(policy Plan, layout string) error {
-	if layout == "" || policy.allowsLayout(layout) {
-		return nil
-	}
-	return registry.Problem(403, "plan_restriction", "This database layout is not permitted by the selected plan.")
-}
-
-// policyFor reads the plan of an active Tenant; resources are allocated only
-// in an active Tenant.
-func policyFor(ctx context.Context, q registry.Queryer, tenant string) (Policy, error) {
-	v, e := registry.ScanOne[Policy](ctx, q, "SELECT "+registry.Prefixed("p", planColumns)+",t.state,COALESCE(t.default_layout,''),COALESCE(t.default_shared_database_id,'') FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
-	if e != nil {
-		return Policy{}, e
-	}
-	if v.TenantState != registry.StateActive {
-		return Policy{}, registry.Conflict("The Tenant must be active to allocate resources.")
-	}
-	return v, nil
-}
-
-// quotaNames names each quota-limited table in the quota_exceeded message.
-var quotaNames = map[string]string{"spaces": "spaces", "apps": "apps", "database_resources": "databases"}
-
-// quota rejects one more production record of table when limit (nil is
-// unlimited) is reached.
-func quota(ctx context.Context, q registry.Queryer, tenant, table string, limit *int64) error {
-	if limit == nil {
-		return nil
-	}
-	var n int
-	state := "state<>'archived'"
-	if table == "spaces" {
-		state += " AND workspace_id IS NULL"
-	}
-	if table == "apps" {
-		state += " AND NOT EXISTS(SELECT 1 FROM spaces sp WHERE sp.id=apps.space_id AND sp.workspace_id IS NOT NULL)"
-	}
-	if table == "database_resources" {
-		state = "1=1"
-	}
-	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE tenant_id=? AND "+state, tenant).Scan(&n); e != nil {
-		return e
-	}
-	if int64(n) >= *limit {
-		return registry.Problem(409, "quota_exceeded", "The Tenant's "+quotaNames[table]+" limit has been reached.")
-	}
-	return nil
-}
-
-func ensurePlatformAdmin(ctx context.Context, q registry.Queryer) error {
-	var n int
-	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.scope_kind='platform' AND g.role_id=?", access.SuperRole).Scan(&n)
-	if e != nil {
-		return e
-	}
-	if n < 1 {
-		return registry.Conflict("Keep at least one active platform administrator.")
-	}
-	return nil
-}
-
-func ensureTenantAdmin(ctx context.Context, q registry.Queryer, tenant string) error {
-	var n int
-	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL AND NOT EXISTS (SELECT 1 FROM access_grants pg WHERE pg.user_id=g.user_id AND pg.role_id=?)", tenant, access.TenantAdminRole, access.SuperRole).Scan(&n)
-	if e != nil {
-		return e
-	}
-	if n < 1 {
-		return registry.Conflict("Keep at least one active, directly assigned Tenant administrator.")
-	}
-	return nil
 }
 
 func (s *Server) users(w http.ResponseWriter, r *http.Request, p access.Principal) error {

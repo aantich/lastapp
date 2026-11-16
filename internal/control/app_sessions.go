@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,40 +25,8 @@ var (
 	pkceRE     = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
-// appRecord is an App's registry row.
-type appRecord struct {
-	ActiveRelease    *string            `json:"active_release_id"`
-	Origin           *string            `json:"approved_origin"`
-	Compute          string             `json:"compute_mode"`
-	CreatedAt        time.Time          `json:"created_at"`
-	Access           registry.JSONValue `json:"data_access_json"`
-	Name             string             `json:"display_name"`
-	ID               string             `json:"id"`
-	OriginGeneration int64              `json:"origin_generation"`
-	OriginHost       *string            `json:"origin_host"`
-	Revision         int64              `json:"revision"`
-	Slug             string             `json:"slug"`
-	SpaceID          string             `json:"space_id"`
-	State            string             `json:"state"`
-	TenantID         string             `json:"tenant_id"`
-}
-
-const appRecordColumns = "active_release_id,approved_origin,compute_mode,created_at,data_access_json,display_name,id,origin_generation,origin_host,revision,slug,space_id,state,tenant_id"
-
-func (v *appRecord) ScanFields() []any {
-	return []any{&v.ActiveRelease, &v.Origin, &v.Compute, &v.CreatedAt, &v.Access, &v.Name, &v.ID, &v.OriginGeneration, &v.OriginHost, &v.Revision, &v.Slug, &v.SpaceID, &v.State, &v.TenantID}
-}
-
-func (s *Server) appRow(ctx context.Context, q registry.Queryer, app string) (appRecord, error) {
-	return registry.ScanOne[appRecord](ctx, q, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
-}
-
-// accessOf decodes an App's data_access_json policy.
-func accessOf(v registry.JSONValue) (entity.AppAccess, error) {
-	var a entity.AppAccess
-	b, _ := json.Marshal(v)
-	e := json.Unmarshal(b, &a)
-	return a, e
+func (s *Server) appRow(ctx context.Context, q registry.Queryer, app string) (registry.AppRecord, error) {
+	return registry.ScanOne[registry.AppRecord](ctx, q, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
 }
 
 func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -90,7 +57,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if e = s.DB.QueryRowContext(r.Context(), "SELECT state FROM spaces WHERE id=?", v.SpaceID).Scan(&sp); e != nil || sp != registry.StateActive {
 		return registry.Missing()
 	}
-	a, e := accessOf(v.Access)
+	a, e := registry.AccessOf(v.Access)
 	if e != nil {
 		return e
 	}
@@ -101,7 +68,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if e != nil {
 		return e
 	}
-	code := token(32)
+	code := registry.Token(32)
 	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), hash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 	if e != nil {
 		return e
@@ -138,7 +105,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	if subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != access.Deref(v.Origin) {
 		return registry.Problem(401, "invalid_exchange", "Launch challenge or origin mismatch.")
 	}
-	raw := token(32)
+	raw := registry.Token(32)
 	_, e = tx.ExecContext(r.Context(), "UPDATE sessions SET state='consumed' WHERE token_hash=?", hash(in.Code))
 	if e != nil {
 		return e
@@ -225,7 +192,7 @@ func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p access.
 	if e = s.Member(r.Context(), s.DB, p, tenant, true); e != nil {
 		return e
 	}
-	a, e := accessOf(access)
+	a, e := registry.AccessOf(access)
 	if e != nil {
 		return e
 	}

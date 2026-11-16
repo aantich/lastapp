@@ -428,7 +428,7 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p access.P
 				return registry.Bad("Reconnect requesting the additional OAuth scopes before approving them.")
 			}
 		}
-		grant, code := registry.NewID(), token(32)
+		grant, code := registry.NewID(), registry.Token(32)
 		var existing int
 		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM agent_grants WHERE user_id=? AND state='active' AND expires_at>UTC_TIMESTAMP(6)", p.ID).Scan(&existing); e != nil {
 			return e
@@ -532,7 +532,7 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p acce
 		return e
 	}
 	defer tx.Rollback()
-	var current lockedRecord
+	var current registry.LockedRecord
 	if e = registry.Lookup(r.Context(), tx, "SELECT revision,state FROM agent_grants WHERE id=? FOR UPDATE", []any{g.ID}, &current.Revision, &current.State); e != nil {
 		return e
 	}
@@ -657,7 +657,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, "invalid_grant")
 		return
 	}
-	access, refresh := token(32), token(48)
+	access, refresh := registry.Token(32), registry.Token(48)
 	var rotations int
 	if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_token_sessions WHERE grant_id=?", g.ID).Scan(&rotations); e != nil {
 		writeError(w, r, e)

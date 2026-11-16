@@ -94,13 +94,13 @@ func snapshotIDs(base spaceSnapshot) map[string]string {
 }
 
 func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
-	if len(base.Apps) > maxWorkspaceApps {
+	if len(base.Apps) > registry.MaxWorkspaceApps {
 		return registry.Conflict("Space exceeds the workspace App limit.")
 	}
-	if e := metadataQuota(ctx, tx, tenant, "roles", len(base.Roles)); e != nil {
+	if e := registry.MetadataQuota(ctx, tx, tenant, "roles", len(base.Roles)); e != nil {
 		return e
 	}
-	if e := metadataQuota(ctx, tx, tenant, "microapp_installations", len(base.Microapps)); e != nil {
+	if e := registry.MetadataQuota(ctx, tx, tenant, "microapp_installations", len(base.Microapps)); e != nil {
 		return e
 	}
 	ids := map[string]string{}
@@ -292,12 +292,12 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 			}
 		}
 		if ready {
-			apps, err := registry.ScanAll[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=?", v.BackingSpace)
+			apps, err := registry.ScanAll[registry.AppRecord](ctx, tx, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE space_id=?", v.BackingSpace)
 			if err != nil {
 				return err
 			}
 			for _, a := range apps {
-				access, err := accessOf(a.Access)
+				access, err := registry.AccessOf(a.Access)
 				if err != nil {
 					return err
 				}

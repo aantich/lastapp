@@ -76,14 +76,14 @@ func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in deve
 	if _, e = s.workspaceRow(ctx, s.DB, p, wid); e != nil {
 		return nil, e
 	}
-	a, e := accessOf(v.Access)
+	a, e := registry.AccessOf(v.Access)
 	if e != nil {
 		return nil, e
 	}
 	if in.Origin == "" || in.Origin != a.Origin {
 		return nil, registry.Bad("Approve the exact development App origin using app_access_update first.")
 	}
-	code := token(32)
+	code := registry.Token(32)
 	e = s.run.Mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 		return e

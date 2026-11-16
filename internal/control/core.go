@@ -257,14 +257,6 @@ func CheckSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func token(n int) string {
-	b := make([]byte, n)
-	if _, e := rand.Read(b); e != nil {
-		panic(e)
-	}
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
 func (s *Server) encryptionKeyID() string {
 	if s.Config.EncryptionKeyID != "" {
 		return s.Config.EncryptionKeyID

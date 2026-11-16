@@ -737,14 +737,14 @@ func (v *authoring) TestEntity(ctx context.Context, a op.Actor, key string, in e
 // AppContracts are the published entity contracts an App may use: its
 // access ceiling narrows fields and permissions unless a is a Space manager.
 func (v *authoring) AppContracts(ctx context.Context, a op.Actor, app string, view contractView) (registry.Row, error) {
-	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := registry.ScanOne[registry.AppRecord](ctx, v.db, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
 	if e = v.run.Check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	appAccess, e := accessOf(current.Access)
+	appAccess, e := registry.AccessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
@@ -851,14 +851,14 @@ func (v *authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 
 // AppAccess is an App's data-access policy with its revision.
 func (v *authoring) AppAccess(ctx context.Context, a op.Actor, app string) (registry.Row, error) {
-	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := registry.ScanOne[registry.AppRecord](ctx, v.db, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
 	if e = v.run.Check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	access, e := accessOf(current.Access)
+	access, e := registry.AccessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
@@ -871,13 +871,13 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a op.Actor, app string, i
 	if revision < 1 {
 		return nil, op.RevisionRequired()
 	}
-	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := registry.ScanOne[registry.AppRecord](ctx, v.db, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
 	res := access.Resource{Tenant: current.TenantID, App: current.ID}
 	e = v.run.Mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
-		current, e = registry.ScanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
+		current, e = registry.ScanOne[registry.AppRecord](ctx, tx, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", current.ID)
 		if e != nil {
 			return e
 		}
@@ -889,7 +889,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a op.Actor, app string, i
 			return e
 		}
 		workspace := wid.Valid
-		old, e := accessOf(current.Access)
+		old, e := registry.AccessOf(current.Access)
 		if e != nil {
 			return e
 		}

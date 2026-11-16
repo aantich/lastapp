@@ -85,23 +85,23 @@ func (s *Server) releaseRoutes() {
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }
 
-func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p access.Principal, app string) (appRecord, registry.Workspace, error) {
+func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p access.Principal, app string) (registry.AppRecord, registry.Workspace, error) {
 	a, e := s.appRow(ctx, q, app)
 	if e != nil {
-		return appRecord{}, registry.Workspace{}, e
+		return registry.AppRecord{}, registry.Workspace{}, e
 	}
 	if a.State != registry.StateActive {
-		return appRecord{}, registry.Workspace{}, registry.Conflict("Restore the App before developing or releasing it.")
+		return registry.AppRecord{}, registry.Workspace{}, registry.Conflict("Restore the App before developing or releasing it.")
 	}
 	w, e := registry.ScanOne[registry.Workspace](ctx, q, "SELECT "+registry.WorkspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=? AND w.state='ready'", a.SpaceID)
 	if e != nil {
-		return appRecord{}, registry.Workspace{}, registry.Missing()
+		return registry.AppRecord{}, registry.Workspace{}, registry.Missing()
 	}
 	if e = s.WorkspaceOwner(ctx, q, p, w); e != nil {
-		return appRecord{}, registry.Workspace{}, e
+		return registry.AppRecord{}, registry.Workspace{}, e
 	}
 	if e = s.Authorize(ctx, q, p, "release.manage", access.Resource{Tenant: a.TenantID, App: app}, true); e != nil {
-		return appRecord{}, registry.Workspace{}, e
+		return registry.AppRecord{}, registry.Workspace{}, e
 	}
 	return a, w, nil
 }
@@ -120,26 +120,26 @@ func (s *Server) UploadTicket(ctx context.Context, actor op.Actor, app string) (
 			return nil, e
 		}
 	}
-	secret := token(32)
+	secret := registry.Token(32)
 	e = s.run.Mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		var n int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM artifact_uploads WHERE user_id=? AND expires_at>UTC_TIMESTAMP(6) AND build_id IS NULL", p.ID).Scan(&n); e != nil {
 			return e
 		}
-		if n >= maxOutstandingUploads {
+		if n >= registry.MaxOutstandingUploads {
 			return registry.Conflict("Too many outstanding uploads. Finish an upload or wait for expiry.")
 		}
 		var rev any
 		if p.Agent != nil {
 			rev = p.Agent.Revision
 		}
-		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a.TenantID, a.ID, p.ID, agentID(p), rev, time.Now().Add(uploadTicketLifetime))
+		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a.TenantID, a.ID, p.ID, agentID(p), rev, time.Now().Add(registry.UploadTicketLifetime))
 		return e
 	})
 	if e != nil {
 		return nil, e
 	}
-	return registry.Row{"upload_url": s.Config.PublicURL + "/artifact/v1/upload", "upload_token": secret, "expires_in": int(uploadTicketLifetime.Seconds()), "limits": artifact.Limits, "instructions": "POST {entrypoint:'index.html',files:[{path:'...',content_base64:'...'}]} using Authorization: Bearer <upload_token>. A ticket uploads one immutable build; identical retries return its build ID. Do not put tokens or local development credentials in builds."}, nil
+	return registry.Row{"upload_url": s.Config.PublicURL + "/artifact/v1/upload", "upload_token": secret, "expires_in": int(registry.UploadTicketLifetime.Seconds()), "limits": artifact.Limits, "instructions": "POST {entrypoint:'index.html',files:[{path:'...',content_base64:'...'}]} using Authorization: Bearer <upload_token>. A ticket uploads one immutable build; identical retries return its build ID. Do not put tokens or local development credentials in builds."}, nil
 }
 
 // uploadTicket is a bounded build-upload credential and the build it
@@ -282,7 +282,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_builds WHERE app_id=?", v.AppID).Scan(&n); e != nil {
 			return e
 		}
-		if n >= maxAppBuilds {
+		if n >= registry.MaxAppBuilds {
 			return registry.Conflict("App build limit reached. Create a fresh workspace.")
 		}
 		if e = artifact.Store(s.artifactDirectory(), in.Files, b); e != nil {

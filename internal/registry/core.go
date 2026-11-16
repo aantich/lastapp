@@ -2,7 +2,9 @@ package registry
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -167,4 +169,30 @@ func Nullable(v string) any {
 		return nil
 	}
 	return v
+}
+
+func Token(n int) string {
+	b := make([]byte, n)
+	if _, e := rand.Read(b); e != nil {
+		panic(e)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// LockedRecord is the revision and lifecycle state of a record locked for
+// update.
+type LockedRecord struct {
+	Revision int64
+	State    string
+}
+
+func LockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (LockedRecord, error) {
+	query := "SELECT revision,state FROM " + table + " WHERE id=?"
+	args := []any{record}
+	if tenant != "" {
+		query += " AND tenant_id=?"
+		args = append(args, tenant)
+	}
+	var v LockedRecord
+	return v, Lookup(ctx, tx, query+" FOR UPDATE", args, &v.Revision, &v.State)
 }

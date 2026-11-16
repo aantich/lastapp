@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -186,21 +185,6 @@ type Named struct {
 
 func (v *Named) ScanFields() []any { return []any{&v.Name, &v.ID} }
 
-func activeTenantUser(ctx context.Context, q registry.Queryer, t, user string) error {
-	var state string
-	e := q.QueryRowContext(ctx, "SELECT u.state FROM users u JOIN tenant_memberships m ON m.user_id=u.id AND m.tenant_id=? AND m.state='active' WHERE u.id=? FOR UPDATE", t, user).Scan(&state)
-	if errors.Is(e, sql.ErrNoRows) {
-		return registry.Bad("An active Tenant member is required.")
-	}
-	if e != nil {
-		return e
-	}
-	if state != registry.StateActive {
-		return registry.Bad("An active Tenant member is required.")
-	}
-	return nil
-}
-
 // Roles pages the roles defined at scope: fixed platform-defined roles with
 // their control permissions, and custom roles with their data permissions.
 func (v *authority) Roles(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, page op.PageRequest) (op.Page[roleItem], error) {
@@ -255,7 +239,7 @@ func (v *authority) CreateRole(ctx context.Context, a op.Actor, scope authz.Scop
 		return op.Ref{}, registry.Bad("Invalid role state.")
 	}
 	e := v.run.Mutate(ctx, a, "authorization.manage", res, func(tx *sql.Tx) error {
-		if e := metadataQuota(ctx, tx, scope.Tenant, "roles"); e != nil {
+		if e := registry.MetadataQuota(ctx, tx, scope.Tenant, "roles"); e != nil {
 			return e
 		}
 		var n int
@@ -427,11 +411,11 @@ func (v *authority) Grant(ctx context.Context, a op.Actor, scope authz.Scope, re
 		}
 
 		if scope.Kind != authz.Platform {
-			if e = metadataQuota(ctx, tx, scope.Tenant, "access_grants"); e != nil {
+			if e = registry.MetadataQuota(ctx, tx, scope.Tenant, "access_grants"); e != nil {
 				return e
 			}
 			if in.User != "" {
-				if e = activeTenantUser(ctx, tx, scope.Tenant, in.User); e != nil {
+				if e = registry.ActiveTenantUser(ctx, tx, scope.Tenant, in.User); e != nil {
 					return e
 				}
 			} else {
@@ -523,12 +507,12 @@ func (v *authority) Revoke(ctx context.Context, a op.Actor, scope authz.Scope, r
 			return e
 		}
 		if role == access.SuperRole {
-			if e = ensurePlatformAdmin(ctx, tx); e != nil {
+			if e = access.EnsurePlatformAdmin(ctx, tx); e != nil {
 				return e
 			}
 		}
 		if role == access.TenantAdminRole {
-			if e = ensureTenantAdmin(ctx, tx, scope.Tenant); e != nil {
+			if e = access.EnsureTenantAdmin(ctx, tx, scope.Tenant); e != nil {
 				return e
 			}
 		}
@@ -567,13 +551,13 @@ func (v *authority) recipientScope(ctx context.Context, a op.Actor, scope authz.
 // assignInitialManager gives a new Space or App its manager inside the
 // creating transaction.
 func assignInitialManager(ctx context.Context, tx *sql.Tx, a op.Actor, tenant, space, app, user string) error {
-	if e := metadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
+	if e := registry.MetadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
 		return e
 	}
 	if e := registry.ID(user); e != nil {
 		return registry.Bad("Select an active Tenant member as initial manager.")
 	}
-	if e := activeTenantUser(ctx, tx, tenant, user); e != nil {
+	if e := registry.ActiveTenantUser(ctx, tx, tenant, user); e != nil {
 		return e
 	}
 	platform, e := access.IsPlatform(ctx, tx, user)

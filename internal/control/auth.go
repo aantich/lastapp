@@ -77,7 +77,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, registry.Bad("Invalid return origin."))
 		return
 	}
-	flow := loginFlow{ReturnOrigin: origin, State: token(32), Nonce: token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
+	flow := loginFlow{ReturnOrigin: origin, State: registry.Token(32), Nonce: registry.Token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
 	b, e := s.seal("oidc_flow", "browser", "", flow)
 	if e != nil {
 		writeError(w, r, e)
@@ -156,7 +156,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, registry.Problem(403, "user_disabled", "This user has been disabled."))
 		return
 	}
-	session, csrf := token(32), token(32)
+	session, csrf := registry.Token(32), registry.Token(32)
 	_, e = tx.ExecContext(ctx, "INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR))", hash(session), uid, hash(csrf))
 	if e != nil {
 		writeError(w, r, e)

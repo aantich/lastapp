@@ -81,7 +81,7 @@ func (s *Server) snapshot(ctx context.Context, q registry.Queryer, space string)
 	if e := q.QueryRowContext(ctx, "SELECT COALESCE(SUM(OCTET_LENGTH(v.definition_json)),0) FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=?", space).Scan(&definitionBytes); e != nil {
 		return spaceSnapshot{}, e
 	}
-	if definitionBytes > maxSpaceSnapshotBytes {
+	if definitionBytes > registry.MaxSpaceSnapshotBytes {
 		return spaceSnapshot{}, registry.Conflict("Space configuration exceeds the workspace/release snapshot limit.")
 	}
 	out := spaceSnapshot{Entities: []snapshotEntity{}, Roles: []snapshotRole{}, Apps: []snapshotApp{}, Microapps: []snapshotMicroapp{}}
@@ -114,12 +114,12 @@ func (s *Server) snapshot(ctx context.Context, q registry.Queryer, space string)
 	if out.Roles, e = registry.ScanAll[snapshotRole](ctx, q, "SELECT revision,id,COALESCE(app_id,''),code,display_name,state FROM roles WHERE space_id=? AND domain='data' ORDER BY id", space); e != nil {
 		return out, e
 	}
-	apps, e := registry.ScanAll[appRecord](ctx, q, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=? ORDER BY id", space)
+	apps, e := registry.ScanAll[registry.AppRecord](ctx, q, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE space_id=? ORDER BY id", space)
 	if e != nil {
 		return out, e
 	}
 	for _, v := range apps {
-		a, e := accessOf(v.Access)
+		a, e := registry.AccessOf(v.Access)
 		if e != nil {
 			return out, e
 		}
@@ -130,7 +130,7 @@ func (s *Server) snapshot(ctx context.Context, q registry.Queryer, space string)
 		return out, e
 	}
 	encoded, _ := json.Marshal(out)
-	if len(encoded) > maxSpaceSnapshotBytes {
+	if len(encoded) > registry.MaxSpaceSnapshotBytes {
 		return out, registry.Conflict("Space configuration exceeds the workspace/release snapshot limit.")
 	}
 	return out, nil
@@ -264,7 +264,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor op.Actor, space stri
 		if s.Config.WorkspaceDatabaseTarget != "" {
 			target = s.Config.WorkspaceDatabaseTarget
 		}
-		policy, e := policyFor(ctx, tx, res.Tenant)
+		policy, e := registry.PolicyFor(ctx, tx, res.Tenant)
 		if e != nil {
 			return e
 		}

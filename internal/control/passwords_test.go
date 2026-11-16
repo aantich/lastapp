@@ -246,7 +246,7 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	// Fixture metadata is enough to exercise resource authority without provisioning a new server.
 	target, db, space, app := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
 	platform.want("POST", "/admin/v1/database-targets", registry.Row{"id": target, "display_name": "Account fixture", "canonical_host": "127.0.0.1", "port": 33317, "tls_mode": "disabled"}, 0, 201)
-	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: token(32)})
+	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: registry.Token(32)})
 	if e != nil {
 		t.Fatal(e)
 	}

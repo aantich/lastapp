@@ -131,7 +131,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor op.Actor, app string, 
 		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_releases WHERE app_id=?", a.ID).Scan(&count); e != nil {
 			return e
 		}
-		if count >= maxAppReleases {
+		if count >= registry.MaxAppReleases {
 			return registry.Conflict("Release limit reached. Start a fresh workspace.")
 		}
 		if e = s.ensureSnapshotReady(ctx, tx, a.SpaceID); e != nil {
@@ -141,7 +141,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor op.Actor, app string, 
 		if e != nil {
 			return e
 		}
-		if len(in.Manifest.Microapps) > maxReleaseMicroapps || len(in.Manifest.Dependencies) > maxReleaseDependencies {
+		if len(in.Manifest.Microapps) > registry.MaxReleaseMicroapps || len(in.Manifest.Dependencies) > registry.MaxReleaseDependencies {
 			return registry.Bad("Release manifest is too large.")
 		}
 		needed := map[string]bool{}
@@ -278,7 +278,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor op.Actor, release str
 		if snapshotContractHash(remapSnapshot(currentSnapshot, ids)) != rel.SnapshotHash {
 			return registry.Conflict("Workspace configuration changed after this release was captured. Capture and test a fresh release.")
 		}
-		access, e := accessOf(a.Access)
+		access, e := registry.AccessOf(a.Access)
 		if e != nil {
 			return e
 		}

@@ -141,7 +141,7 @@ func localAccount(ctx context.Context, tx *sql.Tx, in preparedAccount, canCreate
 }
 
 func newConsoleSession(ctx context.Context, tx *sql.Tx, user, method string) (string, string, error) {
-	session, csrf := token(32), token(32)
+	session, csrf := registry.Token(32), registry.Token(32)
 	_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,expires_at,auth_method) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR),?)", hash(session), user, hash(csrf), method)
 	return session, csrf, e
 }

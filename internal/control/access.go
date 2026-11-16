@@ -148,7 +148,7 @@ func (m *membership) AddMembership(ctx context.Context, a op.Actor, tenant strin
 	ctx, cancel := account.deadline(ctx)
 	defer cancel()
 	e := m.run.Mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
-		if e := metadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
+		if e := registry.MetadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
 			return e
 		}
 		if in.Account != nil {
@@ -215,7 +215,7 @@ func (m *membership) UpdateMembership(ctx context.Context, a op.Actor, tenant, u
 				return registry.Missing()
 			}
 		}
-		if e = ensureTenantAdmin(ctx, tx, tenant); e != nil {
+		if e = access.EnsureTenantAdmin(ctx, tx, tenant); e != nil {
 			return e
 		}
 		if state == registry.StateDisabled {
@@ -269,7 +269,7 @@ func (m *membership) CreateTeam(ctx context.Context, a op.Actor, tenant string, 
 		return op.Ref{}, e
 	}
 	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
-		if e := metadataQuota(ctx, tx, tenant, "groups"); e != nil {
+		if e := registry.MetadataQuota(ctx, tx, tenant, "groups"); e != nil {
 			return e
 		}
 		if _, e := tx.ExecContext(ctx, "INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", in.ID, tenant, in.Slug, in.Name); e != nil {
@@ -331,7 +331,7 @@ func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, t
 		return done{}, op.RevisionRequired()
 	}
 	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
-		old, e := lockRecord(ctx, tx, "groups", tenant, team)
+		old, e := registry.LockRecord(ctx, tx, "groups", tenant, team)
 		if e != nil {
 			return e
 		}
@@ -346,7 +346,7 @@ func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, t
 			return registry.Missing()
 		}
 		if add {
-			if e := activeTenantUser(ctx, tx, tenant, user); e != nil {
+			if e := registry.ActiveTenantUser(ctx, tx, tenant, user); e != nil {
 				return e
 			}
 		}
@@ -366,7 +366,7 @@ func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, t
 		}
 		query := "DELETE FROM group_memberships WHERE tenant_id=? AND group_id=? AND user_id=?"
 		if add {
-			if e := metadataQuota(ctx, tx, tenant, "group_memberships"); e != nil {
+			if e := registry.MetadataQuota(ctx, tx, tenant, "group_memberships"); e != nil {
 				return e
 			}
 			query = "INSERT INTO group_memberships (tenant_id,group_id,user_id) VALUES (?,?,?)"
@@ -395,7 +395,7 @@ func (m *membership) SetTeamMemberState(ctx context.Context, a op.Actor, tenant,
 		return done{}, op.RevisionRequired()
 	}
 	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
-		locked, e := lockRecord(ctx, tx, "groups", tenant, team)
+		locked, e := registry.LockRecord(ctx, tx, "groups", tenant, team)
 		if e != nil {
 			return e
 		}
@@ -408,7 +408,7 @@ func (m *membership) SetTeamMemberState(ctx context.Context, a op.Actor, tenant,
 			return e
 		}
 		if state == registry.StateActive {
-			if e = activeTenantUser(ctx, tx, tenant, user); e != nil {
+			if e = registry.ActiveTenantUser(ctx, tx, tenant, user); e != nil {
 				return e
 			}
 		}

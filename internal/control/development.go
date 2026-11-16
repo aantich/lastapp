@@ -104,7 +104,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 			return e
 		}
 		resource := registry.NewID()
-		policy, e := policyFor(ctx, tx, tenant)
+		policy, e := registry.PolicyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
 		}

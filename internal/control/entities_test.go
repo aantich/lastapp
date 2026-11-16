@@ -24,7 +24,7 @@ func TestEntityRuntime(t *testing.T) {
 	tenant, space, app, resource, target := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "entities-" + tenant, "display_name": "Entity tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	name := "entity_test_" + strings.ReplaceAll(registry.NewID(), "-", "")
-	runtime, ddl := credentials{Username: "er_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: token(32)}, credentials{Username: "es_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: token(32)}
+	runtime, ddl := credentials{Username: "er_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}, credentials{Username: "es_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, e := s.DB.Exec(q, args...); e != nil {
@@ -117,8 +117,8 @@ func TestEntityRuntime(t *testing.T) {
 		if len(options) > 0 {
 			appID, origin = options[0], options[1]
 		}
-		verifier := token(32)
-		nonce := token(32)
+		verifier := registry.Token(32)
+		nonce := registry.Token(32)
 		v := client.want("POST", "/v1/apps/"+appID+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
 		code, result := dataReq("", "POST", "/session/exchange", registry.Row{"code": v["code"], "verifier": verifier, "nonce": nonce}, 0, origin)
 		if code != 200 {

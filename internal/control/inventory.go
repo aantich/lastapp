@@ -52,7 +52,7 @@ type inventory struct {
 	db  *sql.DB
 	run *op.Runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databaseInput, policy Policy, workspace *access.Resource) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databaseInput, policy registry.Policy, workspace *access.Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
@@ -132,11 +132,11 @@ func (v *inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 		if exists > 0 {
 			return registry.Conflict("This Space ID already exists; refresh before retrying.")
 		}
-		policy, e := policyFor(ctx, tx, tenant)
+		policy, e := registry.PolicyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
 		}
-		if e = quota(ctx, tx, tenant, "spaces", policy.MaxSpaces); e != nil {
+		if e = registry.Quota(ctx, tx, tenant, "spaces", policy.MaxSpaces); e != nil {
 			return e
 		}
 		resource, layout := in.Database.Resource, in.Database.Layout
@@ -155,7 +155,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 			if state == registry.StateRetired {
 				return registry.Conflict("A retired database cannot be bound.")
 			}
-			if e = layoutAllowed(policy.Plan, layout); e != nil {
+			if e = registry.LayoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
 		} else {
@@ -164,11 +164,11 @@ func (v *inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 			}
 			if layout == "" {
 				layout = policy.TenantLayout
-				if layout == "" || layoutAllowed(policy.Plan, layout) != nil {
+				if layout == "" || registry.LayoutAllowed(policy.Plan, layout) != nil {
 					layout = policy.DefaultLayout
 				}
 			}
-			if e = layoutAllowed(policy.Plan, layout); e != nil {
+			if e = registry.LayoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
 			if layout == "shared" && policy.DefaultSharedDatabase != "" {
@@ -310,11 +310,11 @@ func (v *inventory) CreateApp(ctx context.Context, a op.Actor, tenant, space str
 		if parent != registry.StateActive {
 			return registry.Conflict("The parent Space must be active.")
 		}
-		policy, e := policyFor(ctx, tx, tenant)
+		policy, e := registry.PolicyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
 		}
-		if e = appQuota(ctx, tx, tenant, space, policy, true); e != nil {
+		if e = registry.AppQuota(ctx, tx, tenant, space, policy, true); e != nil {
 			return e
 		}
 		if in.Compute == "dedicated" && !policy.AllowDedicatedCompute {
@@ -469,10 +469,10 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a op.Actor, tenant, app 
 		return op.Ref{}, e
 	}
 	e := v.run.Mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
-		if _, e := policyFor(ctx, tx, tenant); e != nil {
+		if _, e := registry.PolicyFor(ctx, tx, tenant); e != nil {
 			return e
 		}
-		if e := metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
+		if e := registry.MetadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 			return e
 		}
 		var appState, spaceState string
@@ -522,7 +522,7 @@ func (v *inventory) patch(ctx context.Context, a op.Actor, table, action string,
 		return op.Ref{}, op.RevisionRequired()
 	}
 	e := v.run.Mutate(ctx, a, action, res, func(tx *sql.Tx) error {
-		old, e := lockRecord(ctx, tx, table, res.Tenant, record)
+		old, e := registry.LockRecord(ctx, tx, table, res.Tenant, record)
 		if e != nil {
 			return e
 		}
@@ -561,14 +561,14 @@ func (v *inventory) patch(ctx context.Context, a op.Actor, table, action string,
 				return registry.Bad("Invalid state.")
 			}
 			if old.State == registry.StateArchived && *in.State != registry.StateArchived && (table == "apps" || table == "spaces") {
-				policy, e := policyFor(ctx, tx, res.Tenant)
+				policy, e := registry.PolicyFor(ctx, tx, res.Tenant)
 				if e != nil {
 					return e
 				}
 				if table == "apps" {
-					e = appQuota(ctx, tx, res.Tenant, res.Space, policy, false)
+					e = registry.AppQuota(ctx, tx, res.Tenant, res.Space, policy, false)
 				} else {
-					e = quota(ctx, tx, res.Tenant, table, policy.MaxSpaces)
+					e = registry.Quota(ctx, tx, res.Tenant, table, policy.MaxSpaces)
 				}
 				if e != nil {
 					return e
@@ -589,7 +589,7 @@ func (v *inventory) patch(ctx context.Context, a op.Actor, table, action string,
 				return e
 			}
 			if *in.Compute == "dedicated" && previous != *in.Compute {
-				policy, e := policyFor(ctx, tx, res.Tenant)
+				policy, e := registry.PolicyFor(ctx, tx, res.Tenant)
 				if e != nil {
 					return e
 				}

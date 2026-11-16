@@ -64,7 +64,7 @@ func (m *membership) AddAdministrator(ctx context.Context, a op.Actor, tenant st
 		var memberState string
 		e = tx.QueryRowContext(ctx, "SELECT state FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", tenant, in.User).Scan(&memberState)
 		if errors.Is(e, sql.ErrNoRows) {
-			if e = metadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
+			if e = registry.MetadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
 				return e
 			}
 			if _, e = tx.ExecContext(ctx, "INSERT INTO tenant_memberships(tenant_id,user_id) VALUES (?,?)", tenant, in.User); e != nil {
@@ -88,7 +88,7 @@ func (m *membership) AddAdministrator(ctx context.Context, a op.Actor, tenant st
 			return e
 		}
 		if count == 0 {
-			if e = metadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
+			if e = registry.MetadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
 				return e
 			}
 			grant := registry.NewID()

@@ -70,7 +70,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	if e := s.DB.QueryRow("SELECT COUNT(*) FROM agent_grants").Scan(&grants); e != nil || grants != 0 {
 		t.Fatal("public registration created user authority", e)
 	}
-	verifier := token(48)
+	verifier := registry.Token(48)
 	sum := sha256.Sum256([]byte(verifier))
 	redirect := "http://localhost:43187/callback"
 	parameters := url.Values{"response_type": {"code"}, "client_id": {registry.Str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code_challenge_method": {"S256"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "state": {"client-state"}}
@@ -101,7 +101,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	if callback.Query().Get("iss") != s.Config.PublicURL || callback.Query().Get("state") != "client-state" {
 		t.Fatal("authorization response lost issuer/state binding")
 	}
-	exchange := url.Values{"grant_type": {"authorization_code"}, "client_id": {registry.Str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code": {callback.Query().Get("code")}, "code_verifier": {token(48)}}
+	exchange := url.Values{"grant_type": {"authorization_code"}, "client_id": {registry.Str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code": {callback.Query().Get("code")}, "code_verifier": {registry.Token(48)}}
 	if request("POST", "/oauth/token", exchange.Encode(), "application/x-www-form-urlencoded").Code != 400 {
 		t.Fatal("dynamic clients bypassed verifier binding")
 	}
