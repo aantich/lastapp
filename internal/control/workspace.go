@@ -2,30 +2,32 @@ package control
 
 import (
 	"net/http"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // tenantProfile is the overview's Tenant with its effective default layout
 // and its plan's limits and permissions.
 type tenantProfile struct {
-	AllowDedicatedCompute  bit    `json:"allow_dedicated_compute"`
-	AllowDedicatedDatabase bit    `json:"allow_dedicated_database"`
-	AllowManaged           bit    `json:"allow_managed_database"`
-	AllowRegistered        bit    `json:"allow_registered_database"`
-	AllowSharedDatabase    bit    `json:"allow_shared_database"`
-	DefaultLayout          string `json:"default_layout"`
-	Name                   string `json:"display_name"`
-	ID                     string `json:"id"`
-	MaxApps                *int64 `json:"max_apps"`
-	MaxDatabases           *int64 `json:"max_databases"`
-	MaxSpaces              *int64 `json:"max_spaces"`
-	PlanID                 string `json:"plan_id"`
-	PlanName               string `json:"plan_name"`
-	Revision               int64  `json:"revision"`
-	Slug                   string `json:"slug"`
-	State                  string `json:"state"`
+	AllowDedicatedCompute  registry.Bit `json:"allow_dedicated_compute"`
+	AllowDedicatedDatabase registry.Bit `json:"allow_dedicated_database"`
+	AllowManaged           registry.Bit `json:"allow_managed_database"`
+	AllowRegistered        registry.Bit `json:"allow_registered_database"`
+	AllowSharedDatabase    registry.Bit `json:"allow_shared_database"`
+	DefaultLayout          string       `json:"default_layout"`
+	Name                   string       `json:"display_name"`
+	ID                     string       `json:"id"`
+	MaxApps                *int64       `json:"max_apps"`
+	MaxDatabases           *int64       `json:"max_databases"`
+	MaxSpaces              *int64       `json:"max_spaces"`
+	PlanID                 string       `json:"plan_id"`
+	PlanName               string       `json:"plan_name"`
+	Revision               int64        `json:"revision"`
+	Slug                   string       `json:"slug"`
+	State                  string       `json:"state"`
 }
 
-func (v *tenantProfile) fields() []any {
+func (v *tenantProfile) ScanFields() []any {
 	return []any{&v.AllowDedicatedCompute, &v.AllowDedicatedDatabase, &v.AllowManaged, &v.AllowRegistered, &v.AllowSharedDatabase, &v.DefaultLayout, &v.Name, &v.ID, &v.MaxApps, &v.MaxDatabases, &v.MaxSpaces, &v.PlanID, &v.PlanName, &v.Revision, &v.Slug, &v.State}
 }
 
@@ -38,7 +40,7 @@ type recentApp struct {
 	State     string `json:"state"`
 }
 
-func (v *recentApp) fields() []any {
+func (v *recentApp) ScanFields() []any {
 	return []any{&v.Name, &v.ID, &v.SpaceID, &v.SpaceName, &v.State}
 }
 
@@ -50,7 +52,7 @@ type databaseAttention struct {
 	State        string  `json:"state"`
 }
 
-func (v *databaseAttention) fields() []any {
+func (v *databaseAttention) ScanFields() []any {
 	return []any{&v.DatabaseName, &v.ID, &v.LastError, &v.State}
 }
 
@@ -65,11 +67,11 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 	if e != nil {
 		return e
 	}
-	profile, e := scanOne[tenantProfile](r.Context(), s.DB, "SELECT p.allow_dedicated_compute,p.allow_dedicated_database,p.allow_managed_database,p.allow_registered_database,p.allow_shared_database,CASE WHEN t.default_layout='shared' AND p.allow_shared_database=1 THEN 'shared' WHEN t.default_layout='dedicated' AND p.allow_dedicated_database=1 THEN 'dedicated' ELSE p.default_layout END AS default_layout,t.display_name,t.id,p.max_apps,p.max_databases,p.max_spaces,t.plan_id,p.display_name AS plan_name,t.revision,t.slug,t.state FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", t)
+	profile, e := registry.ScanOne[tenantProfile](r.Context(), s.DB, "SELECT p.allow_dedicated_compute,p.allow_dedicated_database,p.allow_managed_database,p.allow_registered_database,p.allow_shared_database,CASE WHEN t.default_layout='shared' AND p.allow_shared_database=1 THEN 'shared' WHEN t.default_layout='dedicated' AND p.allow_dedicated_database=1 THEN 'dedicated' ELSE p.default_layout END AS default_layout,t.display_name,t.id,p.max_apps,p.max_databases,p.max_spaces,t.plan_id,p.display_name AS plan_name,t.revision,t.slug,t.state FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", t)
 	if e != nil {
 		return e
 	}
-	out := Row{"tenant": profile}
+	out := registry.Row{"tenant": profile}
 	for _, spec := range []struct{ key, action, query, space, app string }{
 		{"spaces", "space.read", "FROM spaces sp WHERE sp.tenant_id=? AND sp.state<>'archived' AND sp.workspace_id IS NULL", "sp.id", ""},
 		{"apps", "app.read", "FROM apps a WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)", "a.space_id", "a.id"},
@@ -85,7 +87,7 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	filter, args := scopeSQL(caps["app.read"], "a.space_id", "a.id")
 	args = append([]any{t}, args...)
-	recent, e := scanAll[recentApp](r.Context(), s.DB, "SELECT a.display_name,a.id,a.space_id,sp.display_name AS space_name,a.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
+	recent, e := registry.ScanAll[recentApp](r.Context(), s.DB, "SELECT a.display_name,a.id,a.space_id,sp.display_name AS space_name,a.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
 	if e != nil {
 		return e
 	}
@@ -96,7 +98,7 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 			return e
 		}
 		out["databases"] = count
-		warnings, e := scanAll[databaseAttention](r.Context(), s.DB, "SELECT database_name,id,last_error_message,state FROM database_resources WHERE tenant_id=? AND state IN ('pending','provisioning','failed') ORDER BY created_at DESC LIMIT 6", t)
+		warnings, e := registry.ScanAll[databaseAttention](r.Context(), s.DB, "SELECT database_name,id,last_error_message,state FROM database_resources WHERE tenant_id=? AND state IN ('pending','provisioning','failed') ORDER BY created_at DESC LIMIT 6", t)
 		if e != nil {
 			return e
 		}

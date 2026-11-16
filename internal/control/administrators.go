@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // AddAdministrator makes an existing account or a new local account a Tenant
@@ -15,14 +17,14 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 		return memberRef{}, e
 	}
 	if (in.User == "") == (in.Account == nil) {
-		return memberRef{}, bad("Choose an existing account or enter account details.")
+		return memberRef{}, registry.Bad("Choose an existing account or enter account details.")
 	}
 	var account preparedAccount
 	var e error
 	if in.Account != nil {
 		account, e = m.prepareAccount(*in.Account)
 	} else {
-		e = id(in.User)
+		e = registry.ID(in.User)
 	}
 	if e != nil {
 		return memberRef{}, e
@@ -43,19 +45,19 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 		var state string
 		if e := tx.QueryRowContext(ctx, "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
 			if errors.Is(e, sql.ErrNoRows) {
-				return missing()
+				return registry.Missing()
 			}
 			return e
 		}
-		if state != stateActive {
-			return bad("Enable this account before assigning Tenant administration.")
+		if state != registry.StateActive {
+			return registry.Bad("Enable this account before assigning Tenant administration.")
 		}
 		platform, e := isPlatform(ctx, tx, in.User)
 		if e != nil {
 			return e
 		}
 		if platform {
-			return bad("Choose an account without platform administration privileges.")
+			return registry.Bad("Choose an account without platform administration privileges.")
 		}
 		var memberState string
 		e = tx.QueryRowContext(ctx, "SELECT state FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", tenant, in.User).Scan(&memberState)
@@ -66,16 +68,16 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 			if _, e = tx.ExecContext(ctx, "INSERT INTO tenant_memberships(tenant_id,user_id) VALUES (?,?)", tenant, in.User); e != nil {
 				return e
 			}
-			if e = auditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, Row{"state": stateActive}); e != nil {
+			if e = auditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, registry.Row{"state": registry.StateActive}); e != nil {
 				return e
 			}
 		} else if e != nil {
 			return e
-		} else if memberState != stateActive {
+		} else if memberState != registry.StateActive {
 			if _, e = tx.ExecContext(ctx, "UPDATE tenant_memberships SET state='active',revision=revision+1 WHERE tenant_id=? AND user_id=?", tenant, in.User); e != nil {
 				return e
 			}
-			if e = auditAs(ctx, tx, a, tenant, "membership.updated", "user", in.User, Row{"before": Row{"state": memberState}, "after": Row{"state": stateActive}}); e != nil {
+			if e = auditAs(ctx, tx, a, tenant, "membership.updated", "user", in.User, registry.Row{"before": registry.Row{"state": memberState}, "after": registry.Row{"state": registry.StateActive}}); e != nil {
 				return e
 			}
 		}
@@ -87,7 +89,7 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 			if e = metadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
 				return e
 			}
-			grant := newID()
+			grant := registry.NewID()
 			if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", grant, tenant, in.User, TenantAdminRole); e != nil {
 				return e
 			}
@@ -113,7 +115,7 @@ type Administrator struct {
 	UserState string  `json:"user_state"`
 }
 
-func (v *Administrator) fields() []any {
+func (v *Administrator) ScanFields() []any {
 	return []any{&v.Name, &v.Email, &v.ID, &v.Revision, &v.State, &v.UserID, &v.UserState}
 }
 

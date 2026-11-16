@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/pressly/goose/v3"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestRequiredSchemaVersionFollowsMigrations(t *testing.T) {
@@ -69,7 +71,7 @@ func TestRequestValidation(t *testing.T) {
 		}
 	}
 	for _, v := range []string{"", "bad", "00000000-0000-0000-0000-000000000000", "10000000000040008000000000000001"} {
-		if id(v) == nil {
+		if registry.ID(v) == nil {
 			t.Fatal("accepted noncanonical ID", v)
 		}
 	}

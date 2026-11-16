@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // deploymentTask is a production deployment as its worker applies it, with
@@ -17,18 +18,18 @@ type deploymentTask struct {
 	ID, TenantID, SpaceID, ReleaseID, TargetApp, CreatedBy, State, Resource string
 	AgentGrant                                                              string // empty for a person
 	AgentRevision                                                           int64
-	Plan                                                                    jsonValue
+	Plan                                                                    registry.JSONValue
 }
 
 // deploymentTaskSQL selects a deploymentTask from release_deployments d; the
 // query continues with a WHERE clause.
 const deploymentTaskSQL = "SELECT d.id,d.tenant_id,d.space_id,d.release_id,d.target_app_id,d.created_by,d.state,sp.database_resource_id,COALESCE(d.agent_grant_id,''),COALESCE(d.agent_grant_revision,0),d.plan_json FROM release_deployments d JOIN spaces sp ON sp.id=d.space_id"
 
-func (v *deploymentTask) fields() []any {
+func (v *deploymentTask) ScanFields() []any {
 	return []any{&v.ID, &v.TenantID, &v.SpaceID, &v.ReleaseID, &v.TargetApp, &v.CreatedBy, &v.State, &v.Resource, &v.AgentGrant, &v.AgentRevision, &v.Plan}
 }
 
-func decodeDeployment(v jsonValue) (deploymentPlan, error) {
+func decodeDeployment(v registry.JSONValue) (deploymentPlan, error) {
 	var plan deploymentPlan
 	b, e := json.Marshal(v)
 	if e == nil {
@@ -37,7 +38,7 @@ func decodeDeployment(v jsonValue) (deploymentPlan, error) {
 	return plan, e
 }
 
-func (s *Server) deploymentPrincipal(ctx context.Context, q Queryer, v deploymentTask) (Principal, error) {
+func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v deploymentTask) (Principal, error) {
 	p := Principal{ID: v.CreatedBy}
 	if v.AgentGrant != "" {
 		g, e := s.readAgentGrant(ctx, q, v.AgentGrant)
@@ -45,15 +46,15 @@ func (s *Server) deploymentPrincipal(ctx context.Context, q Queryer, v deploymen
 			return p, e
 		}
 		if g.Revision != v.AgentRevision {
-			return p, problem(403, "agent_access_revoked", "Deployment delegation changed before activation.")
+			return p, registry.Problem(403, "agent_access_revoked", "Deployment delegation changed before activation.")
 		}
 		p.Agent = g
 	}
 	return p, s.deploymentAuthority(ctx, q, p, Resource{Tenant: v.TenantID, Space: v.SpaceID})
 }
 
-func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
-	jobs, e := scanAll[deploymentTask](ctx, q, deploymentTaskSQL+" WHERE d.state IN ('queued','preparing','publishing') ORDER BY d.created_at LIMIT 1")
+func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
+	jobs, e := registry.ScanAll[deploymentTask](ctx, q, deploymentTaskSQL+" WHERE d.state IN ('queued','preparing','publishing') ORDER BY d.created_at LIMIT 1")
 	if e != nil || len(jobs) == 0 {
 		return e
 	}
@@ -97,7 +98,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			return tx.Commit()
 		}
 		if v.State == "preparing" {
-			defs, e := scanAll[EntityDefinition](attempt, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.SpaceID)
+			defs, e := registry.ScanAll[EntityDefinition](attempt, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.SpaceID)
 			if e != nil {
 				return e
 			}
@@ -117,14 +118,14 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			}
 			candidates := map[string]bool{}
 			for _, d := range plan.Snapshot.Entities {
-				if d.State == stateActive {
+				if d.State == registry.StateActive {
 					candidates[d.ID] = true
 				}
 			}
 			for _, d := range plan.Snapshot.Entities {
 				var current EntityDefinition
 				var activeHash string
-				e := lookup(attempt, tx, "SELECT "+prefixed("e", entityColumns)+",COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, append(current.fields(), &activeHash)...)
+				e := registry.Lookup(attempt, tx, "SELECT "+registry.Prefixed("e", entityColumns)+",COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, append(current.ScanFields(), &activeHash)...)
 				if e != nil {
 					return e
 				}
@@ -146,7 +147,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 		for _, d := range plan.Snapshot.Entities {
 			var hash, active string
 			var pending *string
-			if e := lookup(attempt, q, "SELECT COALESCE(ev.definition_hash,''),COALESCE(ev.state,''),e.pending_version_id FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, &hash, &active, &pending); e != nil {
+			if e := registry.Lookup(attempt, q, "SELECT COALESCE(ev.definition_hash,''),COALESCE(ev.state,''),e.pending_version_id FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, &hash, &active, &pending); e != nil {
 				return e
 			}
 			if hash == entity.Hash(d.Definition) && active == "published" && pending == nil {
@@ -157,7 +158,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 				return e
 			}
 			if state == "failed" {
-				return conflict("A backend publication failed. Live security policies and the previous client release remain selected. Inspect the entity publication before deploying again.")
+				return registry.Conflict("A backend publication failed. Live security policies and the previous client release remain selected. Inspect the entity publication before deploying again.")
 			}
 			if state != "prepared" {
 				return nil
@@ -182,9 +183,9 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 		}
 		var storage *sql.DB
 		for _, captured := range plan.Snapshot.Entities {
-			version, err := scanOne[entityVersion](attempt, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.id=? AND v.deployment_id=? AND v.state='prepared'", plan.Versions[captured.ID], v.ID)
+			version, err := registry.ScanOne[entityVersion](attempt, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.id=? AND v.deployment_id=? AND v.state='prepared'", plan.Versions[captured.ID], v.ID)
 			if err != nil {
-				if ae, ok := err.(*APIError); ok && ae.Status == 404 {
+				if ae, ok := err.(*registry.APIError); ok && ae.Status == 404 {
 					continue
 				} // Unchanged entity.
 				return err
@@ -233,7 +234,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 				u, _ := url.Parse(access.Origin)
 				host = u.Hostname()
 			}
-			if _, e = tx.ExecContext(attempt, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),active_release_id=IF(id=?, ?,active_release_id),revision=revision+1 WHERE id=?", b, nullable(access.Origin), nullable(host), old.Origin, access.Origin, v.TargetApp, v.ReleaseID, app.ID); e != nil {
+			if _, e = tx.ExecContext(attempt, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),active_release_id=IF(id=?, ?,active_release_id),revision=revision+1 WHERE id=?", b, registry.Nullable(access.Origin), registry.Nullable(host), old.Origin, access.Origin, v.TargetApp, v.ReleaseID, app.ID); e != nil {
 				return e
 			}
 			if e = projectAppPermissions(attempt, tx, app.ID, access); e != nil {
@@ -253,7 +254,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 		if _, e = tx.ExecContext(attempt, "UPDATE release_deployments SET state='active',finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=?", v.ID); e != nil {
 			return e
 		}
-		if e = audit(attempt, tx, v.TenantID, p.ID, "release.deployed", "deployment", v.ID, newID(), Row{"release_id": v.ReleaseID, "app_id": v.TargetApp}); e != nil {
+		if e = audit(attempt, tx, v.TenantID, p.ID, "release.deployed", "deployment", v.ID, registry.NewID(), registry.Row{"release_id": v.ReleaseID, "app_id": v.TargetApp}); e != nil {
 			return e
 		}
 		return tx.Commit()
@@ -266,11 +267,11 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 	if err := q.QueryRowContext(ctx, "SELECT state FROM release_deployments WHERE id=?", v.ID).Scan(&currentState); err != nil {
 		return err
 	}
-	if currentState == stateActive {
+	if currentState == registry.StateActive {
 		return nil
 	}
 	message := "Deployment preparation failed. The previous client release remains selected. Review backend publications before retrying from a fresh workspace."
-	if ae, ok := e.(*APIError); ok {
+	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
 	} else {
 		s.logger(ctx).Warn("release deployment failed", diagnostic(e)...)
@@ -287,7 +288,7 @@ func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message
 	if err = lockTenant(ctx, tx, job.TenantID); err != nil {
 		return err
 	}
-	versions, err := scanAll[entityVersion](ctx, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job.ID)
+	versions, err := registry.ScanAll[entityVersion](ctx, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job.ID)
 	if err != nil {
 		return err
 	}
@@ -302,7 +303,7 @@ func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message
 	if _, err = tx.ExecContext(ctx, "UPDATE release_deployments SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state IN ('queued','preparing','publishing')", message, job.ID); err != nil {
 		return err
 	}
-	if err = audit(ctx, tx, job.TenantID, job.CreatedBy, "release.deployment_failed", "deployment", job.ID, newID(), Row{"error_message": message}); err != nil {
+	if err = audit(ctx, tx, job.TenantID, job.CreatedBy, "release.deployment_failed", "deployment", job.ID, registry.NewID(), registry.Row{"error_message": message}); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
@@ -329,7 +330,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 			return false, e
 		}
 		if parent != space {
-			return false, missing()
+			return false, registry.Missing()
 		}
 		return true, nil
 	}
@@ -366,7 +367,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 			if v.App != "" {
 				kind, owner = "app", "a:"+v.App
 			}
-			_, e = tx.ExecContext(ctx, "INSERT INTO roles(id,tenant_id,space_id,app_id,owner_key,scope_kind,domain,code,display_name,state) VALUES(?,?,?,?,?,?,'data',?,?,?)", v.ID, tenant, space, nullable(v.App), owner, kind, v.Code, v.Name, stagedState(activate, v.State, stateDisabled))
+			_, e = tx.ExecContext(ctx, "INSERT INTO roles(id,tenant_id,space_id,app_id,owner_key,scope_kind,domain,code,display_name,state) VALUES(?,?,?,?,?,?,'data',?,?,?)", v.ID, tenant, space, registry.Nullable(v.App), owner, kind, v.Code, v.Name, stagedState(activate, v.State, registry.StateDisabled))
 		}
 		if e != nil {
 			return e
@@ -381,7 +382,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 		if ok {
 			_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET draft_json=?,label=IF(?, ?,label),state=IF(?, ?,state),revision=revision+1 WHERE id=?", b, activate, v.Definition.Label, activate, v.State, v.ID)
 		} else {
-			_, e = tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,state,draft_json) VALUES(?,?,?,?,?,?,?)", v.ID, tenant, space, v.Definition.Key, v.Definition.Label, stagedState(activate, v.State, stateArchived), b)
+			_, e = tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,state,draft_json) VALUES(?,?,?,?,?,?,?)", v.ID, tenant, space, v.Definition.Key, v.Definition.Label, stagedState(activate, v.State, registry.StateArchived), b)
 		}
 		if e != nil {
 			return e
@@ -395,14 +396,14 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 		e := tx.QueryRowContext(ctx, "SELECT a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=?", v.ID).Scan(&parent)
 		if e == nil {
 			if parent != space {
-				return missing()
+				return registry.Missing()
 			}
-			_, e = tx.ExecContext(ctx, "UPDATE microapp_installations SET display_name=?,artifact_ref=?,navigation_order=?,state=?,revision=revision+1 WHERE id=?", v.Name, nullable(v.Artifact), v.Order, v.State, v.ID)
+			_, e = tx.ExecContext(ctx, "UPDATE microapp_installations SET display_name=?,artifact_ref=?,navigation_order=?,state=?,revision=revision+1 WHERE id=?", v.Name, registry.Nullable(v.Artifact), v.Order, v.State, v.ID)
 		} else if errors.Is(e, sql.ErrNoRows) {
 			if e = metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 				return e
 			}
-			_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations(id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state) VALUES(?,?,?,?,?,?,?,?)", v.ID, tenant, v.App, v.Slug, v.Name, nullable(v.Artifact), v.Order, v.State)
+			_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations(id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state) VALUES(?,?,?,?,?,?,?,?)", v.ID, tenant, v.App, v.Slug, v.Name, registry.Nullable(v.Artifact), v.Order, v.State)
 		}
 		if e != nil {
 			return e

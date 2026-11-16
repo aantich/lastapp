@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Administrative metadata has deliberately generous but finite limits. These are
@@ -14,7 +16,7 @@ var metadataLimits = map[string]int{
 	"roles": 2000, "access_grants": 10000, "microapp_installations": 1000,
 }
 
-func metadataQuota(ctx context.Context, q Queryer, tenant, table string, additional ...int) error {
+func metadataQuota(ctx context.Context, q registry.Queryer, tenant, table string, additional ...int) error {
 	required := 1
 	if len(additional) > 0 {
 		required = additional[0]
@@ -24,7 +26,7 @@ func metadataQuota(ctx context.Context, q Queryer, tenant, table string, additio
 		return e
 	}
 	if n+required > metadataLimits[table] {
-		return problem(409, "metadata_limit", "The Tenant's administrative metadata limit has been reached.")
+		return registry.Problem(409, "metadata_limit", "The Tenant's administrative metadata limit has been reached.")
 	}
 	return nil
 }
@@ -96,5 +98,5 @@ func (s *Server) limitRequest(w http.ResponseWriter, p Principal, r *http.Reques
 
 func rateLimited(w http.ResponseWriter) error {
 	w.Header().Set("Retry-After", "1")
-	return problem(429, "rate_limited", "Too many requests. Retry shortly.")
+	return registry.Problem(429, "rate_limited", "Too many requests. Retry shortly.")
 }

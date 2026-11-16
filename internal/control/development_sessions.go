@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"net/http"
 	"time"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Both browser and delegated sessions use the same parent check on exchange and
 // every data request. Agent tokens never authenticate directly to the data API.
-func (s *Server) appSessionParent(ctx context.Context, q Queryer, v appSession) error {
-	denied := problem(401, "unauthenticated", "App session expired or revoked.")
+func (s *Server) appSessionParent(ctx context.Context, q registry.Queryer, v appSession) error {
+	denied := registry.Problem(401, "unauthenticated", "App session expired or revoked.")
 	p := Principal{ID: v.UserID}
 	if deref(v.AgentGrant) != "" {
 		g, e := s.readAgentGrant(ctx, q, deref(v.AgentGrant))
@@ -50,16 +52,16 @@ type developmentLaunchInput struct {
 	Origin    string `json:"origin"`
 }
 
-func (s *Server) Launch(ctx context.Context, actor Actor, app string, in developmentLaunchInput) (Row, error) {
+func (s *Server) Launch(ctx context.Context, actor Actor, app string, in developmentLaunchInput) (registry.Row, error) {
 	p := actor.Principal
 	if p.Agent == nil {
-		return nil, bad("Use ordinary browser App sign-in; development launch codes require a delegated agent connection.")
+		return nil, registry.Bad("Use ordinary browser App sign-in; development launch codes require a delegated agent connection.")
 	}
 	if e := requireAgent(p.Agent, "workspaces.test"); e != nil {
 		return nil, e
 	}
 	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
-		return nil, bad("Provide an S256 challenge and random nonce.")
+		return nil, registry.Bad("Provide an S256 challenge and random nonce.")
 	}
 	v, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
@@ -67,7 +69,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 	}
 	var wid string
 	if e = s.DB.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v.SpaceID).Scan(&wid); e != nil {
-		return nil, missing()
+		return nil, registry.Missing()
 	}
 	if _, e = s.workspaceRow(ctx, s.DB, p, wid); e != nil {
 		return nil, e
@@ -77,7 +79,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 		return nil, e
 	}
 	if in.Origin == "" || in.Origin != a.Origin {
-		return nil, bad("Approve the exact development App origin using app_access_update first.")
+		return nil, registry.Bad("Approve the exact development App origin using app_access_update first.")
 	}
 	code := token(32)
 	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
@@ -87,7 +89,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 	if e != nil {
 		return nil, e
 	}
-	return Row{"code": code, "nonce": in.Nonce, "origin": in.Origin, "expires_in": int(launchLifetime.Seconds()), "instruction": "Exchange once with the locally held verifier using SDK connectDevelopment. Never put this code or an App token in a build."}, nil
+	return registry.Row{"code": code, "nonce": in.Nonce, "origin": in.Origin, "expires_in": int(launchLifetime.Seconds()), "instruction": "Exchange once with the locally held verifier using SDK connectDevelopment. Never put this code or an App token in a build."}, nil
 }
 
 func (s *Server) developmentLaunch(w http.ResponseWriter, r *http.Request, p Principal) error {

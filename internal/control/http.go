@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/registry"
 	admin "github.com/aantich/lastapp/web/admin"
 )
 
@@ -55,7 +56,7 @@ func (s *Server) api(pattern string, fn endpoint) {
 			e = s.limitRequest(w, p, r)
 		}
 		if e == nil && p.PasswordChangeRequired && r.URL.Path != "/v1/me" && r.URL.Path != "/auth/password" && r.URL.Path != "/auth/logout" {
-			e = problem(403, "password_change_required", "Change your initial password before using this account.")
+			e = registry.Problem(403, "password_change_required", "Change your initial password before using this account.")
 		}
 		if e == nil && r.Method != "GET" && r.Method != "HEAD" {
 			e = s.csrf(ctx, r)
@@ -70,18 +71,18 @@ func (s *Server) api(pattern string, fn endpoint) {
 }
 
 func (s *Server) Handler() http.Handler {
-	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { send(w, 200, Row{"status": "ok"}) })
+	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { send(w, 200, registry.Row{"status": "ok"}) })
 	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
 		if s.DB.PingContext(ctx) != nil {
-			send(w, 503, Row{"status": "unavailable"})
+			send(w, 503, registry.Row{"status": "unavailable"})
 			return
 		}
-		send(w, 200, Row{"status": "ready"})
+		send(w, 200, registry.Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": publicPasswordPolicy(), "role_catalog": authz.Roles()})
+		send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": publicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
@@ -95,7 +96,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		s.cookie(w, "lastapp_session", "", -1, true)
 		s.cookie(w, "lastapp_csrf", "", -1, false)
-		send(w, 200, Row{"ok": true})
+		send(w, 200, registry.Row{"ok": true})
 		return nil
 	})
 	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -103,7 +104,7 @@ func (s *Server) Handler() http.Handler {
 		if e != nil {
 			return e
 		}
-		send(w, 200, Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "auth_method": p.AuthMethod, "password_change_required": p.PasswordChangeRequired, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
+		send(w, 200, registry.Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "auth_method": p.AuthMethod, "password_change_required": p.PasswordChangeRequired, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
 		return nil
 	})
 	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -232,7 +233,7 @@ type TenantRef struct {
 	State string `json:"state"`
 }
 
-func (v *TenantRef) fields() []any { return []any{&v.Name, &v.ID, &v.Slug, &v.State} }
+func (v *TenantRef) ScanFields() []any { return []any{&v.Name, &v.ID, &v.Slug, &v.State} }
 
 // myTenants pages the Tenants where the principal has an active membership.
 // It is the one query behind both /v1/me and /v1/my-tenants.
@@ -251,11 +252,11 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principa
 	if e != nil {
 		return e
 	}
-	out := Row{}
+	out := registry.Row{}
 	for code, sc := range scopes {
-		out[code] = Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps)+len(sc.Teams) > 0, "spaces": sc.Spaces, "apps": sc.Apps, "teams": sc.Teams}
+		out[code] = registry.Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps)+len(sc.Teams) > 0, "spaces": sc.Spaces, "apps": sc.Apps, "teams": sc.Teams}
 	}
-	send(w, 200, Row{"permissions": out})
+	send(w, 200, registry.Row{"permissions": out})
 	return nil
 }
 
@@ -265,7 +266,7 @@ type stateCount struct {
 	State string `json:"state"`
 }
 
-func (v *stateCount) fields() []any { return []any{&v.Count, &v.State} }
+func (v *stateCount) ScanFields() []any { return []any{&v.Count, &v.State} }
 
 // recentDatabase is a recently created database resource on the platform
 // overview.
@@ -278,24 +279,24 @@ type recentDatabase struct {
 	TenantName  string  `json:"tenant_name"`
 }
 
-func (v *recentDatabase) fields() []any {
+func (v *recentDatabase) ScanFields() []any {
 	return []any{&v.Name, &v.ID, &v.LastMessage, &v.State, &v.TenantID, &v.TenantName}
 }
 
 // AuditEvent is an audit trail entry with its actor's name.
 type AuditEvent struct {
-	Action       string    `json:"action"`
-	ActorName    string    `json:"actor_name"`
-	CreatedAt    time.Time `json:"created_at"`
-	Details      jsonValue `json:"details_json"`
-	ID           int64     `json:"id"`
-	RequestID    string    `json:"request_id"`
-	ResourceID   *string   `json:"resource_id"`
-	ResourceType string    `json:"resource_type"`
-	TenantID     *string   `json:"tenant_id"`
+	Action       string             `json:"action"`
+	ActorName    string             `json:"actor_name"`
+	CreatedAt    time.Time          `json:"created_at"`
+	Details      registry.JSONValue `json:"details_json"`
+	ID           int64              `json:"id"`
+	RequestID    string             `json:"request_id"`
+	ResourceID   *string            `json:"resource_id"`
+	ResourceType string             `json:"resource_type"`
+	TenantID     *string            `json:"tenant_id"`
 }
 
-func (v *AuditEvent) fields() []any {
+func (v *AuditEvent) ScanFields() []any {
 	return []any{&v.Action, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
 }
 
@@ -303,7 +304,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
 	}
-	out := Row{}
+	out := registry.Row{}
 	for _, table := range []string{"tenants", "spaces", "apps", "database_resources", "users"} {
 		var n int
 		if e := s.DB.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM "+table).Scan(&n); e != nil {
@@ -311,12 +312,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 		}
 		out[table] = n
 	}
-	status, e := scanAll[stateCount](r.Context(), s.DB, "SELECT COUNT(*),state FROM database_resources GROUP BY state")
+	status, e := registry.ScanAll[stateCount](r.Context(), s.DB, "SELECT COUNT(*),state FROM database_resources GROUP BY state")
 	if e != nil {
 		return e
 	}
 	out["database_states"] = status
-	recent, e := scanAll[recentDatabase](r.Context(), s.DB, "SELECT d.database_name,d.id,d.last_error_message,d.state,d.tenant_id,t.display_name FROM database_resources d JOIN tenants t ON t.id=d.tenant_id ORDER BY d.created_at DESC LIMIT 6")
+	recent, e := registry.ScanAll[recentDatabase](r.Context(), s.DB, "SELECT d.database_name,d.id,d.last_error_message,d.state,d.tenant_id,t.display_name FROM database_resources d JOIN tenants t ON t.id=d.tenant_id ORDER BY d.created_at DESC LIMIT 6")
 	if e != nil {
 		return e
 	}
@@ -363,7 +364,7 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 		args = append(args, tenant)
 	}
 	var v Ref
-	e := lookup(r.Context(), s.DB, query, args, &v.ID, &v.Revision)
+	e := registry.Lookup(r.Context(), s.DB, query, args, &v.ID, &v.Revision)
 	if e == nil {
 		w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
 		send(w, status, v)
@@ -386,7 +387,7 @@ func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (
 		args = append(args, tenant)
 	}
 	var v lockedRecord
-	return v, lookup(ctx, tx, query+" FOR UPDATE", args, &v.Revision, &v.State)
+	return v, registry.Lookup(ctx, tx, query+" FOR UPDATE", args, &v.Revision, &v.State)
 }
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {

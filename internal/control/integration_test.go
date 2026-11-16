@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type testClient struct {
@@ -23,7 +24,7 @@ type testClient struct {
 	session, csrf string
 }
 
-func (c testClient) req(method, path string, body any, revision int64) (int, Row) {
+func (c testClient) req(method, path string, body any, revision int64) (int, registry.Row) {
 	c.t.Helper()
 	b, _ := json.Marshal(body)
 	r := httptest.NewRequest(method, path, bytes.NewReader(b))
@@ -31,22 +32,22 @@ func (c testClient) req(method, path string, body any, revision int64) (int, Row
 	r.Header.Set("X-CSRF-Token", c.csrf)
 	r.Header.Set("Content-Type", "application/json")
 	if revision > 0 {
-		r.Header.Set("If-Match", str(revision))
+		r.Header.Set("If-Match", registry.Str(revision))
 	}
 	r.AddCookie(&http.Cookie{Name: c.s.cookieName("lastapp_session"), Value: c.session})
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
-	var out Row
+	var out registry.Row
 	if e := json.Unmarshal(w.Body.Bytes(), &out); e != nil {
 		if w.Code >= 400 {
-			return w.Code, Row{"message": w.Body.String()}
+			return w.Code, registry.Row{"message": w.Body.String()}
 		}
 		c.t.Fatalf("invalid response %d %s", w.Code, w.Body.String())
 	}
 	return w.Code, out
 }
 
-func (c testClient) want(method, path string, body any, revision int64, status int) Row {
+func (c testClient) want(method, path string, body any, revision int64, status int) registry.Row {
 	c.t.Helper()
 	got, v := c.req(method, path, body, revision)
 	if got != status {
@@ -66,14 +67,14 @@ func (c testClient) as(uid string) testClient {
 	return c
 }
 
-func (c testClient) waitDB(tenant, record, state string) Row {
+func (c testClient) waitDB(tenant, record, state string) registry.Row {
 	c.t.Helper()
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		_, v := c.req("GET", "/v1/tenants/"+tenant+"/database-resources/"+record, nil, 0)
-		if str(v["state"]) == state {
+		if registry.Str(v["state"]) == state {
 			return v
 		}
-		if str(v["state"]) == "failed" && state != "failed" {
+		if registry.Str(v["state"]) == "failed" && state != "failed" {
 			c.t.Fatalf("provision failed: %v", v)
 		}
 		time.Sleep(150 * time.Millisecond)
@@ -114,23 +115,23 @@ func TestMariaDBControlPlane(t *testing.T) {
 		}
 	}
 	c := (testClient{t: t, s: s, h: h}).as(operator)
-	tenant := newID()
-	c.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "test-" + tenant, "display_name": "Integration " + tenant[:8], "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
+	tenant := registry.NewID()
+	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "test-" + tenant, "display_name": "Integration " + tenant[:8], "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	base := "/v1/tenants/" + tenant
 	ownerClient := c.as(owner)
 	out := c.as(outsider)
 	out.want("GET", base+"/spaces", nil, 0, 404)
 	ownerClient.want("GET", "/admin/v1/tenants", nil, 0, 403)
-	ownerClient.want("PATCH", base+"/memberships/"+owner, Row{"state": "disabled"}, 1, 409)
+	ownerClient.want("PATCH", base+"/memberships/"+owner, registry.Row{"state": "disabled"}, 1, 409)
 	target := "20000000-0000-4000-8000-000000000001"
-	spaceIDs := []string{newID(), newID()}
+	spaceIDs := []string{registry.NewID(), registry.NewID()}
 	var wg sync.WaitGroup
 	statuses := make([]int, 2)
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			statuses[i], _ = ownerClient.req("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": spaceIDs[i], "slug": "shared-" + str(i), "display_name": "Shared " + str(i), "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0)
+			statuses[i], _ = ownerClient.req("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": spaceIDs[i], "slug": "shared-" + registry.Str(i), "display_name": "Shared " + registry.Str(i), "database": registry.Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0)
 		}(i)
 	}
 	wg.Wait()
@@ -145,11 +146,11 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if first["database_resource_id"] != second["database_resource_id"] {
 		t.Fatal("shared Spaces allocated different databases")
 	}
-	shared := str(first["database_resource_id"])
+	shared := registry.Str(first["database_resource_id"])
 	ready := c.waitDB(tenant, shared, "ready")
 	t.Log("concurrent shared reuse and real provisioning passed")
 	// Idempotency must not allocate an orphan database on a duplicate parent ID.
-	ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": spaceIDs[0], "slug": "duplicate", "display_name": "Duplicate", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 409)
+	ownerClient.want("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": spaceIDs[0], "slug": "duplicate", "display_name": "Duplicate", "database": registry.Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 409)
 	var n int
 	if e := s.DB.QueryRow("SELECT COUNT(*) FROM database_resources WHERE tenant_id=?", tenant).Scan(&n); e != nil {
 		t.Fatal(e)
@@ -158,51 +159,51 @@ func TestMariaDBControlPlane(t *testing.T) {
 		t.Fatal("duplicate Space allocated a database")
 	}
 	// Verify a ready resource again using the same names, password and ownership token.
-	ownerClient.want("POST", base+"/database-resources/"+shared+"/retry", Row{}, integer(ready["revision"]), 202)
+	ownerClient.want("POST", base+"/database-resources/"+shared+"/retry", registry.Row{}, registry.Integer(ready["revision"]), 202)
 	c.waitDB(tenant, shared, "ready")
 	// Dedicated binding is exclusive, even within a Tenant.
-	dedicated := newID()
-	ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": dedicated, "slug": "dedicated", "display_name": "Dedicated", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 201)
+	dedicated := registry.NewID()
+	ownerClient.want("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": dedicated, "slug": "dedicated", "display_name": "Dedicated", "database": registry.Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 201)
 	sp = c.want("GET", base+"/spaces", nil, 0, 200)["items"].([]any)
 	dedDB := ""
 	for _, v := range sp {
 		m := v.(map[string]any)
 		if m["id"] == dedicated {
-			dedDB = str(m["database_resource_id"])
+			dedDB = registry.Str(m["database_resource_id"])
 		}
 	}
 	c.waitDB(tenant, dedDB, "ready")
-	ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "illegal-reuse", "display_name": "Illegal reuse", "database": Row{"resource_id": dedDB}}, 0, 409)
+	ownerClient.want("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": registry.NewID(), "slug": "illegal-reuse", "display_name": "Illegal reuse", "database": registry.Row{"resource_id": dedDB}}, 0, 409)
 	// App-scoped grants filter collection reads and deny sibling writes.
-	apps := []string{newID(), newID()}
+	apps := []string{registry.NewID(), registry.NewID()}
 	for i, app := range apps {
-		ownerClient.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "app-" + str(i), "display_name": "App " + str(i)}, 0, 201)
+		ownerClient.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", registry.Row{"initial_manager_user_id": owner, "id": app, "slug": "app-" + registry.Str(i), "display_name": "App " + registry.Str(i)}, 0, 201)
 	}
-	ownerClient.want("POST", base+"/memberships", Row{"user_id": outsider}, 0, 201)
-	ownerClient.want("POST", base+"/apps/"+apps[0]+"/role-assignments", Row{"id": newID(), "user_id": outsider, "role_id": authz.AppManagerRole}, 0, 201)
+	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": outsider}, 0, 201)
+	ownerClient.want("POST", base+"/apps/"+apps[0]+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsider, "role_id": authz.AppManagerRole}, 0, 201)
 	list := out.want("GET", base+"/apps", nil, 0, 200)["items"].([]any)
-	if len(list) != 1 || str(list[0].(map[string]any)["id"]) != apps[0] {
+	if len(list) != 1 || registry.Str(list[0].(map[string]any)["id"]) != apps[0] {
 		t.Fatal("App scope leaked a sibling")
 	}
 	paged := out.want("GET", base+"/apps?page=1&limit=1", nil, 0, 200)["items"].([]any)
-	if len(paged) != 1 || str(paged[0].(map[string]any)["id"]) != apps[0] {
+	if len(paged) != 1 || registry.Str(paged[0].(map[string]any)["id"]) != apps[0] {
 		t.Fatal("pagination did not preserve permission filtering")
 	}
 	if len(out.want("GET", base+"/apps?page=2&limit=1", nil, 0, 200)["items"].([]any)) != 0 {
 		t.Fatal("pagination leaked a sibling")
 	}
 	out.want("GET", base+"/apps?limit=100000", nil, 0, 400)
-	out.want("PATCH", base+"/apps/"+apps[1], Row{"display_name": "Forbidden"}, 1, 403)
-	out.want("PATCH", base+"/apps/"+apps[0], Row{"display_name": "Allowed"}, 1, 200)
-	out.want("PATCH", base+"/apps/"+apps[0], Row{"display_name": "Stale"}, 1, 412)
-	out.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
-	group := newID()
-	ownerClient.want("POST", base+"/teams", Row{"id": group, "slug": "reviewers", "display_name": "Reviewers"}, 0, 201)
-	ownerClient.want("POST", base+"/teams/"+group+"/members", Row{"user_id": outsider}, 1, 200)
-	role := newID()
+	out.want("PATCH", base+"/apps/"+apps[1], registry.Row{"display_name": "Forbidden"}, 1, 403)
+	out.want("PATCH", base+"/apps/"+apps[0], registry.Row{"display_name": "Allowed"}, 1, 200)
+	out.want("PATCH", base+"/apps/"+apps[0], registry.Row{"display_name": "Stale"}, 1, 412)
+	out.want("POST", base+"/spaces/"+spaceIDs[0]+"/apps", registry.Row{"initial_manager_user_id": owner, "id": registry.NewID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	group := registry.NewID()
+	ownerClient.want("POST", base+"/teams", registry.Row{"id": group, "slug": "reviewers", "display_name": "Reviewers"}, 0, 201)
+	ownerClient.want("POST", base+"/teams/"+group+"/members", registry.Row{"user_id": outsider}, 1, 200)
+	role := registry.NewID()
 	rolePath := base + "/spaces/" + spaceIDs[0] + "/roles"
-	ownerClient.want("POST", rolePath, Row{"id": role, "code": "reviewer", "display_name": "Business Reviewer"}, 0, 201)
-	ownerClient.want("POST", base+"/spaces/"+spaceIDs[0]+"/role-assignments", Row{"id": newID(), "group_id": group, "role_id": role}, 0, 201)
+	ownerClient.want("POST", rolePath, registry.Row{"id": role, "code": "reviewer", "display_name": "Business Reviewer"}, 0, 201)
+	ownerClient.want("POST", base+"/spaces/"+spaceIDs[0]+"/role-assignments", registry.Row{"id": registry.NewID(), "group_id": group, "role_id": role}, 0, 201)
 	inherited := out.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"].([]any)
 	if len(inherited) != 2 {
 		t.Fatal("team business role not inherited", inherited)
@@ -211,12 +212,12 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatal("business role granted management access")
 	}
-	ownerClient.want("PATCH", base+"/teams/"+group, Row{"state": "disabled"}, 2, 200)
+	ownerClient.want("PATCH", base+"/teams/"+group, registry.Row{"state": "disabled"}, 2, 200)
 	inherited = out.want("GET", base+"/my-role-assignments", nil, 0, 200)["items"].([]any)
 	if len(inherited) != 1 {
 		t.Fatal("disabled team retained business role")
 	}
-	ownerClient.want("POST", rolePath, Row{"id": newID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 400)
+	ownerClient.want("POST", rolePath, registry.Row{"id": registry.NewID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 400)
 	t.Log("scope filtering, stale revision, role isolation and group revocation passed")
 	// Existing registration validates grants and does not modify business tables.
 	var state struct {
@@ -238,7 +239,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer adminServer.DB.Close()
-	fixtureDB := "reg_" + strings.ReplaceAll(newID(), "-", "")
+	fixtureDB := "reg_" + strings.ReplaceAll(registry.NewID(), "-", "")
 	if _, e = adminServer.DB.Exec("CREATE DATABASE `" + fixtureDB + "`"); e != nil {
 		t.Fatal(e)
 	}
@@ -254,8 +255,8 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if _, e = adminServer.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(fixtureDB, "_", `\_`) + "`.* TO '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
 		t.Fatal(e)
 	}
-	registered := newID()
-	ownerClient.want("POST", base+"/database-resources", Row{"id": registered, "target_id": target, "management_mode": "registered", "layout": "dedicated", "database_name": fixtureDB, "credentials": Row{"username": fixtureDB, "password": state.Legacy}}, 0, 202)
+	registered := registry.NewID()
+	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": registered, "target_id": target, "management_mode": "registered", "layout": "dedicated", "database_name": fixtureDB, "credentials": registry.Row{"username": fixtureDB, "password": state.Legacy}}, 0, 202)
 	c.waitDB(tenant, registered, "ready")
 	audit := c.want("GET", base+"/audit-events", nil, 0, 200)
 	encoded, _ := json.Marshal(audit)
@@ -283,22 +284,22 @@ func TestMariaDBControlPlane(t *testing.T) {
 	}
 	t.Log("existing registration verified without modifying business data")
 	// A registered connection with bad credentials can be repaired and retried.
-	ownerClient.want("PATCH", base+"/database-resources/"+registered, Row{"credentials": Row{"username": fixtureDB, "password": "incorrect"}}, integer(c.waitDB(tenant, registered, "ready")["revision"]), 202)
+	ownerClient.want("PATCH", base+"/database-resources/"+registered, registry.Row{"credentials": registry.Row{"username": fixtureDB, "password": "incorrect"}}, registry.Integer(c.waitDB(tenant, registered, "ready")["revision"]), 202)
 	failed := c.waitDB(tenant, registered, "failed")
-	if str(failed["last_error_code"]) != "authentication_failed" {
+	if registry.Str(failed["last_error_code"]) != "authentication_failed" {
 		t.Fatalf("unexpected credential failure: %v", failed)
 	}
-	ownerClient.want("PATCH", base+"/database-resources/"+registered, Row{"credentials": Row{"username": fixtureDB, "password": state.Legacy}}, integer(failed["revision"]), 202)
+	ownerClient.want("PATCH", base+"/database-resources/"+registered, registry.Row{"credentials": registry.Row{"username": fixtureDB, "password": state.Legacy}}, registry.Integer(failed["revision"]), 202)
 	c.waitDB(tenant, registered, "ready")
 	// Unknown database ownership is never adopted, even if its name is generated.
-	collision := newID()
+	collision := registry.NewID()
 	collisionName := "la_" + strings.ReplaceAll(collision, "-", "")
 	if _, e = adminServer.DB.Exec("CREATE DATABASE `" + collisionName + "` COMMENT='owned-by-someone-else'"); e != nil {
 		t.Fatal(e)
 	}
-	ownerClient.want("POST", base+"/database-resources", Row{"id": collision, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
+	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": collision, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
 	failed = c.waitDB(tenant, collision, "failed")
-	if str(failed["last_error_code"]) != "ownership_conflict" {
+	if registry.Str(failed["last_error_code"]) != "ownership_conflict" {
 		t.Fatalf("collision adopted: %v", failed)
 	}
 	var comment string
@@ -308,14 +309,14 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if comment != "owned-by-someone-else" {
 		t.Fatal("unknown database changed")
 	}
-	accountCollision := newID()
+	accountCollision := registry.NewID()
 	accountName := "la_" + strings.ReplaceAll(accountCollision, "-", "")
 	if _, e = adminServer.DB.Exec("CREATE USER '" + accountName + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY 'unrelated-account-password'"); e != nil {
 		t.Fatal(e)
 	}
-	ownerClient.want("POST", base+"/database-resources", Row{"id": accountCollision, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
+	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": accountCollision, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
 	failed = c.waitDB(tenant, accountCollision, "failed")
-	if str(failed["last_error_code"]) != "ownership_conflict" {
+	if registry.Str(failed["last_error_code"]) != "ownership_conflict" {
 		t.Fatalf("account collision adopted: %v", failed)
 	}
 	unrelated, e := s.targetDB(ctx, targetRow, credentials{Username: accountName, Password: "unrelated-account-password"}, "")
@@ -324,7 +325,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	}
 	unrelated.Close()
 	// Kill the leader connection during target work: the replacement resumes safely.
-	recovery := newID()
+	recovery := registry.NewID()
 	held, e := adminServer.DB.Conn(ctx)
 	if e != nil {
 		t.Fatal(e)
@@ -334,13 +335,13 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if e = held.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", "lastapp:resource:"+recovery).Scan(&locked); e != nil || locked != 1 {
 		t.Fatal("cannot hold recovery lock", e)
 	}
-	ownerClient.want("POST", base+"/database-resources", Row{"id": recovery, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
+	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": recovery, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
 	c.waitDB(tenant, recovery, "provisioning")
 	var leader uint64
 	if e = adminServer.DB.QueryRow("SELECT IS_USED_LOCK(?)", "lastapp:"+s.registryName).Scan(&leader); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = adminServer.DB.Exec("KILL CONNECTION " + str(leader)); e != nil {
+	if _, e = adminServer.DB.Exec("KILL CONNECTION " + registry.Str(leader)); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = held.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", "lastapp:resource:"+recovery); e != nil {
@@ -350,26 +351,26 @@ func TestMariaDBControlPlane(t *testing.T) {
 	t.Log("credential repair, collision refusal and leadership-loss recovery passed")
 
 	// Plans are enforced for Tenant administrators.
-	starter := newID()
-	c.want("POST", "/admin/v1/tenants", Row{"id": starter, "slug": "starter-" + starter, "display_name": "Quota test", "plan_id": "10000000-0000-4000-8000-000000000002", "initial_admin_user_id": owner}, 0, 201)
+	starter := registry.NewID()
+	c.want("POST", "/admin/v1/tenants", registry.Row{"id": starter, "slug": "starter-" + starter, "display_name": "Quota test", "plan_id": "10000000-0000-4000-8000-000000000002", "initial_admin_user_id": owner}, 0, 201)
 	sb := "/v1/tenants/" + starter
-	ownerClient.want("POST", sb+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 403)
-	ownerClient.want("POST", sb+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 202)
-	ownerClient.want("POST", sb+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 409)
+	ownerClient.want("POST", sb+"/database-resources", registry.Row{"id": registry.NewID(), "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 403)
+	ownerClient.want("POST", sb+"/database-resources", registry.Row{"id": registry.NewID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 202)
+	ownerClient.want("POST", sb+"/database-resources", registry.Row{"id": registry.NewID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 409)
 	// Cross-Tenant references are rejected by the relational constraints.
-	ownerClient.want("POST", sb+"/spaces", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "cross-tenant", "display_name": "Cross tenant", "database": Row{"resource_id": shared}}, 0, 404)
+	ownerClient.want("POST", sb+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": registry.NewID(), "slug": "cross-tenant", "display_name": "Cross tenant", "database": registry.Row{"resource_id": shared}}, 0, 404)
 	out.want("GET", sb+"/apps", nil, 0, 404)
 	// Suspended Tenant is readable but cannot allocate new resources.
 	tenantRow := c.want("GET", base, nil, 0, 200)
-	c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"state": "suspended"}, integer(tenantRow["revision"]), 200)
-	ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "suspended", "display_name": "Suspended", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 403)
-	ownerClient.want("POST", base+"/database-resources", Row{"id": newID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 403)
+	c.want("PATCH", "/admin/v1/tenants/"+tenant, registry.Row{"state": "suspended"}, registry.Integer(tenantRow["revision"]), 200)
+	ownerClient.want("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": registry.NewID(), "slug": "suspended", "display_name": "Suspended", "database": registry.Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 403)
+	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": registry.NewID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 403)
 	t.Log("plan quotas, cross-Tenant isolation and suspended lifecycle passed")
 	// Encryption AAD is checked independently of SQL ownership constraints.
 	if s.unseal("database", registered, starter, enc, &runtime) == nil {
 		t.Fatal("credential moved across Tenants")
 	}
-	if strings.Contains(str(c.want("GET", base+"/database-resources", nil, 0, 200)), state.Legacy) {
+	if strings.Contains(registry.Str(c.want("GET", base+"/database-resources", nil, 0, 200)), state.Legacy) {
 		t.Fatal("API leaked credentials")
 	}
 }

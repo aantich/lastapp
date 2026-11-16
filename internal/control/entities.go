@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func (s *Server) entityRoutes() {
@@ -39,18 +40,18 @@ func (s *Server) entityRoutes() {
 // EntityDefinition is a Space entity: its draft, lifecycle and active and
 // pending publications. The authoring view (Entity) adds the optional keys.
 type EntityDefinition struct {
-	ActiveDefinition  *jsonValue           `json:"active_definition,omitempty"`
+	ActiveDefinition  *registry.JSONValue  `json:"active_definition,omitempty"`
 	ActiveVersion     *string              `json:"active_version_id"`
 	CreatedAt         time.Time            `json:"created_at"`
 	Diagnostics       *[]entity.Diagnostic `json:"diagnostics,omitempty"`
-	DraftContract     Row                  `json:"draft_contract,omitempty"`
-	Draft             jsonValue            `json:"draft_json"`
+	DraftContract     registry.Row         `json:"draft_contract,omitempty"`
+	Draft             registry.JSONValue   `json:"draft_json"`
 	Key               string               `json:"entity_key"`
 	ID                string               `json:"id"`
 	Label             string               `json:"label"`
 	PendingVersion    *string              `json:"pending_version_id"`
 	Publications      *[]publicationItem   `json:"publications,omitempty"`
-	PublishedContract Row                  `json:"published_contract,omitempty"`
+	PublishedContract registry.Row         `json:"published_contract,omitempty"`
 	Revision          int64                `json:"revision"`
 	SpaceID           string               `json:"space_id"`
 	State             string               `json:"state"`
@@ -59,12 +60,12 @@ type EntityDefinition struct {
 
 const entityColumns = "active_version_id,created_at,draft_json,entity_key,id,label,pending_version_id,revision,space_id,state,tenant_id"
 
-func (v *EntityDefinition) fields() []any {
+func (v *EntityDefinition) ScanFields() []any {
 	return []any{&v.ActiveVersion, &v.CreatedAt, &v.Draft, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.SpaceID, &v.State, &v.TenantID}
 }
 
 // draft decodes the saved draft definition.
-func (v EntityDefinition) draft() (entity.Definition, error) { return defOf(v.Draft.value()) }
+func (v EntityDefinition) draft() (entity.Definition, error) { return defOf(v.Draft.Value()) }
 
 // entityItem is an entity in a Space's entity collection.
 type entityItem struct {
@@ -77,7 +78,7 @@ type entityItem struct {
 	State          string  `json:"state"`
 }
 
-func (v *entityItem) fields() []any {
+func (v *entityItem) ScanFields() []any {
 	return []any{&v.ActiveVersion, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
 }
 
@@ -91,7 +92,7 @@ type publicationItem struct {
 	State       string    `json:"state"`
 }
 
-func (v *publicationItem) fields() []any {
+func (v *publicationItem) ScanFields() []any {
 	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.ID, &v.State}
 }
 
@@ -106,39 +107,39 @@ type Publication struct {
 	State       string     `json:"state"`
 }
 
-func (v *Publication) fields() []any {
+func (v *Publication) ScanFields() []any {
 	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.FinishedAt, &v.ID, &v.State}
 }
 
 // storedDefinition is a stored definition document.
-type storedDefinition struct{ Definition jsonValue }
+type storedDefinition struct{ Definition registry.JSONValue }
 
-func (v *storedDefinition) fields() []any { return []any{&v.Definition} }
+func (v *storedDefinition) ScanFields() []any { return []any{&v.Definition} }
 
 // publishedEntity is an active entity with its published definition.
 type publishedEntity struct {
 	ID, ActiveVersion, Hash string
-	Definition              jsonValue
+	Definition              registry.JSONValue
 }
 
-func (v *publishedEntity) fields() []any {
+func (v *publishedEntity) ScanFields() []any {
 	return []any{&v.ID, &v.ActiveVersion, &v.Hash, &v.Definition}
 }
 
 // versionDefinition reads a stored entity version's definition document.
-func versionDefinition(ctx context.Context, q Queryer, version string) (jsonValue, error) {
+func versionDefinition(ctx context.Context, q registry.Queryer, version string) (registry.JSONValue, error) {
 	var v storedDefinition
-	return v.Definition, lookup(ctx, q, "SELECT definition_json FROM entity_versions WHERE id=?", []any{version}, &v.Definition)
+	return v.Definition, registry.Lookup(ctx, q, "SELECT definition_json FROM entity_versions WHERE id=?", []any{version}, &v.Definition)
 }
 
-func validateEntityRefs(ctx context.Context, q Queryer, d entity.Definition, v EntityDefinition) error {
+func validateEntityRefs(ctx context.Context, q registry.Queryer, d entity.Definition, v EntityDefinition) error {
 	return validateEntityRefsCandidates(ctx, q, d, v.TenantID, v.SpaceID, v.ID, nil)
 }
 
-func validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Definition, tenant, space, entityID string, candidates map[string]bool) error {
+func validateEntityRefsCandidates(ctx context.Context, q registry.Queryer, d entity.Definition, tenant, space, entityID string, candidates map[string]bool) error {
 	for _, p := range d.Permissions {
 		for _, rid := range p.Roles {
-			if e := id(rid); e != nil {
+			if e := registry.ID(rid); e != nil {
 				return e
 			}
 			var n int
@@ -146,11 +147,11 @@ func validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Defin
 				return e
 			}
 			if n != 1 {
-				return bad("A permission references an unavailable Space business role.")
+				return registry.Bad("A permission references an unavailable Space business role.")
 			}
 		}
 		if p.Subject != "" {
-			if e := id(p.Subject); e != nil {
+			if e := registry.ID(p.Subject); e != nil {
 				return e
 			}
 			var n int
@@ -165,13 +166,13 @@ func validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Defin
 				return e
 			}
 			if n != 1 {
-				return bad("Unavailable permission recipient.")
+				return registry.Bad("Unavailable permission recipient.")
 			}
 		}
 	}
 	for _, f := range d.Fields {
 		if f.Type == "reference" {
-			if e := id(f.Target); e != nil {
+			if e := registry.ID(f.Target); e != nil {
 				return e
 			}
 		}
@@ -181,21 +182,21 @@ func validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Defin
 				return e
 			}
 			if n != 1 {
-				return bad("Reference target must be a published entity in this Space.")
+				return registry.Bad("Reference target must be a published entity in this Space.")
 			}
 		}
 	}
 	return nil
 }
 
-func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error) {
+func (s *Server) actorContext(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error) {
 	c := entity.Context{Actor: user, Now: time.Now().UTC(), Roles: map[string]bool{}, Teams: map[string]bool{}, ReviewTeams: map[string]bool{}, AdminTeams: map[string]bool{}}
 	a := entity.AppAccess{Inherit: true}
 	if e := s.member(ctx, q, Principal{ID: user}, tenant, true); e != nil {
 		return c, a, e
 	}
 	query := strings.Replace(effectiveAssignmentSQL, " ORDER BY g.scope_kind,g.id", " AND (g.scope_kind='team' OR (g.scope_kind='space' AND g.space_id=?) OR (g.scope_kind='app' AND g.app_id=?)) ORDER BY g.scope_kind,g.id", 1)
-	assignments, e := scanAll[EffectiveAssignment](ctx, q, query, user, tenant, space, app)
+	assignments, e := registry.ScanAll[EffectiveAssignment](ctx, q, query, user, tenant, space, app)
 	if e != nil {
 		return c, a, e
 	}
@@ -212,19 +213,19 @@ func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, spac
 			}
 		}
 	}
-	teams, e := scanStrings(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
+	teams, e := registry.ScanStrings(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
 	if e != nil {
 		return c, a, e
 	}
 	if len(teams) > entity.MaxActorTeams {
-		return c, a, conflict("Membership expansion limit exceeded.")
+		return c, a, registry.Conflict("Membership expansion limit exceeded.")
 	}
 	for _, g := range teams {
 		c.Teams[g] = true
 	}
 	if app != "" {
-		var access jsonValue
-		if e := lookup(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", []any{app, tenant, space}, &access); e != nil {
+		var access registry.JSONValue
+		if e := registry.Lookup(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", []any{app, tenant, space}, &access); e != nil {
 			return c, a, e
 		}
 		b, _ := json.Marshal(access)
@@ -241,7 +242,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 		return e
 	}
 	if in.Username == "" || in.Password == "" {
-		return bad("Schema credentials are required.")
+		return registry.Bad("Schema credentials are required.")
 	}
 	rev, e := expectedRevision(r)
 	if e != nil {
@@ -251,7 +252,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		var current int64
 		var mode string
-		e := lookup(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &mode)
+		e := registry.Lookup(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &mode)
 		if e != nil {
 			return e
 		}
@@ -259,7 +260,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 			return e
 		}
 		if mode != "registered" {
-			return bad("Managed storage uses its target's schema authority.")
+			return registry.Bad("Managed storage uses its target's schema authority.")
 		}
 		enc, e := s.seal("schema", record, tenant, in)
 		if e != nil {
@@ -269,12 +270,12 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, tenant, p.ID, "database.schema_credentials_changed", "database", record, r.Header.Get("X-Request-ID"), Row{})
+		return audit(r.Context(), tx, tenant, p.ID, "database.schema_credentials_changed", "database", record, r.Header.Get("X-Request-ID"), registry.Row{})
 	})
 	if e != nil {
 		return e
 	}
-	send(w, 200, Row{"ok": true})
+	send(w, 200, registry.Row{"ok": true})
 	return nil
 }
 
@@ -283,7 +284,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 func entitySection(d entity.Definition, section, field string) (any, error) {
 	if section == "definition" {
 		if field != "" {
-			return nil, bad("field applies only to generated contract sections.")
+			return nil, registry.Bad("field applies only to generated contract sections.")
 		}
 		return d, nil
 	}
@@ -297,7 +298,7 @@ func entitySection(d entity.Definition, section, field string) (any, error) {
 			}
 		}
 		if !found {
-			return nil, missing()
+			return nil, registry.Missing()
 		}
 	}
 	switch section {
@@ -310,14 +311,14 @@ func entitySection(d entity.Definition, section, field string) (any, error) {
 	case "typescript":
 		return d.TypeScript(), nil
 	default:
-		return nil, bad("Unknown entity section.")
+		return nil, registry.Bad("Unknown entity section.")
 	}
 }
 
-func fieldInventory(fields []entity.Field) []Row {
-	out := []Row{}
+func fieldInventory(fields []entity.Field) []registry.Row {
+	out := []registry.Row{}
 	for _, f := range fields {
-		out = append(out, Row{"key": f.Key, "label": f.Label, "type": f.Type, "target_entity_id": f.Target})
+		out = append(out, registry.Row{"key": f.Key, "label": f.Label, "type": f.Type, "target_entity_id": f.Target})
 	}
 	return out
 }
@@ -330,7 +331,7 @@ type authoring struct {
 	run          *runner
 	config       *Config
 	queue        func(ctx context.Context, tx *sql.Tx, p Principal, v EntityDefinition, version string, candidates map[string]bool) error
-	actorContext func(ctx context.Context, q Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error)
+	actorContext func(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error)
 }
 
 type (
@@ -365,8 +366,8 @@ type (
 
 // entityRow reads an entity and checks action on its Space with the
 // stricter mutating rules, as every entity operation does.
-func (v *authoring) entityRow(ctx context.Context, q Queryer, a Actor, key, action string) (EntityDefinition, error) {
-	out, e := scanOne[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=?", key)
+func (v *authoring) entityRow(ctx context.Context, q registry.Queryer, a Actor, key, action string) (EntityDefinition, error) {
+	out, e := registry.ScanOne[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=?", key)
 	if e != nil {
 		return out, e
 	}
@@ -377,7 +378,7 @@ func (v *authoring) entityRow(ctx context.Context, q Queryer, a Actor, key, acti
 // authoringSpace reads an active Space whose entities a may manage.
 func (v *authoring) authoringSpace(ctx context.Context, a Actor, space string) (Resource, error) {
 	res := Resource{Space: space}
-	if e := lookup(ctx, v.db, "SELECT tenant_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant); e != nil {
+	if e := registry.Lookup(ctx, v.db, "SELECT tenant_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant); e != nil {
 		return res, e
 	}
 	return res, v.run.check(ctx, v.db, a, "entity.manage", res, true)
@@ -391,24 +392,24 @@ func defOf(v any) (entity.Definition, error) {
 	return entity.Decode(b)
 }
 
-func (v *authoring) Entities(ctx context.Context, a Actor, space string) (Row, error) {
+func (v *authoring) Entities(ctx context.Context, a Actor, space string) (registry.Row, error) {
 	sp, e := v.authoringSpace(ctx, a, space)
 	if e != nil {
 		return nil, e
 	}
-	items, e := scanAll[entityItem](ctx, v.db, "SELECT active_version_id,entity_key,id,label,pending_version_id,revision,state FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", sp.Space, sp.Tenant)
+	items, e := registry.ScanAll[entityItem](ctx, v.db, "SELECT active_version_id,entity_key,id,label,pending_version_id,revision,state FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", sp.Space, sp.Tenant)
 	if e != nil {
 		return nil, e
 	}
-	return Row{"items": items}, nil
+	return registry.Row{"items": items}, nil
 }
 
 // CreateEntity adds a draft to a Space and returns its authoring view.
 func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in entityCreateInput) (EntityDefinition, error) {
 	if in.ID == "" {
-		in.ID = newID()
+		in.ID = registry.NewID()
 	}
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return EntityDefinition{}, e
 	}
 	sp, e := v.authoringSpace(ctx, a, space)
@@ -416,11 +417,11 @@ func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in 
 		return EntityDefinition{}, e
 	}
 	if in.Definition.Format != 1 || len(in.Definition.Key) > 48 || !entity.ValidKey(in.Definition.Key) || len(in.Definition.Label) > 160 || in.Definition.Label == "" {
-		return EntityDefinition{}, bad("Provide an entity key and name.")
+		return EntityDefinition{}, registry.Bad("Provide an entity key and name.")
 	}
 	b, _ := json.Marshal(in.Definition)
 	if len(b) > entity.MaxDefinitionBytes {
-		return EntityDefinition{}, bad("Definition exceeds its encoded-size limit.")
+		return EntityDefinition{}, registry.Bad("Definition exceeds its encoded-size limit.")
 	}
 	tenant := sp.Tenant
 	e = v.run.mutate(ctx, a, "entity.manage", sp, func(tx *sql.Tx) error {
@@ -429,13 +430,13 @@ func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in 
 			return e
 		}
 		if n >= 100 {
-			return conflict("Space entity limit reached.")
+			return registry.Conflict("Space entity limit reached.")
 		}
 		_, e := tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,draft_json) VALUES(?,?,?,?,?,?)", in.ID, sp.Tenant, sp.Space, in.Definition.Key, in.Definition.Label, b)
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "entity.created", "entity", in.ID, Row{})
+		return auditAs(ctx, tx, a, tenant, "entity.created", "entity", in.ID, registry.Row{})
 	})
 	if e != nil {
 		return EntityDefinition{}, e
@@ -458,7 +459,7 @@ func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entity
 		definition := out.Draft
 		if version == "published" {
 			if out.ActiveVersion == nil {
-				return nil, missing()
+				return nil, registry.Missing()
 			}
 			active, err := versionDefinition(ctx, v.db, *out.ActiveVersion)
 			if err != nil {
@@ -466,9 +467,9 @@ func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entity
 			}
 			definition = active
 		} else if version != "draft" {
-			return nil, bad("version must be draft or published.")
+			return nil, registry.Bad("version must be draft or published.")
 		}
-		d, err := defOf(definition.value())
+		d, err := defOf(definition.Value())
 		if err != nil {
 			return nil, err
 		}
@@ -476,10 +477,10 @@ func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entity
 		if err != nil {
 			return nil, err
 		}
-		return Row{"id": out.ID, "space_id": out.SpaceID, "revision": out.Revision, "version": version, "active_version_id": out.ActiveVersion, "definition_hash": entity.Hash(d), "section": view.Section, "field": view.Field, "partial": view.Field != "", "value": value}, nil
+		return registry.Row{"id": out.ID, "space_id": out.SpaceID, "revision": out.Revision, "version": version, "active_version_id": out.ActiveVersion, "definition_hash": entity.Hash(d), "section": view.Section, "field": view.Field, "partial": view.Field != "", "value": value}, nil
 	}
 	if view.Field != "" || view.Version != "" {
-		return nil, bad("field/version require a section.")
+		return nil, registry.Bad("field/version require a section.")
 	}
 	return v.entityDetail(ctx, out)
 }
@@ -502,8 +503,8 @@ func (v *authoring) entityDetail(ctx context.Context, out EntityDefinition) (Ent
 	}
 	diagnostics := d.Validate()
 	out.Diagnostics = &diagnostics
-	out.DraftContract = Row{"definition_hash": entity.Hash(d), "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()}
-	versions, e := scanAll[publicationItem](ctx, v.db, "SELECT base_version_id,created_at,definition_hash,error_message,id,state FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", out.ID)
+	out.DraftContract = registry.Row{"definition_hash": entity.Hash(d), "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()}
+	versions, e := registry.ScanAll[publicationItem](ctx, v.db, "SELECT base_version_id,created_at,definition_hash,error_message,id,state FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", out.ID)
 	if e != nil {
 		return out, e
 	}
@@ -514,11 +515,11 @@ func (v *authoring) entityDetail(ctx context.Context, out EntityDefinition) (Ent
 			return out, e
 		}
 		out.ActiveDefinition = &active
-		published, e := defOf(active.value())
+		published, e := defOf(active.Value())
 		if e != nil {
 			return out, e
 		}
-		out.PublishedContract = Row{"version_id": out.ActiveVersion, "definition_hash": entity.Hash(published), "json_schema": published.JSONSchema(), "create_schema": published.Schema("create"), "update_schema": published.Schema("update"), "typescript": published.TypeScript()}
+		out.PublishedContract = registry.Row{"version_id": out.ActiveVersion, "definition_hash": entity.Hash(published), "json_schema": published.JSONSchema(), "create_schema": published.Schema("create"), "update_schema": published.Schema("update"), "typescript": published.TypeScript()}
 	}
 	return out, nil
 }
@@ -534,17 +535,17 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 		return EntityDefinition{}, e
 	}
 	if in.Definition.Key != old.Key || in.Definition.Format != 1 || in.Definition.Label == "" || len(in.Definition.Label) > 160 {
-		return EntityDefinition{}, bad("Entity key/format are immutable and a name is required.")
+		return EntityDefinition{}, registry.Bad("Entity key/format are immutable and a name is required.")
 	}
 	b, _ := json.Marshal(in.Definition)
 	if len(b) > entity.MaxDefinitionBytes {
-		return EntityDefinition{}, bad("Definition exceeds its encoded-size limit.")
+		return EntityDefinition{}, registry.Bad("Definition exceeds its encoded-size limit.")
 	}
 	tenant := old.TenantID
 	e = v.run.mutate(ctx, a, "entity.manage", Resource{Tenant: tenant, Space: old.SpaceID}, func(tx *sql.Tx) error {
 		var current int64
 		var pending *string
-		e := lookup(ctx, tx, "SELECT revision,pending_version_id FROM entity_definitions WHERE id=? FOR UPDATE", []any{old.ID}, &current, &pending)
+		e := registry.Lookup(ctx, tx, "SELECT revision,pending_version_id FROM entity_definitions WHERE id=? FOR UPDATE", []any{old.ID}, &current, &pending)
 		if e != nil {
 			return e
 		}
@@ -553,25 +554,25 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 		}
 		state := old.State
 		if in.State != "" {
-			if !slices.Contains([]string{stateActive, stateArchived}, in.State) {
-				return bad("Invalid lifecycle state.")
+			if !slices.Contains([]string{registry.StateActive, registry.StateArchived}, in.State) {
+				return registry.Bad("Invalid lifecycle state.")
 			}
 			if pending != nil {
-				return conflict("Wait for publishing before archiving.")
+				return registry.Conflict("Wait for publishing before archiving.")
 			}
-			if in.State == stateArchived {
-				refs, e := scanAll[storedDefinition](ctx, tx, "SELECT v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' AND e.id<>?", old.SpaceID, old.ID)
+			if in.State == registry.StateArchived {
+				refs, e := registry.ScanAll[storedDefinition](ctx, tx, "SELECT v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' AND e.id<>?", old.SpaceID, old.ID)
 				if e != nil {
 					return e
 				}
 				for _, ref := range refs {
-					d, e := defOf(ref.Definition.value())
+					d, e := defOf(ref.Definition.Value())
 					if e != nil {
 						return e
 					}
 					for _, f := range d.Fields {
 						if f.Target == old.ID {
-							return conflict("An active entity references this entity.")
+							return registry.Conflict("An active entity references this entity.")
 						}
 					}
 				}
@@ -582,7 +583,7 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "entity.saved", "entity", old.ID, Row{"state": state})
+		return auditAs(ctx, tx, a, tenant, "entity.saved", "entity", old.ID, registry.Row{"state": state})
 	})
 	if e != nil {
 		return EntityDefinition{}, e
@@ -592,19 +593,19 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 
 // ValidateEntity checks a candidate definition without saving it. The
 // diagnostics view omits the generated schema and TypeScript.
-func (v *authoring) ValidateEntity(ctx context.Context, a Actor, key string, d entity.Definition, view string) (Row, error) {
+func (v *authoring) ValidateEntity(ctx context.Context, a Actor, key string, d entity.Definition, view string) (registry.Row, error) {
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return nil, e
 	}
 	if view != "" && view != "diagnostics" {
-		return nil, bad("Unknown validation view.")
+		return nil, registry.Bad("Unknown validation view.")
 	}
 	diags := d.Validate()
 	if e = validateEntityRefs(ctx, v.db, d, current); e != nil {
 		diags = append(diags, entity.Diagnostic{Code: "invalid_reference", Path: "permissions", Message: e.Error()})
 	}
-	out := Row{"diagnostics": diags}
+	out := registry.Row{"diagnostics": diags}
 	if view != "diagnostics" {
 		out["schema"], out["typescript"] = d.JSONSchema(), d.TypeScript()
 	}
@@ -612,7 +613,7 @@ func (v *authoring) ValidateEntity(ctx context.Context, a Actor, key string, d e
 }
 
 // PublishEntity queues the saved draft for the publication worker.
-func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revision int64) (Row, error) {
+func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revision int64) (registry.Row, error) {
 	if revision < 1 {
 		return nil, revisionRequired()
 	}
@@ -622,7 +623,7 @@ func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revi
 	}
 	version := a.operationID()
 	e = v.run.mutate(ctx, a, "entity.publish", Resource{Tenant: current.TenantID, Space: current.SpaceID}, func(tx *sql.Tx) error {
-		current, e = scanOne[EntityDefinition](ctx, tx, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=? FOR UPDATE", current.ID)
+		current, e = registry.ScanOne[EntityDefinition](ctx, tx, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=? FOR UPDATE", current.ID)
 		if e != nil {
 			return e
 		}
@@ -630,24 +631,24 @@ func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revi
 			return e
 		}
 		if current.PendingVersion != nil {
-			return conflict("A publication is already pending.")
+			return registry.Conflict("A publication is already pending.")
 		}
 		var queued int
 		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_versions WHERE tenant_id=? AND state IN ('queued','publishing','prepared')", current.TenantID).Scan(&queued); e != nil {
 			return e
 		}
 		if queued >= 16 {
-			return conflict("Publication queue limit reached. Wait for queued changes to finish.")
+			return registry.Conflict("Publication queue limit reached. Wait for queued changes to finish.")
 		}
-		if current.State != stateActive {
-			return conflict("Archived entities cannot publish.")
+		if current.State != registry.StateActive {
+			return registry.Conflict("Archived entities cannot publish.")
 		}
 		return v.queue(ctx, tx, a.Principal, current, version, nil)
 	})
 	if e != nil {
 		return nil, e
 	}
-	return Row{"id": version, "state": "queued"}, nil
+	return registry.Row{"id": version, "state": "queued"}, nil
 }
 
 func (v *authoring) Publication(ctx context.Context, a Actor, key, version string) (Publication, error) {
@@ -655,18 +656,18 @@ func (v *authoring) Publication(ctx context.Context, a Actor, key, version strin
 	if e != nil {
 		return Publication{}, e
 	}
-	return scanOne[Publication](ctx, v.db, "SELECT base_version_id,created_at,definition_hash,error_message,finished_at,id,state FROM entity_versions WHERE id=? AND entity_id=?", version, current.ID)
+	return registry.ScanOne[Publication](ctx, v.db, "SELECT base_version_id,created_at,definition_hash,error_message,finished_at,id,state FROM entity_versions WHERE id=? AND entity_id=?", version, current.ID)
 }
 
 // TestEntity evaluates one synthetic case against a candidate definition
 // for a real Tenant member, without live uniqueness, references or shares.
-func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in entityTestInput) (Row, error) {
+func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in entityTestInput) (registry.Row, error) {
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return nil, e
 	}
 	if ds := in.Definition.Validate(); len(ds) > 0 {
-		return Row{"diagnostics": ds, "allowed": false}, nil
+		return registry.Row{"diagnostics": ds, "allowed": false}, nil
 	}
 	if in.User == "" {
 		in.User = a.Principal.ID
@@ -680,17 +681,17 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 	c.Now = time.Now().UTC()
 	candidate := in.Record
 	if in.Operation == "create" || in.Operation == "update" {
-		recordID := str(in.Record["id"])
+		recordID := registry.Str(in.Record["id"])
 		if recordID == "" {
-			recordID = newID()
+			recordID = registry.NewID()
 		}
-		revision := integer(in.Record["revision"]) + 1
+		revision := registry.Integer(in.Record["revision"]) + 1
 		if in.Operation == "create" {
 			revision = 1
 		}
 		candidate, e = in.Definition.Prepare(c, in.Values, in.Operation == "create", recordID, revision)
 	}
-	out := Row{"allowed": false, "not_checked": []string{"live uniqueness", "reference existence/read authority", "record shares"}, "diagnostics": []any{}}
+	out := registry.Row{"allowed": false, "not_checked": []string{"live uniqueness", "reference existence/read authority", "record shares"}, "diagnostics": []any{}}
 	if e != nil {
 		out["error"] = e.Error()
 		return out, nil
@@ -714,14 +715,14 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 	}
 	out["allowed"] = allowed
 	out["candidate"] = candidate
-	explanation := []Row{}
+	explanation := []registry.Row{}
 	for _, permission := range in.Definition.Permissions {
 		if permission.Operation != in.Operation {
 			continue
 		}
 		one := in.Definition
 		one.Permissions = []entity.Permission{permission}
-		explanation = append(explanation, Row{"key": permission.Key, "label": permission.Label, "fields": permission.Fields, "matches_complete_path": one.Allowed(entityID, in.Operation, nil, c, access, nil)})
+		explanation = append(explanation, registry.Row{"key": permission.Key, "label": permission.Label, "fields": permission.Fields, "matches_complete_path": one.Allowed(entityID, in.Operation, nil, c, access, nil)})
 	}
 	out["permission_paths"] = explanation
 	if e = in.Definition.CheckRules(c, in.Operation == "create"); (in.Operation == "create" || in.Operation == "update") && e != nil {
@@ -733,8 +734,8 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 
 // AppContracts are the published entity contracts an App may use: its
 // access ceiling narrows fields and permissions unless a is a Space manager.
-func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view contractView) (Row, error) {
-	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view contractView) (registry.Row, error) {
+	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
@@ -746,20 +747,20 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 		return nil, e
 	}
 	manager := v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
-	vs, e := scanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
+	vs, e := registry.ScanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
 	if e != nil {
 		return nil, e
 	}
-	out := []Row{}
+	out := []registry.Row{}
 	for _, value := range vs {
 		if view.Entity != "" && view.Entity != value.ID {
 			continue
 		}
-		d, e := defOf(value.Definition.value())
+		d, e := defOf(value.Definition.Value())
 		if e != nil {
 			return nil, e
 		}
-		perms := []Row{}
+		perms := []registry.Row{}
 		allowedFields := []string{}
 		for _, permission := range d.Permissions {
 			pid := entity.PermissionID(value.ID, permission.Key)
@@ -776,7 +777,7 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 				}
 			}
 			allowedFields = append(allowedFields, fields...)
-			perms = append(perms, Row{"id": pid, "key": permission.Key, "label": permission.Label, "operation": permission.Operation, "fields": fields})
+			perms = append(perms, registry.Row{"id": pid, "key": permission.Key, "label": permission.Label, "operation": permission.Operation, "fields": fields})
 		}
 		if len(perms) == 0 && !manager {
 			continue
@@ -792,49 +793,49 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 		d.Rules = nil
 		section, field := view.Section, view.Field
 		if view.Version != "" && view.Version != "published" {
-			return nil, bad("App contracts are always published.")
+			return nil, registry.Bad("App contracts are always published.")
 		}
 		if section == "inventory" {
 			if field != "" {
-				return nil, bad("field requires a generated contract section.")
+				return nil, registry.Bad("field requires a generated contract section.")
 			}
-			out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
+			out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
 			continue
 		}
 		if section != "" {
 			var part any
 			if section == "definition" {
 				if field != "" {
-					return nil, bad("field applies only to generated contract sections.")
+					return nil, registry.Bad("field applies only to generated contract sections.")
 				}
 				public, e := publicEntityFields(fields)
 				if e != nil {
 					return nil, e
 				}
-				part = Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}
+				part = registry.Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}
 			} else {
 				part, e = entitySection(d, section, field)
 				if e != nil {
 					return nil, e
 				}
 			}
-			out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "section": section, "field": field, "partial": field != "", "value": part})
+			out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "section": section, "field": field, "partial": field != "", "value": part})
 			continue
 		}
 		if field != "" {
-			return nil, bad("field requires a generated contract section.")
+			return nil, registry.Bad("field requires a generated contract section.")
 		}
 		public, e := publicEntityFields(fields)
 		if e != nil {
 			return nil, e
 		}
-		out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
+		out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": registry.Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
-	roles, e := scanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
+	roles, e := registry.ScanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
 	if e != nil {
 		return nil, e
 	}
-	response := Row{"app_id": current.ID, "space_id": current.SpaceID, "app_revision": current.Revision, "entities": out, "roles": roles}
+	response := registry.Row{"app_id": current.ID, "space_id": current.SpaceID, "app_revision": current.Revision, "entities": out, "roles": roles}
 	if view.Section == "inventory" {
 		var page pageInfo
 		out, page, e = pageItems(out, view.Page)
@@ -847,8 +848,8 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 }
 
 // AppAccess is an App's data-access policy with its revision.
-func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (Row, error) {
-	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (registry.Row, error) {
+	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
@@ -859,22 +860,22 @@ func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (Row, er
 	if e != nil {
 		return nil, e
 	}
-	return Row{"revision": current.Revision, "access": access}, nil
+	return registry.Row{"revision": current.Revision, "access": access}, nil
 }
 
 // SaveAppAccess replaces an App's origin, ceiling and restrictions. Only a
 // Space manager may change the origin or widen the ceiling.
-func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in entity.AppAccess, revision int64) (Row, error) {
+func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in entity.AppAccess, revision int64) (registry.Row, error) {
 	if revision < 1 {
 		return nil, revisionRequired()
 	}
-	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
 	res := Resource{Tenant: current.TenantID, App: current.ID}
 	e = v.run.mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
-		current, e = scanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
+		current, e = registry.ScanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
 		if e != nil {
 			return e
 		}
@@ -892,40 +893,40 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 		}
 		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
 		if !spaceManager && (old.Origin != in.Origin || old.Inherit != in.Inherit || entity.Hash(old.Ceiling) != entity.Hash(in.Ceiling)) {
-			return problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
+			return registry.Problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
 		}
 		if in.Origin != "" {
 			u, _ := url.Parse(in.Origin)
 			admin, _ := url.Parse(v.config.PublicURL)
 			loopback := u != nil && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
 			if !validOrigin(in.Origin, false) || u == nil || len(in.Origin) > 500 || u.Scheme != "https" && !((v.config.Development || workspace) && loopback) || u.Hostname() != strings.ToLower(u.Hostname()) || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(admin.Hostname(), ".")) {
-				return bad("App origin must use a separate host from the console.")
+				return registry.Bad("App origin must use a separate host from the console.")
 			}
 		}
 		if len(in.Ceiling)+len(in.Restrictions) > 128 {
-			return bad("Too many App access gates.")
+			return registry.Bad("Too many App access gates.")
 		}
 		for _, gs := range [][]entity.Gate{in.Ceiling, in.Restrictions} {
 			for _, g := range gs {
-				if e := id(g.Permission); e != nil {
+				if e := registry.ID(g.Permission); e != nil {
 					return e
 				}
-				pv, e := scanOne[storedDefinition](ctx, tx, "SELECT v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, current.SpaceID)
+				pv, e := registry.ScanOne[storedDefinition](ctx, tx, "SELECT v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, current.SpaceID)
 				if e != nil {
-					return bad("Choose an active permission from this Space.")
+					return registry.Bad("Choose an active permission from this Space.")
 				}
-				d, e := defOf(pv.Definition.value())
+				d, e := defOf(pv.Definition.Value())
 				if e != nil {
 					return e
 				}
 				for _, f := range g.Fields {
 					if _, ok := d.Field(f); !ok {
-						return bad("Unknown gate field.")
+						return registry.Bad("Unknown gate field.")
 					}
 				}
 				if g.When != nil {
 					if e = d.CheckCondition(*g.When, false); e != nil {
-						return bad(e.Error())
+						return registry.Bad(e.Error())
 					}
 				}
 				for _, role := range g.Roles {
@@ -934,7 +935,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 						return e
 					}
 					if n != 1 {
-						return bad("App gates can reference only this App's business roles.")
+						return registry.Bad("App gates can reference only this App's business roles.")
 					}
 				}
 			}
@@ -948,18 +949,18 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 				return e
 			}
 			if occupied > 0 {
-				return conflict("Each App needs a separate host. This host is already approved for another App.")
+				return registry.Conflict("Each App needs a separate host. This host is already approved for another App.")
 			}
 		}
 		b, _ := json.Marshal(in)
-		_, e = tx.ExecContext(ctx, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, nullable(in.Origin), nullable(host), old.Origin, in.Origin, current.ID)
+		_, e = tx.ExecContext(ctx, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, registry.Nullable(in.Origin), registry.Nullable(host), old.Origin, in.Origin, current.ID)
 		if e != nil {
 			return e
 		}
 		if e = projectAppPermissions(ctx, tx, current.ID, in); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", current.ID, Row{})
+		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", current.ID, registry.Row{})
 	})
 	if e != nil {
 		return nil, e

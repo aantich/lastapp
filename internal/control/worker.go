@@ -12,6 +12,8 @@ import (
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // A pinned registry connection owns leadership and publishes every worker result.
@@ -79,7 +81,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		}
 		job, e := nextJob(ctx, conn, lastTenant)
 		if e != nil {
-			var ae *APIError
+			var ae *registry.APIError
 			if !errors.As(e, &ae) || ae.Status != 404 {
 				return e
 			}
@@ -102,12 +104,12 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		if e == nil && job.AgentGrant != "" {
 			res, permission := Resource{Tenant: tenant}, "databases.provision"
 			var production string
-			if lookup(ctx, tx, "SELECT w.production_space_id FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id WHERE sp.database_resource_id=? AND w.state='preparing'", []any{record}, &production) == nil {
+			if registry.Lookup(ctx, tx, "SELECT w.production_space_id FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id WHERE sp.database_resource_id=? AND w.state='preparing'", []any{record}, &production) == nil {
 				res.Space = production
 				permission = "workspaces.write"
 			}
 			if denied := s.agentJobAllowed(ctx, tx, job.AgentGrant, job.AgentUser, res, permission, job.TargetID); denied != nil {
-				var ae *APIError
+				var ae *registry.APIError
 				if !errors.As(denied, &ae) {
 					tx.Rollback()
 					return denied
@@ -117,7 +119,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 					tx.Rollback()
 					return e
 				}
-				if e = audit(jobCtx, tx, tenant, job.AgentUser, "database.failed", "database", record, newID(), Row{"error_code": "agent_access_revoked"}); e != nil {
+				if e = audit(jobCtx, tx, tenant, job.AgentUser, "database.failed", "database", record, registry.NewID(), registry.Row{"error_code": "agent_access_revoked"}); e != nil {
 					tx.Rollback()
 					return e
 				}
@@ -127,10 +129,10 @@ func (s *Server) workerLeader(ctx context.Context) error {
 				continue
 			}
 		}
-		if e == nil && active == stateActive {
+		if e == nil && active == registry.StateActive {
 			_, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='provisioning',attempts=attempts+1,revision=revision+1 WHERE id=? AND state='pending'", record)
 		}
-		if e != nil || active != stateActive {
+		if e != nil || active != registry.StateActive {
 			tx.Rollback()
 			if e != nil {
 				return e
@@ -153,8 +155,8 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state=?,last_error_code=?,last_error_message=?,last_verified_at=IF(?='ready',UTC_TIMESTAMP(6),last_verified_at),revision=revision+1 WHERE id=? AND state='provisioning'", state, nullable(code), nullable(message), state, record); e == nil {
-			e = audit(jobCtx, tx, tenant, job.AgentUser, "database."+state, "database", record, newID(), Row{"error_code": code})
+		if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state=?,last_error_code=?,last_error_message=?,last_verified_at=IF(?='ready',UTC_TIMESTAMP(6),last_verified_at),revision=revision+1 WHERE id=? AND state='provisioning'", state, registry.Nullable(code), registry.Nullable(message), state, record); e == nil {
+			e = audit(jobCtx, tx, tenant, job.AgentUser, "database."+state, "database", record, registry.NewID(), registry.Row{"error_code": code})
 		}
 		if e != nil {
 			tx.Rollback()
@@ -168,7 +170,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 }
 
 func provisionError(e error) (string, string) {
-	var ae *APIError
+	var ae *registry.APIError
 	if errors.As(e, &ae) {
 		return ae.Code, ae.Message
 	}
@@ -189,7 +191,7 @@ func provisionError(e error) (string, string) {
 }
 
 func ownershipConflict() error {
-	return problem(409, "ownership_conflict", "Existing database or account does not match Lastapp ownership. Nothing was replaced.")
+	return registry.Problem(409, "ownership_conflict", "Existing database or account does not match Lastapp ownership. Nothing was replaced.")
 }
 
 var (
@@ -198,7 +200,7 @@ var (
 )
 
 func (s *Server) provision(ctx context.Context, record string) error {
-	job, e := scanOne[resourceAccess](ctx, s.DB, "SELECT "+resourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
+	job, e := registry.ScanOne[resourceAccess](ctx, s.DB, "SELECT "+resourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
 	if e != nil {
 		return e
 	}
@@ -234,7 +236,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 		return e
 	}
 	if got != 1 {
-		return problem(409, "provisioning_busy", "Another worker still owns the resource; retry shortly.")
+		return registry.Problem(409, "provisioning_busy", "Another worker still owns the resource; retry shortly.")
 	}
 	defer releasePinnedLock(conn, "lastapp:resource:"+record)
 	if !generatedRE.MatchString(name) || runtime.Username != name || !accountHostRE.MatchString(runtime.AccountHost) {
@@ -289,7 +291,7 @@ func validateRuntime(ctx context.Context, db *sql.DB, name string, strict bool) 
 		return e
 	}
 	if !strings.Contains(version, "MariaDB") {
-		return problem(400, "unsupported_database", "This release supports MariaDB only.")
+		return registry.Problem(400, "unsupported_database", "This release supports MariaDB only.")
 	}
 	parts := strings.Split(version, ".")
 	major, _ := strconv.Atoi(parts[0])
@@ -298,7 +300,7 @@ func validateRuntime(ctx context.Context, db *sql.DB, name string, strict bool) 
 		minor, _ = strconv.Atoi(parts[1])
 	}
 	if major < 10 || (major == 10 && minor < 11) {
-		return problem(400, "unsupported_version", "MariaDB 10.11 or newer is required.")
+		return registry.Problem(400, "unsupported_version", "MariaDB 10.11 or newer is required.")
 	}
 	return checkGrants(ctx, db, name, strict, true)
 }
@@ -318,22 +320,22 @@ func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required 
 			return e
 		}
 		if strings.Contains(grant, "WITH GRANT OPTION") {
-			return problem(400, "unsafe_grants", "Runtime credentials must not have GRANT OPTION.")
+			return registry.Problem(400, "unsafe_grants", "Runtime credentials must not have GRANT OPTION.")
 		}
 		if strings.HasPrefix(grant, "GRANT USAGE ON *.* TO ") {
 			continue
 		}
 		on, to := strings.Index(grant, " ON "), strings.Index(grant, " TO ")
 		if on < 0 || to < on {
-			return problem(400, "unsupported_grants", "Use explicit schema grants, rather than database roles, for runtime accounts.")
+			return registry.Problem(400, "unsupported_grants", "Use explicit schema grants, rather than database roles, for runtime accounts.")
 		}
 		privs := strings.TrimPrefix(grant[:on], "GRANT ")
 		target := grant[on+4 : to]
 		if target != scope {
-			return problem(400, "unsafe_grants", "Runtime credentials must be restricted to this database.")
+			return registry.Problem(400, "unsafe_grants", "Runtime credentials must be restricted to this database.")
 		}
 		if strings.Contains(grant, "WITH GRANT OPTION") {
-			return problem(400, "unsafe_grants", "Runtime credentials must not have GRANT OPTION.")
+			return registry.Problem(400, "unsafe_grants", "Runtime credentials must not have GRANT OPTION.")
 		}
 		if privs == "ALL PRIVILEGES" && !strict {
 			for _, p := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
@@ -358,7 +360,7 @@ func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required 
 	if required {
 		for _, v := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
 			if !have[v] {
-				return problem(400, "insufficient_privileges", "Runtime credentials require SELECT, INSERT, UPDATE and DELETE on the complete database.")
+				return registry.Problem(400, "insufficient_privileges", "Runtime credentials require SELECT, INSERT, UPDATE and DELETE on the complete database.")
 			}
 		}
 	}
@@ -386,14 +388,14 @@ type databaseJob struct {
 	AgentGrant, AgentUser, AgentClient string // empty for a console request
 }
 
-func (v *databaseJob) fields() []any {
+func (v *databaseJob) ScanFields() []any {
 	return []any{&v.ID, &v.TenantID, &v.TargetID, &v.AgentGrant, &v.AgentUser, &v.AgentClient}
 }
 
-func nextJob(ctx context.Context, q Queryer, lastTenant string) (databaseJob, error) {
-	return scanOne[databaseJob](ctx, q, "SELECT d.id,d.tenant_id,d.target_id,COALESCE(d.agent_grant_id,''),COALESCE(d.agent_user_id,''),COALESCE(ag.client_id,'') FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id LEFT JOIN agent_grants ag ON ag.id=d.agent_grant_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
+func nextJob(ctx context.Context, q registry.Queryer, lastTenant string) (databaseJob, error) {
+	return registry.ScanOne[databaseJob](ctx, q, "SELECT d.id,d.tenant_id,d.target_id,COALESCE(d.agent_grant_id,''),COALESCE(d.agent_user_id,''),COALESCE(ag.client_id,'') FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id LEFT JOIN agent_grants ag ON ag.id=d.agent_grant_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
 }
 
-func cleanupSessions(ctx context.Context, q Queryer) (sql.Result, error) {
+func cleanupSessions(ctx context.Context, q registry.Queryer) (sql.Result, error) {
 	return q.ExecContext(ctx, "DELETE FROM sessions WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000")
 }

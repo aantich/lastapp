@@ -1,4 +1,4 @@
-package control
+package registry
 
 import (
 	"context"
@@ -17,14 +17,14 @@ import (
 // are declared in JSON key order (a map marshals its keys sorted), a NULL
 // column is a pointer (null) and a TINYINT flag keeps its numeric 0/1.
 
-// record is a registry struct that can be scanned from its column list.
-type record[T any] interface {
+// Record is a registry struct that can be scanned from its column list.
+type Record[T any] interface {
 	*T
-	fields() []any
+	ScanFields() []any
 }
 
-// scanAll runs query and scans every row into a T.
-func scanAll[T any, P record[T]](ctx context.Context, q Queryer, query string, args ...any) ([]T, error) {
+// ScanAll runs query and scans every row into a T.
+func ScanAll[T any, P Record[T]](ctx context.Context, q Queryer, query string, args ...any) ([]T, error) {
 	r, e := q.QueryContext(ctx, query, args...)
 	if e != nil {
 		return nil, e
@@ -33,7 +33,7 @@ func scanAll[T any, P record[T]](ctx context.Context, q Queryer, query string, a
 	out := []T{}
 	for r.Next() {
 		var v T
-		if e = r.Scan(P(&v).fields()...); e != nil {
+		if e = r.Scan(P(&v).ScanFields()...); e != nil {
 			return nil, e
 		}
 		out = append(out, v)
@@ -41,20 +41,20 @@ func scanAll[T any, P record[T]](ctx context.Context, q Queryer, query string, a
 	return out, r.Err()
 }
 
-// scanOne runs query and scans its first row; no row is missing() (404).
-func scanOne[T any, P record[T]](ctx context.Context, q Queryer, query string, args ...any) (T, error) {
+// ScanOne runs query and scans its first row; no row is missing() (404).
+func ScanOne[T any, P Record[T]](ctx context.Context, q Queryer, query string, args ...any) (T, error) {
 	var v T
-	e := q.QueryRowContext(ctx, query, args...).Scan(P(&v).fields()...)
+	e := q.QueryRowContext(ctx, query, args...).Scan(P(&v).ScanFields()...)
 	if errors.Is(e, sql.ErrNoRows) {
-		return v, missing()
+		return v, Missing()
 	}
 	return v, e
 }
 
-// bit is a TINYINT 0/1 column: a bool in Go, a number in JSON.
-type bit bool
+// Bit is a TINYINT 0/1 column: a bool in Go, a number in JSON.
+type Bit bool
 
-func (f *bit) Scan(src any) error {
+func (f *Bit) Scan(src any) error {
 	var n sql.NullInt64
 	if e := n.Scan(src); e != nil {
 		return e
@@ -63,15 +63,15 @@ func (f *bit) Scan(src any) error {
 	return nil
 }
 
-func (f bit) MarshalJSON() ([]byte, error) {
+func (f Bit) MarshalJSON() ([]byte, error) {
 	if f {
 		return []byte("1"), nil
 	}
 	return []byte("0"), nil
 }
 
-// scanStrings runs a one-column query and returns its values.
-func scanStrings(ctx context.Context, q Queryer, query string, args ...any) ([]string, error) {
+// ScanStrings runs a one-column query and returns its values.
+func ScanStrings(ctx context.Context, q Queryer, query string, args ...any) ([]string, error) {
 	r, e := q.QueryContext(ctx, query, args...)
 	if e != nil {
 		return nil, e
@@ -88,12 +88,12 @@ func scanStrings(ctx context.Context, q Queryer, query string, args ...any) ([]s
 	return out, r.Err()
 }
 
-// jsonValue is a *_json column. It marshals as the untyped reads returned it:
+// JSONValue is a *_json column. It marshals as the untyped reads returned it:
 // the decoded document, the raw text when it does not parse, or null.
-type jsonValue struct{ v any }
+type JSONValue struct{ v any }
 
-func (j *jsonValue) Scan(src any) error {
-	*j = jsonValue{}
+func (j *JSONValue) Scan(src any) error {
+	*j = JSONValue{}
 	var raw []byte
 	switch t := src.(type) {
 	case nil:
@@ -111,21 +111,21 @@ func (j *jsonValue) Scan(src any) error {
 	return nil
 }
 
-func (j jsonValue) MarshalJSON() ([]byte, error) { return json.Marshal(j.v) }
+func (j JSONValue) MarshalJSON() ([]byte, error) { return json.Marshal(j.v) }
 
-// value is the decoded document, as the untyped reads returned it.
-func (j jsonValue) value() any { return j.v }
+// Value is the decoded document, as the untyped reads returned it.
+func (j JSONValue) Value() any { return j.v }
 
-// lookup scans one row of query into dest; no row is missing() (404).
-func lookup(ctx context.Context, q Queryer, query string, args []any, dest ...any) error {
+// Lookup scans one row of query into dest; no row is missing() (404).
+func Lookup(ctx context.Context, q Queryer, query string, args []any, dest ...any) error {
 	e := q.QueryRowContext(ctx, query, args...).Scan(dest...)
 	if errors.Is(e, sql.ErrNoRows) {
-		return missing()
+		return Missing()
 	}
 	return e
 }
 
-// prefixed qualifies each column of a comma-separated list with alias.
-func prefixed(alias, columns string) string {
+// Prefixed qualifies each column of a comma-separated list with alias.
+func Prefixed(alias, columns string) string {
 	return alias + "." + strings.ReplaceAll(columns, ",", ","+alias+".")
 }

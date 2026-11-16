@@ -10,6 +10,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // SeedDevelopment is an explicit CLI-only fixture operation. It is never an HTTP route.
@@ -21,7 +22,7 @@ func (s *Server) SeedDevelopment(ctx context.Context, provisionerPassword string
 		return e
 	}
 	for _, u := range []struct{ subject, name string }{{"tenant-admin", "Tenant administrator"}, {"outsider", "Outside user"}, {"joe", "Joe (Marketing Reviewer)"}} {
-		if _, e := s.DB.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name)", newID(), s.Config.OIDCIssuer, u.subject, u.name, u.subject+"@lastapp.local"); e != nil {
+		if _, e := s.DB.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name)", registry.NewID(), s.Config.OIDCIssuer, u.subject, u.name, u.subject+"@lastapp.local"); e != nil {
 			return e
 		}
 	}
@@ -67,7 +68,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 			return e
 		}
 	}
-	return s.mutate(ctx, Principal{ID: operator, Platform: true}, "platform.admin", Resource{}, newID(), func(tx *sql.Tx) error {
+	return s.mutate(ctx, Principal{ID: operator, Platform: true}, "platform.admin", Resource{}, registry.NewID(), func(tx *sql.Tx) error {
 		var n int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM tenants WHERE id=?", tenant).Scan(&n); e != nil {
 			return e
@@ -83,7 +84,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 				return e
 			}
 		}
-		if _, e := tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", newID(), tenant, owner, TenantAdminRole); e != nil {
+		if _, e := tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", registry.NewID(), tenant, owner, TenantAdminRole); e != nil {
 			return e
 		}
 		for _, team := range []struct{ id, slug, name string }{{marketing, "marketing", "Marketing"}, {engineering, "engineering", "Engineering"}} {
@@ -97,15 +98,15 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if _, e := tx.ExecContext(ctx, "INSERT INTO group_memberships(tenant_id,group_id,user_id) VALUES (?,?,?)", tenant, marketing, joe); e != nil {
 			return e
 		}
-		if _, e := tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,scope_team_id,role_id,role_owner_key) VALUES (?,?,'team','control',?,?,?,'builtin')", newID(), tenant, joe, marketing, authz.TeamReviewerRole); e != nil {
+		if _, e := tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,scope_team_id,role_id,role_owner_key) VALUES (?,?,'team','control',?,?,?,'builtin')", registry.NewID(), tenant, joe, marketing, authz.TeamReviewerRole); e != nil {
 			return e
 		}
-		resource := newID()
+		resource := registry.NewID()
 		policy, e := policyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
 		}
-		if e = s.storage.allocate(ctx, tx, actorFrom(ctx, Principal{ID: owner}, newID()), tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
+		if e = s.storage.allocate(ctx, tx, actorFrom(ctx, Principal{ID: owner}, registry.NewID()), tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET default_shared_database_id=? WHERE id=?", resource, tenant); e != nil {
@@ -114,23 +115,23 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES (?,?,'crm','CRM',?,'shared')", space, tenant, resource); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, actorFrom(ctx, Principal{ID: operator}, newID()), tenant, space, "", owner); e != nil {
+		if e = assignInitialManager(ctx, tx, actorFrom(ctx, Principal{ID: operator}, registry.NewID()), tenant, space, "", owner); e != nil {
 			return e
 		}
 		for _, a := range []struct{ id, slug, name string }{{app, "deal-review", "Deal review"}, {second, "forecasting", "Forecasting"}} {
 			if _, e = tx.ExecContext(ctx, "INSERT INTO apps(id,tenant_id,space_id,slug,display_name) VALUES (?,?,?,?,?)", a.id, tenant, space, a.slug, a.name); e != nil {
 				return e
 			}
-			if e = assignInitialManager(ctx, tx, actorFrom(ctx, Principal{ID: operator}, newID()), tenant, space, a.id, owner); e != nil {
+			if e = assignInitialManager(ctx, tx, actorFrom(ctx, Principal{ID: operator}, registry.NewID()), tenant, space, a.id, owner); e != nil {
 				return e
 			}
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO roles(id,tenant_id,space_id,owner_key,scope_kind,domain,code,display_name) VALUES (?,?,?,?,'space','data','sales-reviewer','Sales reviewer')", role, tenant, space, "s:"+space); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,group_id,space_id,role_id,role_owner_key) VALUES (?,?,'space','data',?,?,?,?)", newID(), tenant, marketing, space, role, "s:"+space); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,group_id,space_id,role_id,role_owner_key) VALUES (?,?,'space','data',?,?,?,?)", registry.NewID(), tenant, marketing, space, role, "s:"+space); e != nil {
 			return e
 		}
-		return audit(ctx, tx, tenant, operator, "development.seeded", "tenant", tenant, newID(), Row{"space_id": space, "app_ids": []string{app, second}, "team_ids": []string{marketing, engineering}})
+		return audit(ctx, tx, tenant, operator, "development.seeded", "tenant", tenant, registry.NewID(), registry.Row{"space_id": space, "app_ids": []string{app, second}, "team_ids": []string{marketing, engineering}})
 	})
 }

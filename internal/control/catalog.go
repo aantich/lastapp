@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Called only by trusted bootstrap against a fresh development registry.
@@ -42,7 +43,7 @@ func seedControlCatalog(ctx context.Context, db *sql.DB) error {
 func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p Principal) error {
 	kind := authz.Kind(r.URL.Query().Get("scope_kind"))
 	if kind != "" && !authz.ValidKind(kind) {
-		return bad("Unsupported scope category.")
+		return registry.Bad("Unsupported scope category.")
 	}
 	out := []authz.Role{}
 	for _, role := range authz.Roles() {
@@ -50,7 +51,7 @@ func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p Principal
 			out = append(out, role)
 		}
 	}
-	send(w, 200, Row{"items": out})
+	send(w, 200, registry.Row{"items": out})
 	return nil
 }
 
@@ -68,6 +69,6 @@ func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p Principal) er
 	if e != nil {
 		return e
 	}
-	send(w, 200, Row{"tenant_id": t, "user_id": p.ID, "items": roles.Items, "business_acl_enforcement": true, "pagination": roles.Pagination})
+	send(w, 200, registry.Row{"tenant_id": t, "user_id": p.ID, "items": roles.Items, "business_acl_enforcement": true, "pagination": roles.Pagination})
 	return nil
 }

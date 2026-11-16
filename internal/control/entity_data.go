@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type dataRuntime struct {
@@ -57,7 +58,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "OPTIONS" {
 		if w.Header().Get("Access-Control-Allow-Origin") == "" {
-			writeError(w, r, problem(403, "invalid_origin", "Unregistered App origin."))
+			writeError(w, r, registry.Problem(403, "invalid_origin", "Unregistered App origin."))
 		} else {
 			w.WriteHeader(204)
 		}
@@ -101,14 +102,14 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 	defer tx.Rollback()
 	var generation int64
 	if e = tx.QueryRowContext(ctx, "SELECT origin_generation FROM apps WHERE id=? AND state='active'", se.AppID).Scan(&generation); e != nil || generation != se.OriginGeneration {
-		return rt, problem(401, "unauthenticated", "App origin approval changed. Reconnect the App.")
+		return rt, registry.Problem(401, "unauthenticated", "App origin approval changed. Reconnect the App.")
 	}
 	rt.actor, rt.access, e = s.actorContext(ctx, tx, se.UserID, se.TenantID, se.SpaceID, se.AppID)
 	if e != nil {
 		return rt, e
 	}
 	var entityID, version, hash string
-	e = lookup(ctx, tx, "SELECT e.id,e.active_version_id,v.definition_hash FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.tenant_id=? AND e.space_id=? AND e.entity_key=? AND e.state='active'", []any{se.TenantID, se.SpaceID, key}, &entityID, &version, &hash)
+	e = registry.Lookup(ctx, tx, "SELECT e.id,e.active_version_id,v.definition_hash FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.tenant_id=? AND e.space_id=? AND e.entity_key=? AND e.state='active'", []any{se.TenantID, se.SpaceID, key}, &entityID, &version, &hash)
 	if e != nil {
 		return rt, e
 	}
@@ -126,7 +127,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 		}
 	}
 	rt.entityID, rt.version = entityID, version
-	ps, e := scanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
+	ps, e := registry.ScanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
 	if e != nil {
 		return rt, e
 	}
@@ -152,13 +153,13 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 			prefix := []any{se.TenantID, se.SpaceID, rt.entityID, rt.actor.Actor}
 			prefix = append(prefix, args...)
 			prefix = append(prefix, ids...)
-			grants, e := rows(ctx, db, "SELECT DISTINCT permission_id,security_revision FROM _lastapp_record_acl acl WHERE tenant_id=? AND space_id=? AND entity_id=? AND ((recipient_kind='user' AND recipient_id=?) OR "+team+") AND permission_id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+")", prefix...)
+			grants, e := registry.QueryRows(ctx, db, "SELECT DISTINCT permission_id,security_revision FROM _lastapp_record_acl acl WHERE tenant_id=? AND space_id=? AND entity_id=? AND ((recipient_kind='user' AND recipient_id=?) OR "+team+") AND permission_id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+")", prefix...)
 			if e != nil {
 				return rt, e
 			}
 			for _, g := range grants {
-				pid := str(g["permission_id"])
-				if integer(g["security_revision"]) == rt.permissionRevisions[pid] {
+				pid := registry.Str(g["permission_id"])
+				if registry.Integer(g["security_revision"]) == rt.permissionRevisions[pid] {
 					rt.metadataShares[pid] = true
 				}
 			}
@@ -170,7 +171,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSession) error {
 	path := strings.TrimPrefix(r.URL.Path, "/data/v1/")
 	if path == "schema" && r.Method == "GET" {
-		keys, e := scanStrings(r.Context(), s.DB, "SELECT entity_key FROM entity_definitions WHERE tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL ORDER BY entity_key LIMIT 100", se.TenantID, se.SpaceID)
+		keys, e := registry.ScanStrings(r.Context(), s.DB, "SELECT entity_key FROM entity_definitions WHERE tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL ORDER BY entity_key LIMIT 100", se.TenantID, se.SpaceID)
 		if e != nil {
 			return e
 		}
@@ -200,21 +201,21 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 			if e != nil {
 				return e
 			}
-			public := Row{}
+			public := registry.Row{}
 			if e = json.Unmarshal(publicJSON, &public); e != nil {
 				return e
 			}
 			if public["fields"], e = publicEntityFields(allowed); e != nil {
 				return e
 			}
-			out = append(out, Row{"id": rt.entityID, "entity": public, "version": rt.version, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
+			out = append(out, registry.Row{"id": rt.entityID, "entity": public, "version": rt.version, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 		}
-		send(w, 200, Row{"entities": out, "capabilities": entity.Capabilities()})
+		send(w, 200, registry.Row{"entities": out, "capabilities": entity.Capabilities()})
 		return nil
 	}
 	parts := strings.Split(path, "/")
 	if len(parts) < 3 || parts[0] != "entities" {
-		return missing()
+		return registry.Missing()
 	}
 	rt, e := s.loadRuntime(r.Context(), se, parts[1])
 	if e != nil {
@@ -269,7 +270,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 	case len(parts) == 5 && parts[2] == "records" && parts[4] == "shares":
 		return s.dataShares(w, r, rt, parts[3])
 	}
-	return missing()
+	return registry.Missing()
 }
 
 func (rt dataRuntime) fieldExposed(k string) bool {
@@ -309,7 +310,7 @@ func gateHas(gs []entity.Gate, id, k string, c entity.Context) bool {
 	return false
 }
 
-func businessRecord(d entity.Definition, raw Row) map[string]any {
+func businessRecord(d entity.Definition, raw registry.Row) map[string]any {
 	out := map[string]any{}
 	for k, v := range raw {
 		if strings.HasPrefix(k, "f_") {
@@ -320,12 +321,12 @@ func businessRecord(d entity.Definition, raw Row) map[string]any {
 		if f, ok := d.Field(k); ok && v != nil {
 			switch f.Type {
 			case "integer":
-				v = integer(v)
+				v = registry.Integer(v)
 			case "boolean":
-				v = integer(v) != 0
+				v = registry.Integer(v) != 0
 			case "json":
 				var obj any
-				if json.Unmarshal([]byte(str(v)), &obj) == nil {
+				if json.Unmarshal([]byte(registry.Str(v)), &obj) == nil {
 					v = obj
 				}
 			}
@@ -361,39 +362,39 @@ func teamRecipientSQL(c entity.Context) (string, []any) {
 	return "(acl.recipient_kind='team' AND acl.recipient_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",") + "))", args
 }
 
-func (rt dataRuntime) shared(ctx context.Context, q Queryer, record string) (map[string]bool, error) {
+func (rt dataRuntime) shared(ctx context.Context, q registry.Queryer, record string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if !rt.d.Sharing {
 		return out, nil
 	}
 	team, args := teamRecipientSQL(rt.actor)
 	args = append([]any{rt.session.TenantID, rt.session.SpaceID, rt.entityID, record, rt.actor.Actor}, args...)
-	vs, e := rows(ctx, q, "SELECT permission_id,security_revision FROM _lastapp_record_acl acl WHERE tenant_id=? AND space_id=? AND entity_id=? AND record_id=? AND ((recipient_kind='user' AND recipient_id=?) OR "+team+")", args...)
+	vs, e := registry.QueryRows(ctx, q, "SELECT permission_id,security_revision FROM _lastapp_record_acl acl WHERE tenant_id=? AND space_id=? AND entity_id=? AND record_id=? AND ((recipient_kind='user' AND recipient_id=?) OR "+team+")", args...)
 	if e != nil {
 		return nil, e
 	}
 	for _, v := range vs {
-		pid := str(v["permission_id"])
-		if integer(v["security_revision"]) == rt.permissionRevisions[pid] {
+		pid := registry.Str(v["permission_id"])
+		if registry.Integer(v["security_revision"]) == rt.permissionRevisions[pid] {
 			out[pid] = true
 		}
 	}
 	return out, nil
 }
 
-func (rt dataRuntime) checkGate(ctx context.Context, q Queryer, lock bool) error {
+func (rt dataRuntime) checkGate(ctx context.Context, q registry.Queryer, lock bool) error {
 	suffix := ""
 	if lock {
 		suffix = " LOCK IN SHARE MODE"
 	}
 	var version string
 	var open bool
-	e := lookup(ctx, q, "SELECT COALESCE(version_id,''),gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=?"+suffix, []any{rt.entityID, rt.session.TenantID, rt.session.SpaceID}, &version, &open)
+	e := registry.Lookup(ctx, q, "SELECT COALESCE(version_id,''),gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=?"+suffix, []any{rt.entityID, rt.session.TenantID, rt.session.SpaceID}, &version, &open)
 	if e != nil {
 		return e
 	}
 	if !open || version != rt.version {
-		return problem(409, "publication_in_progress", "Entity definition changed or is publishing. Refresh and retry.")
+		return registry.Problem(409, "publication_in_progress", "Entity definition changed or is publishing. Refresh and retry.")
 	}
 	return nil
 }
@@ -420,21 +421,21 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	defaultPage := q.Limit == 0
 	inaccessibleField := func() error {
 		if q.single {
-			return missing()
+			return registry.Missing()
 		}
-		return bad("Unknown or inaccessible query field.")
+		return registry.Bad("Unknown or inaccessible query field.")
 	}
 	if q.Limit == 0 {
 		q.Limit = entity.Limits.Page
 	}
 	if q.Limit < 1 || q.Limit > entity.Limits.MaxPage || len(q.Sort) > 4 || len(q.Select) > entity.Limits.Fields {
-		return bad("Query exceeds supported limits.")
+		return registry.Bad("Query exceeds supported limits.")
 	}
 	if len(q.Select) == 0 {
 		q.Select = slices.Clone(rt.d.Projection)
 	}
 	if len(q.Select) == 0 {
-		return bad("Select fields explicitly; this entity has no default projection.")
+		return registry.Bad("Select fields explicitly; this entity has no default projection.")
 	}
 	q.Select = append([]string{"id", "revision"}, q.Select...)
 	q.Select = uniqueStrings(q.Select)
@@ -446,12 +447,12 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 			}
 		}
 		if e := rt.d.CheckCondition(*q.Filter, false); e != nil {
-			return bad(e.Error())
+			return registry.Bad(e.Error())
 		}
 		for _, f := range entity.Fields(*q.Filter) {
 			def, _ := rt.d.Field(f)
 			if !def.Filterable {
-				return bad("Field is not filterable: " + f)
+				return registry.Bad("Field is not filterable: " + f)
 			}
 			needed = append(needed, f)
 		}
@@ -462,7 +463,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		}
 		f, ok := rt.d.Field(so.Field)
 		if !ok || !f.Sortable || (so.Direction != "asc" && so.Direction != "desc") {
-			return bad("Unsupported sort field or direction.")
+			return registry.Bad("Unsupported sort field or direction.")
 		}
 		needed = append(needed, so.Field)
 	}
@@ -474,7 +475,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 			return inaccessibleField()
 		}
 		if _, ok := rt.d.Field(k); !ok {
-			return bad("Unknown selected field.")
+			return registry.Bad("Unknown selected field.")
 		}
 	}
 	widthFields := []entity.Field{}
@@ -490,22 +491,22 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		if defaultPage {
 			q.Limit = maximum
 		} else {
-			return bad("Selected fields exceed the response budget. Reduce the page size or select fewer fields.")
+			return registry.Bad("Selected fields exceed the response budget. Reduce the page size or select fewer fields.")
 		}
 	}
 	pred, args, e := rt.d.ReadSQL(rt.entityID, uniqueStrings(needed), rt.actor, rt.access, rt.shareSQL)
 	if e != nil {
-		return bad(e.Error())
+		return registry.Bad(e.Error())
 	}
 	user, ua, e := rt.d.ExprSQL(q.Filter, rt.actor)
 	if e != nil {
-		return bad(e.Error())
+		return registry.Bad(e.Error())
 	}
 	where := "r.tenant_id=? AND r.space_id=? AND " + pred + " AND " + user
 	args = append([]any{rt.session.TenantID, rt.session.SpaceID}, args...)
 	args = append(args, ua...)
 	if len(args) > entity.MaxSQLParameters {
-		return bad("Query exceeds its parameter limit.")
+		return registry.Bad("Query exceeds its parameter limit.")
 	}
 	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
@@ -520,7 +521,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	if e = rt.checkGate(r.Context(), tx, false); e != nil {
 		return e
 	}
-	out := Row{}
+	out := registry.Row{}
 	if q.Count {
 		var count int64
 		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM "+data.Table(rt.entityID)+" r WHERE "+where, args...).Scan(&count); e != nil {
@@ -534,17 +535,17 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	if q.Cursor != "" {
 		b, e := base64Decode(q.Cursor)
 		if e != nil {
-			return bad("Invalid cursor.")
+			return registry.Bad("Invalid cursor.")
 		}
 		var cur dataCursor
 		if e = s.unseal("data_cursor", rt.entityID, rt.session.TenantID, b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
-			return bad("Cursor does not match this query or definition.")
+			return registry.Bad("Cursor does not match this query or definition.")
 		}
 		cs, ca := cursorSQL(rt.d, q.Sort, cur.Values)
 		where += " AND " + cs
 		args = append(args, ca...)
 		if len(args) > entity.MaxSQLParameters {
-			return bad("Query exceeds its parameter limit.")
+			return registry.Bad("Query exceeds its parameter limit.")
 		}
 	}
 	cols := []string{}
@@ -556,7 +557,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		col := entity.Column(so.Field)
 		order = append(order, "("+col+" IS NULL) ASC", col+" "+strings.ToUpper(so.Direction))
 	}
-	vs, e := rows(r.Context(), tx, "SELECT "+strings.Join(cols, ",")+" FROM "+data.Table(rt.entityID)+" r WHERE "+where+" ORDER BY "+strings.Join(order, ",")+" LIMIT ?", append(args, q.Limit+1)...)
+	vs, e := registry.QueryRows(r.Context(), tx, "SELECT "+strings.Join(cols, ",")+" FROM "+data.Table(rt.entityID)+" r WHERE "+where+" ORDER BY "+strings.Join(order, ",")+" LIMIT ?", append(args, q.Limit+1)...)
 	if e != nil {
 		return e
 	}
@@ -592,7 +593,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	}
 	if q.single {
 		if len(items) == 0 {
-			return missing()
+			return registry.Missing()
 		}
 		send(w, 200, items[0])
 	} else {
@@ -664,31 +665,31 @@ type dataMutation struct {
 
 func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRuntime, items []dataMutation) error {
 	if len(items) == 0 || len(items) > entity.Limits.Bulk {
-		return bad("Invalid bulk size.")
+		return registry.Bad("Invalid bulk size.")
 	}
 	seen := map[string]bool{}
 	for i := range items {
 		for key, value := range items[i].Values {
 			field, ok := rt.d.Field(key)
 			if !ok || !rt.fieldExposed(key) || field.Calculation != nil || slices.Contains([]string{"id", "revision", "created_at", "updated_at", "created_by", "updated_by"}, key) {
-				return bad("Unknown or read-only input field.")
+				return registry.Bad("Unknown or read-only input field.")
 			}
 			if _, e := entity.Value(field, value, false); e != nil {
 				return e
 			}
 		}
 		if items[i].ID == "" && items[i].Operation == "create" {
-			items[i].ID = newID()
+			items[i].ID = registry.NewID()
 		}
-		if e := id(items[i].ID); e != nil {
+		if e := registry.ID(items[i].ID); e != nil {
 			return e
 		}
 		if seen[items[i].ID] {
-			return bad("Duplicate record ID in bulk.")
+			return registry.Bad("Duplicate record ID in bulk.")
 		}
 		seen[items[i].ID] = true
 		if !slices.Contains([]string{"create", "update", "delete"}, items[i].Operation) {
-			return bad("Unsupported mutation.")
+			return registry.Bad("Unsupported mutation.")
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -712,11 +713,11 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 	slices.Sort(lockIDs)
 	for _, key := range lockIDs {
 		var open bool
-		if e := lookup(r.Context(), tx, "SELECT gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=? LOCK IN SHARE MODE", []any{key, rt.session.TenantID, rt.session.SpaceID}, &open); e != nil {
+		if e := registry.Lookup(r.Context(), tx, "SELECT gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=? LOCK IN SHARE MODE", []any{key, rt.session.TenantID, rt.session.SpaceID}, &open); e != nil {
 			return e
 		}
 		if !open {
-			return problem(409, "publication_in_progress", "A referenced entity is publishing. Retry shortly.")
+			return registry.Problem(409, "publication_in_progress", "A referenced entity is publishing. Retry shortly.")
 		}
 	}
 	if e = rt.checkGate(r.Context(), tx, false); e != nil {
@@ -729,7 +730,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		create := in.Operation == "create"
 		shared := map[string]bool{}
 		if !create {
-			raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=? FOR UPDATE", rt.session.TenantID, rt.session.SpaceID, in.ID)
+			raw, e := registry.QueryRow(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=? FOR UPDATE", rt.session.TenantID, rt.session.SpaceID, in.ID)
 			if e != nil {
 				return e
 			}
@@ -763,11 +764,11 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 						readable = readable && rt.d.Allowed(rt.entityID, "read", []string{f.Key}, c, rt.access, shared)
 					}
 					if !readable {
-						return missing()
+						return registry.Missing()
 					}
 				}
 				if _, ok := e.(entity.Diagnostic); !ok {
-					return bad("Calculated values could not be produced for this change.")
+					return registry.Bad("Calculated values could not be produced for this change.")
 				}
 				return e
 			}
@@ -776,16 +777,16 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		c.Record = candidate
 		if !rt.d.Allowed(rt.entityID, in.Operation, fields, c, rt.access, shared) {
 			if !create {
-				return missing()
+				return registry.Missing()
 			}
-			return problem(403, "forbidden", "This change is not permitted.")
+			return registry.Problem(403, "forbidden", "This change is not permitted.")
 		}
 		if !create {
 			if in.Revision < 1 {
-				return problem(428, "revision_required", "Every update/delete needs its current revision.")
+				return registry.Problem(428, "revision_required", "Every update/delete needs its current revision.")
 			}
-			if integer(old["revision"]) != in.Revision {
-				return problem(412, "stale_revision", "Record changed. Refresh before saving.")
+			if registry.Integer(old["revision"]) != in.Revision {
+				return registry.Problem(412, "stale_revision", "Record changed. Refresh before saving.")
 			}
 		}
 		if in.Operation != "delete" {
@@ -794,7 +795,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 			}
 			if !create && ((rt.d.Owner != "" && old[rt.d.Owner] != candidate[rt.d.Owner]) || (rt.d.Team != "" && old[rt.d.Team] != candidate[rt.d.Team])) {
 				if !rt.d.Allowed(rt.entityID, "acl.manage", nil, c, rt.access, shared) {
-					return problem(403, "forbidden", "Managing access is required to change ownership.")
+					return registry.Problem(403, "forbidden", "Managing access is required to change ownership.")
 				}
 				if _, e = tx.ExecContext(r.Context(), "DELETE FROM _lastapp_record_acl WHERE entity_id=? AND record_id=?", rt.entityID, in.ID); e != nil {
 					return e
@@ -853,12 +854,12 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		if e != nil {
 			return e
 		}
-		out = append(out, Row{"id": in.ID, "revision": revision})
+		out = append(out, registry.Row{"id": in.ID, "revision": revision})
 	}
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	send(w, 200, Row{"items": out})
+	send(w, 200, registry.Row{"items": out})
 	return nil
 }
 
@@ -882,13 +883,13 @@ func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRun
 				return e
 			}
 			if n != 1 {
-				return bad("Unavailable user/team reference.")
+				return registry.Bad("Unavailable user/team reference.")
 			}
 		}
 		if f.Type == "reference" {
 			var targetKey string
-			if e := lookup(ctx, s.DB, "SELECT entity_key FROM entity_definitions WHERE id=? AND space_id=? AND state='active'", []any{f.Target, rt.session.SpaceID}, &targetKey); e != nil {
-				return bad("Unavailable reference.")
+			if e := registry.Lookup(ctx, s.DB, "SELECT entity_key FROM entity_definitions WHERE id=? AND space_id=? AND state='active'", []any{f.Target, rt.session.SpaceID}, &targetKey); e != nil {
+				return registry.Bad("Unavailable reference.")
 			}
 			target, e := s.loadRuntime(ctx, rt.session, targetKey)
 			if e != nil {
@@ -904,14 +905,14 @@ func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRun
 			args = append([]any{rt.session.TenantID, rt.session.SpaceID, v}, args...)
 			var found string
 			if e = tx.QueryRowContext(ctx, "SELECT r.id FROM "+data.Table(target.entityID)+" r WHERE r.tenant_id=? AND r.space_id=? AND r.id=? AND "+pred+" LOCK IN SHARE MODE", args...).Scan(&found); e != nil {
-				return bad("Unavailable reference.")
+				return registry.Bad("Unavailable reference.")
 			}
 		}
 	}
 	return nil
 }
 
-func businessAudit(ctx context.Context, q Queryer, rt dataRuntime, record, action string, revision int64, fields []string, request string) error {
+func businessAudit(ctx context.Context, q registry.Queryer, rt dataRuntime, record, action string, revision int64, fields []string, request string) error {
 	if fields == nil {
 		fields = []string{}
 	}
@@ -924,14 +925,14 @@ func businessAudit(ctx context.Context, q Queryer, rt dataRuntime, record, actio
 	return e
 }
 
-func publicEntityFields(fields []entity.Field) ([]Row, error) {
-	out := []Row{}
+func publicEntityFields(fields []entity.Field) ([]registry.Row, error) {
+	out := []registry.Row{}
 	for _, field := range fields {
 		b, e := json.Marshal(field)
 		if e != nil {
 			return nil, e
 		}
-		m := Row{}
+		m := registry.Row{}
 		if e = json.Unmarshal(b, &m); e != nil {
 			return nil, e
 		}

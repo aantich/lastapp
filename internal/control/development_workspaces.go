@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 const (
@@ -67,28 +68,28 @@ type snapshotMicroapp struct {
 	State    string `json:"state"`
 }
 
-func (v *snapshotRole) fields() []any {
+func (v *snapshotRole) ScanFields() []any {
 	return []any{&v.Revision, &v.ID, &v.App, &v.Code, &v.Name, &v.State}
 }
 
-func (v *snapshotMicroapp) fields() []any {
+func (v *snapshotMicroapp) ScanFields() []any {
 	return []any{&v.Revision, &v.ID, &v.App, &v.Slug, &v.Name, &v.Artifact, &v.Order, &v.State}
 }
 
-func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSnapshot, error) {
+func (s *Server) snapshot(ctx context.Context, q registry.Queryer, space string) (spaceSnapshot, error) {
 	var definitionBytes int64
 	if e := q.QueryRowContext(ctx, "SELECT COALESCE(SUM(OCTET_LENGTH(v.definition_json)),0) FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=?", space).Scan(&definitionBytes); e != nil {
 		return spaceSnapshot{}, e
 	}
 	if definitionBytes > maxSpaceSnapshotBytes {
-		return spaceSnapshot{}, conflict("Space configuration exceeds the workspace/release snapshot limit.")
+		return spaceSnapshot{}, registry.Conflict("Space configuration exceeds the workspace/release snapshot limit.")
 	}
 	out := spaceSnapshot{Entities: []snapshotEntity{}, Roles: []snapshotRole{}, Apps: []snapshotApp{}, Microapps: []snapshotMicroapp{}}
 	if e := q.QueryRowContext(ctx, "SELECT revision FROM spaces WHERE id=?", space).Scan(&out.Revision); e != nil {
 		return out, e
 	}
 	var pending *string
-	var definition jsonValue
+	var definition registry.JSONValue
 	var captured snapshotEntity
 	r, e := q.QueryContext(ctx, "SELECT e.id,e.revision,e.state,e.pending_version_id,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? ORDER BY e.id", space)
 	if e != nil {
@@ -100,9 +101,9 @@ func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSn
 			return out, e
 		}
 		if pending != nil {
-			return out, conflict("Wait for entity publications to finish before capturing a workspace or release.")
+			return out, registry.Conflict("Wait for entity publications to finish before capturing a workspace or release.")
 		}
-		if captured.Definition, e = defOf(definition.value()); e != nil {
+		if captured.Definition, e = defOf(definition.Value()); e != nil {
 			return out, e
 		}
 		out.Entities = append(out.Entities, captured)
@@ -110,10 +111,10 @@ func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSn
 	if e = r.Err(); e != nil {
 		return out, e
 	}
-	if out.Roles, e = scanAll[snapshotRole](ctx, q, "SELECT revision,id,COALESCE(app_id,''),code,display_name,state FROM roles WHERE space_id=? AND domain='data' ORDER BY id", space); e != nil {
+	if out.Roles, e = registry.ScanAll[snapshotRole](ctx, q, "SELECT revision,id,COALESCE(app_id,''),code,display_name,state FROM roles WHERE space_id=? AND domain='data' ORDER BY id", space); e != nil {
 		return out, e
 	}
-	apps, e := scanAll[appRecord](ctx, q, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=? ORDER BY id", space)
+	apps, e := registry.ScanAll[appRecord](ctx, q, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=? ORDER BY id", space)
 	if e != nil {
 		return out, e
 	}
@@ -125,12 +126,12 @@ func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSn
 		a.Origin = ""
 		out.Apps = append(out.Apps, snapshotApp{v.Revision, v.ID, v.Slug, v.Name, v.State, a})
 	}
-	if out.Microapps, e = scanAll[snapshotMicroapp](ctx, q, "SELECT m.revision,m.id,m.app_id,m.slug,m.display_name,COALESCE(m.artifact_ref,''),m.navigation_order,m.state FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE a.space_id=? ORDER BY m.id", space); e != nil {
+	if out.Microapps, e = registry.ScanAll[snapshotMicroapp](ctx, q, "SELECT m.revision,m.id,m.app_id,m.slug,m.display_name,COALESCE(m.artifact_ref,''),m.navigation_order,m.state FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE a.space_id=? ORDER BY m.id", space); e != nil {
 		return out, e
 	}
 	encoded, _ := json.Marshal(out)
 	if len(encoded) > maxSpaceSnapshotBytes {
-		return out, conflict("Space configuration exceeds the workspace/release snapshot limit.")
+		return out, registry.Conflict("Space configuration exceeds the workspace/release snapshot limit.")
 	}
 	return out, nil
 }
@@ -168,7 +169,7 @@ type Workspace struct {
 // workspaceColumns selects a Workspace from development_workspaces w.
 const workspaceColumns = "w.backing_space_id,w.base_hash,w.created_at,w.display_name,w.error_message,w.id,w.owner_agent_grant_id,w.owner_user_id,w.production_space_id,w.revision,w.state,w.tenant_id"
 
-func (v *Workspace) fields() []any {
+func (v *Workspace) ScanFields() []any {
 	return []any{&v.BackingSpace, &v.BaseHash, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.Owner, &v.ProductionSpace, &v.Revision, &v.State, &v.TenantID}
 }
 
@@ -176,9 +177,9 @@ func (v *Workspace) fields() []any {
 // and that resource's state; the query continues with a WHERE clause.
 const workspaceStorage = "SELECT " + workspaceColumns + ",sp.database_resource_id,d.state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id"
 
-func scanWorkspaceStorage(ctx context.Context, q Queryer, where string, args ...any) (Workspace, error) {
+func scanWorkspaceStorage(ctx context.Context, q registry.Queryer, where string, args ...any) (Workspace, error) {
 	var v Workspace
-	return v, lookup(ctx, q, workspaceStorage+" "+where, args, append(v.fields(), &v.DatabaseResource, &v.DatabaseState)...)
+	return v, registry.Lookup(ctx, q, workspaceStorage+" "+where, args, append(v.ScanFields(), &v.DatabaseResource, &v.DatabaseState)...)
 }
 
 // WorkspaceItem is a workspace in a Space's collection.
@@ -194,7 +195,7 @@ type WorkspaceItem struct {
 	State           string    `json:"state"`
 }
 
-func (v *WorkspaceItem) fields() []any {
+func (v *WorkspaceItem) ScanFields() []any {
 	return []any{&v.BackingSpace, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.ProductionSpace, &v.Revision, &v.State}
 }
 
@@ -205,11 +206,11 @@ type workspaceMapping struct {
 	Production  string `json:"production_id"`
 }
 
-func (v *workspaceMapping) fields() []any { return []any{&v.Development, &v.Kind, &v.Production} }
+func (v *workspaceMapping) ScanFields() []any { return []any{&v.Development, &v.Kind, &v.Production} }
 
 // workspaceIDs maps a workspace's development ids to production ids.
-func workspaceIDs(ctx context.Context, q Queryer, workspace string) (map[string]string, error) {
-	mappings, e := scanAll[workspaceMapping](ctx, q, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=?", workspace)
+func workspaceIDs(ctx context.Context, q registry.Queryer, workspace string) (map[string]string, error) {
+	mappings, e := registry.ScanAll[workspaceMapping](ctx, q, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=?", workspace)
 	ids := map[string]string{}
 	for _, m := range mappings {
 		ids[m.Development] = m.Production
@@ -217,7 +218,7 @@ func workspaceIDs(ctx context.Context, q Queryer, workspace string) (map[string]
 	return ids, e
 }
 
-func (s *Server) workspaceRow(ctx context.Context, q Queryer, p Principal, id string) (Workspace, error) {
+func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p Principal, id string) (Workspace, error) {
 	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.id=?", id)
 	if e != nil {
 		return v, e
@@ -225,19 +226,19 @@ func (s *Server) workspaceRow(ctx context.Context, q Queryer, p Principal, id st
 	return v, s.workspaceOwner(ctx, q, p, v)
 }
 
-func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v Workspace) error {
+func (s *Server) workspaceOwner(ctx context.Context, q registry.Queryer, p Principal, v Workspace) error {
 	if v.Owner != p.ID {
-		return missing()
+		return registry.Missing()
 	}
 	if p.Agent != nil && deref(v.OwnerGrant) != p.Agent.ID {
-		return missing()
+		return registry.Missing()
 	}
 	var active string
 	if e := q.QueryRowContext(ctx, "SELECT state FROM spaces WHERE id=?", v.ProductionSpace).Scan(&active); e != nil {
 		return e
 	}
-	if active != stateActive {
-		return conflict("The production Space is inactive.")
+	if active != registry.StateActive {
+		return registry.Conflict("The production Space is inactive.")
 	}
 	// Losing authority on the source also stops access to its development copies.
 	if p.Agent != nil {
@@ -246,20 +247,20 @@ func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v W
 			return e
 		}
 		if original.Revision != p.Agent.Revision {
-			return missing()
+			return registry.Missing()
 		}
 		p.Agent = original
 	}
 	return s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, true)
 }
 
-func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, space string) error {
+func (s *Server) workspaceGuard(ctx context.Context, q registry.Queryer, p Principal, space string) error {
 	if space == "" {
 		return nil
 	}
-	v, e := scanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", space)
+	v, e := registry.ScanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", space)
 	if e != nil {
-		if ae, ok := e.(*APIError); ok && ae.Status == 404 {
+		if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
 			return nil
 		}
 		return e
@@ -268,7 +269,7 @@ func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, spa
 		return e
 	}
 	if v.State != "ready" && ctx.Value(workspaceOperationKey{}) != v.ID {
-		return conflict("Workspace is not ready. Inspect its status or retry preparation.")
+		return registry.Conflict("Workspace is not ready. Inspect its status or retry preparation.")
 	}
 	return nil
 }
@@ -277,11 +278,11 @@ func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page
 	p := actor.Principal
 	var tenant string
 	var parent *string
-	if e := lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", []any{space}, &tenant, &parent); e != nil {
+	if e := registry.Lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", []any{space}, &tenant, &parent); e != nil {
 		return Page[WorkspaceItem]{}, e
 	}
 	if parent != nil {
-		return Page[WorkspaceItem]{}, bad("Select the production Space.")
+		return Page[WorkspaceItem]{}, registry.Bad("Select the production Space.")
 	}
 	if e := s.authorize(ctx, s.DB, p, "workspace.manage", Resource{Tenant: tenant, Space: space}, true); e != nil {
 		return Page[WorkspaceItem]{}, e
@@ -301,7 +302,7 @@ func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (
 	if e != nil {
 		return v, e
 	}
-	mappings, e := scanAll[workspaceMapping](ctx, s.DB, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v.ID)
+	mappings, e := registry.ScanAll[workspaceMapping](ctx, s.DB, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v.ID)
 	v.Mappings = &mappings
 	return v, e
 }
@@ -311,19 +312,19 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 	if in.ID == "" {
 		in.ID = actor.operationID()
 	}
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return Workspace{}, e
 	}
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
-		return Workspace{}, bad("Enter a workspace name (maximum 160 bytes).")
+		return Workspace{}, registry.Bad("Enter a workspace name (maximum 160 bytes).")
 	}
 	res := Resource{Space: space}
 	var parent *string
-	if e := lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant, &parent); e != nil {
+	if e := registry.Lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant, &parent); e != nil {
 		return Workspace{}, e
 	}
 	if parent != nil {
-		return Workspace{}, bad("Workspaces cannot contain workspaces.")
+		return Workspace{}, registry.Bad("Workspaces cannot contain workspaces.")
 	}
 	e := s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
 		var owned, total int
@@ -331,7 +332,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 			return e
 		}
 		if owned >= maxOwnedWorkspaces || total >= maxSpaceWorkspaces {
-			return conflict("Archive an unused workspace before creating another.")
+			return registry.Conflict("Archive an unused workspace before creating another.")
 		}
 		if e := s.ensureSnapshotReady(ctx, tx, res.Space); e != nil {
 			return e
@@ -342,7 +343,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 		}
 		b, _ := json.Marshal(base)
 		var layout, target string
-		if e = lookup(ctx, tx, "SELECT sp.database_layout,d.target_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.id=?", []any{res.Space}, &layout, &target); e != nil {
+		if e = registry.Lookup(ctx, tx, "SELECT sp.database_layout,d.target_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.id=?", []any{res.Space}, &layout, &target); e != nil {
 			return e
 		}
 		if s.Config.WorkspaceDatabaseTarget != "" {
@@ -352,7 +353,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 		if e != nil {
 			return e
 		}
-		backing, resource := newID(), newID()
+		backing, resource := registry.NewID(), registry.NewID()
 		if e = s.storage.allocate(ctx, tx, actor, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: target}, policy, &res); e != nil {
 			return e
 		}
@@ -375,7 +376,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID, p.ID); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, Row{"production_space_id": res.Space, "backing_space_id": backing})
+		return auditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, registry.Row{"production_space_id": res.Space, "backing_space_id": backing})
 	})
 	if e != nil {
 		return Workspace{}, e
@@ -386,7 +387,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 // entityVersionRef names an entity and one of its versions.
 type entityVersionRef struct{ Entity, Version string }
 
-func (v *entityVersionRef) fields() []any { return []any{&v.Entity, &v.Version} }
+func (v *entityVersionRef) ScanFields() []any { return []any{&v.Entity, &v.Version} }
 
 func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (Workspace, error) {
 	p := actor.Principal
@@ -406,13 +407,13 @@ func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace str
 		if e = checkRevision(v.Revision, rev); e != nil {
 			return e
 		}
-		state := stateArchived
+		state := registry.StateArchived
 		if retry {
 			if v.State != "failed" {
-				return conflict("Only failed preparation can be retried.")
+				return registry.Conflict("Only failed preparation can be retried.")
 			}
 			state = "preparing"
-			failed, e := scanAll[entityVersionRef](ctx, tx, "SELECT e.id,v.id FROM entity_definitions e JOIN entity_versions v ON v.entity_id=e.id AND v.state='failed' WHERE e.space_id=? AND e.active_version_id IS NULL AND e.pending_version_id IS NULL", v.BackingSpace)
+			failed, e := registry.ScanAll[entityVersionRef](ctx, tx, "SELECT e.id,v.id FROM entity_definitions e JOIN entity_versions v ON v.entity_id=e.id AND v.state='failed' WHERE e.space_id=? AND e.active_version_id IS NULL AND e.pending_version_id IS NULL", v.BackingSpace)
 			if e != nil {
 				return e
 			}
@@ -437,7 +438,7 @@ func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace str
 				return e
 			}
 		}
-		return auditAs(ctx, tx, actor, v.TenantID, "workspace."+state, "workspace", v.ID, Row{})
+		return auditAs(ctx, tx, actor, v.TenantID, "workspace."+state, "workspace", v.ID, registry.Row{})
 	})
 	if e != nil {
 		return Workspace{}, e
@@ -450,7 +451,7 @@ func lockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
 	return tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&v)
 }
 
-func (s *Server) productionMutationGuard(ctx context.Context, q Queryer, p Principal, action string, res Resource) error {
+func (s *Server) productionMutationGuard(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource) error {
 	if res.App != "" {
 		if e := q.QueryRowContext(ctx, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant).Scan(&res.Space); e != nil {
 			return e
@@ -463,7 +464,7 @@ func (s *Server) productionMutationGuard(ctx context.Context, q Queryer, p Princ
 			return err
 		}
 		if err == nil && ctx.Value(deploymentOperationKey{}) != job {
-			return conflict("A deployment is preparing this Space. Wait for its result before changing configuration.")
+			return registry.Conflict("A deployment is preparing this Space. Wait for its result before changing configuration.")
 		}
 	}
 	if p.Agent == nil || res.Space == "" || action == "workspace.manage" {

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestProductionRegistryTransport(t *testing.T) {
@@ -154,7 +156,7 @@ func TestWrappedErrorResponses(t *testing.T) {
 	if code, body := respond(fmt.Errorf("insert: %w", &mariadb.MySQLError{Number: 1062, Message: secret})); code != 409 || strings.Contains(body, secret) {
 		t.Fatalf("wrapped SQL error mapped to %d: %s", code, body)
 	}
-	if code, body := respond(fmt.Errorf("outer: %w", bad("Visible validation message."))); code != 400 || !strings.Contains(body, "Visible validation message.") {
+	if code, body := respond(fmt.Errorf("outer: %w", registry.Bad("Visible validation message."))); code != 400 || !strings.Contains(body, "Visible validation message.") {
 		t.Fatalf("wrapped API error mapped to %d: %s", code, body)
 	}
 	if code, body := respond(fmt.Errorf("connect %s: %w", secret, errors.New(secret))); code != 500 || strings.Contains(body, secret) || strings.Contains(body, "connect") {

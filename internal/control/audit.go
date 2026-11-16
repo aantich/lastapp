@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"fmt"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // teamSnapshot is a team's audited security state.
@@ -13,7 +15,7 @@ type teamSnapshot struct {
 	State    string `json:"state"`
 }
 
-func (v *teamSnapshot) fields() []any { return []any{&v.Name, &v.ID, &v.Revision, &v.State} }
+func (v *teamSnapshot) ScanFields() []any { return []any{&v.Name, &v.ID, &v.Revision, &v.State} }
 
 // Audited security states use explicit safe columns: never snapshot
 // encrypted credential columns or sessions.
@@ -28,29 +30,29 @@ func snapshotWhere(tenant, record string) (string, []any) {
 }
 
 // roleSnapshot is a role's audited state with its permission codes.
-func roleSnapshot(ctx context.Context, q Queryer, tenant, record string) (Role, error) {
+func roleSnapshot(ctx context.Context, q registry.Queryer, tenant, record string) (Role, error) {
 	where, args := snapshotWhere(tenant, record)
-	v, e := scanOne[Role](ctx, q, "SELECT "+roleColumns+" FROM roles"+where, args...)
+	v, e := registry.ScanOne[Role](ctx, q, "SELECT "+roleColumns+" FROM roles"+where, args...)
 	if e != nil {
 		return v, e
 	}
-	codes, e := scanStrings(ctx, q, "SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? ORDER BY p.code", record)
+	codes, e := registry.ScanStrings(ctx, q, "SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? ORDER BY p.code", record)
 	v.Permissions = &codes
 	return v, e
 }
 
-func teamSnapshotOf(ctx context.Context, q Queryer, tenant, record string) (teamSnapshot, error) {
+func teamSnapshotOf(ctx context.Context, q registry.Queryer, tenant, record string) (teamSnapshot, error) {
 	where, args := snapshotWhere(tenant, record)
-	return scanOne[teamSnapshot](ctx, q, "SELECT display_name,id,revision,state FROM groups"+where, args...)
+	return registry.ScanOne[teamSnapshot](ctx, q, "SELECT display_name,id,revision,state FROM groups"+where, args...)
 }
 
-func assignmentSnapshot(ctx context.Context, q Queryer, tenant, record string) (Assignment, error) {
+func assignmentSnapshot(ctx context.Context, q registry.Queryer, tenant, record string) (Assignment, error) {
 	where, args := snapshotWhere(tenant, record)
-	return scanOne[Assignment](ctx, q, "SELECT "+assignmentColumns+" FROM access_grants"+where, args...)
+	return registry.ScanOne[Assignment](ctx, q, "SELECT "+assignmentColumns+" FROM access_grants"+where, args...)
 }
 
 // securitySnapshot is the audited state of a record of table.
-func securitySnapshot(ctx context.Context, q Queryer, table, tenant, record string) (any, error) {
+func securitySnapshot(ctx context.Context, q registry.Queryer, table, tenant, record string) (any, error) {
 	switch table {
 	case "roles":
 		return roleSnapshot(ctx, q, tenant, record)
@@ -63,10 +65,10 @@ func securitySnapshot(ctx context.Context, q Queryer, table, tenant, record stri
 }
 
 // auditChangeAs records a security-relevant change with before/after snapshots.
-func auditChangeAs(ctx context.Context, q Queryer, a Actor, tenant, action, table, kind, record string, before any) error {
+func auditChangeAs(ctx context.Context, q registry.Queryer, a Actor, tenant, action, table, kind, record string, before any) error {
 	after, e := securitySnapshot(ctx, q, table, tenant, record)
 	if e != nil {
 		return e
 	}
-	return auditAs(ctx, q, a, tenant, action, kind, record, Row{"before": before, "after": after})
+	return auditAs(ctx, q, a, tenant, action, kind, record, registry.Row{"before": before, "after": after})
 }

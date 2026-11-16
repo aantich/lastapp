@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // sameJSON requires that got, an operation's typed registry result, marshals
@@ -20,9 +21,9 @@ import (
 // operation ran before it was typed (keys, order, nulls, *_json documents,
 // numbers and timestamps). A slice compares with every row; anything else
 // with the first row. The statement must return at least one row.
-func sameJSON(t *testing.T, q Queryer, got any, untyped string, args ...any) {
+func sameJSON(t *testing.T, q registry.Queryer, got any, untyped string, args ...any) {
 	t.Helper()
-	v, e := rows(context.Background(), q, untyped, args...)
+	v, e := registry.QueryRows(context.Background(), q, untyped, args...)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -60,7 +61,7 @@ func rawFields(t *testing.T, c testClient, path string) map[string]json.RawMessa
 }
 
 // sameRaw is sameJSON for a member of a raw response.
-func sameRaw(t *testing.T, q Queryer, got json.RawMessage, untyped string, args ...any) {
+func sameRaw(t *testing.T, q registry.Queryer, got json.RawMessage, untyped string, args ...any) {
 	t.Helper()
 	var v any
 	if e := json.Unmarshal(got, &v); e != nil {
@@ -77,28 +78,28 @@ func (r rawJSON) MarshalJSON() ([]byte, error) { return r, nil }
 func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	s, c, p, tenant, reviewSpace, app := agentSpaceFixture(t)
 	ctx := context.Background()
-	admin := Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}
-	limited := Row{"id": newID(), "code": "limited-" + newID()[:8], "display_name": "Limited", "allow_shared_database": true, "allow_managed_database": true, "default_layout": "shared", "max_spaces": 2, "max_apps": 0}
+	admin := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	limited := registry.Row{"id": registry.NewID(), "code": "limited-" + registry.NewID()[:8], "display_name": "Limited", "allow_shared_database": true, "allow_managed_database": true, "default_layout": "shared", "max_spaces": 2, "max_apps": 0}
 	var operator string
 	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject='operator'", s.Config.OIDCIssuer).Scan(&operator); e != nil {
 		t.Fatal(e)
 	}
 	c.as(operator).want("POST", "/admin/v1/plans", limited, 0, 201)
-	root := Actor{Principal: Principal{ID: operator}, RequestID: newID()}
+	root := Actor{Principal: Principal{ID: operator}, RequestID: registry.NewID()}
 
 	plans, e := s.inv.Plans(ctx, root, PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, plans.Items, "SELECT id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at FROM plans ORDER BY display_name,id LIMIT 200")
-	plan, e := s.inv.Plan(ctx, root, str(limited["id"]))
+	plan, e := s.inv.Plan(ctx, root, registry.Str(limited["id"]))
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, plan, "SELECT id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at FROM plans WHERE id=?", limited["id"])
 
 	for i, artifact := range []string{"", "https://example.test/a.js"} {
-		in := microappCreateInput{namedInput: namedInput{ID: newID(), Slug: "typed-" + newID()[:8], Name: "Typed"}, Artifact: artifact, Order: i}
+		in := microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "typed-" + registry.NewID()[:8], Name: "Typed"}, Artifact: artifact, Order: i}
 		if _, e = s.inv.CreateMicroapp(ctx, admin, tenant, app, in); e != nil {
 			t.Fatal(e)
 		}
@@ -118,7 +119,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE tenants SET default_layout='shared' WHERE id=?", tenant); e != nil {
 		t.Fatal(e)
 	}
-	c.as(operator).want("POST", "/admin/v1/tenants", Row{"id": newID(), "slug": "typed-" + newID()[:8], "display_name": "Typed", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": p.ID}, 0, 201)
+	c.as(operator).want("POST", "/admin/v1/tenants", registry.Row{"id": registry.NewID(), "slug": "typed-" + registry.NewID()[:8], "display_name": "Typed", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": p.ID}, 0, 201)
 	tenants, e := s.inv.Tenants(ctx, root, PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
@@ -157,7 +158,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	for i, state := range []string{"failed", "pending"} {
-		if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,last_error_message) VALUES(?,?,?,?,'registered','shared',?,X'00',?)", newID(), tenant, target, "typed_attention_"+state, state, map[int]any{0: "Failed <check>", 1: nil}[i]); e != nil {
+		if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,last_error_message) VALUES(?,?,?,?,'registered','shared',?,X'00',?)", registry.NewID(), tenant, target, "typed_attention_"+state, state, map[int]any{0: "Failed <check>", 1: nil}[i]); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -175,8 +176,8 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.members.AddMembership(ctx, admin, tenant, accountChoice{User: joe}); e != nil {
 		t.Fatal(e)
 	}
-	auditRequest := newID()
-	if _, e = s.members.UpdateMembership(ctx, Actor{Principal: admin.Principal, RequestID: auditRequest}, tenant, joe, stateDisabled, 1); e != nil {
+	auditRequest := registry.NewID()
+	if _, e = s.members.UpdateMembership(ctx, Actor{Principal: admin.Principal, RequestID: auditRequest}, tenant, joe, registry.StateDisabled, 1); e != nil {
 		t.Fatal(e)
 	}
 	var details []byte
@@ -197,10 +198,10 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, administrators.Items, "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,g.id", tenant, TenantAdminRole)
-	if _, e = s.members.UpdateMembership(ctx, admin, tenant, joe, stateActive, 2); e != nil {
+	if _, e = s.members.UpdateMembership(ctx, admin, tenant, joe, registry.StateActive, 2); e != nil {
 		t.Fatal(e)
 	}
-	team := namedInput{ID: newID(), Slug: "typed", Name: "Typed"}
+	team := namedInput{ID: registry.NewID(), Slug: "typed", Name: "Typed"}
 	if _, e = s.members.CreateTeam(ctx, admin, tenant, team); e != nil {
 		t.Fatal(e)
 	}
@@ -235,22 +236,22 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	role := roleInput{ID: newID(), Code: "typed", Name: "Typed"}
+	role := roleInput{ID: registry.NewID(), Code: "typed", Name: "Typed"}
 	if _, e = s.authority.CreateRole(ctx, admin, scope, res, role); e != nil {
 		t.Fatal(e)
 	}
-	renamed, request := "Typed role", newID()
+	renamed, request := "Typed role", registry.NewID()
 	if _, e = s.authority.UpdateRole(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, role.ID, rolePatch{Name: &renamed}, 1); e != nil {
 		t.Fatal(e)
 	}
 	roleSnapshotSQL := "SELECT id,tenant_id,space_id,app_id,scope_kind,domain,code,display_name,state,revision FROM roles WHERE id=?"
-	sameAudit := func(request, action, side, untyped string, extra Row, args ...any) {
+	sameAudit := func(request, action, side, untyped string, extra registry.Row, args ...any) {
 		t.Helper()
 		var details []byte
 		if e := s.DB.QueryRow("SELECT details_json FROM audit_events WHERE request_id=? AND action=?", request, action).Scan(&details); e != nil {
 			t.Fatal(action, e)
 		}
-		v, e := rows(ctx, s.DB, untyped, args...)
+		v, e := registry.QueryRows(ctx, s.DB, untyped, args...)
 		if e != nil || len(v) != 1 {
 			t.Fatal(untyped, e)
 		}
@@ -263,7 +264,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 			t.Fatalf("audited %s %s:\nwant %s\ngot  %s", action, side, want, audited[side])
 		}
 	}
-	sameAudit(request, "role.updated", "after", roleSnapshotSQL, Row{"permissions": []string{}}, role.ID)
+	sameAudit(request, "role.updated", "after", roleSnapshotSQL, registry.Row{"permissions": []string{}}, role.ID)
 	roles, e := s.authority.Roles(ctx, admin, scope, res, PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
@@ -274,10 +275,10 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	}
 	for _, v := range untypedRoles.Items {
 		v["permissions"] = []string{}
-		if def, ok := authz.Builtin(str(v["id"])); ok {
+		if def, ok := authz.Builtin(registry.Str(v["id"])); ok {
 			v["permissions"] = def.Permissions
 		} else {
-			v["data_permissions"] = []Row{}
+			v["data_permissions"] = []registry.Row{}
 		}
 	}
 	if want, got := mustJSON(t, untypedRoles), mustJSON(t, roles); want != got {
@@ -288,8 +289,8 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, one4, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=?", role.ID)
-	grant := assignmentInput{ID: newID(), User: joe, Role: role.ID}
-	request = newID()
+	grant := assignmentInput{ID: registry.NewID(), User: joe, Role: role.ID}
+	request = registry.NewID()
 	if _, e = s.authority.Grant(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant); e != nil {
 		t.Fatal(e)
 	}
@@ -316,7 +317,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, teamRecipients.Items, "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", tenant)
-	request = newID()
+	request = registry.NewID()
 	if _, e = s.authority.Revoke(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant.ID, 1); e != nil {
 		t.Fatal(e)
 	}
@@ -326,7 +327,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal("my-role-assignments pagination", string(mine["pagination"]))
 	}
 	teamName := "Typed team"
-	request = newID()
+	request = registry.NewID()
 	if _, e = s.members.UpdateTeam(ctx, Actor{Principal: admin.Principal, RequestID: request}, tenant, team.ID, teamPatch{Name: &teamName}, 2); e != nil {
 		t.Fatal(e)
 	}
@@ -387,14 +388,14 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 			t.Fatal("entity view sections", mustJSON(t, detail))
 		}
 		if len(*detail.Publications) == 0 {
-			if old, _ := rows(ctx, s.DB, "SELECT id FROM entity_versions WHERE entity_id=?", key); mustJSON(t, *detail.Publications) != mustJSON(t, old) {
+			if old, _ := registry.QueryRows(ctx, s.DB, "SELECT id FROM entity_versions WHERE entity_id=?", key); mustJSON(t, *detail.Publications) != mustJSON(t, old) {
 				t.Fatal("empty publications", mustJSON(t, old))
 			}
 		} else {
 			sameJSON(t, s.DB, *detail.Publications, "SELECT id,state,error_message,definition_hash,base_version_id,created_at FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", key)
 		}
 		if detail.ActiveDefinition != nil {
-			stored, e := rows(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", *detail.ActiveVersion)
+			stored, e := registry.QueryRows(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", *detail.ActiveVersion)
 			if e != nil || mustJSON(t, detail.ActiveDefinition) != mustJSON(t, stored[0]["definition_json"]) {
 				t.Fatal("active definition", e)
 			}
@@ -408,11 +409,11 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		sameJSON(t, s.DB, detail, "SELECT * FROM entity_definitions WHERE id=?", key)
 	}
 	// The agent inventory summarizes each draft as the untyped read did.
-	inventory, e := scanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	inventory, e := registry.ScanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	untyped, e := rows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	untyped, e := registry.QueryRows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil || len(untyped) != len(inventory) {
 		t.Fatal("entity inventory", e)
 	}
@@ -421,24 +422,24 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		fields, relationships := []Row{}, []Row{}
+		fields, relationships := []registry.Row{}, []registry.Row{}
 		for _, f := range d.Fields {
-			fields = append(fields, Row{"key": f.Key, "label": f.Label, "type": f.Type})
+			fields = append(fields, registry.Row{"key": f.Key, "label": f.Label, "type": f.Type})
 			if f.Target != "" {
-				relationships = append(relationships, Row{"field": f.Key, "target_entity_id": f.Target})
+				relationships = append(relationships, registry.Row{"field": f.Key, "target_entity_id": f.Target})
 			}
 		}
 		v["description"], v["draft_fields"], v["draft_relationships"] = d.Description, fields, relationships
 		delete(v, "draft_json")
 		inventory[i].Fields, inventory[i].Relationships, inventory[i].Description = fields, relationships, d.Description
-		if mustJSON(t, v) != mustJSON(t, inventory[i]) || inventory[i].searchText() != v.searchText() {
+		if mustJSON(t, v) != mustJSON(t, inventory[i]) || inventory[i].SearchText() != v.SearchText() {
 			t.Fatalf("entity inventory differs\nwant: %s\ngot:  %s", mustJSON(t, v), mustJSON(t, inventory[i]))
 		}
 	}
-	if _, e = s.DB.Exec("INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id) SELECT ?,'order.read','data','Read orders',CONCAT('e:',id),tenant_id,space_id,id,active_version_id FROM entity_definitions WHERE id=?", newID(), entityID); e != nil {
+	if _, e = s.DB.Exec("INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id) SELECT ?,'order.read','data','Read orders',CONCAT('e:',id),tenant_id,space_id,id,active_version_id FROM entity_definitions WHERE id=?", registry.NewID(), entityID); e != nil {
 		t.Fatal(e)
 	}
-	permissions, e := scanAll[agentPermission](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
+	permissions, e := registry.ScanAll[agentPermission](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -466,12 +467,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil || workspace.Mappings == nil || len(*workspace.Mappings) == 0 {
 		t.Fatal("workspace view", e)
 	}
-	untypedWorkspace, e := rows(ctx, s.DB, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.id=?", workspace.ID)
+	untypedWorkspace, e := registry.QueryRows(ctx, s.DB, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.id=?", workspace.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
 	delete(untypedWorkspace[0], "base_json")
-	untypedWorkspace[0]["mappings"], e = rows(ctx, s.DB, "SELECT kind,development_id,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", workspace.ID)
+	untypedWorkspace[0]["mappings"], e = registry.QueryRows(ctx, s.DB, "SELECT kind,development_id,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", workspace.ID)
 	if e != nil || mustJSON(t, workspace) != mustJSON(t, untypedWorkspace[0]) {
 		t.Fatalf("workspace differs\nwant: %s\ngot:  %s", mustJSON(t, untypedWorkspace[0]), mustJSON(t, workspace))
 	}
@@ -543,14 +544,14 @@ func TestRegistryRecordKeysAreSorted(t *testing.T) {
 }
 
 // untypedPage is the Row paging that the typed collections replaced.
-func untypedPage(ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[Row], error) {
+func untypedPage(ctx context.Context, q registry.Queryer, req PageRequest, c collection, query string, args ...any) (Page[registry.Row], error) {
 	info, query, args, e := pageSQL(req, c, query, args)
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[registry.Row]{}, e
 	}
-	v, e := rows(ctx, q, query, args...)
+	v, e := registry.QueryRows(ctx, q, query, args...)
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[registry.Row]{}, e
 	}
 	return pageOf(info, v), nil
 }

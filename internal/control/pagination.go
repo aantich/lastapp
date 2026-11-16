@@ -7,6 +7,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type pageInfo struct {
@@ -51,18 +53,18 @@ func (r PageRequest) info() (pageInfo, string, error) {
 	info := pageInfo{Page: 1, Limit: 100}
 	if r.Page != 0 {
 		if r.Page < 1 || r.Page > 10000 {
-			return info, "", bad("Page must be between 1 and 10000.")
+			return info, "", registry.Bad("Page must be between 1 and 10000.")
 		}
 		info.Page = r.Page
 	}
 	if r.Limit != 0 {
 		if r.Limit < 1 || r.Limit > 200 {
-			return info, "", bad("Limit must be between 1 and 200.")
+			return info, "", registry.Bad("Limit must be between 1 and 200.")
 		}
 		info.Limit = r.Limit
 	}
 	if len(r.Search) > 120 {
-		return info, "", bad("Search must be at most 120 bytes.")
+		return info, "", registry.Bad("Search must be at most 120 bytes.")
 	}
 	return info, r.Search, nil
 }
@@ -110,12 +112,12 @@ func collectionFor(key string) collection {
 // pageScan runs one bounded page of query, an already permission-filtered
 // statement, searching and ordering by the collection's static columns, and
 // scans it into typed registry records.
-func pageScan[T any, P record[T]](ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[T], error) {
+func pageScan[T any, P registry.Record[T]](ctx context.Context, q registry.Queryer, req PageRequest, c collection, query string, args ...any) (Page[T], error) {
 	info, query, args, e := pageSQL(req, c, query, args)
 	if e != nil {
 		return Page[T]{}, e
 	}
-	v, e := scanAll[T, P](ctx, q, query, args...)
+	v, e := registry.ScanAll[T, P](ctx, q, query, args...)
 	if e != nil {
 		return Page[T]{}, e
 	}
@@ -150,7 +152,7 @@ func pageOf[T any](info pageInfo, v []T) Page[T] {
 
 // pageRows is the shim for handlers not yet migrated to operations: it takes
 // the collection key from the request path and reports paging through ctx.
-func pageRows[T any, P record[T]](ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]T, error) {
+func pageRows[T any, P registry.Record[T]](ctx context.Context, q registry.Queryer, r *http.Request, query string, args ...any) ([]T, error) {
 	values := r.URL.Query()
 	key := path.Base(r.URL.Path)
 	if key == "recipients" && values.Get("type") == "team" {
@@ -168,19 +170,11 @@ func pageRows[T any, P record[T]](ctx context.Context, q Queryer, r *http.Reques
 
 func sendPage[T any](w http.ResponseWriter, r *http.Request, v []T) {
 	info, _ := r.Context().Value(pageContextKey{}).(*pageInfo)
-	send(w, 200, Row{"items": v, "pagination": info})
+	send(w, 200, registry.Row{"items": v, "pagination": info})
 }
 
 // searchable is a metadata item that an inventory search matches against.
-type searchable interface{ searchText() string }
-
-// searchFields is the lower-cased text an inventory search matches: an item's
-// id, label, display name, key, entity key, code and description.
-func searchFields(fields ...string) string { return strings.ToLower(strings.Join(fields, " ")) }
-
-func (v Row) searchText() string {
-	return searchFields(str(v["id"]), str(v["label"]), str(v["display_name"]), str(v["key"]), str(v["entity_key"]), str(v["code"]), str(v["description"]))
-}
+type searchable interface{ SearchText() string }
 
 // Only pass already-authorized metadata here. Filtering must precede paging;
 // serialize the resulting page rather than an oversized complete inventory.
@@ -192,7 +186,7 @@ func pageItems[T searchable](items []T, req PageRequest) ([]T, pageInfo, error) 
 	filtered := []T{}
 	for _, v := range items {
 		if search != "" {
-			if !strings.Contains(v.searchText(), strings.ToLower(search)) {
+			if !strings.Contains(v.SearchText(), strings.ToLower(search)) {
 				continue
 			}
 		}

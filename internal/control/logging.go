@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type requestLogKey struct{}
@@ -47,7 +49,7 @@ func (s *Server) logger(ctx context.Context) *slog.Logger {
 func (s *Server) observe(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rid := newID()
+		rid := registry.NewID()
 		r.Header.Set("X-Request-ID", rid)
 		w.Header().Set("X-Request-ID", rid)
 		base := s.Log

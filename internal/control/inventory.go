@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type namedInput struct {
@@ -68,7 +70,7 @@ type Space struct {
 	WorkspaceID      *string `json:"workspace_id"`
 }
 
-func (v *Space) fields() []any {
+func (v *Space) ScanFields() []any {
 	return []any{&v.DatabaseLayout, &v.DatabaseName, &v.DatabaseResource, &v.DatabaseState, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.State, &v.TenantID, &v.TenantName, &v.WorkspaceID}
 }
 
@@ -88,7 +90,7 @@ type SpaceItem struct {
 	TenantID         string    `json:"tenant_id"`
 }
 
-func (v *SpaceItem) fields() []any {
+func (v *SpaceItem) ScanFields() []any {
 	return []any{&v.AppCount, &v.CreatedAt, &v.DatabaseLayout, &v.DatabaseName, &v.DatabaseResource, &v.DatabaseState, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.State, &v.TenantID}
 }
 
@@ -106,17 +108,17 @@ func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (S
 	if e := v.run.authorize(ctx, a, "space.read", Resource{Tenant: tenant, Space: space}); e != nil {
 		return Space{}, e
 	}
-	return scanOne[Space](ctx, v.db, "SELECT sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
+	return registry.ScanOne[Space](ctx, v.db, "SELECT sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
 }
 
 // CreateSpace binds a new Space to an existing database or allocates managed
 // storage (reusing the Tenant's default shared database), then assigns its
 // initial manager, in one transaction.
 func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in spaceCreateInput) (Ref, error) {
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return Ref{}, e
 	}
-	if e := named(in.Slug, in.Name); e != nil {
+	if e := registry.Named(in.Slug, in.Name); e != nil {
 		return Ref{}, e
 	}
 	e := v.run.mutate(ctx, a, "space.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
@@ -126,7 +128,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 			return e
 		}
 		if exists > 0 {
-			return conflict("This Space ID already exists; refresh before retrying.")
+			return registry.Conflict("This Space ID already exists; refresh before retrying.")
 		}
 		policy, e := policyFor(ctx, tx, tenant)
 		if e != nil {
@@ -142,21 +144,21 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 				return err
 			}
 			if private > 0 {
-				return bad("Development storage cannot be bound to a production Space.")
+				return registry.Bad("Development storage cannot be bound to a production Space.")
 			}
 			var state string
-			if e := lookup(ctx, tx, "SELECT layout,state FROM database_resources WHERE tenant_id=? AND id=?", []any{tenant, resource}, &layout, &state); e != nil {
+			if e := registry.Lookup(ctx, tx, "SELECT layout,state FROM database_resources WHERE tenant_id=? AND id=?", []any{tenant, resource}, &layout, &state); e != nil {
 				return e
 			}
-			if state == stateRetired {
-				return conflict("A retired database cannot be bound.")
+			if state == registry.StateRetired {
+				return registry.Conflict("A retired database cannot be bound.")
 			}
 			if e = layoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
 		} else {
 			if in.Database.Mode != "managed" {
-				return bad("Select an existing database or request managed creation.")
+				return registry.Bad("Select an existing database or request managed creation.")
 			}
 			if layout == "" {
 				layout = policy.TenantLayout
@@ -170,26 +172,26 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 			if layout == "shared" && policy.DefaultSharedDatabase != "" {
 				resource = policy.DefaultSharedDatabase
 				var target, state string
-				if e := lookup(ctx, tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", []any{resource, tenant}, &target, &state); e != nil {
+				if e := registry.Lookup(ctx, tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", []any{resource, tenant}, &target, &state); e != nil {
 					return e
 				}
-				if state == stateRetired {
-					return conflict("The default database is retired.")
+				if state == registry.StateRetired {
+					return registry.Conflict("The default database is retired.")
 				}
 				if in.Database.Target != "" && in.Database.Target != target {
-					return conflict("The selected target differs from the existing default shared database.")
+					return registry.Conflict("The selected target differs from the existing default shared database.")
 				}
 			} else {
 				if in.Database.Target == "" {
 					e := tx.QueryRowContext(ctx, "SELECT id FROM database_targets WHERE state='active' AND managed_enabled=1 ORDER BY created_at,id LIMIT 1").Scan(&in.Database.Target)
 					if errors.Is(e, sql.ErrNoRows) {
-						return conflict("Managed database creation is not configured. Ask a platform administrator to add a database server.")
+						return registry.Conflict("Managed database creation is not configured. Ask a platform administrator to add a database server.")
 					}
 					if e != nil {
 						return e
 					}
 				}
-				resource = newID()
+				resource = registry.NewID()
 				dbIn := databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: in.Database.Target}
 				if e = v.allocateDatabase(ctx, tx, a, tenant, dbIn, policy, nil); e != nil {
 					return e
@@ -208,7 +210,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 		if e := assignInitialManager(ctx, tx, a, tenant, in.ID, "", in.Manager); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, Row{"database_resource_id": resource})
+		return auditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, registry.Row{"database_resource_id": resource})
 	})
 	if e != nil {
 		return Ref{}, e
@@ -232,7 +234,7 @@ type App struct {
 	WorkspaceID   *string `json:"workspace_id"`
 }
 
-func (v *App) fields() []any {
+func (v *App) ScanFields() []any {
 	return []any{&v.ActiveRelease, &v.Compute, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.TenantName, &v.WorkspaceID}
 }
 
@@ -252,7 +254,7 @@ type AppItem struct {
 	WorkspaceID   *string   `json:"workspace_id"`
 }
 
-func (v *AppItem) fields() []any {
+func (v *AppItem) ScanFields() []any {
 	return []any{&v.Compute, &v.CreatedAt, &v.Name, &v.ID, &v.MicroappCount, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.WorkspaceID}
 }
 
@@ -282,29 +284,29 @@ func (v *inventory) App(ctx context.Context, a Actor, tenant, app string) (App, 
 	if e := v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, App: app}); e != nil {
 		return App{}, e
 	}
-	return scanOne[App](ctx, v.db, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	return registry.ScanOne[App](ctx, v.db, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
 }
 
 func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string, in appCreateInput) (Ref, error) {
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return Ref{}, e
 	}
-	if e := named(in.Slug, in.Name); e != nil {
+	if e := registry.Named(in.Slug, in.Name); e != nil {
 		return Ref{}, e
 	}
 	if in.Compute == "" {
 		in.Compute = "shared"
 	}
 	if in.Compute != "shared" && in.Compute != "dedicated" {
-		return Ref{}, bad("Invalid compute mode.")
+		return Ref{}, registry.Bad("Invalid compute mode.")
 	}
 	e := v.run.mutate(ctx, a, "app.manage", Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
 		var parent string
-		if e := lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{space, tenant}, &parent); e != nil {
+		if e := registry.Lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{space, tenant}, &parent); e != nil {
 			return e
 		}
-		if parent != stateActive {
-			return conflict("The parent Space must be active.")
+		if parent != registry.StateActive {
+			return registry.Conflict("The parent Space must be active.")
 		}
 		policy, e := policyFor(ctx, tx, tenant)
 		if e != nil {
@@ -314,7 +316,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 			return e
 		}
 		if in.Compute == "dedicated" && !policy.AllowDedicatedCompute {
-			return problem(403, "plan_restriction", "Dedicated compute is not permitted by this plan.")
+			return registry.Problem(403, "plan_restriction", "Dedicated compute is not permitted by this plan.")
 		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO apps (id,tenant_id,space_id,slug,display_name,compute_mode) VALUES (?,?,?,?,?,?)", in.ID, tenant, space, in.Slug, in.Name, in.Compute)
 		if e != nil {
@@ -323,7 +325,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 		if e := assignInitialManager(ctx, tx, a, tenant, space, in.ID, in.Manager); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, Row{"space_id": space})
+		return auditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, registry.Row{"space_id": space})
 	})
 	if e != nil {
 		return Ref{}, e
@@ -406,15 +408,15 @@ type Microapp struct {
 
 const microappColumns = "m.app_id,m.artifact_ref,m.display_name,m.id,m.navigation_order,m.revision,m.slug,m.state,m.tenant_id"
 
-func (m *Microapp) fields() []any {
+func (m *Microapp) ScanFields() []any {
 	return []any{&m.AppID, &m.Artifact, &m.Name, &m.ID, &m.Order, &m.Revision, &m.Slug, &m.State, &m.TenantID}
 }
 
 // microappItem is a micro-app collection row: with its App's name and Space.
 type microappItem struct{ Microapp }
 
-func (m *microappItem) fields() []any {
-	return append(m.Microapp.fields(), &m.AppName, &m.CreatedAt, &m.SpaceID)
+func (m *microappItem) ScanFields() []any {
+	return append(m.Microapp.ScanFields(), &m.AppName, &m.CreatedAt, &m.SpaceID)
 }
 
 // Microapps pages the micro-apps a may read in tenant, optionally of one App.
@@ -440,7 +442,7 @@ func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, 
 }
 
 func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Microapp, error) {
-	m, e := scanOne[Microapp](ctx, v.db, "SELECT "+microappColumns+" FROM microapp_installations m WHERE m.tenant_id=? AND m.id=?", tenant, record)
+	m, e := registry.ScanOne[Microapp](ctx, v.db, "SELECT "+microappColumns+" FROM microapp_installations m WHERE m.tenant_id=? AND m.id=?", tenant, record)
 	if e != nil {
 		return Microapp{}, e
 	}
@@ -451,17 +453,17 @@ func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string
 }
 
 func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app string, in microappCreateInput) (Ref, error) {
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return Ref{}, e
 	}
-	if e := named(in.Slug, in.Name); e != nil {
+	if e := registry.Named(in.Slug, in.Name); e != nil {
 		return Ref{}, e
 	}
 	if len(in.Artifact) > 1024 {
-		return Ref{}, bad("Artifact reference is too long.")
+		return Ref{}, registry.Bad("Artifact reference is too long.")
 	}
 	res := Resource{Tenant: tenant, App: app}
-	if e := lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{app, tenant}, &res.Space); e != nil {
+	if e := registry.Lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{app, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
 	e := v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
@@ -472,18 +474,18 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app str
 			return e
 		}
 		var appState, spaceState string
-		e := lookup(ctx, tx, "SELECT a.state,sp.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", []any{app, tenant}, &appState, &spaceState)
+		e := registry.Lookup(ctx, tx, "SELECT a.state,sp.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", []any{app, tenant}, &appState, &spaceState)
 		if e != nil {
 			return e
 		}
-		if appState != stateActive || spaceState != stateActive {
-			return conflict("The parent App and Space must be active.")
+		if appState != registry.StateActive || spaceState != registry.StateActive {
+			return registry.Conflict("The parent App and Space must be active.")
 		}
-		_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, nullable(in.Artifact), in.Order)
+		_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, registry.Nullable(in.Artifact), in.Order)
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "microapp.created", "microapp", in.ID, Row{"app_id": app})
+		return auditAs(ctx, tx, a, tenant, "microapp.created", "microapp", in.ID, registry.Row{"app_id": app})
 	})
 	if e != nil {
 		return Ref{}, e
@@ -497,7 +499,7 @@ func (v *inventory) UpdateSpace(ctx context.Context, a Actor, tenant, record str
 
 func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
 	res := Resource{Tenant: tenant, App: record}
-	if e := lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{record, tenant}, &res.Space); e != nil {
+	if e := registry.Lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{record, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
 	return v.patch(ctx, a, "apps", "app.manage", res, record, in, revision)
@@ -505,7 +507,7 @@ func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record strin
 
 func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
 	res := Resource{Tenant: tenant}
-	if e := lookup(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", []any{record, tenant}, &res.Space, &res.App); e != nil {
+	if e := registry.Lookup(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", []any{record, tenant}, &res.Space, &res.App); e != nil {
 		return Ref{}, e
 	}
 	return v.patch(ctx, a, "microapp_installations", "microapp.manage", res, record, in, revision)
@@ -527,36 +529,36 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 		}
 		if table != "spaces" {
 			var parent string
-			if e := lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{res.Space, res.Tenant}, &parent); e != nil {
+			if e := registry.Lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{res.Space, res.Tenant}, &parent); e != nil {
 				return e
 			}
-			if parent != stateActive {
-				return conflict("The parent Space must be active.")
+			if parent != registry.StateActive {
+				return registry.Conflict("The parent Space must be active.")
 			}
 		}
 		if table == "microapp_installations" {
 			var app string
-			if e := lookup(ctx, tx, "SELECT state FROM apps WHERE id=? AND tenant_id=?", []any{res.App, res.Tenant}, &app); e != nil {
+			if e := registry.Lookup(ctx, tx, "SELECT state FROM apps WHERE id=? AND tenant_id=?", []any{res.App, res.Tenant}, &app); e != nil {
 				return e
 			}
-			if app != stateActive {
-				return conflict("The parent App must be active.")
+			if app != registry.StateActive {
+				return registry.Conflict("The parent App must be active.")
 			}
 		}
 		sets := []string{"revision=revision+1"}
 		args := []any{}
 		if in.Name != nil {
 			if strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160 {
-				return bad("Invalid name.")
+				return registry.Bad("Invalid name.")
 			}
 			sets = append(sets, "display_name=?")
 			args = append(args, *in.Name)
 		}
 		if in.State != nil {
-			if !validState(*in.State) {
-				return bad("Invalid state.")
+			if !registry.ValidState(*in.State) {
+				return registry.Bad("Invalid state.")
 			}
-			if old.State == stateArchived && *in.State != stateArchived && (table == "apps" || table == "spaces") {
+			if old.State == registry.StateArchived && *in.State != registry.StateArchived && (table == "apps" || table == "spaces") {
 				policy, e := policyFor(ctx, tx, res.Tenant)
 				if e != nil {
 					return e
@@ -575,10 +577,10 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 		}
 		if in.Compute != nil {
 			if table != "apps" {
-				return bad("Compute mode applies only to Apps.")
+				return registry.Bad("Compute mode applies only to Apps.")
 			}
 			if *in.Compute != "shared" && *in.Compute != "dedicated" {
-				return bad("Invalid compute mode.")
+				return registry.Bad("Invalid compute mode.")
 			}
 			var previous string
 			if e = tx.QueryRowContext(ctx, "SELECT compute_mode FROM apps WHERE id=? AND tenant_id=?", record, res.Tenant).Scan(&previous); e != nil {
@@ -590,7 +592,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 					return e
 				}
 				if !policy.AllowDedicatedCompute {
-					return problem(403, "plan_restriction", "Dedicated compute is not permitted.")
+					return registry.Problem(403, "plan_restriction", "Dedicated compute is not permitted.")
 				}
 			}
 			sets = append(sets, "compute_mode=?")
@@ -598,14 +600,14 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 		}
 		if in.Artifact != nil || in.Order != nil {
 			if table != "microapp_installations" {
-				return bad("Artifact/navigation fields apply only to micro-apps.")
+				return registry.Bad("Artifact/navigation fields apply only to micro-apps.")
 			}
 			if in.Artifact != nil {
 				if len(*in.Artifact) > 1024 {
-					return bad("Artifact reference is too long.")
+					return registry.Bad("Artifact reference is too long.")
 				}
 				sets = append(sets, "artifact_ref=?")
-				args = append(args, nullable(*in.Artifact))
+				args = append(args, registry.Nullable(*in.Artifact))
 			}
 			if in.Order != nil {
 				sets = append(sets, "navigation_order=?")
@@ -616,7 +618,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 		if _, e = tx.ExecContext(ctx, "UPDATE "+table+" SET "+strings.Join(sets, ",")+" WHERE id=? AND tenant_id=?", args...); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, res.Tenant, table+".updated", table, record, Row{"state": in.State})
+		return auditAs(ctx, tx, a, res.Tenant, table+".updated", table, record, registry.Row{"state": in.State})
 	})
 	if e != nil {
 		return Ref{}, e

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type releaseManifest struct {
@@ -43,35 +44,35 @@ type Deployment struct {
 
 const deploymentStatusColumns = "d.created_at,d.error_message,d.finished_at,d.id,d.release_id,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
 
-func (v *Deployment) fields() []any {
+func (v *Deployment) ScanFields() []any {
 	return []any{&v.CreatedAt, &v.Error, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
 }
 
 // Release is a captured App release with its workspace ownership and
 // production target. The release view adds its preview and production URLs.
 type Release struct {
-	AppID           string    `json:"app_id"`
-	BackingSpace    string    `json:"backing_space_id"`
-	BaseHash        string    `json:"base_hash"`
-	BuildID         string    `json:"build_id"`
-	CreatedAt       time.Time `json:"created_at"`
-	CreatedBy       string    `json:"created_by"`
-	Name            string    `json:"display_name"`
-	ID              string    `json:"id"`
-	Manifest        jsonValue `json:"manifest_json"`
-	OwnerGrant      *string   `json:"owner_agent_grant_id"`
-	Owner           string    `json:"owner_user_id"`
-	PreviewURL      string    `json:"preview_url,omitempty"`
-	ProductionApp   string    `json:"production_app_id"`
-	ProductionSpace string    `json:"production_space_id"`
-	ProductionURL   string    `json:"production_url,omitempty"`
-	SnapshotHash    string    `json:"snapshot_hash"`
-	Snapshot        jsonValue `json:"snapshot_json"`
-	TenantID        string    `json:"tenant_id"`
-	WorkspaceID     string    `json:"workspace_id"`
+	AppID           string             `json:"app_id"`
+	BackingSpace    string             `json:"backing_space_id"`
+	BaseHash        string             `json:"base_hash"`
+	BuildID         string             `json:"build_id"`
+	CreatedAt       time.Time          `json:"created_at"`
+	CreatedBy       string             `json:"created_by"`
+	Name            string             `json:"display_name"`
+	ID              string             `json:"id"`
+	Manifest        registry.JSONValue `json:"manifest_json"`
+	OwnerGrant      *string            `json:"owner_agent_grant_id"`
+	Owner           string             `json:"owner_user_id"`
+	PreviewURL      string             `json:"preview_url,omitempty"`
+	ProductionApp   string             `json:"production_app_id"`
+	ProductionSpace string             `json:"production_space_id"`
+	ProductionURL   string             `json:"production_url,omitempty"`
+	SnapshotHash    string             `json:"snapshot_hash"`
+	Snapshot        registry.JSONValue `json:"snapshot_json"`
+	TenantID        string             `json:"tenant_id"`
+	WorkspaceID     string             `json:"workspace_id"`
 }
 
-func (v *Release) fields() []any {
+func (v *Release) ScanFields() []any {
 	return []any{&v.AppID, &v.BackingSpace, &v.BaseHash, &v.BuildID, &v.CreatedAt, &v.CreatedBy, &v.Name, &v.ID, &v.Manifest, &v.OwnerGrant, &v.Owner, &v.ProductionApp, &v.ProductionSpace, &v.SnapshotHash, &v.Snapshot, &v.TenantID, &v.WorkspaceID}
 }
 
@@ -84,7 +85,7 @@ type ReleaseItem struct {
 	SnapshotHash string    `json:"snapshot_hash"`
 }
 
-func (v *ReleaseItem) fields() []any {
+func (v *ReleaseItem) ScanFields() []any {
 	return []any{&v.BuildID, &v.CreatedAt, &v.Name, &v.ID, &v.SnapshotHash}
 }
 
@@ -101,8 +102,8 @@ var (
 
 func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in releaseCreateInput, revision int64) (Release, error) {
 	p := actor.Principal
-	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 || id(in.Build) != nil {
-		return Release{}, bad("Provide a release name and uploaded build ID.")
+	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 || registry.ID(in.Build) != nil {
+		return Release{}, registry.Bad("Provide a release name and uploaded build ID.")
 	}
 	rev := revision
 	if rev < 1 {
@@ -122,7 +123,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 			return e
 		}
 		var build string
-		if e = lookup(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", []any{in.Build, a.ID}, &build); e != nil {
+		if e = registry.Lookup(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", []any{in.Build, a.ID}, &build); e != nil {
 			return e
 		}
 		var count int
@@ -130,7 +131,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 			return e
 		}
 		if count >= maxAppReleases {
-			return conflict("Release limit reached. Start a fresh workspace.")
+			return registry.Conflict("Release limit reached. Start a fresh workspace.")
 		}
 		if e = s.ensureSnapshotReady(ctx, tx, a.SpaceID); e != nil {
 			return e
@@ -140,25 +141,25 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 			return e
 		}
 		if len(in.Manifest.Microapps) > maxReleaseMicroapps || len(in.Manifest.Dependencies) > maxReleaseDependencies {
-			return bad("Release manifest is too large.")
+			return registry.Bad("Release manifest is too large.")
 		}
 		needed := map[string]bool{}
 		for _, v := range base.Microapps {
-			if v.App == a.ID && v.State == stateActive {
+			if v.App == a.ID && v.State == registry.StateActive {
 				needed[v.Slug] = true
 				if !pinnedVersionRE.MatchString(in.Manifest.Microapps[v.Slug]) {
-					return bad("Pin a version for each active micro-app in this App.")
+					return registry.Bad("Pin a version for each active micro-app in this App.")
 				}
 			}
 		}
 		for key := range in.Manifest.Microapps {
 			if !needed[key] {
-				return bad("Manifest names a micro-app outside this App.")
+				return registry.Bad("Manifest names a micro-app outside this App.")
 			}
 		}
 		for name, version := range in.Manifest.Dependencies {
 			if len(name) > 160 || !pinnedNameRE.MatchString(name) || !pinnedVersionRE.MatchString(version) {
-				return bad("Dependencies require bounded package names and exact versions (no ranges or latest).")
+				return registry.Bad("Dependencies require bounded package names and exact versions (no ranges or latest).")
 			}
 		}
 		// Complete mappings are allocated once and survive later release captures.
@@ -168,7 +169,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		}
 		for key, kind := range snapshotIDs(base) {
 			if ids[key] == "" {
-				ids[key] = newID()
+				ids[key] = registry.NewID()
 				if _, e = tx.ExecContext(ctx, "INSERT INTO workspace_items(workspace_id,kind,development_id,production_id) VALUES(?,?,?,?)", ws.ID, kind, key, ids[key]); e != nil {
 					return e
 				}
@@ -180,7 +181,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a.TenantID, a.ID, in.Build, ws.ID, in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws.BaseHash); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
+		return auditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, registry.Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
 	})
 	if e != nil {
 		return Release{}, e
@@ -201,8 +202,8 @@ func (s *Server) Releases(ctx context.Context, actor Actor, app string, page Pag
 	return vs, e
 }
 
-func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id string) (Release, error) {
-	v, e := scanOne[Release](ctx, q, "SELECT rel.app_id,ws.backing_space_id,rel.base_hash,rel.build_id,rel.created_at,rel.created_by,rel.display_name,rel.id,rel.manifest_json,ws.owner_agent_grant_id,ws.owner_user_id,wi.production_id,ws.production_space_id,rel.snapshot_hash,rel.snapshot_json,rel.tenant_id,rel.workspace_id FROM app_releases rel JOIN development_workspaces ws ON ws.id=rel.workspace_id JOIN workspace_items wi ON wi.workspace_id=ws.id AND wi.kind='app' AND wi.development_id=rel.app_id WHERE rel.id=?", id)
+func (s *Server) releaseRow(ctx context.Context, q registry.Queryer, p Principal, id string) (Release, error) {
+	v, e := registry.ScanOne[Release](ctx, q, "SELECT rel.app_id,ws.backing_space_id,rel.base_hash,rel.build_id,rel.created_at,rel.created_by,rel.display_name,rel.id,rel.manifest_json,ws.owner_agent_grant_id,ws.owner_user_id,wi.production_id,ws.production_space_id,rel.snapshot_hash,rel.snapshot_json,rel.tenant_id,rel.workspace_id FROM app_releases rel JOIN development_workspaces ws ON ws.id=rel.workspace_id JOIN workspace_items wi ON wi.workspace_id=ws.id AND wi.kind='app' AND wi.development_id=rel.app_id WHERE rel.id=?", id)
 	if e != nil {
 		return v, e
 	}
@@ -234,7 +235,7 @@ func (s *Server) Release(ctx context.Context, actor Actor, release string) (Rele
 	return v, nil
 }
 
-func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string, revision int64) (Row, error) {
+func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string, revision int64) (registry.Row, error) {
 	p := actor.Principal
 	rel, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
@@ -250,7 +251,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 	}
 	origin := s.appHostedOrigin(a.ID)
 	if origin == "" {
-		return nil, conflict("Configure the App hosting origin first.")
+		return nil, registry.Conflict("Configure the App hosting origin first.")
 	}
 	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		a, e = s.appRow(ctx, tx, a.ID)
@@ -274,7 +275,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 			return err
 		}
 		if snapshotContractHash(remapSnapshot(currentSnapshot, ids)) != rel.SnapshotHash {
-			return conflict("Workspace configuration changed after this release was captured. Capture and test a fresh release.")
+			return registry.Conflict("Workspace configuration changed after this release was captured. Capture and test a fresh release.")
 		}
 		access, e := accessOf(a.Access)
 		if e != nil {
@@ -286,21 +287,21 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel.ID, b, origin, old, origin, a.ID); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, Row{"release_id": rel.ID})
+		return auditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, registry.Row{"release_id": rel.ID})
 	})
 	if e != nil {
 		return nil, e
 	}
-	return Row{"id": rel.ID, "url": origin + "/"}, nil
+	return registry.Row{"id": rel.ID, "url": origin + "/"}, nil
 }
 
-func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal, res Resource) error {
+func (s *Server) deploymentAuthority(ctx context.Context, q registry.Queryer, p Principal, res Resource) error {
 	var active int
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE tenant_id=? AND id=? AND state='active' AND workspace_id IS NULL", res.Tenant, res.Space).Scan(&active); e != nil {
 		return e
 	}
 	if active != 1 {
-		return conflict("Select an active production Space for deployment.")
+		return registry.Conflict("Select an active production Space for deployment.")
 	}
 	if p.Agent != nil {
 		if e := requireAgent(p.Agent, "production.deploy"); e != nil {
@@ -315,7 +316,7 @@ func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal
 	return nil
 }
 
-func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string, revision int64) (Row, error) {
+func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string, revision int64) (registry.Row, error) {
 	p := actor.Principal
 	rel, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
@@ -337,18 +338,18 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	e = s.run.mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
 		a, e := s.appRow(ctx, tx, rel.ProductionApp)
 		if e != nil {
-			if ae, ok := e.(*APIError); !ok || ae.Status != 404 {
+			if ae, ok := e.(*registry.APIError); !ok || ae.Status != 404 {
 				return e
 			}
 			if rev != 1 {
-				return conflict("A new production App starts at expected revision 1.")
+				return registry.Conflict("A new production App starts at expected revision 1.")
 			}
 		} else {
 			if e = checkRevision(a.Revision, rev); e != nil {
 				return e
 			}
 			if deref(a.ActiveRelease) == rel.ID {
-				return conflict("This release is already active in production.")
+				return registry.Conflict("This release is already active in production.")
 			}
 		}
 		if e = s.ensureSnapshotReady(ctx, tx, res.Space); e != nil {
@@ -359,15 +360,15 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 			return e
 		}
 		if entity.Hash(current) != rel.BaseHash {
-			return conflict("Production changed since this workspace was created. Create a fresh workspace and reconcile its configuration before deploying.")
+			return registry.Conflict("Production changed since this workspace was created. Create a fresh workspace and reconcile its configuration before deploying.")
 		}
 		var snap spaceSnapshot
 		b, _ := json.Marshal(rel.Snapshot)
 		if json.Unmarshal(b, &snap) != nil || snapshotContractHash(snap) != rel.SnapshotHash {
-			return conflict("Release snapshot is invalid.")
+			return registry.Conflict("Release snapshot is invalid.")
 		}
 		if s.appHostedOrigin(rel.ProductionApp) == "" {
-			return conflict("Configure the App hosting origin before deployment.")
+			return registry.Conflict("Configure the App hosting origin before deployment.")
 		}
 		if e = s.snapshotAppQuota(ctx, tx, res.Tenant, snap); e != nil {
 			return e
@@ -382,7 +383,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		}
 		plan := deploymentPlan{Snapshot: snap, BaseHash: rel.BaseHash, Versions: map[string]string{}}
 		for _, d := range snap.Entities {
-			plan.Versions[d.ID] = newID()
+			plan.Versions[d.ID] = registry.NewID()
 		}
 		pb, _ := json.Marshal(plan)
 		var grantRev any
@@ -392,17 +393,17 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		if _, e = tx.ExecContext(ctx, "INSERT INTO release_deployments(id,tenant_id,space_id,release_id,target_app_id,created_by,agent_grant_id,agent_grant_revision,plan_json) VALUES(?,?,?,?,?,?,?,?,?)", record, res.Tenant, res.Space, rel.ID, rel.ProductionApp, p.ID, agentID(p), grantRev, pb); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, Row{"release_id": rel.ID, "snapshot_hash": rel.SnapshotHash})
+		return auditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, registry.Row{"release_id": rel.ID, "snapshot_hash": rel.SnapshotHash})
 	})
 	if e != nil {
 		return nil, e
 	}
-	return Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."}, nil
+	return registry.Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."}, nil
 }
 
 func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string) (Deployment, error) {
 	p := actor.Principal
-	v, e := scanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
+	v, e := registry.ScanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
 	if e != nil {
 		return v, e
 	}
@@ -415,7 +416,7 @@ func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string)
 
 // Recover the durable job after a browser reload or a lost deploy response.
 // A pending sibling deployment also explains a shared Space's mutation fence.
-func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Row, error) {
+func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (registry.Row, error) {
 	p := actor.Principal
 	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
@@ -433,7 +434,7 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Ro
 	if production != "" {
 		space = production
 	}
-	vs, e := scanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+`
+	vs, e := registry.ScanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+`
  FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id
  WHERE d.tenant_id=? AND d.space_id=? AND (d.state IN ('queued','preparing','publishing') OR d.target_app_id=? OR rel.app_id=?)
  ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a.TenantID, space, a.ID, a.ID)
@@ -445,7 +446,7 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Ro
 		vs[0].URL = s.appHostedOrigin(vs[0].TargetApp) + "/"
 		deployment = vs[0]
 	}
-	return Row{"deployment": deployment}, nil
+	return registry.Row{"deployment": deployment}, nil
 }
 
 func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Principal) error {

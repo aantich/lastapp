@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type AgentClient struct {
@@ -27,17 +29,17 @@ type AgentClient struct {
 func (s *Server) mcpURL() string { return s.Config.PublicURL + "/mcp" }
 func (s *Server) agentRoutes() {
 	s.mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"resource": s.mcpURL(), "authorization_servers": []string{s.Config.PublicURL}, "scopes_supported": agentScopeCodes(), "bearer_methods_supported": []string{"header"}})
+		send(w, 200, registry.Row{"resource": s.mcpURL(), "authorization_servers": []string{s.Config.PublicURL}, "scopes_supported": agentScopeCodes(), "bearer_methods_supported": []string{"header"}})
 	})
 	s.mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, Row{"issuer": s.Config.PublicURL, "authorization_endpoint": s.Config.PublicURL + "/oauth/authorize", "token_endpoint": s.Config.PublicURL + "/oauth/token", "registration_endpoint": s.Config.PublicURL + "/oauth/register", "revocation_endpoint": s.Config.PublicURL + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": agentScopeCodes(), "client_id_metadata_document_supported": true, "authorization_response_iss_parameter_supported": true})
+		send(w, 200, registry.Row{"issuer": s.Config.PublicURL, "authorization_endpoint": s.Config.PublicURL + "/oauth/authorize", "token_endpoint": s.Config.PublicURL + "/oauth/token", "registration_endpoint": s.Config.PublicURL + "/oauth/register", "revocation_endpoint": s.Config.PublicURL + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": agentScopeCodes(), "client_id_metadata_document_supported": true, "authorization_response_iss_parameter_supported": true})
 	})
 	s.mux.HandleFunc("POST /oauth/register", s.agentRegisterClient)
 	s.mux.HandleFunc("GET /oauth/authorize", s.agentAuthorize)
 	s.mux.HandleFunc("POST /oauth/token", s.agentToken)
 	s.mux.HandleFunc("POST /oauth/revoke", s.agentRevokeToken)
 	s.api("GET /v1/agent-access/config", func(w http.ResponseWriter, r *http.Request, p Principal) error {
-		send(w, 200, Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": agentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
+		send(w, 200, registry.Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": agentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
 		return nil
 	})
 	s.api("GET /v1/agent-access", s.agentGrantList)
@@ -70,11 +72,11 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 	if strings.HasPrefix(key, "lastapp-client-") {
 		var metadata []byte
 		if e := s.DB.QueryRowContext(ctx, "SELECT metadata_json FROM agent_oauth_clients c WHERE id=? AND (created_at>? OR EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id))", key, time.Now().UTC().Add(-agentUnapprovedClientLifetime)).Scan(&metadata); e != nil {
-			return AgentClient{}, bad("Unknown OAuth client. Reconnect from your agent to register automatically.")
+			return AgentClient{}, registry.Bad("Unknown OAuth client. Reconnect from your agent to register automatically.")
 		}
 		var c AgentClient
 		if e := json.Unmarshal(metadata, &c); e != nil || c.ID != key {
-			return AgentClient{}, bad("Invalid OAuth client metadata.")
+			return AgentClient{}, registry.Bad("Invalid OAuth client metadata.")
 		}
 		return c, nil
 	}
@@ -82,7 +84,7 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 	// proxies, local/private addresses or unbounded bodies are accepted.
 	u, e := url.Parse(key)
 	if e != nil || len(key) > 500 || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Hostname() == "" {
-		return AgentClient{}, bad("Use a pre-registered client ID or a public HTTPS client metadata URL.")
+		return AgentClient{}, registry.Bad("Use a pre-registered client ID or a public HTTPS client metadata URL.")
 	}
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, e := net.SplitHostPort(address)
@@ -95,11 +97,11 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 		}
 		for _, ip := range ips {
 			if !publicAgentIP(ip.String()) {
-				return nil, bad("Client metadata must use a public address.")
+				return nil, registry.Bad("Client metadata must use a public address.")
 			}
 		}
 		if len(ips) == 0 {
-			return nil, bad("Client metadata host unavailable.")
+			return nil, registry.Bad("Client metadata host unavailable.")
 		}
 		return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 	}}
@@ -109,23 +111,23 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 	req.Header.Set("Accept", "application/json")
 	response, e := client.Do(req)
 	if e != nil {
-		return AgentClient{}, bad("Client metadata could not be verified.")
+		return AgentClient{}, registry.Bad("Client metadata could not be verified.")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return AgentClient{}, bad("Client metadata could not be verified.")
+		return AgentClient{}, registry.Bad("Client metadata could not be verified.")
 	}
 	b, e := io.ReadAll(io.LimitReader(response.Body, agentMaxClientMetadata+1))
 	if e != nil || len(b) > agentMaxClientMetadata {
-		return AgentClient{}, bad("Client metadata exceeds its limit.")
+		return AgentClient{}, registry.Bad("Client metadata exceeds its limit.")
 	}
 	var c AgentClient
 	if json.Unmarshal(b, &c) != nil || c.ID != key || c.Name == "" || len(c.Name) > 160 || len(c.Redirects) == 0 || len(c.Redirects) > agentMaxClientRedirects {
-		return c, bad("Invalid client metadata document.")
+		return c, registry.Bad("Invalid client metadata document.")
 	}
 	for _, redirect := range c.Redirects {
 		if !validAgentRedirect(redirect) {
-			return c, bad("Invalid client redirect URI.")
+			return c, registry.Bad("Invalid client redirect URI.")
 		}
 	}
 	return c, nil
@@ -180,10 +182,10 @@ func agentScopeNames(raw string) ([]string, error) {
 	for _, code := range out {
 		found := false
 		for _, p := range agentPermissions {
-			found = found || str(p["code"]) == code
+			found = found || registry.Str(p["code"]) == code
 		}
 		if !found {
-			return nil, bad("Unsupported agent scope.")
+			return nil, registry.Bad("Unsupported agent scope.")
 		}
 	}
 	slices.Sort(out)
@@ -215,10 +217,10 @@ func (s *Server) agentAuthorize(w http.ResponseWriter, r *http.Request) {
 		scopes, e = agentScopeNames(c.Scope)
 	}
 	if !matched || !validAgentRedirect(redirect) || e != nil || q.Get("response_type") != "code" || q.Get("resource") != s.mcpURL() || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || len(q.Get("state")) > 1024 || !verifierRE.MatchString(q.Get("code_challenge")) {
-		writeError(w, r, bad("Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE."))
+		writeError(w, r, registry.Bad("Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE."))
 		return
 	}
-	key := newID()
+	key := registry.NewID()
 	var pending int
 	if e = s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_oauth_requests WHERE expires_at>UTC_TIMESTAMP(6) AND consumed=0").Scan(&pending); e != nil {
 		writeError(w, r, e)
@@ -247,12 +249,12 @@ type agentConsentInput struct {
 	State       string      `json:"state"`
 }
 
-func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principal, in *agentConsentInput) error {
+func (s *Server) validateAgentConsent(ctx context.Context, q registry.Queryer, p Principal, in *agentConsentInput) error {
 	if in.Days < 1 || in.Days > agentMaxGrantDays {
-		return bad("Invalid grant lifetime.")
+		return registry.Bad("Invalid grant lifetime.")
 	}
 	if len(in.Permissions) == 0 || len(in.Permissions) > len(agentPermissions) {
-		return bad("Choose at least one agent permission.")
+		return registry.Bad("Choose at least one agent permission.")
 	}
 	normalized, e := agentScopeNames(strings.Join(in.Permissions, " "))
 	if e != nil {
@@ -261,19 +263,19 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 	in.Permissions = normalized
 	for _, permission := range in.Permissions {
 		if !slices.Contains(agentPermissionKinds(permission), in.Kind) {
-			return bad("The selected permission is not supported at this scope.")
+			return registry.Bad("The selected permission is not supported at this scope.")
 		}
 	}
 	if in.Kind == "platform" {
 		if !p.Platform || in.Tenant != "" || in.Scope != "" {
-			return bad("Invalid platform scope.")
+			return registry.Bad("Invalid platform scope.")
 		}
 		return s.authorize(ctx, q, p, "platform.admin", Resource{}, true)
 	}
 	if p.Platform {
-		return bad("Use a Tenant account to delegate Tenant authoring.")
+		return registry.Bad("Use a Tenant account to delegate Tenant authoring.")
 	}
-	if e := id(in.Tenant); e != nil {
+	if e := registry.ID(in.Tenant); e != nil {
 		return e
 	}
 	if e := s.member(ctx, q, p, in.Tenant, true); e != nil {
@@ -284,7 +286,7 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 	switch in.Kind {
 	case "tenant":
 		if in.Scope != "" {
-			return bad("Tenant scope has no child scope ID.")
+			return registry.Bad("Tenant scope has no child scope ID.")
 		}
 	case "team":
 		res.Team = in.Scope
@@ -296,10 +298,10 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 		res.App = in.Scope
 		readAction = "app.read"
 	default:
-		return bad("Unsupported agent scope.")
+		return registry.Bad("Unsupported agent scope.")
 	}
 	if in.Kind != "tenant" {
-		if e := id(in.Scope); e != nil {
+		if e := registry.ID(in.Scope); e != nil {
 			return e
 		}
 	}
@@ -330,7 +332,7 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 			}
 		case "entities.draft", "entities.check", "entities.publish":
 			if in.Kind != "tenant" && in.Kind != "space" {
-				return bad("Entity authoring requires Tenant or Space scope.")
+				return registry.Bad("Entity authoring requires Tenant or Space scope.")
 			}
 			action = "entity.manage"
 			if permission == "entities.publish" {
@@ -342,17 +344,17 @@ func (s *Server) validateAgentConsent(ctx context.Context, q Queryer, p Principa
 			continue // Each lifecycle effect also requires ordinary authority and access.manage.
 		case "databases.provision":
 			if in.Kind != "tenant" || in.Limits.MaxDatabases < 1 || in.Limits.MaxDatabases > agentMaxDatabases || len(in.Limits.TargetIDs) == 0 || len(in.Limits.TargetIDs) > agentMaxTargets {
-				return bad("Provisioning requires Tenant scope, approved targets and a database limit within the published policy.")
+				return registry.Bad("Provisioning requires Tenant scope, approved targets and a database limit within the published policy.")
 			}
 			for _, target := range in.Limits.TargetIDs {
 				var n int
 				if q.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_targets WHERE id=? AND state='active' AND managed_enabled=1", target).Scan(&n) != nil || n != 1 {
-					return bad("Choose an active managed database target.")
+					return registry.Bad("Choose an active managed database target.")
 				}
 			}
 			action = "database.manage"
 		case "platform.manage":
-			return bad("Platform operations require a platform grant.")
+			return registry.Bad("Platform operations require a platform grant.")
 		}
 		if e := s.authorize(ctx, q, p, action, res, true); e != nil {
 			return e
@@ -370,16 +372,16 @@ type oauthRequest struct {
 
 const oauthRequestColumns = "id,client_id,client_name,redirect_uri,challenge,state_value,scopes,resource_uri,grant_id,expires_at"
 
-func (v *oauthRequest) fields() []any {
+func (v *oauthRequest) ScanFields() []any {
 	return []any{&v.ID, &v.ClientID, &v.ClientName, &v.RedirectURI, &v.Challenge, &v.State, &v.Scopes, &v.Resource, &v.GrantID, &v.ExpiresAt}
 }
 
 func (s *Server) agentConsentInfo(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := scanOne[oauthRequest](r.Context(), s.DB, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE id=? AND resource_uri=? AND consumed=0 AND grant_id IS NULL AND expires_at>UTC_TIMESTAMP(6)", r.PathValue("request"), s.mcpURL())
+	v, e := registry.ScanOne[oauthRequest](r.Context(), s.DB, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE id=? AND resource_uri=? AND consumed=0 AND grant_id IS NULL AND expires_at>UTC_TIMESTAMP(6)", r.PathValue("request"), s.mcpURL())
 	if e != nil {
 		return e
 	}
-	send(w, 200, Row{
+	send(w, 200, registry.Row{
 		"id": v.ID, "client_name": v.ClientName, "client_id": v.ClientID, "redirect_uri": v.RedirectURI, "scopes": v.Scopes, "expires_at": v.ExpiresAt, "resource_uri": v.Resource,
 		"client_identity_verified": false, "permissions": agentPermissionCatalog(), "default_days": agentGrantDays, "max_days": agentMaxGrantDays,
 	})
@@ -400,10 +402,10 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p Principa
 	if e = tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", p.ID).Scan(&activeUser); e != nil {
 		return e
 	}
-	if activeUser != stateActive {
-		return missing()
+	if activeUser != registry.StateActive {
+		return registry.Missing()
 	}
-	v, e := scanOne[oauthRequest](r.Context(), tx, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE id=? AND resource_uri=? AND consumed=0 AND grant_id IS NULL AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", r.PathValue("request"), s.mcpURL())
+	v, e := registry.ScanOne[oauthRequest](r.Context(), tx, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE id=? AND resource_uri=? AND consumed=0 AND grant_id IS NULL AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", r.PathValue("request"), s.mcpURL())
 	if e != nil {
 		return e
 	}
@@ -421,25 +423,25 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p Principa
 		requested := strings.Fields(v.Scopes)
 		for _, permission := range in.Permissions {
 			if !slices.Contains(requested, permission) {
-				return bad("Reconnect requesting the additional OAuth scopes before approving them.")
+				return registry.Bad("Reconnect requesting the additional OAuth scopes before approving them.")
 			}
 		}
-		grant, code := newID(), token(32)
+		grant, code := registry.NewID(), token(32)
 		var existing int
 		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM agent_grants WHERE user_id=? AND state='active' AND expires_at>UTC_TIMESTAMP(6)", p.ID).Scan(&existing); e != nil {
 			return e
 		}
 		if existing >= agentMaxConnections {
-			return conflict("Revoke unused agent connections before approving another.")
+			return registry.Conflict("Revoke unused agent connections before approving another.")
 		}
 		permissions, _ := json.Marshal(in.Permissions)
 		limits, _ := json.Marshal(in.Limits)
-		_, e = tx.ExecContext(r.Context(), "INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,scope_id,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,?,?,?,?,?,?,?,?,?)", grant, p.ID, v.ClientID, v.ClientName, nullable(in.Tenant), in.Kind, nullable(in.Scope), permissions, limits, time.Now().UTC().Add(time.Duration(in.Days)*24*time.Hour), v.Resource)
+		_, e = tx.ExecContext(r.Context(), "INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,scope_id,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,?,?,?,?,?,?,?,?,?)", grant, p.ID, v.ClientID, v.ClientName, registry.Nullable(in.Tenant), in.Kind, registry.Nullable(in.Scope), permissions, limits, time.Now().UTC().Add(time.Duration(in.Days)*24*time.Hour), v.Resource)
 		if e == nil {
 			_, e = tx.ExecContext(r.Context(), "UPDATE agent_oauth_requests SET grant_id=?,code_hash=?,expires_at=? WHERE id=?", grant, hash(code), time.Now().UTC().Add(agentCodeLifetime), v.ID)
 		}
 		if e == nil {
-			e = audit(r.Context(), tx, in.Tenant, p.ID, "agent.approved", "agent_grant", grant, r.Header.Get("X-Request-ID"), Row{"client_id": v.ClientID, "scope_kind": in.Kind, "scope_id": in.Scope, "permissions": in.Permissions})
+			e = audit(r.Context(), tx, in.Tenant, p.ID, "agent.approved", "agent_grant", grant, r.Header.Get("X-Request-ID"), registry.Row{"client_id": v.ClientID, "scope_kind": in.Kind, "scope_id": in.Scope, "permissions": in.Permissions})
 		}
 		params.Set("code", code)
 	}
@@ -450,32 +452,32 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p Principa
 		return e
 	}
 	target.RawQuery = params.Encode()
-	send(w, 200, Row{"redirect_url": target.String()})
+	send(w, 200, registry.Row{"redirect_url": target.String()})
 	return nil
 }
 
 // AgentGrantItem is an agent connection in its owner's or Tenant's list.
 type AgentGrantItem struct {
-	ClientID    string     `json:"client_id"`
-	ClientName  string     `json:"client_name"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	ID          string     `json:"id"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	Limits      jsonValue  `json:"limits_json"`
-	OwnerName   string     `json:"owner_name"`
-	Permissions jsonValue  `json:"permissions_json"`
-	Revision    int64      `json:"revision"`
-	ScopeID     *string    `json:"scope_id"`
-	ScopeKind   string     `json:"scope_kind"`
-	ScopeName   string     `json:"scope_name"`
-	State       string     `json:"state"`
-	TenantID    *string    `json:"tenant_id"`
-	TenantName  *string    `json:"tenant_name"`
-	UserID      string     `json:"user_id"`
+	ClientID    string             `json:"client_id"`
+	ClientName  string             `json:"client_name"`
+	CreatedAt   time.Time          `json:"created_at"`
+	ExpiresAt   time.Time          `json:"expires_at"`
+	ID          string             `json:"id"`
+	LastUsedAt  *time.Time         `json:"last_used_at"`
+	Limits      registry.JSONValue `json:"limits_json"`
+	OwnerName   string             `json:"owner_name"`
+	Permissions registry.JSONValue `json:"permissions_json"`
+	Revision    int64              `json:"revision"`
+	ScopeID     *string            `json:"scope_id"`
+	ScopeKind   string             `json:"scope_kind"`
+	ScopeName   string             `json:"scope_name"`
+	State       string             `json:"state"`
+	TenantID    *string            `json:"tenant_id"`
+	TenantName  *string            `json:"tenant_name"`
+	UserID      string             `json:"user_id"`
 }
 
-func (v *AgentGrantItem) fields() []any {
+func (v *AgentGrantItem) ScanFields() []any {
 	return []any{&v.ClientID, &v.ClientName, &v.CreatedAt, &v.ExpiresAt, &v.ID, &v.LastUsedAt, &v.Limits, &v.OwnerName, &v.Permissions, &v.Revision, &v.ScopeID, &v.ScopeKind, &v.ScopeName, &v.State, &v.TenantID, &v.TenantName, &v.UserID}
 }
 
@@ -516,8 +518,8 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 		return e
 	}
 	if g.User != p.ID {
-		if in.State != stateRevoked || g.Tenant == "" {
-			return missing()
+		if in.State != registry.StateRevoked || g.Tenant == "" {
+			return registry.Missing()
 		}
 		if e = s.authorize(r.Context(), s.DB, p, "authorization.manage", Resource{Tenant: g.Tenant}, true); e != nil {
 			return e
@@ -529,21 +531,21 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	defer tx.Rollback()
 	var current lockedRecord
-	if e = lookup(r.Context(), tx, "SELECT revision,state FROM agent_grants WHERE id=? FOR UPDATE", []any{g.ID}, &current.Revision, &current.State); e != nil {
+	if e = registry.Lookup(r.Context(), tx, "SELECT revision,state FROM agent_grants WHERE id=? FOR UPDATE", []any{g.ID}, &current.Revision, &current.State); e != nil {
 		return e
 	}
 	if e = checkRevision(current.Revision, rev); e != nil {
 		return e
 	}
-	if current.State != stateActive {
-		return conflict("Revoked grants cannot be restored. Reconnect the agent.")
+	if current.State != registry.StateActive {
+		return registry.Conflict("Revoked grants cannot be restored. Reconnect the agent.")
 	}
 	if g.User != p.ID {
 		if e = s.authorize(r.Context(), tx, p, "authorization.manage", Resource{Tenant: g.Tenant}, true); e != nil {
 			return e
 		}
 	}
-	if in.State == stateRevoked {
+	if in.State == registry.StateRevoked {
 		_, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", g.ID)
 	} else {
 		in.Tenant = g.Tenant
@@ -559,18 +561,18 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 	if e != nil {
 		return e
 	}
-	if e = audit(r.Context(), tx, g.Tenant, p.ID, "agent.changed", "agent_grant", g.ID, r.Header.Get("X-Request-ID"), Row{"state": in.State, "permissions": in.Permissions}); e != nil {
+	if e = audit(r.Context(), tx, g.Tenant, p.ID, "agent.changed", "agent_grant", g.ID, r.Header.Get("X-Request-ID"), registry.Row{"state": in.State, "permissions": in.Permissions}); e != nil {
 		return e
 	}
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	send(w, 200, Row{"id": g.ID, "revision": rev + 1})
+	send(w, 200, registry.Row{"id": g.ID, "revision": rev + 1})
 	return nil
 }
 
 func oauthError(w http.ResponseWriter, code string) {
-	send(w, 400, Row{"error": code, "error_description": "OAuth request rejected. Reconnect through Lastapp if necessary."})
+	send(w, 400, registry.Row{"error": code, "error_description": "OAuth request rejected. Reconnect through Lastapp if necessary."})
 }
 
 func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
@@ -599,7 +601,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	var grantID, family string
 	switch r.Form.Get("grant_type") {
 	case "authorization_code":
-		v, err := scanOne[oauthRequest](ctx, tx, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE code_hash=? AND resource_uri=? AND consumed=0 AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(r.Form.Get("code")), s.mcpURL())
+		v, err := registry.ScanOne[oauthRequest](ctx, tx, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE code_hash=? AND resource_uri=? AND consumed=0 AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(r.Form.Get("code")), s.mcpURL())
 		if err != nil {
 			oauthError(w, "invalid_grant")
 			return
@@ -612,16 +614,16 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		grantID = deref(v.GrantID)
-		family = newID()
+		family = registry.NewID()
 		_, e = tx.ExecContext(ctx, "UPDATE agent_oauth_requests SET consumed=1 WHERE id=?", v.ID)
 	case "refresh_token":
 		var session, grant, state, client string
-		err := lookup(ctx, tx, "SELECT t.id,t.grant_id,t.family_id,t.state,g.client_id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE t.refresh_hash=? FOR UPDATE", []any{hash(r.Form.Get("refresh_token"))}, &session, &grant, &family, &state, &client)
+		err := registry.Lookup(ctx, tx, "SELECT t.id,t.grant_id,t.family_id,t.state,g.client_id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE t.refresh_hash=? FOR UPDATE", []any{hash(r.Form.Get("refresh_token"))}, &session, &grant, &family, &state, &client)
 		if err != nil || client != r.Form.Get("client_id") {
 			oauthError(w, "invalid_grant")
 			return
 		}
-		if state != stateActive {
+		if state != registry.StateActive {
 			_, e = tx.ExecContext(ctx, "UPDATE agent_token_sessions SET state='revoked' WHERE family_id=?", family)
 			if e == nil {
 				e = tx.Commit()
@@ -663,7 +665,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, "invalid_grant")
 		return
 	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", newID(), g.ID, g.Revision, family, hash(access), hash(refresh), time.Now().UTC().Add(agentAccessLifetime))
+	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", registry.NewID(), g.ID, g.Revision, family, hash(access), hash(refresh), time.Now().UTC().Add(agentAccessLifetime))
 	if e != nil {
 		writeError(w, r, e)
 		return
@@ -676,7 +678,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, e)
 		return
 	}
-	send(w, 200, Row{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
+	send(w, 200, registry.Row{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
 }
 
 func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
@@ -701,5 +703,5 @@ func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, e)
 		return
 	}
-	send(w, 200, Row{})
+	send(w, 200, registry.Row{})
 }

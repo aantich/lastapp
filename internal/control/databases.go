@@ -15,6 +15,8 @@ import (
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type credentials struct {
@@ -33,29 +35,29 @@ type databaseInput struct {
 
 // Target is a database server registered by the platform.
 type Target struct {
-	Host      string    `json:"canonical_host"`
-	CreatedAt time.Time `json:"created_at"`
-	Name      string    `json:"display_name"`
-	ID        string    `json:"id"`
-	Managed   bit       `json:"managed_enabled"`
-	Port      int64     `json:"port"`
-	Revision  int64     `json:"revision"`
-	State     string    `json:"state"`
-	TLS       string    `json:"tls_mode"`
+	Host      string       `json:"canonical_host"`
+	CreatedAt time.Time    `json:"created_at"`
+	Name      string       `json:"display_name"`
+	ID        string       `json:"id"`
+	Managed   registry.Bit `json:"managed_enabled"`
+	Port      int64        `json:"port"`
+	Revision  int64        `json:"revision"`
+	State     string       `json:"state"`
+	TLS       string       `json:"tls_mode"`
 }
 
-func (v *Target) fields() []any {
+func (v *Target) ScanFields() []any {
 	return []any{&v.Host, &v.CreatedAt, &v.Name, &v.ID, &v.Managed, &v.Port, &v.Revision, &v.State, &v.TLS}
 }
 
 // AvailableTarget is an active target a Tenant may allocate on.
 type AvailableTarget struct {
-	Name    string `json:"display_name"`
-	ID      string `json:"id"`
-	Managed bit    `json:"managed_enabled"`
+	Name    string       `json:"display_name"`
+	ID      string       `json:"id"`
+	Managed registry.Bit `json:"managed_enabled"`
 }
 
-func (v *AvailableTarget) fields() []any { return []any{&v.Name, &v.ID, &v.Managed} }
+func (v *AvailableTarget) ScanFields() []any { return []any{&v.Name, &v.ID, &v.Managed} }
 
 // Database is a Tenant database resource and its provisioning status.
 type Database struct {
@@ -76,7 +78,7 @@ type Database struct {
 
 const databaseColumns = "attempts,created_at,database_name,id,last_error_code,last_error_message,last_verified_at,layout,management_mode,revision,state,target_id,tenant_id"
 
-func (v *Database) fields() []any {
+func (v *Database) ScanFields() []any {
 	return []any{&v.Attempts, &v.CreatedAt, &v.Name, &v.ID, &v.LastError, &v.LastMessage, &v.LastVerified, &v.Layout, &v.Mode, &v.Revision, &v.State, &v.TargetID, &v.TenantID}
 }
 
@@ -98,14 +100,14 @@ type resourceAccess struct {
 
 const resourceAccessColumns = "d.tenant_id,d.target_id,d.database_name,d.management_mode,d.runtime_credentials_enc,d.schema_credentials_enc,d.ownership_token,t.canonical_host,t.port,t.tls_mode,t.provisioning_credentials_enc"
 
-func (v *resourceAccess) fields() []any {
+func (v *resourceAccess) ScanFields() []any {
 	return []any{&v.TenantID, &v.TargetID, &v.Name, &v.Mode, &v.Runtime, &v.Schema, &v.Ownership, &v.Host, &v.Port, &v.TLS, &v.Provisioning}
 }
 
 // targetEndpoint reads a target's endpoint.
-func targetEndpoint(ctx context.Context, q Queryer, target string) (databaseEndpoint, error) {
+func targetEndpoint(ctx context.Context, q registry.Queryer, target string) (databaseEndpoint, error) {
 	var v databaseEndpoint
-	return v, lookup(ctx, q, "SELECT canonical_host,port,tls_mode FROM database_targets WHERE id=?", []any{target}, &v.Host, &v.Port, &v.TLS)
+	return v, registry.Lookup(ctx, q, "SELECT canonical_host,port,tls_mode FROM database_targets WHERE id=?", []any{target}, &v.Host, &v.Port, &v.TLS)
 }
 
 // storage owns database targets and Tenant database resources. Console
@@ -168,32 +170,32 @@ var hostRE = regexp.MustCompile(`^[a-zA-Z0-9.:\-]+$`)
 func (v *storage) validateTarget(in *targetInput) error {
 	in.Host = strings.ToLower(strings.TrimSuffix(in.Host, "."))
 	if !hostRE.MatchString(in.Host) || len(in.Host) > 253 || in.Port < 1 || in.Port > 65535 {
-		return bad("Invalid database endpoint.")
+		return registry.Bad("Invalid database endpoint.")
 	}
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
-		return bad("Invalid target name.")
+		return registry.Bad("Invalid target name.")
 	}
 	if in.TLS != "verify_identity" && !(in.TLS == "disabled" && v.config.Development) {
-		return bad("TLS must verify the server identity; disabled is allowed only in local development.")
+		return registry.Bad("TLS must verify the server identity; disabled is allowed only in local development.")
 	}
 	if in.State == "" {
-		in.State = stateActive
+		in.State = registry.StateActive
 	}
-	if !enabledState(in.State) {
-		return bad("Invalid target state.")
+	if !registry.EnabledState(in.State) {
+		return registry.Bad("Invalid target state.")
 	}
 	return nil
 }
 
 func (v *storage) CreateTarget(ctx context.Context, a Actor, in targetInput) (Ref, error) {
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return Ref{}, e
 	}
 	if e := v.validateTarget(&in); e != nil {
 		return Ref{}, e
 	}
 	if in.Managed && (in.Credentials == nil || in.Credentials.Username == "" || in.Credentials.Password == "") {
-		return Ref{}, bad("Managed targets require provisioning credentials.")
+		return Ref{}, registry.Bad("Managed targets require provisioning credentials.")
 	}
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
 		var enc any
@@ -208,7 +210,7 @@ func (v *storage) CreateTarget(ctx context.Context, a Actor, in targetInput) (Re
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, "", "target.created", "database_target", in.ID, Row{})
+		return auditAs(ctx, tx, a, "", "target.created", "database_target", in.ID, registry.Row{})
 	})
 	if e != nil {
 		return Ref{}, e
@@ -232,14 +234,14 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 		args := []any{}
 		if in.Name != nil {
 			if strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160 {
-				return bad("Invalid name.")
+				return registry.Bad("Invalid name.")
 			}
 			sets = append(sets, "display_name=?")
 			args = append(args, *in.Name)
 		}
 		if in.State != nil {
-			if !enabledState(*in.State) {
-				return bad("Invalid state.")
+			if !registry.EnabledState(*in.State) {
+				return registry.Bad("Invalid state.")
 			}
 			sets = append(sets, "state=?")
 			args = append(args, *in.State)
@@ -250,7 +252,7 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 		}
 		if in.Credentials != nil {
 			if in.Credentials.Username == "" || in.Credentials.Password == "" {
-				return bad("Credentials cannot be empty.")
+				return registry.Bad("Credentials cannot be empty.")
 			}
 			b, e := v.seal("target", record, "", in.Credentials)
 			if e != nil {
@@ -263,7 +265,7 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 		if _, e = tx.ExecContext(ctx, "UPDATE database_targets SET "+strings.Join(sets, ",")+" WHERE id=?", args...); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, "", "target.updated", "database_target", record, Row{})
+		return auditAs(ctx, tx, a, "", "target.updated", "database_target", record, registry.Row{})
 	})
 	if e != nil {
 		return Ref{}, e
@@ -282,7 +284,7 @@ func (v *storage) Database(ctx context.Context, a Actor, tenant, record string) 
 	if e := v.run.authorize(ctx, a, "database.read", Resource{Tenant: tenant}); e != nil {
 		return Database{}, e
 	}
-	return scanOne[Database](ctx, v.db, "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, record)
+	return registry.ScanOne[Database](ctx, v.db, "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, record)
 }
 
 // The Tenant mutation lock serializes allocation counts, including retries that
@@ -293,14 +295,14 @@ func agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Principal, resour
 	}
 	g := p.Agent
 	if !agentHas(g, "databases.provision") || mode != "managed" || !slices.Contains(g.Limits.TargetIDs, target) {
-		return problem(403, "needs_authorization", "Managed provisioning requires an approved target and databases.provision.")
+		return registry.Problem(403, "needs_authorization", "Managed provisioning requires an approved target and databases.provision.")
 	}
 	var allocated int
 	if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_resources WHERE agent_grant_id=? AND id<>?", g.ID, resource).Scan(&allocated); e != nil {
 		return e
 	}
 	if allocated >= g.Limits.MaxDatabases {
-		return problem(403, "agent_limit", "This agent has reached its database allocation limit.")
+		return registry.Problem(403, "agent_limit", "This agent has reached its database allocation limit.")
 	}
 	return nil
 }
@@ -316,10 +318,10 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 	if e := v.run.authorizeTx(ctx, tx, a, action, res); e != nil {
 		return e
 	}
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return e
 	}
-	if e := id(in.Target); e != nil {
+	if e := registry.ID(in.Target); e != nil {
 		return e
 	}
 	p := a.Principal
@@ -332,10 +334,10 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 		return e
 	}
 	if in.Mode != "managed" && in.Mode != "registered" {
-		return bad("Select managed or registered database mode.")
+		return registry.Bad("Select managed or registered database mode.")
 	}
 	if !policy.allowsMethod(in.Mode) {
-		return problem(403, "plan_restriction", "This database method is not included in the plan.")
+		return registry.Problem(403, "plan_restriction", "This database method is not included in the plan.")
 	}
 	if e := quota(ctx, tx, tenant, "database_resources", policy.MaxDatabases); e != nil {
 		return e
@@ -344,24 +346,24 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 		return e
 	}
 	var targetState string
-	var managed bit
-	e := lookup(ctx, tx, "SELECT state,managed_enabled FROM database_targets WHERE id=?", []any{in.Target}, &targetState, &managed)
+	var managed registry.Bit
+	e := registry.Lookup(ctx, tx, "SELECT state,managed_enabled FROM database_targets WHERE id=?", []any{in.Target}, &targetState, &managed)
 	if e != nil {
 		return e
 	}
-	if targetState != stateActive {
-		return conflict("The database target is disabled.")
+	if targetState != registry.StateActive {
+		return registry.Conflict("The database target is disabled.")
 	}
 	var ownership any
 	cred := in.Credentials
 	if in.Mode == "managed" {
 		if !managed {
-			return bad("Target does not support managed creation.")
+			return registry.Bad("Target does not support managed creation.")
 		}
 		in.Database = "la_" + strings.ReplaceAll(in.ID, "-", "")
 		cred = credentials{Username: in.Database, Password: token(32), AccountHost: v.config.RuntimeAccountHost}
 		if cred.AccountHost == "" {
-			return bad("Runtime database account host is not configured.")
+			return registry.Bad("Runtime database account host is not configured.")
 		}
 		b := make([]byte, 16)
 		if _, e = rand.Read(b); e != nil {
@@ -370,10 +372,10 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 		ownership = b
 	} else {
 		if !regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`).MatchString(in.Database) || strings.EqualFold(in.Database, v.registryName) {
-			return bad("Invalid or protected database name.")
+			return registry.Bad("Invalid or protected database name.")
 		}
 		if cred.Username == "" || cred.Password == "" {
-			return bad("Existing database credentials are required.")
+			return registry.Bad("Existing database credentials are required.")
 		}
 	}
 	enc, e := v.seal("database", in.ID, tenant, cred)
@@ -389,7 +391,7 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 			return e
 		}
 	}
-	return auditAs(ctx, tx, a, tenant, "database.requested", "database", in.ID, Row{"management_mode": in.Mode, "layout": in.Layout})
+	return auditAs(ctx, tx, a, tenant, "database.requested", "database", in.ID, registry.Row{"management_mode": in.Mode, "layout": in.Layout})
 }
 
 // CreateDatabase queues a managed allocation or registers an existing database.
@@ -425,29 +427,29 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 	e := v.run.mutate(ctx, a, "database.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		var current int64
 		var state, mode, target string
-		e := lookup(ctx, tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &state, &mode, &target)
+		e := registry.Lookup(ctx, tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &state, &mode, &target)
 		if e != nil {
 			return e
 		}
 		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		if state == "provisioning" || state == "pending" || state == stateRetired {
-			return conflict("Wait for provisioning to finish; retired resources cannot be changed.")
+		if state == "provisioning" || state == "pending" || state == registry.StateRetired {
+			return registry.Conflict("Wait for provisioning to finish; retired resources cannot be changed.")
 		}
 		next := "pending"
 		if !retry && in.Credentials == nil {
-			if in.State != stateRetired {
-				return bad("Only retirement or registered credential replacement is supported.")
+			if in.State != registry.StateRetired {
+				return registry.Bad("Only retirement or registered credential replacement is supported.")
 			}
 			var n int
 			if e = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM spaces WHERE database_resource_id=?)+(SELECT COUNT(*) FROM tenants WHERE default_shared_database_id=?)", record, record).Scan(&n); e != nil {
 				return e
 			}
 			if n > 0 {
-				return conflict("A bound or default database cannot be retired.")
+				return registry.Conflict("A bound or default database cannot be retired.")
 			}
-			next = stateRetired
+			next = registry.StateRetired
 		}
 		if next == "pending" {
 			if e := agentDatabaseProvision(ctx, tx, p, record, mode, target); e != nil {
@@ -459,7 +461,7 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 		}
 		if in.Credentials != nil {
 			if mode != "registered" || in.Credentials.Username == "" || in.Credentials.Password == "" {
-				return bad("Only registered database credentials can be replaced.")
+				return registry.Bad("Only registered database credentials can be replaced.")
 			}
 			enc, e := v.seal("database", record, tenant, in.Credentials)
 			if e != nil {
@@ -484,7 +486,7 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "database."+next, "database", record, Row{})
+		return auditAs(ctx, tx, a, tenant, "database."+next, "database", record, registry.Row{})
 	})
 	if e != nil {
 		return Ref{}, e
@@ -637,13 +639,13 @@ func (s *Server) targetDB(ctx context.Context, target databaseEndpoint, cred cre
 	return db, nil
 }
 
-func pendingDatabaseQuota(ctx context.Context, q Queryer, tenant string) error {
+func pendingDatabaseQuota(ctx context.Context, q registry.Queryer, tenant string) error {
 	var pending int
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_resources WHERE tenant_id=? AND state IN ('pending','provisioning')", tenant).Scan(&pending); e != nil {
 		return e
 	}
 	if pending >= 8 {
-		return problem(409, "pending_limit", "Wait for pending database requests before queuing more.")
+		return registry.Problem(409, "pending_limit", "Wait for pending database requests before queuing more.")
 	}
 	return nil
 }

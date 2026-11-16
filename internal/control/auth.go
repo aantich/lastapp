@@ -16,6 +16,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type Principal struct {
@@ -79,12 +80,12 @@ func (s *Server) cookie(w http.ResponseWriter, name, value string, age int, http
 func hash(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
-		writeError(w, r, problem(404, "oidc_unavailable", "Single sign-on is not configured."))
+		writeError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
 		return
 	}
 	origin := r.URL.Query().Get("return_origin")
 	if origin != "" && !s.allowedOrigin(origin) {
-		writeError(w, r, bad("Invalid return origin."))
+		writeError(w, r, registry.Bad("Invalid return origin."))
 		return
 	}
 	flow := loginFlow{ReturnOrigin: origin, State: token(32), Nonce: token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
@@ -99,19 +100,19 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
-		writeError(w, r, problem(404, "oidc_unavailable", "Single sign-on is not configured."))
+		writeError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
 		return
 	}
 	cookie, e := r.Cookie(s.cookieName("lastapp_flow"))
 	if e != nil {
-		writeError(w, r, problem(400, "login_expired", "Start login again."))
+		writeError(w, r, registry.Problem(400, "login_expired", "Start login again."))
 		return
 	}
 	s.cookie(w, "lastapp_flow", "", -1, true)
 	b, e := base64.RawURLEncoding.DecodeString(cookie.Value)
 	var flow loginFlow
 	if e != nil || s.unseal("oidc_flow", "browser", "", b, &flow) != nil || time.Now().Unix()-flow.Issued > 300 || flow.Issued > time.Now().Unix()+30 || subtle.ConstantTimeCompare([]byte(flow.State), []byte(r.URL.Query().Get("state"))) != 1 {
-		writeError(w, r, bad("Invalid or expired login state."))
+		writeError(w, r, registry.Bad("Invalid or expired login state."))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -119,17 +120,17 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	ctx = oidc.ClientContext(ctx, s.oidcClient())
 	tok, e := s.auth.config.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(flow.Verifier))
 	if e != nil {
-		writeError(w, r, problem(401, "login_failed", "The identity provider rejected this login."))
+		writeError(w, r, registry.Problem(401, "login_failed", "The identity provider rejected this login."))
 		return
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok {
-		writeError(w, r, problem(401, "login_failed", "Provider did not return an identity token."))
+		writeError(w, r, registry.Problem(401, "login_failed", "Provider did not return an identity token."))
 		return
 	}
 	ident, e := s.auth.verifier.Verify(ctx, raw)
 	if e != nil || subtle.ConstantTimeCompare([]byte(ident.Nonce), []byte(flow.Nonce)) != 1 {
-		writeError(w, r, problem(401, "login_failed", "Invalid identity token."))
+		writeError(w, r, registry.Problem(401, "login_failed", "Invalid identity token."))
 		return
 	}
 	var claims struct{ Name, Email string }
@@ -141,11 +142,11 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		claims.Name = ident.Subject
 	}
 	if len(claims.Name) > 160 || len(claims.Email) > 320 || len(ident.Subject) > 255 || ident.Subject == "" || len(ident.Issuer) > 255 {
-		writeError(w, r, bad("Provider identity exceeds supported limits."))
+		writeError(w, r, registry.Bad("Provider identity exceeds supported limits."))
 		return
 	}
-	uid := newID()
-	_, e = s.DB.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),email=VALUES(email)", uid, ident.Issuer, ident.Subject, claims.Name, nullable(claims.Email))
+	uid := registry.NewID()
+	_, e = s.DB.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),email=VALUES(email)", uid, ident.Issuer, ident.Subject, claims.Name, registry.Nullable(claims.Email))
 	if e != nil {
 		writeError(w, r, e)
 		return
@@ -162,8 +163,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, e)
 		return
 	}
-	if state != stateActive {
-		writeError(w, r, problem(403, "user_disabled", "This user has been disabled."))
+	if state != registry.StateActive {
+		writeError(w, r, registry.Problem(403, "user_disabled", "This user has been disabled."))
 		return
 	}
 	session, csrf := token(32), token(32)
@@ -188,11 +189,11 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 	var p Principal
 	c, e := r.Cookie(s.cookieName("lastapp_session"))
 	if e != nil {
-		return p, problem(401, "unauthenticated", "Sign in to continue.")
+		return p, registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}
 	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,''),se.auth_method,COALESCE(la.must_change_password,0) FROM sessions se JOIN users u ON u.id=se.user_id LEFT JOIN local_accounts la ON la.user_id=u.id AND se.auth_method='password' WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active' AND (se.auth_method='oidc' OR la.user_id IS NOT NULL)", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email, &p.AuthMethod, &p.PasswordChangeRequired)
 	if errors.Is(e, sql.ErrNoRows) {
-		return p, problem(401, "unauthenticated", "Sign in to continue.")
+		return p, registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}
 	if e != nil {
 		return p, e
@@ -203,53 +204,53 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 
 func (s *Server) csrf(ctx context.Context, r *http.Request) error {
 	if !s.allowedOrigin(r.Header.Get("Origin")) {
-		return problem(403, "invalid_origin", "Request origin is not allowed.")
+		return registry.Problem(403, "invalid_origin", "Request origin is not allowed.")
 	}
 	cookie, e := r.Cookie(s.cookieName("lastapp_session"))
 	if e != nil {
-		return problem(401, "unauthenticated", "Sign in to continue.")
+		return registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}
 	value := r.Header.Get("X-CSRF-Token")
 	if value == "" {
-		return problem(403, "csrf_failed", "Missing CSRF token.")
+		return registry.Problem(403, "csrf_failed", "Missing CSRF token.")
 	}
 	var expected []byte
 	e = s.DB.QueryRowContext(ctx, "SELECT csrf_hash FROM sessions WHERE token_hash=? AND purpose='console' AND state='active' AND expires_at>UTC_TIMESTAMP(6)", hash(cookie.Value)).Scan(&expected)
 	if e != nil || subtle.ConstantTimeCompare(expected, hash(value)) != 1 {
-		return problem(403, "csrf_failed", "Invalid CSRF token.")
+		return registry.Problem(403, "csrf_failed", "Invalid CSRF token.")
 	}
 	return nil
 }
 
-func isPlatform(ctx context.Context, q Queryer, user string) (bool, error) {
+func isPlatform(ctx context.Context, q registry.Queryer, user string) (bool, error) {
 	var n int
 	e := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN roles ro ON ro.id=g.role_id AND ro.state='active' WHERE g.scope_kind='platform' AND g.domain='control' AND g.user_id=? AND g.role_id=?`, user, SuperRole).Scan(&n)
 	return n > 0, e
 }
 
-func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant string, mutating bool) error {
+func (s *Server) member(ctx context.Context, q registry.Queryer, p Principal, tenant string, mutating bool) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT t.state FROM tenants t JOIN tenant_memberships m ON m.tenant_id=t.id JOIN users u ON u.id=m.user_id WHERE t.id=? AND m.user_id=? AND m.state='active' AND u.state='active'", tenant, p.ID).Scan(&state)
 	if errors.Is(e, sql.ErrNoRows) {
-		return missing()
+		return registry.Missing()
 	}
 	if e != nil {
 		return e
 	}
-	if mutating && state != stateActive {
-		return problem(403, "tenant_inactive", "This Tenant is suspended or archived.")
+	if mutating && state != registry.StateActive {
+		return registry.Problem(403, "tenant_inactive", "This Tenant is suspended or archived.")
 	}
 	return nil
 }
 
-func (s *Server) scopes(ctx context.Context, q Queryer, p Principal, tenant, action string) (scopeSet, error) {
+func (s *Server) scopes(ctx context.Context, q registry.Queryer, p Principal, tenant, action string) (scopeSet, error) {
 	if p.Agent != nil {
 		if e := s.checkAgent(ctx, q, p, Resource{Tenant: tenant}, false); e != nil {
 			return scopeSet{}, e
 		}
 	}
 	if !controlAction(action) {
-		return scopeSet{}, problem(403, "unknown_action", "Unsupported control-plane action.")
+		return scopeSet{}, registry.Problem(403, "unknown_action", "Unsupported control-plane action.")
 	}
 	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
@@ -298,7 +299,7 @@ type EffectiveAssignment struct {
 	SpaceID     *string `json:"space_id"`
 }
 
-func (v *EffectiveAssignment) fields() []any {
+func (v *EffectiveAssignment) ScanFields() []any {
 	return []any{&v.AppID, &v.Code, &v.Name, &v.Domain, &v.GroupID, &v.ID, &v.RoleID, &v.ScopeKind, &v.ScopeTeamID, &v.SpaceID}
 }
 
@@ -311,11 +312,11 @@ func deref[T any](v *T) T {
 	return *v
 }
 
-func effectiveAssignments(ctx context.Context, q Queryer, user, tenant string) ([]EffectiveAssignment, error) {
-	return scanAll[EffectiveAssignment](ctx, q, effectiveAssignmentSQL, user, tenant)
+func effectiveAssignments(ctx context.Context, q registry.Queryer, user, tenant string) ([]EffectiveAssignment, error) {
+	return registry.ScanAll[EffectiveAssignment](ctx, q, effectiveAssignmentSQL, user, tenant)
 }
 
-func (s *Server) effectiveScopes(ctx context.Context, q Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
+func (s *Server) effectiveScopes(ctx context.Context, q registry.Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
 	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
 		return nil, e
@@ -373,32 +374,32 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
-func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action string, res Resource, mutating bool) error {
+func (s *Server) authorize(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource, mutating bool) error {
 	if !controlAction(action) {
-		return problem(403, "unknown_action", "Unsupported control-plane action.")
+		return registry.Problem(403, "unknown_action", "Unsupported control-plane action.")
 	}
 	if res.Team != "" {
 		if res.Space != "" || res.App != "" {
-			return bad("Team scope cannot be combined with Space or App scope.")
+			return registry.Bad("Team scope cannot be combined with Space or App scope.")
 		}
 		var found string
-		if e := lookup(ctx, q, "SELECT id FROM groups WHERE tenant_id=? AND id=?", []any{res.Tenant, res.Team}, &found); e != nil {
+		if e := registry.Lookup(ctx, q, "SELECT id FROM groups WHERE tenant_id=? AND id=?", []any{res.Tenant, res.Team}, &found); e != nil {
 			return e
 		}
 	}
 	if res.App != "" {
 		var parent string
-		if e := lookup(ctx, q, "SELECT space_id FROM apps WHERE tenant_id=? AND id=?", []any{res.Tenant, res.App}, &parent); e != nil {
+		if e := registry.Lookup(ctx, q, "SELECT space_id FROM apps WHERE tenant_id=? AND id=?", []any{res.Tenant, res.App}, &parent); e != nil {
 			return e
 		}
 		if res.Space != "" && res.Space != parent {
-			return missing()
+			return registry.Missing()
 		}
 		res.Space = parent
 	}
 	if res.Space != "" {
 		var found string
-		if e := lookup(ctx, q, "SELECT id FROM spaces WHERE tenant_id=? AND id=?", []any{res.Tenant, res.Space}, &found); e != nil {
+		if e := registry.Lookup(ctx, q, "SELECT id FROM spaces WHERE tenant_id=? AND id=?", []any{res.Tenant, res.Space}, &found); e != nil {
 			return e
 		}
 	}
@@ -418,10 +419,10 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 		if platformControlAction(action, res, mutating) {
 			return nil
 		}
-		return problem(403, "tenant_authority_required", "Tenant administrators and delegated managers manage Tenant resources.")
+		return registry.Problem(403, "tenant_authority_required", "Tenant administrators and delegated managers manage Tenant resources.")
 	}
 	if action == "platform.admin" || res.Tenant == "" {
-		return problem(403, "forbidden", "Platform administrator permission is required.")
+		return registry.Problem(403, "forbidden", "Platform administrator permission is required.")
 	}
 	if e = s.member(ctx, q, p, res.Tenant, mutating); e != nil {
 		return e
@@ -449,7 +450,7 @@ func (s *Server) authorize(ctx context.Context, q Queryer, p Principal, action s
 			return nil
 		}
 	}
-	return problem(403, "forbidden", "This action is not permitted in this scope.")
+	return registry.Problem(403, "forbidden", "This action is not permitted in this scope.")
 }
 
 // Platform operators administer the service and Tenant account recovery. They
@@ -495,8 +496,8 @@ func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email str
 	if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", SuperRole).Scan(&locked); e != nil {
 		return "", e
 	}
-	uid := newID()
-	_, e = tx.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id", uid, issuer, subject, name, nullable(email))
+	uid := registry.NewID()
+	_, e = tx.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id", uid, issuer, subject, name, registry.Nullable(email))
 	if e != nil {
 		return "", e
 	}
@@ -511,11 +512,11 @@ func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email str
 		if e = platformCandidate(ctx, tx, uid); e != nil {
 			return "", e
 		}
-		_, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", newID(), uid, SuperRole)
+		_, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), uid, SuperRole)
 		if e != nil {
 			return "", e
 		}
-		if e = audit(ctx, tx, "", uid, "platform.bootstrap", "user", uid, newID(), Row{}); e != nil {
+		if e = audit(ctx, tx, "", uid, "platform.bootstrap", "user", uid, registry.NewID(), registry.Row{}); e != nil {
 			return "", e
 		}
 	}

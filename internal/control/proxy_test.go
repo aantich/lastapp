@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestLoginClientIP(t *testing.T) {
@@ -61,7 +63,7 @@ func TestPasswordLoginProxyBudgets(t *testing.T) {
 	login := func(peer, forwarded, email string) int {
 		// Length rejection follows rate charging. Avoid slow PBKDF2 work so the
 		// burst assertions remain independent of machine speed and race overhead.
-		b, _ := json.Marshal(Row{"email": email, "password": strings.Repeat("x", 1025)})
+		b, _ := json.Marshal(registry.Row{"email": email, "password": strings.Repeat("x", 1025)})
 		r := httptest.NewRequest("POST", "/auth/login/password", bytes.NewReader(b))
 		r.RemoteAddr = peer
 		r.Header.Set("Origin", s.Config.PublicURL)

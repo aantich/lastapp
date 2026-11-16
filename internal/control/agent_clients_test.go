@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestAgentAutomaticConnection(t *testing.T) {
@@ -26,9 +28,9 @@ func TestAgentAutomaticConnection(t *testing.T) {
 		c.h.ServeHTTP(w, r)
 		return w
 	}
-	object := func(w *httptest.ResponseRecorder) Row {
+	object := func(w *httptest.ResponseRecorder) registry.Row {
 		t.Helper()
-		out := Row{}
+		out := registry.Row{}
 		if e := json.Unmarshal(w.Body.Bytes(), &out); e != nil {
 			t.Fatal("expected JSON response", w.Code)
 		}
@@ -47,9 +49,9 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	if len(offered) != len(agentScopeCodes()) || !slices.Contains(offered, any("resources.write")) {
 		t.Fatal("authoring capabilities cannot be discovered")
 	}
-	register := func(scope string) Row {
+	register := func(scope string) registry.Row {
 		t.Helper()
-		metadata, _ := json.Marshal(Row{"client_name": "Automatic test client", "redirect_uris": []string{"http://localhost/callback"}, "token_endpoint_auth_method": "none", "grant_types": []string{"authorization_code", "refresh_token"}, "scope": scope, "logo_uri": "http://127.0.0.1/private-do-not-fetch", "unknown_extension": true})
+		metadata, _ := json.Marshal(registry.Row{"client_name": "Automatic test client", "redirect_uris": []string{"http://localhost/callback"}, "token_endpoint_auth_method": "none", "grant_types": []string{"authorization_code", "refresh_token"}, "scope": scope, "logo_uri": "http://127.0.0.1/private-do-not-fetch", "unknown_extension": true})
 		response := request("POST", "/oauth/register", string(metadata), "application/json")
 		if response.Code != 201 || response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatal("automatic registration failed", response.Code)
@@ -61,7 +63,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 		return out
 	}
 	registered := register("")
-	if !strings.Contains(str(registered["scope"]), "entities.draft") {
+	if !strings.Contains(registry.Str(registered["scope"]), "entities.draft") {
 		t.Fatal("client must discover authoring without configuring OAuth scopes")
 	}
 	var grants int
@@ -71,7 +73,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	verifier := token(48)
 	sum := sha256.Sum256([]byte(verifier))
 	redirect := "http://localhost:43187/callback"
-	parameters := url.Values{"response_type": {"code"}, "client_id": {str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code_challenge_method": {"S256"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "state": {"client-state"}}
+	parameters := url.Values{"response_type": {"code"}, "client_id": {registry.Str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code_challenge_method": {"S256"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "state": {"client-state"}}
 	for _, badRedirect := range []string{"http://127.0.0.1:43187/callback", "http://localhost:43187/other", "https://evil.example/callback"} {
 		parameters.Set("redirect_uri", badRedirect)
 		if request("GET", "/oauth/authorize?"+parameters.Encode(), "", "").Code != 400 {
@@ -91,15 +93,15 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	consentURL, _ := url.Parse(start.Header().Get("Location"))
 	requestID := consentURL.Query().Get("request")
 	info := c.want("GET", "/v1/agent-access/requests/"+requestID, nil, 0, 200)
-	if !strings.Contains(str(info["scopes"]), "platform.manage") || !strings.Contains(str(info["scopes"]), "resources.write") {
+	if !strings.Contains(registry.Str(info["scopes"]), "platform.manage") || !strings.Contains(registry.Str(info["scopes"]), "resources.write") {
 		t.Fatal("consent cannot offer the user's authoring choices")
 	}
-	approved := c.want("POST", "/v1/agent-access/requests/"+requestID, Row{"scope_kind": "platform", "permissions": []string{"read"}, "days": 1}, 0, 200)
-	callback, _ := url.Parse(str(approved["redirect_url"]))
+	approved := c.want("POST", "/v1/agent-access/requests/"+requestID, registry.Row{"scope_kind": "platform", "permissions": []string{"read"}, "days": 1}, 0, 200)
+	callback, _ := url.Parse(registry.Str(approved["redirect_url"]))
 	if callback.Query().Get("iss") != s.Config.PublicURL || callback.Query().Get("state") != "client-state" {
 		t.Fatal("authorization response lost issuer/state binding")
 	}
-	exchange := url.Values{"grant_type": {"authorization_code"}, "client_id": {str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code": {callback.Query().Get("code")}, "code_verifier": {token(48)}}
+	exchange := url.Values{"grant_type": {"authorization_code"}, "client_id": {registry.Str(registered["client_id"])}, "redirect_uri": {redirect}, "resource": {s.mcpURL()}, "code": {callback.Query().Get("code")}, "code_verifier": {token(48)}}
 	if request("POST", "/oauth/token", exchange.Encode(), "application/x-www-form-urlencoded").Code != 400 {
 		t.Fatal("dynamic clients bypassed verifier binding")
 	}
@@ -115,7 +117,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	endpoint := httptest.NewServer(c.h)
 	defer endpoint.Close()
 	client := mcp.NewClient(&mcp.Implementation{Name: "automatic-registration-test", Version: "1"}, nil)
-	session, e := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: endpoint.URL + "/mcp", HTTPClient: &http.Client{Transport: agentRoundTripper{str(tokens["access_token"])}}}, nil)
+	session, e := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: endpoint.URL + "/mcp", HTTPClient: &http.Client{Transport: agentRoundTripper{registry.Str(tokens["access_token"])}}}, nil)
 	if e != nil {
 		t.Fatal("automatically registered client cannot connect", e)
 	}
@@ -130,7 +132,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 		}
 	}
 	limited := register("read")
-	parameters.Set("client_id", str(limited["client_id"]))
+	parameters.Set("client_id", registry.Str(limited["client_id"]))
 	start = request("GET", "/oauth/authorize?"+parameters.Encode(), "", "")
 	consentURL, _ = url.Parse(start.Header().Get("Location"))
 	info = c.want("GET", "/v1/agent-access/requests/"+consentURL.Query().Get("request"), nil, 0, 200)
@@ -171,7 +173,7 @@ func TestAgentRegistrationRejectsUnsafeMetadata(t *testing.T) {
 		`{"client_name":"` + strings.Repeat("x", agentMaxClientMetadata) + `"}`,
 	} {
 		r := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(body))
-		r.RemoteAddr = "198.51.100." + str(i+1) + ":1234"
+		r.RemoteAddr = "198.51.100." + registry.Str(i+1) + ":1234"
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		c.h.ServeHTTP(w, r)

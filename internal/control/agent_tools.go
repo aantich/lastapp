@@ -17,6 +17,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 type agentTarget struct {
@@ -218,11 +219,11 @@ func strictAgentInput(raw json.RawMessage, dst any) error {
 	d.DisallowUnknownFields()
 	d.UseNumber()
 	if d.Decode(dst) != nil {
-		return bad("Invalid or unsupported tool arguments. Read the tool schema.")
+		return registry.Bad("Invalid or unsupported tool arguments. Read the tool schema.")
 	}
 	var more any
 	if !errors.Is(d.Decode(&more), io.EOF) {
-		return bad("Exactly one argument object is required.")
+		return registry.Bad("Exactly one argument object is required.")
 	}
 	return nil
 }
@@ -246,7 +247,7 @@ func (s *Server) mcpHandler() http.Handler {
 		defer cancel()
 		r = r.WithContext(ctx)
 		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {
-			writeError(w, r, problem(403, "invalid_origin", "Unapproved MCP browser Origin."))
+			writeError(w, r, registry.Problem(403, "invalid_origin", "Unapproved MCP browser Origin."))
 			return
 		}
 		if !s.admitAgent(w, r, &s.agentValidationLimiter, s.agentValidationSlots, "mcp-auth", 60, 10) {
@@ -280,14 +281,14 @@ func (s *Server) mcpHandler() http.Handler {
 			if err != nil {
 				var tooLarge *http.MaxBytesError
 				if errors.As(err, &tooLarge) {
-					err = problem(413, "request_limit", "MCP request exceeds its size limit.")
+					err = registry.Problem(413, "request_limit", "MCP request exceeds its size limit.")
 				}
 				writeError(w, r, err)
 				return
 			}
 			trimmed := bytes.TrimSpace(payload)
 			if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
-				writeError(w, r, bad("Send exactly one MCP message object per HTTP request; batching is not supported."))
+				writeError(w, r, registry.Bad("Send exactly one MCP message object per HTTP request; batching is not supported."))
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(payload))
@@ -316,16 +317,16 @@ func (s *Server) mcpHandler() http.Handler {
 				a := &AgentCall{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
 				call = context.WithValue(call, agentContextKey{}, a)
 				if e != nil {
-					e = bad("Tool arguments do not match its published schema: " + e.Error())
+					e = registry.Bad("Tool arguments do not match its published schema: " + e.Error())
 				} else if e = s.checkAgent(call, s.DB, p, Resource{Tenant: p.Agent.Tenant}, false); e == nil {
 					data, e = current.Run(call, p, req.Params.Arguments)
 				}
-				result := Row{"ok": e == nil}
+				result := registry.Row{"ok": e == nil}
 				if e == nil {
 					result["data"] = data
 				} else {
 					o := classify(e)
-					rid := newID()
+					rid := registry.NewID()
 					if o.Unmapped {
 						fields := []any{"operation", "mcp " + current.Name, "operation_request_id", rid}
 						requestLogger(call).Error("request failed", append(fields, diagnostic(e)...)...)
@@ -341,7 +342,7 @@ func (s *Server) mcpHandler() http.Handler {
 				}
 				b, _ := json.Marshal(result)
 				if len(b) > agentMaxResponse {
-					result = Row{"ok": false, "error": Row{"code": "response_limit", "message": "Inspect a smaller scope or page; no content was silently truncated."}}
+					result = registry.Row{"ok": false, "error": registry.Row{"code": "response_limit", "message": "Inspect a smaller scope or page; no content was silently truncated."}}
 					if a.Committed {
 						result["committed"], result["resource"] = true, a.ResultRef
 						result["guidance"] = "The mutation committed. Inspect the resource using a smaller section/page; reuse the same request_key for unchanged retries."
@@ -401,30 +402,30 @@ func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTa
 	switch target.Kind {
 	case "platform":
 		if g.Kind != "platform" || target.ID != "" {
-			return res, nil, missing()
+			return res, nil, registry.Missing()
 		}
 	case "tenant":
-		if id(g.Tenant) != nil || target.ID != "" && target.ID != g.Tenant {
-			return res, nil, missing()
+		if registry.ID(g.Tenant) != nil || target.ID != "" && target.ID != g.Tenant {
+			return res, nil, registry.Missing()
 		}
 		target.ID = g.Tenant
 	case "space":
-		if e := id(target.ID); e != nil {
+		if e := registry.ID(target.ID); e != nil {
 			return res, nil, e
 		}
 		res.Space = target.ID
 	case "app":
-		if e := id(target.ID); e != nil {
+		if e := registry.ID(target.ID); e != nil {
 			return res, nil, e
 		}
 		res.App = target.ID
 	case "team":
-		if e := id(target.ID); e != nil {
+		if e := registry.ID(target.ID); e != nil {
 			return res, nil, e
 		}
 		res.Team = target.ID
 	default:
-		return res, nil, bad("Unsupported target kind.")
+		return res, nil, registry.Bad("Unsupported target kind.")
 	}
 	return res, target, nil
 }
@@ -449,9 +450,9 @@ func agentScope(res Resource, target *agentTarget) (authz.Scope, Resource, error
 	return scopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
 }
 
-func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, result Row, input any, permissions ...string) (context.Context, error) {
-	if e := id(key); e != nil {
-		return ctx, bad("request_key must be a canonical UUID")
+func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, result registry.Row, input any, permissions ...string) (context.Context, error) {
+	if e := registry.ID(key); e != nil {
+		return ctx, registry.Bad("request_key must be a canonical UUID")
 	}
 	if e := requireAgent(p.Agent, permissions...); e != nil {
 		return ctx, e
@@ -465,13 +466,13 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 	if a == nil {
 		a = &AgentCall{}
 	}
-	*a = AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(Row{"operation": operation, "input": input}), ResultRef: result}
+	*a = AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(registry.Row{"operation": operation, "input": input}), ResultRef: result}
 	var previous string
 	var saved any
 	e := s.DB.QueryRowContext(ctx, "SELECT input_hash,result_json FROM agent_operation_receipts WHERE grant_id=? AND request_key=?", p.Agent.ID, key).Scan(&previous, &saved)
 	if e == nil {
 		if previous != a.Hash {
-			return ctx, conflict("request_key already belongs to different arguments")
+			return ctx, registry.Conflict("request_key already belongs to different arguments")
 		}
 		return context.WithValue(ctx, agentContextKey{}, a), nil
 	}
@@ -500,7 +501,7 @@ func agentFits(v any) error {
 		return e
 	}
 	if len(b)+1 > agentMaxResponse {
-		return problem(413, "response_limit", "Response exceeds the context limit. Use a smaller page or entity section; for schemas, select one field.")
+		return registry.Problem(413, "response_limit", "Response exceeds the context limit. Use a smaller page or entity section; for schemas, select one field.")
 	}
 	return nil
 }
@@ -520,14 +521,14 @@ func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
 	if errors.Is(e, errAgentReplay) {
 		a := agentCallFrom(ctx)
 		a.Committed = true
-		return Row{"replayed": true, "committed": true, "resource": a.ResultRef, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
+		return registry.Row{"replayed": true, "committed": true, "resource": a.ResultRef, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
 	}
-	var ae *APIError
+	var ae *registry.APIError
 	if errors.As(e, &ae) && ae.Code == "response_limit" {
 		// The operation committed but its result exceeds the response bound.
 		// The receipt is the authoritative, compact outcome.
 		if a := agentCallFrom(ctx); a != nil && a.Committed {
-			return Row{"committed": true, "resource": a.ResultRef, "response_error": Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
+			return registry.Row{"committed": true, "resource": a.ResultRef, "response_error": registry.Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
 		}
 	}
 	return data, e
@@ -549,7 +550,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 	}
 	if count != 1 {
-		return nil, bad("Supply exactly one resource object.")
+		return nil, registry.Bad("Supply exactly one resource object.")
 	}
 	kind, key := "", ""
 	var call func(context.Context, Actor) (any, error)
@@ -557,7 +558,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	switch {
 	case in.Space != nil:
 		if target.Kind != "tenant" {
-			return nil, bad("Space creation requires a Tenant target.")
+			return nil, registry.Bad("Space creation requires a Tenant target.")
 		}
 		kind = "space"
 		key = in.Space.ID
@@ -572,7 +573,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 	case in.App != nil:
 		if target.Kind != "space" {
-			return nil, bad("App creation requires a Space target.")
+			return nil, registry.Bad("App creation requires a Space target.")
 		}
 		kind = "app"
 		key = in.App.ID
@@ -587,7 +588,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 	case in.Microapp != nil:
 		if target.Kind != "app" {
-			return nil, bad("Micro-app creation requires an App target.")
+			return nil, registry.Bad("Micro-app creation requires an App target.")
 		}
 		kind = "microapp"
 		key = in.Microapp.ID
@@ -596,7 +597,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 	case in.Team != nil:
 		if target.Kind != "tenant" {
-			return nil, bad("Team creation requires a Tenant target.")
+			return nil, registry.Bad("Team creation requires a Tenant target.")
 		}
 		kind = "team"
 		key = in.Team.ID
@@ -605,7 +606,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 	case in.Role != nil:
 		if target.Kind != "space" && target.Kind != "app" {
-			return nil, bad("Custom roles belong to a Space or App; Tenant/team roles are fixed.")
+			return nil, registry.Bad("Custom roles belong to a Space or App; Tenant/team roles are fixed.")
 		}
 		kind = "role"
 		key = in.Role.ID
@@ -620,7 +621,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		permissions = []string{"access.manage"}
 	case in.Tenant != nil:
 		if target.Kind != "platform" {
-			return nil, missing()
+			return nil, registry.Missing()
 		}
 		kind = "tenant"
 		key = in.Tenant.ID
@@ -629,17 +630,17 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		permissions = []string{"platform.manage"}
 	case in.Plan != nil:
 		if target.Kind != "platform" {
-			return nil, missing()
+			return nil, registry.Missing()
 		}
 		kind = "plan"
 		key = in.Plan.ID
 		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreatePlan(ctx, a, *in.Plan) }
 		permissions = []string{"platform.manage"}
 	}
-	if e = id(key); e != nil {
+	if e = registry.ID(key); e != nil {
 		return nil, e
 	}
-	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": kind, "id": key}, in, permissions...)
+	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": kind, "id": key}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -656,7 +657,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	if e != nil {
 		return nil, e
 	}
-	if e = id(in.ID); e != nil {
+	if e = registry.ID(in.ID); e != nil {
 		return nil, e
 	}
 	permissions := []string{"resources.write"}
@@ -667,7 +668,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		patch := metadataPatch{Name: in.Name, Compute: in.Compute, Artifact: in.Artifact, Order: in.Order}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			if in.PlanID != nil || in.Layout != nil {
-				return nil, bad("Invalid or unsupported JSON request fields.")
+				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 			}
 			return update(ctx, a, res.Tenant, in.ID, patch, in.Revision)
 		}
@@ -675,7 +676,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		patch := teamPatch{Name: in.Name}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
-				return nil, bad("Invalid or unsupported JSON request fields.")
+				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 			}
 			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, patch, in.Revision)
 		}
@@ -683,7 +684,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		patch := rolePatch{Name: in.Name}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
-				return nil, bad("Invalid or unsupported JSON request fields.")
+				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 			}
 			scope, sr, e := agentScope(res, target)
 			if e != nil {
@@ -697,18 +698,18 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 			patch := tenantPatch{Name: in.Name, Plan: in.PlanID, Layout: in.Layout}
 			call = func(ctx context.Context, a Actor) (any, error) {
 				if in.Compute != nil || in.Artifact != nil || in.Order != nil {
-					return nil, bad("Invalid or unsupported JSON request fields.")
+					return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 				}
 				return s.inv.UpdateTenant(ctx, a, in.ID, patch, in.Revision)
 			}
 			permissions = []string{"platform.manage"}
 		} else {
 			if in.ID != res.Tenant {
-				return nil, missing()
+				return nil, registry.Missing()
 			}
 			call = func(ctx context.Context, a Actor) (any, error) {
 				if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
-					return nil, bad("Invalid or unsupported JSON request fields.")
+					return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 				}
 				name := ""
 				if in.Name != nil {
@@ -719,22 +720,22 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		}
 	case "plan":
 		if target.Kind != "platform" || in.Plan == nil {
-			return nil, bad("Plan update requires platform scope and the complete plan object.")
+			return nil, registry.Bad("Plan update requires platform scope and the complete plan object.")
 		}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.inv.UpdatePlan(ctx, a, in.ID, *in.Plan, in.Revision)
 		}
 		permissions = []string{"platform.manage"}
 	default:
-		return nil, bad("Unsupported metadata resource.")
+		return nil, registry.Bad("Unsupported metadata resource.")
 	}
 	if in.Plan != nil && in.Resource != "plan" {
-		return nil, bad("Plan object is only valid for plan updates.")
+		return nil, registry.Bad("Plan object is only valid for plan updates.")
 	}
 	if in.Revision < 1 {
-		return nil, problem(428, "revision_required", "expected_revision is required.")
+		return nil, registry.Problem(428, "revision_required", "expected_revision is required.")
 	}
-	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": in.Resource, "id": in.ID}, in, permissions...)
+	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": in.Resource, "id": in.ID}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -751,7 +752,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	if e != nil {
 		return nil, e
 	}
-	if e = id(in.ID); e != nil {
+	if e = registry.ID(in.ID); e != nil {
 		return nil, e
 	}
 	permissions := []string{"lifecycle.manage", "access.manage"}
@@ -780,7 +781,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 		}
 	case "tenant":
 		if target.Kind != "platform" {
-			return nil, bad("Tenant lifecycle requires platform scope.")
+			return nil, registry.Bad("Tenant lifecycle requires platform scope.")
 		}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.inv.UpdateTenant(ctx, a, in.ID, tenantPatch{State: &in.State}, in.Revision)
@@ -800,12 +801,12 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 		}
 		permissions = append(permissions, "entities.publish")
 	default:
-		return nil, bad("Unsupported lifecycle resource.")
+		return nil, registry.Bad("Unsupported lifecycle resource.")
 	}
 	if in.Revision < 1 {
-		return nil, problem(428, "revision_required", "expected_revision is required.")
+		return nil, registry.Problem(428, "revision_required", "expected_revision is required.")
 	}
-	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": in.Resource, "id": in.ID}, in, permissions...)
+	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": in.Resource, "id": in.ID}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -819,7 +820,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		return nil, e
 	}
 	if in.Definition == nil {
-		return nil, bad("definition is required.")
+		return nil, registry.Bad("definition is required.")
 	}
 	key := in.Entity
 	var call func(context.Context, Actor) (any, error)
@@ -829,7 +830,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 			return nil, e
 		}
 		if target.Kind != "space" {
-			return nil, bad("New entities require a Space target.")
+			return nil, registry.Bad("New entities require a Space target.")
 		}
 		key = stableAgentID(p, in.RequestKey)
 		create := entityCreateInput{ID: key, Definition: *in.Definition}
@@ -838,18 +839,18 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 			return s.authoring.CreateEntity(ctx, a, space, create)
 		}
 	} else {
-		if e := id(key); e != nil {
+		if e := registry.ID(key); e != nil {
 			return nil, e
 		}
 		if in.Revision < 1 {
-			return nil, problem(428, "revision_required", "Existing drafts require expected_revision.")
+			return nil, registry.Problem(428, "revision_required", "Existing drafts require expected_revision.")
 		}
 		save := entitySaveInput{Definition: *in.Definition}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.authoring.SaveEntity(ctx, a, key, save, in.Revision)
 		}
 	}
-	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "entity", "id": key}, in, "entities.draft")
+	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": "entity", "id": key}, in, "entities.draft")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -866,14 +867,14 @@ func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw js
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	if e := id(in.Entity); e != nil {
+	if e := registry.ID(in.Entity); e != nil {
 		return nil, e
 	}
 	if in.Revision < 1 {
-		return nil, problem(428, "revision_required", "expected_revision is required.")
+		return nil, registry.Problem(428, "revision_required", "expected_revision is required.")
 	}
 	version := stableAgentID(p, in.RequestKey)
-	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "publication", "id": version, "entity_id": in.Entity}, in, "entities.publish")
+	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": "publication", "id": version, "entity_id": in.Entity}, in, "entities.publish")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -887,7 +888,7 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 		return nil, e
 	}
 	if len(in.Cases) > agentMaxSyntheticCases {
-		return nil, bad("Synthetic case count exceeds the published schema limit.")
+		return nil, registry.Bad("Synthetic case count exceeds the published schema limit.")
 	}
 	a := agentActor(ctx, p)
 	v, e := s.authoring.entityRow(ctx, s.DB, a, in.Entity, "entity.manage")
@@ -911,8 +912,8 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	result["draft_revision"] = v.Revision
 	result["candidate_hash"] = entity.Hash(in.Definition)
 	result["publication_authority_required"] = []string{"entities.publish"}
-	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v.Draft), "published_version": v.ActiveVersion, "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
-	cases := []Row{}
+	result["changes"] = registry.Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v.Draft), "published_version": v.ActiveVersion, "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
+	cases := []registry.Row{}
 	for _, c := range in.Cases {
 		data, e := s.authoring.TestEntity(ctx, a, in.Entity, entityTestInput{Definition: *in.Definition, App: c.App, User: c.User, Operation: c.Operation, Record: c.Record, Values: c.Values})
 		if e == nil {
@@ -941,7 +942,7 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	switch in.Action {
 	case "grant":
 		if (in.User == "") == (in.Team == "") {
-			return nil, bad("Choose exactly one user_id or team_id recipient.")
+			return nil, registry.Bad("Choose exactly one user_id or team_id recipient.")
 		}
 		grant := assignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
 		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
@@ -949,22 +950,22 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 		}
 	case "revoke":
 		if in.Revision < 1 {
-			return nil, problem(428, "revision_required", "Revocation requires expected_revision.")
+			return nil, registry.Problem(428, "revision_required", "Revocation requires expected_revision.")
 		}
 		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
 			return s.authority.Revoke(ctx, a, scope, sr, in.ID, in.Revision)
 		}
 	default:
-		return nil, bad("Action must be grant or revoke.")
+		return nil, registry.Bad("Action must be grant or revoke.")
 	}
-	if e = id(in.ID); e != nil {
+	if e = registry.ID(in.ID); e != nil {
 		return nil, e
 	}
 	permissions := []string{"access.manage"}
 	if target.Kind == "platform" {
 		permissions = append(permissions, "platform.manage")
 	}
-	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "role_assignment", "id": in.ID}, in, permissions...)
+	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": "role_assignment", "id": in.ID}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -988,9 +989,9 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 		return nil, e
 	}
 	if target.Kind != "tenant" && target.Kind != "team" {
-		return nil, bad("Membership target must be Tenant or team.")
+		return nil, registry.Bad("Membership target must be Tenant or team.")
 	}
-	if e = id(in.User); e != nil {
+	if e = registry.ID(in.User); e != nil {
 		return nil, e
 	}
 	var call func(context.Context, Actor) (any, error)
@@ -1004,7 +1005,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 		}
 	case "set_state":
 		if in.Revision < 1 {
-			return nil, problem(428, "revision_required", "Membership/team revision is required.")
+			return nil, registry.Problem(428, "revision_required", "Membership/team revision is required.")
 		}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			if target.Kind == "team" {
@@ -1014,18 +1015,18 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 		}
 	case "remove":
 		if target.Kind != "team" {
-			return nil, bad("Tenant membership is disable-only.")
+			return nil, registry.Bad("Tenant membership is disable-only.")
 		}
 		if in.Revision < 1 {
-			return nil, problem(428, "revision_required", "Team revision is required.")
+			return nil, registry.Problem(428, "revision_required", "Team revision is required.")
 		}
 		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.members.RemoveTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
 		}
 	default:
-		return nil, bad("Unsupported membership action.")
+		return nil, registry.Bad("Unsupported membership action.")
 	}
-	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "membership", "user_id": in.User, "target": target}, in, "access.manage")
+	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": "membership", "user_id": in.User, "target": target}, in, "access.manage")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -1038,13 +1039,13 @@ func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.R
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	if e := id(in.App); e != nil {
+	if e := registry.ID(in.App); e != nil {
 		return nil, e
 	}
 	if in.Revision < 1 {
-		return nil, problem(428, "revision_required", "App revision is required.")
+		return nil, registry.Problem(428, "revision_required", "App revision is required.")
 	}
-	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "app_access", "id": in.App}, in, "access.manage")
+	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": "app_access", "id": in.App}, in, "access.manage")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
@@ -1057,11 +1058,11 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.Ra
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	if e := id(in.ID); e != nil {
+	if e := registry.ID(in.ID); e != nil {
 		return nil, e
 	}
 	if p.Agent.Kind != "tenant" {
-		return nil, bad("Provisioning requires a Tenant-scoped connection.")
+		return nil, registry.Bad("Provisioning requires a Tenant-scoped connection.")
 	}
 	tenant := p.Agent.Tenant
 	var call func(context.Context, Actor) (any, error)
@@ -1074,12 +1075,12 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.Ra
 			return s.storage.RetryDatabase(ctx, a, tenant, in.ID, in.Revision)
 		}
 		if in.Revision < 1 {
-			return nil, problem(428, "revision_required", "Retry requires expected_revision.")
+			return nil, registry.Problem(428, "revision_required", "Retry requires expected_revision.")
 		}
 	default:
-		return nil, bad("Unsupported database action.")
+		return nil, registry.Bad("Unsupported database action.")
 	}
-	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "database", "id": in.ID}, in, "databases.provision")
+	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"type": "database", "id": in.ID}, in, "databases.provision")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 const (
@@ -31,8 +33,8 @@ func passwordLengthHint() string {
 	return fmt.Sprintf("%d–%d characters.", minPasswordLength, maxPasswordLength)
 }
 
-func publicPasswordPolicy() Row {
-	return Row{"min_length": minPasswordLength, "max_length": maxPasswordLength, "length_hint": passwordLengthHint()}
+func publicPasswordPolicy() registry.Row {
+	return registry.Row{"min_length": minPasswordLength, "max_length": maxPasswordLength, "length_hint": passwordLengthHint()}
 }
 
 type accountInput struct {
@@ -59,7 +61,7 @@ func loginEmail(raw string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(raw))
 	a, e := mail.ParseAddress(email)
 	if e != nil || a.Address != email || len(email) > 320 {
-		return "", bad("Enter a valid email address.")
+		return "", registry.Bad("Enter a valid email address.")
 	}
 	return email, nil
 }
@@ -67,7 +69,7 @@ func loginEmail(raw string) (string, error) {
 func validatePassword(password string) error {
 	n := utf8.RuneCountInString(password)
 	if !utf8.ValidString(password) || n < minPasswordLength || n > maxPasswordLength {
-		return bad("Use a password of " + passwordLengthHint())
+		return registry.Bad("Use a password of " + passwordLengthHint())
 	}
 	return nil
 }
@@ -87,7 +89,7 @@ func (s *Server) prepareAccount(in accountInput) (preparedAccount, error) {
 		return out, nil
 	} // Existing local account; never replace its credentials.
 	if out.Name == "" || len(out.Name) > 160 {
-		return out, bad("Enter the account holder's name (maximum 160 bytes).")
+		return out, registry.Bad("Enter the account holder's name (maximum 160 bytes).")
 	}
 	if e = validatePassword(in.Password); e != nil {
 		return out, e
@@ -109,16 +111,16 @@ func (s *Server) prepareAccount(in accountInput) (preparedAccount, error) {
 // Tenant, but its credentials and global profile are never overwritten.
 func localAccount(ctx context.Context, tx *sql.Tx, in preparedAccount, canCreate bool) (string, error) {
 	if len(in.Hash) > 0 && !canCreate {
-		return "", problem(403, "platform_account_required", "A platform administrator must create global email/password accounts. Add an existing account instead.")
+		return "", registry.Problem(403, "platform_account_required", "A platform administrator must create global email/password accounts. Add an existing account instead.")
 	}
 	var user, state string
 	e := tx.QueryRowContext(ctx, "SELECT u.id,u.state FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.login_email=? FOR UPDATE", in.Email).Scan(&user, &state)
 	if e == nil {
 		if len(in.Hash) > 0 {
-			return "", conflict("An account already uses this email. Select the existing account; its password has not changed.")
+			return "", registry.Conflict("An account already uses this email. Select the existing account; its password has not changed.")
 		}
-		if state != stateActive {
-			return "", bad("An active account is required.")
+		if state != registry.StateActive {
+			return "", registry.Bad("An active account is required.")
 		}
 		return user, nil
 	}
@@ -126,9 +128,9 @@ func localAccount(ctx context.Context, tx *sql.Tx, in preparedAccount, canCreate
 		return "", e
 	}
 	if len(in.Hash) == 0 {
-		return "", bad("A new account requires a name and initial password.")
+		return "", registry.Bad("A new account requires a name and initial password.")
 	}
-	user = newID()
+	user = registry.NewID()
 	if _, e = tx.ExecContext(ctx, "INSERT INTO users(id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?)", user, localIssuer, user, in.Name, in.Email); e != nil {
 		return "", e
 	}
@@ -148,7 +150,7 @@ func (s *Server) sessionCookies(w http.ResponseWriter, session, csrf string) {
 }
 
 func invalidLogin() error {
-	return problem(401, "invalid_credentials", "Email or password is incorrect.")
+	return registry.Problem(401, "invalid_credentials", "Email or password is incorrect.")
 }
 
 func (s *Server) passwordWork() (func(), error) {
@@ -156,7 +158,7 @@ func (s *Server) passwordWork() (func(), error) {
 	case s.passwordSlots <- struct{}{}:
 		return func() { <-s.passwordSlots }, nil
 	default:
-		return nil, problem(429, "authentication_busy", "Password processing is busy. Retry shortly.")
+		return nil, registry.Problem(429, "authentication_busy", "Password processing is busy. Retry shortly.")
 	}
 }
 
@@ -169,7 +171,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p Princ
 		return e
 	}
 	if in.Password == "" {
-		return bad("A new account requires a name and initial password.")
+		return registry.Bad("A new account requires a name and initial password.")
 	}
 	account, e := s.prepareAccount(in)
 	if e != nil {
@@ -184,10 +186,10 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p Princ
 		if e != nil {
 			return e
 		}
-		return audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), Row{"display_name": account.Name, "email": account.Email})
+		return audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), registry.Row{"display_name": account.Name, "email": account.Email})
 	})
 	if e == nil {
-		send(w, 201, Row{"id": user, "display_name": account.Name, "email": account.Email, "state": stateActive})
+		send(w, 201, registry.Row{"id": user, "display_name": account.Name, "email": account.Email, "state": registry.StateActive})
 	}
 	return e
 }
@@ -219,10 +221,10 @@ func (s *Server) BootstrapLocal(ctx context.Context, name, email, password strin
 		if e = platformCandidate(ctx, tx, user); e != nil {
 			return "", e
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", newID(), user, SuperRole); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, SuperRole); e != nil {
 			return "", e
 		}
-		if e = audit(ctx, tx, "", user, "platform.bootstrap", "user", user, newID(), Row{}); e != nil {
+		if e = audit(ctx, tx, "", user, "platform.bootstrap", "user", user, registry.NewID(), registry.Row{}); e != nil {
 			return "", e
 		}
 	}
@@ -239,7 +241,7 @@ var loginDatabaseTimeout = 15 * time.Second
 func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	e := func() error {
 		if !s.allowedOrigin(r.Header.Get("Origin")) {
-			return problem(403, "invalid_origin", "Request origin is not allowed.")
+			return registry.Problem(403, "invalid_origin", "Request origin is not allowed.")
 		}
 		var in struct {
 			Email    string `json:"email"`
@@ -277,7 +279,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 			salt, expected, iterations = make([]byte, 16), make([]byte, 32), passwordIterations
 		}
 		got := passwordKey(in.Password, salt, iterations)
-		if subtle.ConstantTimeCompare(got, expected) != 1 || user == "" || state != stateActive {
+		if subtle.ConstantTimeCompare(got, expected) != 1 || user == "" || state != registry.StateActive {
 			return invalidLogin()
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), loginDatabaseTimeout)
@@ -294,7 +296,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		if e = tx.QueryRowContext(ctx, "SELECT revision FROM local_accounts WHERE user_id=? FOR UPDATE", user).Scan(&current); e != nil {
 			return e
 		}
-		if state != stateActive || current != revision {
+		if state != registry.StateActive || current != revision {
 			return invalidLogin()
 		}
 		session, csrf, e := newConsoleSession(ctx, tx, user, "password")
@@ -305,7 +307,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		s.sessionCookies(w, session, csrf)
-		send(w, 200, Row{"ok": true})
+		send(w, 200, registry.Row{"ok": true})
 		return nil
 	}()
 	if e != nil {
@@ -315,7 +317,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if p.AuthMethod != "password" {
-		return bad("This account uses single sign-on. Manage its password with your identity provider.")
+		return registry.Bad("This account uses single sign-on. Manage its password with your identity provider.")
 	}
 	var in struct {
 		Current string `json:"current_password"`
@@ -331,7 +333,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Princi
 		return e
 	}
 	if in.Current == in.Next {
-		return bad("Choose a different password.")
+		return registry.Bad("Choose a different password.")
 	}
 	release, e := s.passwordWork()
 	if e != nil {
@@ -362,7 +364,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Princi
 	if e = tx.QueryRowContext(ctx, "SELECT state FROM users WHERE id=? FOR UPDATE", p.ID).Scan(&state); e != nil {
 		return e
 	}
-	if state != stateActive {
+	if state != registry.StateActive {
 		return invalidLogin()
 	}
 	var current int64
@@ -385,13 +387,13 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Princi
 	if e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, "", p.ID, "user.password_changed", "user", p.ID, r.Header.Get("X-Request-ID"), Row{}); e != nil {
+	if e = audit(ctx, tx, "", p.ID, "user.password_changed", "user", p.ID, r.Header.Get("X-Request-ID"), registry.Row{}); e != nil {
 		return e
 	}
 	if e = tx.Commit(); e != nil {
 		return e
 	}
 	s.sessionCookies(w, session, csrf)
-	send(w, 200, Row{"ok": true})
+	send(w, 200, registry.Row{"ok": true})
 	return nil
 }

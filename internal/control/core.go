@@ -19,18 +19,17 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
-	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 const (
@@ -91,24 +90,6 @@ type Server struct {
 	storage                *storage
 	authoring              *authoring
 }
-type Queryer interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}
-type (
-	Row      map[string]any
-	APIError struct {
-		Status        int
-		Code, Message string
-	}
-)
-
-func (e *APIError) Error() string                { return e.Code + ": " + e.Message }
-func problem(status int, code, msg string) error { return &APIError{status, code, msg} }
-func bad(msg string) error                       { return problem(400, "invalid_request", msg) }
-func missing() error                             { return problem(404, "not_found", "Resource not found or not accessible.") }
-func conflict(msg string) error                  { return problem(409, "conflict", msg) }
 
 func LoadConfig(path string) (Config, error) {
 	var c Config
@@ -121,7 +102,7 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func Open(c Config) (*Server, error) {
-	if c.WorkspaceDatabaseTarget != "" && id(c.WorkspaceDatabaseTarget) != nil {
+	if c.WorkspaceDatabaseTarget != "" && registry.ID(c.WorkspaceDatabaseTarget) != nil {
 		return nil, fmt.Errorf("invalid workspace_database_target_id")
 	}
 	seenClients := map[string]bool{}
@@ -278,49 +259,6 @@ func CheckSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func id(v string) error {
-	parsed, e := uuid.Parse(v)
-	if e != nil || parsed.String() != v || parsed == uuid.Nil {
-		return bad("IDs must be canonical UUIDs.")
-	}
-	return nil
-}
-func newID() string { return uuid.NewString() }
-
-var slugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-
-func named(slug, name string) error {
-	if !slugRE.MatchString(slug) {
-		return bad("Slug must start with a letter and use lowercase letters, numbers or hyphens (maximum 63 characters).")
-	}
-	if strings.TrimSpace(name) == "" || len(name) > 160 {
-		return bad("Name must contain 1–160 bytes.")
-	}
-	return nil
-}
-
-// Record lifecycle states shared by registry tables. The migrations' CHECK
-// constraints define which states each table allows; Go comparisons and written
-// values use these names, while static SQL predicates keep the readable literal.
-const (
-	stateActive    = "active"
-	stateDisabled  = "disabled"
-	stateSuspended = "suspended"
-	stateArchived  = "archived"
-	stateRetired   = "retired"
-	stateRevoked   = "revoked"
-)
-
-// enabledState reports whether state is valid for active/disabled records
-// such as users, memberships, groups, roles and database targets.
-func enabledState(state string) bool {
-	return state == stateActive || state == stateDisabled
-}
-
-func validState(state string) bool {
-	return state == stateActive || state == stateSuspended || state == stateArchived
-}
-
 func token(n int) string {
 	b := make([]byte, n)
 	if _, e := rand.Read(b); e != nil {
@@ -372,99 +310,16 @@ func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) er
 	return json.Unmarshal(b, out)
 }
 
-func rows(ctx context.Context, q Queryer, query string, args ...any) ([]Row, error) {
-	r, e := q.QueryContext(ctx, query, args...)
-	if e != nil {
-		return nil, e
-	}
-	defer r.Close()
-	cols, e := r.Columns()
-	if e != nil {
-		return nil, e
-	}
-	out := []Row{}
-	for r.Next() {
-		vals := make([]any, len(cols))
-		ptr := make([]any, len(cols))
-		for i := range vals {
-			ptr[i] = &vals[i]
-		}
-		if e = r.Scan(ptr...); e != nil {
-			return nil, e
-		}
-		v := Row{}
-		for i, k := range cols {
-			switch t := vals[i].(type) {
-			case []byte:
-				if strings.HasSuffix(k, "_json") && !strings.HasPrefix(k, "f_") {
-					var obj any
-					if json.Unmarshal(t, &obj) == nil {
-						v[k] = obj
-					} else {
-						v[k] = string(t)
-					}
-				} else {
-					v[k] = string(t)
-				}
-			default:
-				v[k] = t
-			}
-		}
-		out = append(out, v)
-	}
-	return out, r.Err()
-}
-
-func row(ctx context.Context, q Queryer, query string, args ...any) (Row, error) {
-	rs, e := rows(ctx, q, query, args...)
-	if e != nil {
-		return nil, e
-	}
-	if len(rs) == 0 {
-		return nil, missing()
-	}
-	return rs[0], nil
-}
-
-func str(v any) string {
-	if v == nil {
-		return ""
-	}
-	return fmt.Sprint(v)
-}
-
-func integer(v any) int64 {
-	switch n := v.(type) {
-	case bool:
-		if n {
-			return 1
-		}
-		return 0
-	case int64:
-		return n
-	case uint64:
-		return int64(n)
-	case float64:
-		return int64(n)
-	case json.Number:
-		i, _ := n.Int64()
-		return i
-	default:
-		i, _ := strconv.ParseInt(str(v), 10, 64)
-		return i
-	}
-}
-
 func decode(w http.ResponseWriter, r *http.Request, out any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if e := d.Decode(out); e != nil {
-		return bad("Invalid or unsupported JSON request fields.")
+		return registry.Bad("Invalid or unsupported JSON request fields.")
 	}
 	var extra any
 	if e := d.Decode(&extra); !errors.Is(e, io.EOF) {
-		return bad("Request must contain one JSON object.")
+		return registry.Bad("Request must contain one JSON object.")
 	}
 	return nil
 }
@@ -489,7 +344,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if o.Status == 429 {
 		w.Header().Set("Retry-After", "1")
 	}
-	send(w, o.Status, Row{"error": o.payload(r.Header.Get("X-Request-ID"))})
+	send(w, o.Status, registry.Row{"error": o.payload(r.Header.Get("X-Request-ID"))})
 }
 
 func expectedRevision(r *http.Request) (int64, error) {
@@ -509,21 +364,14 @@ func ifMatch(r *http.Request) int64 {
 
 func checkRevision(got, want int64) error {
 	if got != want {
-		return problem(412, "stale_revision", "This resource changed. Refresh before saving.")
+		return registry.Problem(412, "stale_revision", "This resource changed. Refresh before saving.")
 	}
 	return nil
 }
 
 // audit is the context shim of auditAs for code not yet migrated to actors.
-func audit(ctx context.Context, q Queryer, tenant, user, action, kind, record, request string, details any) error {
+func audit(ctx context.Context, q registry.Queryer, tenant, user, action, kind, record, request string, details any) error {
 	return auditAs(ctx, q, Actor{Principal: Principal{ID: user}, RequestID: request, Agent: agentCallFrom(ctx)}, tenant, action, kind, record, details)
-}
-
-func nullable(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
 }
 
 // mutate is the context shim of runner.mutate for handlers not yet migrated

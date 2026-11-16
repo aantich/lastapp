@@ -15,17 +15,18 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func agentSpaceFixture(t *testing.T) (*Server, testClient, Principal, string, string, string) {
 	t.Helper()
 	s, c, p, tenant, target, _ := agentSecurityFixture(t)
-	resource, space, app := newID(), newID(), newID()
+	resource, space, app := registry.NewID(), registry.NewID(), registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'review2_metadata_only','registered','shared','ready',X'00')", resource, tenant, target); e != nil {
 		t.Fatal(e)
 	}
-	c.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "slug": "review2", "display_name": "Review two", "database": Row{"resource_id": resource}, "initial_manager_user_id": p.ID}, 0, 201)
-	c.want("POST", "/v1/tenants/"+tenant+"/spaces/"+space+"/apps", Row{"id": app, "slug": "review2", "display_name": "Review two", "initial_manager_user_id": p.ID}, 0, 201)
+	c.want("POST", "/v1/tenants/"+tenant+"/spaces", registry.Row{"id": space, "slug": "review2", "display_name": "Review two", "database": registry.Row{"resource_id": resource}, "initial_manager_user_id": p.ID}, 0, 201)
+	c.want("POST", "/v1/tenants/"+tenant+"/spaces/"+space+"/apps", registry.Row{"id": app, "slug": "review2", "display_name": "Review two", "initial_manager_user_id": p.ID}, 0, 201)
 	return s, c, p, tenant, space, app
 }
 
@@ -34,7 +35,7 @@ func agentPublishedFixture(t *testing.T, s *Server, p Principal, tenant, space s
 	if ds := d.Validate(); len(ds) > 0 {
 		t.Fatal("invalid fixture definition", ds[0])
 	}
-	eid, vid := newID(), newID()
+	eid, vid := registry.NewID(), registry.NewID()
 	b, _ := json.Marshal(d)
 	if len(b) > entity.MaxDefinitionBytes {
 		t.Fatal("fixture exceeds definition limit")
@@ -53,11 +54,11 @@ func agentPublishedFixture(t *testing.T, s *Server, p Principal, tenant, space s
 
 func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	s, c, operator, _, _ := foundationFixture(t)
-	candidate := newID()
+	candidate := registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO users(id,oidc_issuer,oidc_subject,display_name) VALUES(?,?,?,'Review candidate')", candidate, s.Config.OIDCIssuer, candidate); e != nil {
 		t.Fatal(e)
 	}
-	grant := newID()
+	grant := registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'review2','Review two','platform','[\"read\",\"access.manage\"]','{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, operator, s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
@@ -67,7 +68,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	}
 	p := Principal{ID: operator, Platform: true, Agent: g}
 	// The honest platform target must demand platform.manage.
-	normal := agentAssignmentInput{Action: "grant", Target: &agentTarget{Kind: "platform"}, ID: newID(), Role: SuperRole, User: candidate, RequestKey: newID()}
+	normal := agentAssignmentInput{Action: "grant", Target: &agentTarget{Kind: "platform"}, ID: registry.NewID(), Role: SuperRole, User: candidate, RequestKey: registry.NewID()}
 	raw, _ := json.Marshal(normal)
 	_, e = s.toolAgentAssignment(context.Background(), p, raw)
 	var authority *agentAuthorityError
@@ -76,7 +77,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	}
 	// The API adapter must not infer platform scope from a missing Tenant ID.
 	normal.Target = &agentTarget{Kind: "tenant"}
-	normal.RequestKey = newID()
+	normal.RequestKey = registry.NewID()
 	args, _ := json.Marshal(normal)
 	schema, e := agentInputSchema(agentType[agentAssignmentInput]())
 	if e != nil {
@@ -94,7 +95,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 		t.Fatal("probe input is not an accepted MCP schema", e)
 	}
 	access := agentFixtureToken(t, s, p)
-	r := httptest.NewRequest("POST", s.mcpURL(), strings.NewReader(string(agentTestJSON(t, Row{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": Row{"name": "lastapp_role_assignment", "arguments": normal}}))))
+	r := httptest.NewRequest("POST", s.mcpURL(), strings.NewReader(string(agentTestJSON(t, registry.Row{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": registry.Row{"name": "lastapp_role_assignment", "arguments": normal}}))))
 	r.Header.Set("Authorization", "Bearer "+access)
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
@@ -122,7 +123,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 		t.Fatal(e)
 	}
 	normal.Target = &agentTarget{Kind: "platform"}
-	normal.RequestKey = newID()
+	normal.RequestKey = registry.NewID()
 	if _, e = s.toolAgentAssignment(context.Background(), p, agentTestJSON(t, normal)); e != nil {
 		t.Fatal("explicitly approved platform assignment failed", e)
 	}
@@ -199,7 +200,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		if len(items) != 1 {
 			t.Fatal("missing authorized page", page)
 		}
-		key := str(items[0].(map[string]any)["id"])
+		key := registry.Str(items[0].(map[string]any)["id"])
 		if seen[key] {
 			t.Fatal("duplicate paged entity", key)
 		}
@@ -227,7 +228,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		}
 		if len(items) > 0 {
 			row := items[0].(map[string]any)
-			if str(row["id"]) != ids[2] || len(row["fields"].([]any)) != 1 {
+			if registry.Str(row["id"]) != ids[2] || len(row["fields"].([]any)) != 1 {
 				t.Fatal("inventory escaped App ceiling")
 			}
 		}
@@ -260,7 +261,7 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 		t.Fatal("large saved entity cannot be checked", e)
 	}
 	result := wire(t, checked)
-	if len(result["diagnostics"].([]any)) != 0 || len(result["cases"].([]any)) != 1 || result["schema"] != nil || result["typescript"] != nil || str(result["candidate_hash"]) != entity.Hash(d) {
+	if len(result["diagnostics"].([]any)) != 0 || len(result["cases"].([]any)) != 1 || result["schema"] != nil || result["typescript"] != nil || registry.Str(result["candidate_hash"]) != entity.Hash(d) {
 		t.Fatal("check omitted diagnostics/cases or returned heavy contracts")
 	}
 	candidate := d
@@ -273,7 +274,7 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	if len(wire(t, checked)["diagnostics"].([]any)) == 0 {
 		t.Fatal("candidate validation was skipped")
 	}
-	stored, e := row(context.Background(), s.DB, "SELECT draft_json FROM entity_definitions WHERE id=?", eid)
+	stored, e := registry.QueryRow(context.Background(), s.DB, "SELECT draft_json FROM entity_definitions WHERE id=?", eid)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -295,9 +296,9 @@ func TestAgentBatchAdmission(t *testing.T) {
 	}
 	eid := agentPublishedFixture(t, s, p, tenant, space, d)
 	access := agentFixtureToken(t, s, p)
-	calls := []Row{}
+	calls := []registry.Row{}
 	for i := 0; i < agentMaxConcurrent+8; i++ {
-		calls = append(calls, Row{"jsonrpc": "2.0", "id": i + 1, "method": "tools/call", "params": Row{"name": "lastapp_get", "arguments": Row{"resource": "entity", "id": eid, "section": "definition"}}})
+		calls = append(calls, registry.Row{"jsonrpc": "2.0", "id": i + 1, "method": "tools/call", "params": registry.Row{"name": "lastapp_get", "arguments": registry.Row{"resource": "entity", "id": eid, "section": "definition"}}})
 	}
 	raw := agentTestJSON(t, calls)
 	if len(raw) > 1<<20 {
@@ -310,7 +311,7 @@ func TestAgentBatchAdmission(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.mcpHandler().ServeHTTP(w, r)
 	if w.Code == 200 {
-		var result []Row
+		var result []registry.Row
 		if e := json.Unmarshal(w.Body.Bytes(), &result); e != nil {
 			t.Fatal("invalid batch response", e)
 		}
@@ -363,15 +364,15 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 		t.Fatal(e)
 	}
 	p.Agent = g
-	input := spaceCreateInput{namedInput: namedInput{ID: newID(), Slug: "reuse-direct", Name: "Reuse direct"}, Manager: p.ID}
+	input := spaceCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "reuse-direct", Name: "Reuse direct"}, Manager: p.ID}
 	input.Database.Mode = "managed"
 	input.Database.Layout = "shared"
 	// Existing shared resource: the shared operation itself needs no allocation.
 	c.want("POST", "/v1/tenants/"+tenant+"/spaces", input, 0, 201)
-	input.ID = newID()
+	input.ID = registry.NewID()
 	input.Slug = "reuse-agent"
 	input.Name = "Reuse agent"
-	raw := agentTestJSON(t, agentCreateInput{Space: &input, RequestKey: newID()})
+	raw := agentTestJSON(t, agentCreateInput{Space: &input, RequestKey: registry.NewID()})
 	if _, e = s.toolAgentCreate(context.Background(), p, raw); e != nil {
 		t.Fatal("shared reuse demanded provisioning permission", e)
 	}
@@ -382,10 +383,10 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE tenants SET default_shared_database_id=NULL WHERE id=?", tenant); e != nil {
 		t.Fatal(e)
 	}
-	input.ID = newID()
+	input.ID = registry.NewID()
 	input.Slug = "unapproved-allocation"
-	_, e = s.toolAgentCreate(context.Background(), p, agentTestJSON(t, agentCreateInput{Space: &input, RequestKey: newID()}))
-	var apiError *APIError
+	_, e = s.toolAgentCreate(context.Background(), p, agentTestJSON(t, agentCreateInput{Space: &input, RequestKey: registry.NewID()}))
+	var apiError *registry.APIError
 	if !errors.As(e, &apiError) || apiError.Code != "needs_authorization" {
 		t.Fatal("new allocation did not enforce provisioning delegation", e)
 	}
@@ -396,7 +397,7 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 
 func TestAgentDeniedDatabaseJobAudit(t *testing.T) {
 	s, _, p, tenant, target, _ := agentSecurityFixture(t)
-	record := newID()
+	record := registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,ownership_token,agent_grant_id,agent_user_id) VALUES(?,?,?,'review_denied_metadata_only','managed','shared','pending',X'00',UNHEX(REPEAT('01',16)),?,?)", record, tenant, target, p.Agent.ID, p.ID); e != nil {
 		t.Fatal(e)
 	}
@@ -409,7 +410,7 @@ func TestAgentDeniedDatabaseJobAudit(t *testing.T) {
 	go func() { defer close(done); s.RunWorker(ctx) }()
 	defer func() { cancel(); <-done }()
 	for ctx.Err() == nil {
-		v, e := row(ctx, s.DB, "SELECT state,last_error_code FROM database_resources WHERE id=?", record)
+		v, e := registry.QueryRow(ctx, s.DB, "SELECT state,last_error_code FROM database_resources WHERE id=?", record)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -417,12 +418,12 @@ func TestAgentDeniedDatabaseJobAudit(t *testing.T) {
 			if v["last_error_code"] != "agent_access_revoked" {
 				t.Fatal("revoked job reached provisioning", v)
 			}
-			event, e := row(ctx, s.DB, "SELECT actor_user_id,details_json FROM audit_events WHERE resource_id=? AND action='database.failed'", record)
+			event, e := registry.QueryRow(ctx, s.DB, "SELECT actor_user_id,details_json FROM audit_events WHERE resource_id=? AND action='database.failed'", record)
 			if e != nil {
 				t.Fatal(e)
 			}
 			details := event["details_json"].(map[string]any)
-			if str(event["actor_user_id"]) != p.ID || str(details["agent_grant_id"]) != p.Agent.ID || str(details["agent_client_id"]) != p.Agent.Client {
+			if registry.Str(event["actor_user_id"]) != p.ID || registry.Str(details["agent_grant_id"]) != p.Agent.ID || registry.Str(details["agent_client_id"]) != p.Agent.Client {
 				t.Fatal("denied job lost persistent attribution", event)
 			}
 			return

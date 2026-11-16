@@ -20,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Regression tests for the ten independently reproduced security review findings.
@@ -45,13 +47,13 @@ func TestSecurityRegressions(t *testing.T) {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { admin.DB.Close() })
-	registry := "lastapp_review_" + strings.ReplaceAll(newID(), "-", "")
-	if _, e = admin.DB.Exec("CREATE DATABASE `" + registry + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); e != nil {
+	reviewRegistry := "lastapp_review_" + strings.ReplaceAll(registry.NewID(), "-", "")
+	if _, e = admin.DB.Exec("CREATE DATABASE `" + reviewRegistry + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); e != nil {
 		t.Fatal(e)
 	}
 	cfg := source
 	slash := strings.LastIndex(adminCfg.RegistryDSN, "/")
-	cfg.RegistryDSN = adminCfg.RegistryDSN[:slash+1] + registry
+	cfg.RegistryDSN = adminCfg.RegistryDSN[:slash+1] + reviewRegistry
 	s, e := Open(cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -63,9 +65,9 @@ func TestSecurityRegressions(t *testing.T) {
 			cancel()
 			<-done
 		}
-		resources, _ := rows(context.Background(), s.DB, "SELECT id,database_name,LOWER(HEX(ownership_token)) AS ownership_hex FROM database_resources WHERE management_mode='managed'")
+		resources, _ := registry.QueryRows(context.Background(), s.DB, "SELECT id,database_name,LOWER(HEX(ownership_token)) AS ownership_hex FROM database_resources WHERE management_mode='managed'")
 		for _, r := range resources {
-			name := str(r["database_name"])
+			name := registry.Str(r["database_name"])
 			var comment string
 			if err := admin.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment); err != nil {
 				if !errors.Is(err, sql.ErrNoRows) {
@@ -73,7 +75,7 @@ func TestSecurityRegressions(t *testing.T) {
 				}
 				continue
 			}
-			if generatedRE.MatchString(name) && comment == "lastapp:"+str(r["id"])+":"+str(r["ownership_hex"]) {
+			if generatedRE.MatchString(name) && comment == "lastapp:"+registry.Str(r["id"])+":"+registry.Str(r["ownership_hex"]) {
 				if _, err := admin.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
 					t.Error("review database cleanup failed", err)
 				}
@@ -83,7 +85,7 @@ func TestSecurityRegressions(t *testing.T) {
 			}
 		}
 		s.DB.Close()
-		if _, err := admin.DB.Exec("DROP DATABASE `" + registry + "`"); err != nil {
+		if _, err := admin.DB.Exec("DROP DATABASE `" + reviewRegistry + "`"); err != nil {
 			t.Error("review registry cleanup failed", err)
 		}
 	})
@@ -122,8 +124,8 @@ func TestSecurityRegressions(t *testing.T) {
 	go func() { defer close(done); s.RunWorker(ctx) }()
 
 	createTenant := func(plan string) string {
-		tenant := newID()
-		c.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "review-" + tenant, "display_name": "Disposable review Tenant", "plan_id": plan, "initial_admin_user_id": owner}, 0, 201)
+		tenant := registry.NewID()
+		c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "review-" + tenant, "display_name": "Disposable review Tenant", "plan_id": plan, "initial_admin_user_id": owner}, 0, 201)
 		return tenant
 	}
 	starter := "10000000-0000-4000-8000-000000000002"
@@ -134,7 +136,7 @@ func TestSecurityRegressions(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		_, e = s.DB.Exec("INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", newID(), user, SuperRole)
+		_, e = s.DB.Exec("INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, SuperRole)
 		if e == nil {
 			t.Fatal("duplicate grant accepted")
 		}
@@ -150,17 +152,17 @@ func TestSecurityRegressions(t *testing.T) {
 		}
 	})
 	businessScope := func(tenant string) string {
-		space := newID()
-		ownerClient.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "initial_manager_user_id": owner, "slug": "scope-" + space, "display_name": "Role fixture", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		space := registry.NewID()
+		ownerClient.want("POST", "/v1/tenants/"+tenant+"/spaces", registry.Row{"id": space, "initial_manager_user_id": owner, "slug": "scope-" + space, "display_name": "Role fixture", "database": registry.Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
 		return "/v1/tenants/" + tenant + "/spaces/" + space
 	}
 	t.Run("MetadataCeilingsAndBoundedGroupMembers", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		group := newID()
-		ownerClient.want("POST", base+"/teams", Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
+		group := registry.NewID()
+		ownerClient.want("POST", base+"/teams", registry.Row{"id": group, "slug": "bounded", "display_name": "Bounded"}, 0, 201)
 		for i := 0; i < 12; i++ {
-			user := newID()
+			user := registry.NewID()
 			if _, e = s.DB.Exec("INSERT INTO users (id,oidc_issuer,oidc_subject,display_name) VALUES (?,?,?,?)", user, cfg.OIDCIssuer, user, fmt.Sprintf("Member %02d", i)); e != nil {
 				t.Fatal(e)
 			}
@@ -180,18 +182,18 @@ func TestSecurityRegressions(t *testing.T) {
 			t.Fatal("group member pagination incomplete", later)
 		}
 		for i := 1; i < metadataLimits["groups"]; i++ {
-			if _, e = s.DB.Exec("INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", newID(), tenant, fmt.Sprintf("group-%03d", i), "Bounded"); e != nil {
+			if _, e = s.DB.Exec("INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", registry.NewID(), tenant, fmt.Sprintf("group-%03d", i), "Bounded"); e != nil {
 				t.Fatal(e)
 			}
 		}
-		ownerClient.want("POST", base+"/teams", Row{"id": newID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
+		ownerClient.want("POST", base+"/teams", registry.Row{"id": registry.NewID(), "slug": "over-limit", "display_name": "Denied"}, 0, 409)
 	})
 	t.Run("SecurityRoleAuditHasBeforeAndAfter", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := businessScope(tenant)
-		role := newID()
-		ownerClient.want("POST", base+"/roles", Row{"id": role, "code": "audited", "display_name": "Audited"}, 0, 201)
-		ownerClient.want("PATCH", base+"/roles/"+role, Row{"state": "disabled"}, 1, 200)
+		role := registry.NewID()
+		ownerClient.want("POST", base+"/roles", registry.Row{"id": role, "code": "audited", "display_name": "Audited"}, 0, 201)
+		ownerClient.want("PATCH", base+"/roles/"+role, registry.Row{"state": "disabled"}, 1, 200)
 		var raw string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='role.updated'", role).Scan(&raw); e != nil {
 			t.Fatal(e)
@@ -239,7 +241,7 @@ func TestSecurityRegressions(t *testing.T) {
 		defer tx.Rollback()
 		for _, tenant := range []string{a, b} {
 			for i := 0; i < 2; i++ {
-				record := newID()
+				record := registry.NewID()
 				if _, e = tx.Exec("INSERT INTO database_resources (id,tenant_id,target_id,database_name,management_mode,layout,runtime_credentials_enc,ownership_token) VALUES (?,?,?,?,'managed','shared','test',RANDOM_BYTES(16))", record, tenant, target, "la_"+strings.ReplaceAll(record, "-", "")); e != nil {
 					t.Fatal(e)
 				}
@@ -262,18 +264,18 @@ func TestSecurityRegressions(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			switch r.URL.Path {
 			case "/.well-known/openid-configuration":
-				if err := json.NewEncoder(w).Encode(Row{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}}); err != nil {
+				if err := json.NewEncoder(w).Encode(registry.Row{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}}); err != nil {
 					t.Error(err)
 				}
 			case "/jwks":
-				if err := json.NewEncoder(w).Encode(Row{"keys": []any{Row{"kty": "RSA", "kid": "review", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}}); err != nil {
+				if err := json.NewEncoder(w).Encode(registry.Row{"keys": []any{registry.Row{"kty": "RSA", "kid": "review", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}}); err != nil {
 					t.Error(err)
 				}
 			case "/token":
-				unsigned := encode(Row{"alg": "RS256", "kid": "review"}) + "." + encode(Row{"iss": issuer, "sub": "review-victim ", "aud": cfg.OIDCClientID, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "nonce": nonce, "name": "Distinct provider account"})
+				unsigned := encode(registry.Row{"alg": "RS256", "kid": "review"}) + "." + encode(registry.Row{"iss": issuer, "sub": "review-victim ", "aud": cfg.OIDCClientID, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "nonce": nonce, "name": "Distinct provider account"})
 				digest := sha256.Sum256([]byte(unsigned))
 				signature, _ := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
-				if err := json.NewEncoder(w).Encode(Row{"access_token": "review-access-token", "token_type": "Bearer", "expires_in": 60, "id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)}); err != nil {
+				if err := json.NewEncoder(w).Encode(registry.Row{"access_token": "review-access-token", "token_type": "Bearer", "expires_in": 60, "id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)}); err != nil {
 					t.Error(err)
 				}
 			default:
@@ -309,11 +311,11 @@ func TestSecurityRegressions(t *testing.T) {
 		}
 		me := httptest.NewRecorder()
 		h.ServeHTTP(me, meReq)
-		var identity Row
+		var identity registry.Row
 		if err := json.Unmarshal(me.Body.Bytes(), &identity); err != nil {
 			t.Fatal(err)
 		}
-		if str(identity["id"]) == victim || identity["platform_admin"] != false {
+		if registry.Str(identity["id"]) == victim || identity["platform_admin"] != false {
 			t.Fatalf("distinct signed identity inherited another account: %v", identity)
 		}
 	})
@@ -321,11 +323,11 @@ func TestSecurityRegressions(t *testing.T) {
 		tenant := createTenant(starter)
 		base := "/v1/tenants/" + tenant
 		tc := c.as(owner)
-		ids := []string{newID(), newID()}
-		tc.want("POST", base+"/database-resources", Row{"id": ids[0], "management_mode": "managed", "layout": "shared", "target_id": target}, 0, 202)
+		ids := []string{registry.NewID(), registry.NewID()}
+		tc.want("POST", base+"/database-resources", registry.Row{"id": ids[0], "management_mode": "managed", "layout": "shared", "target_id": target}, 0, 202)
 		ready := tc.waitDB(tenant, ids[0], "ready")
-		tc.want("PATCH", base+"/database-resources/"+ids[0], Row{"state": "retired"}, integer(ready["revision"]), 202)
-		tc.want("POST", base+"/database-resources", Row{"id": ids[1], "management_mode": "managed", "layout": "shared", "target_id": target}, 0, 409)
+		tc.want("PATCH", base+"/database-resources/"+ids[0], registry.Row{"state": "retired"}, registry.Integer(ready["revision"]), 202)
+		tc.want("POST", base+"/database-resources", registry.Row{"id": ids[1], "management_mode": "managed", "layout": "shared", "target_id": target}, 0, 409)
 		var physical int
 		if e = admin.DB.QueryRow("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME IN (?,?)", "la_"+strings.ReplaceAll(ids[0], "-", ""), "la_"+strings.ReplaceAll(ids[1], "-", "")).Scan(&physical); e != nil || physical != 1 {
 			t.Fatalf("retirement released physical quota: count=%d error=%v", physical, e)
@@ -343,7 +345,7 @@ func TestSecurityRegressions(t *testing.T) {
 		}
 	})
 	t.Run("GlobalGrantOptionRejected", func(t *testing.T) {
-		name := "rv_" + strings.ReplaceAll(newID(), "-", "")
+		name := "rv_" + strings.ReplaceAll(registry.NewID(), "-", "")
 		password := token(32)
 		if _, e = admin.DB.Exec("CREATE DATABASE `" + name + "`"); e != nil {
 			t.Fatal(e)
@@ -389,9 +391,9 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("GrantAuditRetainsPrincipalAndScope", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		ownerClient.want("POST", base+"/memberships", Row{"user_id": outsideUser}, 0, 201)
-		grant := newID()
-		ownerClient.want("POST", base+"/role-assignments", Row{"id": grant, "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
+		ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": outsideUser}, 0, 201)
+		grant := registry.NewID()
+		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": grant, "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
 		ownerClient.want("DELETE", base+"/role-assignments/"+grant, nil, 1, 200)
 		var details string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='grant.deleted'", grant).Scan(&details); e != nil {
@@ -433,13 +435,13 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("BoundedCollectionsAndUniqueGrants", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		ownerClient.want("POST", base+"/memberships", Row{"user_id": outsideUser}, 0, 201)
-		ownerClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
-		ownerClient.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 409)
+		ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": outsideUser}, 0, 201)
+		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
+		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 409)
 		scope := businessScope(tenant)
 		space := scope[strings.LastIndex(scope, "/")+1:]
 		for i := 0; i < 105; i++ {
-			if _, e = s.DB.Exec("INSERT INTO roles(id,tenant_id,space_id,owner_key,scope_kind,domain,code,display_name) VALUES (?,?,?,?,'space','data',?,?)", newID(), tenant, space, "s:"+space, fmt.Sprintf("paged-%03d", i), fmt.Sprintf("Paged %03d", i)); e != nil {
+			if _, e = s.DB.Exec("INSERT INTO roles(id,tenant_id,space_id,owner_key,scope_kind,domain,code,display_name) VALUES (?,?,?,?,'space','data',?,?)", registry.NewID(), tenant, space, "s:"+space, fmt.Sprintf("paged-%03d", i), fmt.Sprintf("Paged %03d", i)); e != nil {
 				t.Fatal(e)
 			}
 		}
@@ -455,22 +457,22 @@ func TestSecurityRegressions(t *testing.T) {
 	t.Run("DedicatedAppGrandfathering", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		space := newID()
-		ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "review-space", "display_name": "Review", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
-		app := newID()
-		ownerClient.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
+		space := registry.NewID()
+		ownerClient.want("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": space, "slug": "review-space", "display_name": "Review", "database": registry.Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		app := registry.NewID()
+		ownerClient.want("POST", base+"/spaces/"+space+"/apps", registry.Row{"initial_manager_user_id": owner, "id": app, "slug": "review-app", "display_name": "Dedicated app", "compute_mode": "dedicated"}, 0, 201)
 		current := c.want("GET", base, nil, 0, 200)
-		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"plan_id": starter}, integer(current["revision"]), 200)
-		ownerClient.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename", "compute_mode": "dedicated"}, 1, 200)
-		ownerClient.want("PATCH", base+"/apps/"+app, Row{"display_name": "Rename again"}, 2, 200)
-		ownerClient.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "shared"}, 3, 200)
-		ownerClient.want("PATCH", base+"/apps/"+app, Row{"compute_mode": "dedicated"}, 4, 403)
+		c.want("PATCH", "/admin/v1/tenants/"+tenant, registry.Row{"plan_id": starter}, registry.Integer(current["revision"]), 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, registry.Row{"display_name": "Rename", "compute_mode": "dedicated"}, 1, 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, registry.Row{"display_name": "Rename again"}, 2, 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, registry.Row{"compute_mode": "shared"}, 3, 200)
+		ownerClient.want("PATCH", base+"/apps/"+app, registry.Row{"compute_mode": "dedicated"}, 4, 403)
 	})
 	t.Run("DisabledRoleCreation", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := businessScope(tenant)
-		role := newID()
-		ownerClient.want("POST", base+"/roles", Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled"}, 0, 201)
+		role := registry.NewID()
+		ownerClient.want("POST", base+"/roles", registry.Row{"id": role, "code": "disabled-role", "display_name": "Requested disabled", "state": "disabled"}, 0, 201)
 		var state string
 		if e = s.DB.QueryRow("SELECT state FROM roles WHERE id=?", role).Scan(&state); e != nil {
 			t.Fatal(e)
@@ -478,18 +480,18 @@ func TestSecurityRegressions(t *testing.T) {
 		if state != "disabled" {
 			t.Fatalf("disabled role became %s", state)
 		}
-		ownerClient.want("POST", base+"/roles", Row{"id": newID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
+		ownerClient.want("POST", base+"/roles", registry.Row{"id": registry.NewID(), "code": "invalid-state", "display_name": "Invalid", "state": "bogus"}, 0, 400)
 	})
 	t.Run("SuspensionBlocksAllNewInventory", func(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
-		space, app := newID(), newID()
-		ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
-		ownerClient.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
+		space, app := registry.NewID(), registry.NewID()
+		ownerClient.want("POST", base+"/spaces", registry.Row{"initial_manager_user_id": owner, "id": space, "slug": "lifecycle", "display_name": "Lifecycle", "database": registry.Row{"mode": "managed", "layout": "shared", "target_id": target}}, 0, 201)
+		ownerClient.want("POST", base+"/spaces/"+space+"/apps", registry.Row{"initial_manager_user_id": owner, "id": app, "slug": "lifecycle", "display_name": "Lifecycle"}, 0, 201)
 		current := c.want("GET", base, nil, 0, 200)
-		c.want("PATCH", "/admin/v1/tenants/"+tenant, Row{"state": "suspended"}, integer(current["revision"]), 200)
-		ownerClient.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "still-created", "display_name": "Still created"}, 0, 403)
-		ownerClient.want("POST", base+"/spaces/"+space+"/apps", Row{"initial_manager_user_id": owner, "id": newID(), "slug": "blocked", "display_name": "Blocked"}, 0, 403)
+		c.want("PATCH", "/admin/v1/tenants/"+tenant, registry.Row{"state": "suspended"}, registry.Integer(current["revision"]), 200)
+		ownerClient.want("POST", base+"/apps/"+app+"/microapps", registry.Row{"id": registry.NewID(), "slug": "still-created", "display_name": "Still created"}, 0, 403)
+		ownerClient.want("POST", base+"/spaces/"+space+"/apps", registry.Row{"initial_manager_user_id": owner, "id": registry.NewID(), "slug": "blocked", "display_name": "Blocked"}, 0, 403)
 	})
 
 	fmt.Println("Review fixture registry and all its managed databases/accounts are removed by test cleanup.")

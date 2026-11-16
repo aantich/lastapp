@@ -9,6 +9,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Transport-independent operation primitives. Console handlers and MCP tools
@@ -31,7 +32,7 @@ type AgentCall struct {
 	Grant                *agentGrant
 	Permission           []string
 	Operation, Key, Hash string
-	ResultRef            Row
+	ResultRef            registry.Row
 	Committed            bool
 }
 
@@ -69,7 +70,7 @@ func actorFrom(ctx context.Context, p Principal, requestID string) Actor {
 // agentActor is the actor of one MCP tool call. Every call gets its own
 // operation request ID, as an HTTP request would.
 func agentActor(ctx context.Context, p Principal) Actor {
-	return actorFrom(ctx, p, newID())
+	return actorFrom(ctx, p, registry.NewID())
 }
 
 // Ref is the compact result of a mutation: the record and its new revision.
@@ -80,7 +81,7 @@ type Ref struct {
 
 // revisionRequired rejects an update without an expected revision.
 func revisionRequired() error {
-	return problem(428, "revision_required", "Send If-Match with the current resource revision.")
+	return registry.Problem(428, "revision_required", "Send If-Match with the current resource revision.")
 }
 
 // opError is the one transport-independent classification of an operation
@@ -99,27 +100,27 @@ type opError struct {
 }
 
 func classify(err error) opError {
-	var ae *APIError
+	var ae *registry.APIError
 	var ed entity.Diagnostic
 	var me *mariadb.MySQLError
 	if errors.As(err, &ae) {
 	} else if errors.As(err, &ed) {
-		ae = &APIError{400, ed.Code, ed.Message}
+		ae = &registry.APIError{Status: 400, Code: ed.Code, Message: ed.Message}
 	} else if errors.As(err, &me) {
 		switch me.Number {
 		case 1062:
-			ae = &APIError{409, "already_exists", "This ID or name already exists. Read the existing resource before retrying."}
+			ae = &registry.APIError{Status: 409, Code: "already_exists", Message: "This ID or name already exists. Read the existing resource before retrying."}
 		case 1451, 1452:
-			ae = &APIError{409, "invalid_reference", "A referenced resource is missing, belongs to another Tenant, or is still in use."}
+			ae = &registry.APIError{Status: 409, Code: "invalid_reference", Message: "A referenced resource is missing, belongs to another Tenant, or is still in use."}
 		case 4025:
-			ae = &APIError{400, "invalid_request", "The request violates a resource constraint."}
+			ae = &registry.APIError{Status: 400, Code: "invalid_request", Message: "The request violates a resource constraint."}
 		case 1205, 1213:
-			ae = &APIError{409, "retry_transaction", "A concurrent change occurred; refresh and retry."}
+			ae = &registry.APIError{Status: 409, Code: "retry_transaction", Message: "A concurrent change occurred; refresh and retry."}
 		}
 	}
 	o := opError{}
 	if ae == nil {
-		ae = &APIError{500, "internal_error", "The operation failed. See the server log with this request ID."}
+		ae = &registry.APIError{Status: 500, Code: "internal_error", Message: "The operation failed. See the server log with this request ID."}
 		o.Unmapped = true
 	}
 	o.Status, o.Code, o.Message = ae.Status, ae.Code, ae.Message
@@ -146,8 +147,8 @@ func classify(err error) opError {
 	return o
 }
 
-func (o opError) payload(requestID string) Row {
-	v := Row{"code": o.Code, "message": o.Message, "request_id": requestID, "retryable": o.Retryable}
+func (o opError) payload(requestID string) registry.Row {
+	v := registry.Row{"code": o.Code, "message": o.Message, "request_id": requestID, "retryable": o.Retryable}
 	if o.FieldOrRule != "" {
 		v["field_or_rule"] = o.FieldOrRule
 	}
@@ -184,7 +185,7 @@ func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resourc
 	if res.Tenant != "" {
 		var x string
 		if e = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", res.Tenant).Scan(&x); e != nil {
-			return missing()
+			return registry.Missing()
 		}
 	} else {
 		var x string
@@ -228,7 +229,7 @@ func (r *runner) authorizeTx(ctx context.Context, tx *sql.Tx, a Actor, action st
 
 // check is the live authorization check on q. mutating selects the stricter
 // membership and platform-control rules of a change, also before its transaction.
-func (r *runner) check(ctx context.Context, q Queryer, a Actor, action string, res Resource, mutating bool) error {
+func (r *runner) check(ctx context.Context, q registry.Queryer, a Actor, action string, res Resource, mutating bool) error {
 	ctx, e := withAgentCall(ctx, a.Agent)
 	if e != nil {
 		return e
@@ -240,9 +241,9 @@ func (r *runner) check(ctx context.Context, q Queryer, a Actor, action string, r
 // receipt's reserved result ID for an agent call, a new ID otherwise.
 func (a Actor) operationID() string {
 	if a.Agent != nil {
-		return str(a.Agent.ResultRef["id"])
+		return registry.Str(a.Agent.ResultRef["id"])
 	}
-	return newID()
+	return registry.NewID()
 }
 
 // scopes returns a's live read scopes in tenant; apply them before paging.
@@ -265,7 +266,7 @@ func (r *runner) ref(ctx context.Context, table, tenant, record string) (Ref, er
 	var v Ref
 	if e := r.db.QueryRowContext(ctx, query, args...).Scan(&v.ID, &v.Revision); e != nil {
 		if errors.Is(e, sql.ErrNoRows) {
-			return v, missing()
+			return v, registry.Missing()
 		}
 		return v, e
 	}
@@ -275,15 +276,15 @@ func (r *runner) ref(ctx context.Context, table, tenant, record string) (Ref, er
 // auditAs records an audit event attributed to a: the human user, the request
 // ID and, for delegated calls, the agent grant and client. Workers carry the
 // grant identity of their persisted job through agentAuditContext.
-func auditAs(ctx context.Context, q Queryer, a Actor, tenant, action, kind, record string, details any) error {
+func auditAs(ctx context.Context, q registry.Queryer, a Actor, tenant, action, kind, record string, details any) error {
 	identity, _ := ctx.Value(agentAuditKey{}).(agentAuditIdentity)
 	if a.Agent != nil {
 		identity = agentAuditIdentity{Grant: a.Agent.Grant.ID, Client: a.Agent.Grant.Client}
 	}
 	if identity.Grant != "" {
-		details = Row{"agent_grant_id": identity.Grant, "agent_client_id": identity.Client, "details": details}
+		details = registry.Row{"agent_grant_id": identity.Grant, "agent_client_id": identity.Client, "details": details}
 	}
 	b, _ := json.Marshal(details)
-	_, e := q.ExecContext(ctx, "INSERT INTO audit_events (tenant_id,actor_user_id,action,resource_type,resource_id,request_id,details_json) VALUES (?,?,?,?,?,?,?)", nullable(tenant), nullable(a.Principal.ID), action, kind, nullable(record), a.RequestID, string(b))
+	_, e := q.ExecContext(ctx, "INSERT INTO audit_events (tenant_id,actor_user_id,action,resource_type,resource_id,request_id,details_json) VALUES (?,?,?,?,?,?,?)", registry.Nullable(tenant), registry.Nullable(a.Principal.ID), action, kind, registry.Nullable(record), a.RequestID, string(b))
 	return e
 }

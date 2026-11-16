@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/artifact"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 const (
@@ -19,13 +20,13 @@ const (
 	uploadTicketLifetime   = 10 * time.Minute
 )
 
-func developmentPolicy() Row {
-	return Row{"max_workspace_apps": maxWorkspaceApps, "max_release_microapps": maxReleaseMicroapps, "max_release_dependencies": maxReleaseDependencies, "max_snapshot_bytes": maxSpaceSnapshotBytes, "max_app_builds": maxAppBuilds, "max_app_releases": maxAppReleases, "max_owned_workspaces": maxOwnedWorkspaces, "max_space_workspaces": maxSpaceWorkspaces, "upload": artifact.Limits}
+func developmentPolicy() registry.Row {
+	return registry.Row{"max_workspace_apps": maxWorkspaceApps, "max_release_microapps": maxReleaseMicroapps, "max_release_dependencies": maxReleaseDependencies, "max_snapshot_bytes": maxSpaceSnapshotBytes, "max_app_builds": maxAppBuilds, "max_app_releases": maxAppReleases, "max_owned_workspaces": maxOwnedWorkspaces, "max_space_workspaces": maxSpaceWorkspaces, "upload": artifact.Limits}
 }
 
 // Workspace Apps consume only the workspace's metadata capacity. Production
 // subscription limits apply to production creation/restoration and deployment.
-func appQuota(ctx context.Context, q Queryer, tenant, space string, policy Policy, creating bool) error {
+func appQuota(ctx context.Context, q registry.Queryer, tenant, space string, policy Policy, creating bool) error {
 	var workspace sql.NullString
 	if e := q.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE tenant_id=? AND id=?", tenant, space).Scan(&workspace); e != nil {
 		return e
@@ -41,12 +42,12 @@ func appQuota(ctx context.Context, q Queryer, tenant, space string, policy Polic
 		return e
 	}
 	if count >= maxWorkspaceApps {
-		return conflict("Workspace App limit reached.")
+		return registry.Conflict("Workspace App limit reached.")
 	}
 	return nil
 }
 
-func (s *Server) snapshotAppQuota(ctx context.Context, q Queryer, tenant string, snap spaceSnapshot) error {
+func (s *Server) snapshotAppQuota(ctx context.Context, q registry.Queryer, tenant string, snap spaceSnapshot) error {
 	policy, e := policyFor(ctx, q, tenant)
 	if e != nil {
 		return e
@@ -63,15 +64,15 @@ func (s *Server) snapshotAppQuota(ctx context.Context, q Queryer, tenant string,
 		if e = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE id=? AND state<>'archived'", app.ID).Scan(&n); e != nil {
 			return e
 		}
-		if app.State != stateArchived && n == 0 {
+		if app.State != registry.StateArchived && n == 0 {
 			count++
 		}
-		if app.State == stateArchived && n == 1 {
+		if app.State == registry.StateArchived && n == 1 {
 			count--
 		}
 	}
 	if int64(count) > *policy.MaxApps {
-		return conflict("This release exceeds the Tenant's production App quota.")
+		return registry.Conflict("This release exceeds the Tenant's production App quota.")
 	}
 	return nil
 }
