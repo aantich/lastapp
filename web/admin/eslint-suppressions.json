@@ -25,11 +25,6 @@
       "count": 1
     }
   },
-  "src/entity-designer/designer.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
   "src/entity-designer/expression.tsx": {
     "react-refresh/only-export-components": {
       "count": 1

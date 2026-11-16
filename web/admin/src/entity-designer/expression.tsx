@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { EntityCatalog, Item } from "../api-types";
+import "./entity.css";
 // One expression shape for the SDK and the console (packages/client).
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
 const own = (value: Item, key: string) =>
