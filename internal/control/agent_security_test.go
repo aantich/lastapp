@@ -13,66 +13,71 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
+	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // Regression fixtures use metadata-only database resources and never run a worker.
-func agentSecurityFixture(t *testing.T) (*Server, testClient, Principal, string, string, string) {
+func agentSecurityFixture(t *testing.T) (*Server, testClient, access.Principal, string, string, string) {
 	t.Helper()
 	s, c, _, owner, _ := foundationFixture(t)
-	tenant := newID()
-	c.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "review-" + tenant, "display_name": "MCP review fixture", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
-	allowed, denied := newID(), newID()
+	tenant := registry.NewID()
+	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "review-" + tenant, "display_name": "MCP review fixture", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
+	allowed, denied := registry.NewID(), registry.NewID()
 	for i, target := range []string{allowed, denied} {
 		if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Review target',?,33317,'disabled',1,X'00')", target, fmt.Sprintf("127.0.0.%d", i+2)); e != nil {
 			t.Fatal(e)
 		}
 	}
-	grant := newID()
+	grant := registry.NewID()
 	perms, _ := json.Marshal([]string{"read", "production.deploy", "resources.write", "entities.draft", "databases.provision"})
-	limits, _ := json.Marshal(agentLimits{TargetIDs: []string{allowed}, MaxDatabases: 1})
+	limits, _ := json.Marshal(access.AgentLimits{TargetIDs: []string{allowed}, MaxDatabases: 1})
 	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'review-client','Review client',?,'tenant',?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, owner, tenant, perms, limits, s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, grant)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, grant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	return s, c.as(owner), Principal{ID: owner, Agent: g}, tenant, allowed, denied
+	return s, c.as(owner), access.Principal{ID: owner, Agent: g}, tenant, allowed, denied
 }
 
 func TestAgentRetryTargetGuard(t *testing.T) {
 	s, _, p, tenant, _, denied := agentSecurityFixture(t)
-	record := newID()
+	record := registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,ownership_token) VALUES(?,?,?,'la_review_never_provisioned','managed','shared','failed',X'00',UNHEX(REPEAT('01',16)))", record, tenant, denied); e != nil {
 		t.Fatal(e)
 	}
-	raw, _ := json.Marshal(agentDatabaseInput{Action: "retry", ID: record, Revision: 1, RequestKey: newID()})
+	raw, _ := json.Marshal(agentDatabaseInput{Action: "retry", ID: record, Revision: 1, RequestKey: registry.NewID()})
 	result, e := s.toolAgentDatabase(context.Background(), p, raw)
-	var ae *APIError
+	var ae *registry.APIError
 	if e != nil && (!errors.As(e, &ae) || ae.Code != "needs_authorization") {
 		t.Fatal("retry failed for the wrong reason", e)
 	}
 	if e == nil {
-		row, e := row(context.Background(), s.DB, "SELECT state,agent_grant_id FROM database_resources WHERE id=?", record)
+		row, e := registry.QueryRow(context.Background(), s.DB, "SELECT state,agent_grant_id FROM database_resources WHERE id=?", record)
 		if e != nil {
 			t.Fatal(e)
 		}
 		if _, e = s.DB.Exec("UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 			t.Fatal(e)
 		}
-		allowed := s.agentJobAllowed(context.Background(), s.DB, str(row["agent_grant_id"]), p.ID, Resource{Tenant: tenant}, "databases.provision", denied) == nil
+		allowed := s.AgentJobAllowed(context.Background(), s.DB, registry.Str(row["agent_grant_id"]), p.ID, access.Resource{Tenant: tenant}, "databases.provision", denied) == nil
 		t.Fatalf("unapproved retry accepted: state=%v, grant_id=%v, still runnable after revocation=%v; result=%v", row["state"], row["agent_grant_id"], allowed, result)
 	}
 }
 
 func TestAgentLargeEntityResponse(t *testing.T) {
 	s, c, p, tenant, allowed, _ := agentSecurityFixture(t)
-	resource, space := newID(), newID()
+	resource, space := registry.NewID(), registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'review_metadata_only','registered','shared','ready',X'00')", resource, tenant, allowed); e != nil {
 		t.Fatal(e)
 	}
-	c.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "slug": "review", "display_name": "Review", "initial_manager_user_id": p.ID, "database": Row{"resource_id": resource}}, 0, 201)
+	c.want("POST", "/v1/tenants/"+tenant+"/spaces", registry.Row{"id": space, "slug": "review", "display_name": "Review", "initial_manager_user_id": p.ID, "database": registry.Row{"resource_id": resource}}, 0, 201)
 	d := entity.Definition{Format: 1, Key: "big", Label: "Big", Rules: []entity.Rule{}, Permissions: []entity.Permission{}, Projection: []string{"choice_0"}}
 	for field := 0; field < 32; field++ {
 		f := entity.Field{Key: fmt.Sprintf("choice_%d", field), Label: "Choice", Type: "choice"}
@@ -88,13 +93,13 @@ func TestAgentLargeEntityResponse(t *testing.T) {
 	if len(encoded) >= entity.MaxDefinitionBytes {
 		t.Fatal("probe entity exceeds supported limit")
 	}
-	requestKey := newID()
+	requestKey := registry.NewID()
 	raw, _ := json.Marshal(agentEntityInput{Target: &agentTarget{Kind: "space", ID: space}, Definition: &d, RequestKey: requestKey})
 	result, e := s.toolAgentEntitySave(context.Background(), p, raw)
 	if e != nil {
 		t.Fatal(e)
 	}
-	receipt := result.(Row)
+	receipt := result.(registry.Row)
 	if receipt["committed"] != true || receipt["response_error"] == nil {
 		t.Fatal("missing committed receipt and response limit", receipt)
 	}
@@ -109,38 +114,38 @@ func TestAgentLargeEntityResponse(t *testing.T) {
 		if err != nil {
 			t.Fatal(section, err)
 		}
-		if v.(Row)["value"] == nil {
+		if v.(registry.Row)["value"] == nil {
 			t.Fatal("missing bounded section", section)
 		}
 	}
 	replay, err := s.toolAgentEntitySave(context.Background(), p, raw)
-	if err != nil || replay.(Row)["replayed"] != true {
+	if err != nil || replay.(registry.Row)["replayed"] != true {
 		t.Fatal("large committed write could not be replayed", err)
 	}
 }
 
 func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	s, c, p, tenant, allowed, _ := agentSecurityFixture(t)
-	resource, space, team := newID(), newID(), newID()
+	resource, space, team := registry.NewID(), registry.NewID(), registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'review_metadata_only','registered','shared','ready',X'00')", resource, tenant, allowed); e != nil {
 		t.Fatal(e)
 	}
-	c.want("POST", "/v1/tenants/"+tenant+"/spaces", Row{"id": space, "slug": "review", "display_name": "Review", "initial_manager_user_id": p.ID, "database": Row{"resource_id": resource}}, 0, 201)
-	c.want("POST", "/v1/tenants/"+tenant+"/teams", Row{"id": team, "slug": "marketing", "display_name": "Marketing"}, 0, 201)
+	c.want("POST", "/v1/tenants/"+tenant+"/spaces", registry.Row{"id": space, "slug": "review", "display_name": "Review", "initial_manager_user_id": p.ID, "database": registry.Row{"resource_id": resource}}, 0, 201)
+	c.want("POST", "/v1/tenants/"+tenant+"/teams", registry.Row{"id": team, "slug": "marketing", "display_name": "Marketing"}, 0, 201)
 	if _, e := s.DB.Exec("UPDATE agent_grants SET scope_kind='space',scope_id=? WHERE id=?", space, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, p.Agent.ID)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, p.Agent.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
 	p.Agent = g
 	// Team discovery uses the same shared, scoped API as the console.
-	scope, res, e := scopeOf(tenant, "", space, "")
+	scope, res, e := roles.ScopeOf(tenant, "", space, "")
 	if e != nil {
 		t.Fatal(e)
 	}
-	direct, e := s.authority.TeamRecipients(context.Background(), actorFrom(context.Background(), p, newID()), scope, res, PageRequest{})
+	direct, e := s.authority.TeamRecipients(context.Background(), op.ActorFrom(context.Background(), p, registry.NewID()), scope, res, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -168,7 +173,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	ctx := context.Background()
 	makeResource := func(mode string) string {
 		t.Helper()
-		key := newID()
+		key := registry.NewID()
 		var ownership any
 		if mode == "managed" {
 			ownership = make([]byte, 16)
@@ -180,7 +185,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	}
 	retry := func(key string, revision int64) error {
 		t.Helper()
-		raw, _ := json.Marshal(agentDatabaseInput{Action: "retry", ID: key, Revision: revision, RequestKey: newID()})
+		raw, _ := json.Marshal(agentDatabaseInput{Action: "retry", ID: key, Revision: revision, RequestKey: registry.NewID()})
 		_, e := s.toolAgentDatabase(ctx, p, raw)
 		return e
 	}
@@ -191,11 +196,11 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	if e := retry(first, 1); e != nil {
 		t.Fatal(e)
 	}
-	v, e := row(ctx, s.DB, "SELECT agent_grant_id,agent_user_id FROM database_resources WHERE id=?", first)
+	v, e := registry.QueryRow(ctx, s.DB, "SELECT agent_grant_id,agent_user_id FROM database_resources WHERE id=?", first)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if str(v["agent_grant_id"]) != p.Agent.ID || str(v["agent_user_id"]) != p.ID {
+	if registry.Str(v["agent_grant_id"]) != p.Agent.ID || registry.Str(v["agent_user_id"]) != p.ID {
 		t.Fatal("retry lost current authorization", v)
 	}
 	if e = retry(second, 1); e == nil {
@@ -210,18 +215,18 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.agentJobAllowed(ctx, s.DB, p.Agent.ID, p.ID, Resource{Tenant: tenant}, "databases.provision", target); e == nil {
+	if e = s.AgentJobAllowed(ctx, s.DB, p.Agent.ID, p.ID, access.Resource{Tenant: tenant}, "databases.provision", target); e == nil {
 		t.Fatal("revoked retry remains runnable")
 	}
 	if _, e = s.DB.Exec("UPDATE database_resources SET state='failed' WHERE id=?", first); e != nil {
 		t.Fatal(e)
 	}
 	// A human takes ownership explicitly; no stale agent binding can strand it.
-	_, e = s.storage.RetryDatabase(ctx, Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}, tenant, first, 3)
+	_, e = s.storage.RetryDatabase(ctx, op.Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}, tenant, first, 3)
 	if e != nil {
 		t.Fatal(e)
 	}
-	v, e = row(ctx, s.DB, "SELECT agent_grant_id,agent_user_id FROM database_resources WHERE id=?", first)
+	v, e = registry.QueryRow(ctx, s.DB, "SELECT agent_grant_id,agent_user_id FROM database_resources WHERE id=?", first)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -230,10 +235,10 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	}
 }
 
-func agentFixtureToken(t *testing.T, s *Server, p Principal) string {
+func agentFixtureToken(t *testing.T, s *Server, p access.Principal) string {
 	t.Helper()
-	access := token(32)
-	if _, e := s.DB.Exec("INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE))", newID(), p.Agent.ID, p.Agent.Revision, newID(), hash(access), hash(token(48))); e != nil {
+	access := registry.Token(32)
+	if _, e := s.DB.Exec("INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE))", registry.NewID(), p.Agent.ID, p.Agent.Revision, registry.NewID(), hash(access), hash(registry.Token(48))); e != nil {
 		t.Fatal(e)
 	}
 	return access
@@ -241,9 +246,9 @@ func agentFixtureToken(t *testing.T, s *Server, p Principal) string {
 
 func TestAgentTokenRevisionBinding(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
-	access := agentFixtureToken(t, s, p)
+	accessToken := agentFixtureToken(t, s, p)
 	r := httptest.NewRequest("POST", s.mcpURL(), nil)
-	r.Header.Set("Authorization", "Bearer "+access)
+	r.Header.Set("Authorization", "Bearer "+accessToken)
 	snapshot, e := s.agentPrincipal(r)
 	if e != nil {
 		t.Fatal(e)
@@ -254,10 +259,10 @@ func TestAgentTokenRevisionBinding(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if agentHas(snapshot.Agent, "access.manage") {
+	if access.AgentHas(snapshot.Agent, "access.manage") {
 		t.Fatal("previously loaded principal changed with grant")
 	}
-	if e = s.checkAgent(context.Background(), s.DB, snapshot, Resource{Tenant: p.Agent.Tenant}, false); e == nil {
+	if e = s.CheckAgent(context.Background(), s.DB, snapshot, access.Resource{Tenant: p.Agent.Tenant}, false); e == nil {
 		t.Fatal("stale snapshot remained authorized")
 	}
 	if _, e = s.agentPrincipal(r); e == nil {
@@ -350,15 +355,15 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	tuples := []string{}
 	for i := 0; i < agentMaxClients; i++ {
 		tuples = append(tuples, "(?,?,?,?)")
-		args = append(args, "lastapp-client-"+newID(), `{}`, old, old)
+		args = append(args, "lastapp-client-"+registry.NewID(), `{}`, old, old)
 	}
 	if _, e := s.DB.Exec("INSERT INTO agent_oauth_clients(id,metadata_json,created_at,last_used_at) VALUES "+strings.Join(tuples, ","), args...); e != nil {
 		t.Fatal(e)
 	}
 	// An approved and an in-progress client must survive cleanup, even with old timestamps.
-	approved, pending := "lastapp-client-"+newID(), "lastapp-client-"+newID()
+	approved, pending := "lastapp-client-"+registry.NewID(), "lastapp-client-"+registry.NewID()
 	for _, key := range []string{approved, pending} {
-		metadata, _ := json.Marshal(AgentClient{ID: key, Name: "Protected", Redirects: []string{"http://localhost/cb"}})
+		metadata, _ := json.Marshal(config.AgentClient{ID: key, Name: "Protected", Redirects: []string{"http://localhost/cb"}})
 		if _, e := s.DB.Exec("INSERT INTO agent_oauth_clients(id,metadata_json,created_at,last_used_at) VALUES(?,?,?,?)", key, metadata, old, old); e != nil {
 			t.Fatal(e)
 		}
@@ -366,7 +371,7 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	if _, e := s.DB.Exec("UPDATE agent_grants SET client_id=? WHERE id=?", approved, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.DB.Exec("INSERT INTO agent_oauth_requests(id,client_id,client_name,redirect_uri,challenge,state_value,scopes,expires_at,resource_uri) VALUES(?,?,'Pending','http://localhost/cb',?,'','read',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 5 MINUTE),?)", newID(), pending, strings.Repeat("a", 43), s.mcpURL()); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO agent_oauth_requests(id,client_id,client_name,redirect_uri,challenge,state_value,scopes,expires_at,resource_uri) VALUES(?,?,'Pending','http://localhost/cb',?,'','read',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 5 MINUTE),?)", registry.NewID(), pending, strings.Repeat("a", 43), s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := s.resolveAgentClient(ctx, pending); e == nil {
@@ -398,12 +403,12 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 // of a committed mutation still reports the commit and its compact resource so
 // the agent does not retry a mutation that already happened.
 func TestAgentOperationResponseLimit(t *testing.T) {
-	large := Row{"payload": strings.Repeat("x", agentMaxResponse)}
+	large := registry.Row{"payload": strings.Repeat("x", agentMaxResponse)}
 	isLimit := func(e error) bool {
-		var ae *APIError
+		var ae *registry.APIError
 		return errors.As(e, &ae) && ae.Code == "response_limit" && ae.Status == 413
 	}
-	if v, e := agentSized(Row{"id": "small"}, nil); e != nil || v.(Row)["id"] != "small" {
+	if v, e := agentSized(registry.Row{"id": "small"}, nil); e != nil || v.(registry.Row)["id"] != "small" {
 		t.Fatal("in-limit result was not passed through", v, e)
 	}
 	failed := errors.New("operation failed")
@@ -415,9 +420,9 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 	if v != nil || !isLimit(e) {
 		t.Fatal("over-limit read result was returned", e)
 	}
-	ref := Row{"kind": "app", "id": newID()}
-	call := &AgentCall{Operation: "lastapp_create", Key: newID(), ResultRef: ref}
-	ctx := context.WithValue(context.Background(), agentContextKey{}, call)
+	ref := registry.Row{"kind": "app", "id": registry.NewID()}
+	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
+	ctx := context.WithValue(context.Background(), access.AgentContextKey{}, call)
 	// The mutation did not commit: the agent sees the limit error and may retry.
 	data, limit := agentSized(large, nil)
 	if v, e := agentWriteResult(ctx, data, limit); v != nil || !isLimit(e) {
@@ -429,8 +434,8 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 	if e != nil {
 		t.Fatal("committed over-limit mutation returned an error an agent would retry", e)
 	}
-	out := v.(Row)
-	if out["committed"] != true || !reflect.DeepEqual(out["resource"], ref) || out["response_error"].(Row)["code"] != "response_limit" {
+	out := v.(registry.Row)
+	if out["committed"] != true || !reflect.DeepEqual(out["resource"], ref) || out["response_error"].(registry.Row)["code"] != "response_limit" {
 		t.Fatal("committed over-limit mutation lost its committed resource", out)
 	}
 	if e = agentFits(out); e != nil {
@@ -441,9 +446,9 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 		t.Fatal("non-limit error was rewritten", e)
 	}
 	// A replayed request reports the stored receipt and marks the call committed.
-	replayed := &AgentCall{Operation: "lastapp_create", Key: newID(), ResultRef: ref}
-	v, e = agentWriteResult(context.WithValue(context.Background(), agentContextKey{}, replayed), nil, errAgentReplay)
-	if e != nil || v.(Row)["replayed"] != true || v.(Row)["committed"] != true || !replayed.Committed {
+	replayed := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
+	v, e = agentWriteResult(context.WithValue(context.Background(), access.AgentContextKey{}, replayed), nil, op.ErrAgentReplay)
+	if e != nil || v.(registry.Row)["replayed"] != true || v.(registry.Row)["committed"] != true || !replayed.Committed {
 		t.Fatal("replayed mutation was not reported as committed", v, e)
 	}
 }
@@ -452,32 +457,32 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 // operation's delegated call: an Actor that omits the agent call already in
 // its context fails instead of running with delegation checks but no receipt.
 func TestActorIsTheAgentSource(t *testing.T) {
-	r := &runner{access: &Server{}}
-	call := &AgentCall{Operation: "lastapp_create", Key: newID()}
-	mcp := context.WithValue(context.Background(), agentContextKey{}, call)
-	for name, a := range map[string]Actor{
-		"missing agent": {Principal: Principal{ID: newID()}, RequestID: newID()},
-		"other agent":   {Principal: Principal{ID: newID()}, RequestID: newID(), Agent: &AgentCall{Operation: "lastapp_create"}},
+	r := &op.Runner{Access: &access.Checker{}}
+	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID()}
+	mcp := context.WithValue(context.Background(), access.AgentContextKey{}, call)
+	for name, a := range map[string]op.Actor{
+		"missing agent": {Principal: access.Principal{ID: registry.NewID()}, RequestID: registry.NewID()},
+		"other agent":   {Principal: access.Principal{ID: registry.NewID()}, RequestID: registry.NewID(), Agent: &access.AgentCall{Operation: "lastapp_create"}},
 	} {
-		if e := r.mutate(mcp, a, "apps.create", Resource{Tenant: newID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, errActorAgentMismatch) {
+		if e := r.Mutate(mcp, a, "apps.create", access.Resource{Tenant: registry.NewID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, op.ErrActorAgentMismatch) {
 			t.Fatal(name, "mutation accepted a mismatched actor", e)
 		}
-		if e := r.authorize(mcp, a, "apps.read", Resource{Tenant: newID()}); !errors.Is(e, errActorAgentMismatch) {
+		if e := r.Authorize(mcp, a, "apps.read", access.Resource{Tenant: registry.NewID()}); !errors.Is(e, op.ErrActorAgentMismatch) {
 			t.Fatal(name, "read authorization accepted a mismatched actor", e)
 		}
-		if _, e := r.scopes(mcp, a, newID(), "apps.read"); !errors.Is(e, errActorAgentMismatch) {
+		if _, e := r.Scopes(mcp, a, registry.NewID(), "apps.read"); !errors.Is(e, op.ErrActorAgentMismatch) {
 			t.Fatal(name, "scope lookup accepted a mismatched actor", e)
 		}
 	}
 	// The Actor's own call is what the authorization checks see.
-	ctx, e := withAgentCall(context.Background(), call)
-	if e != nil || agentCallFrom(ctx) != call {
+	ctx, e := op.WithAgentCall(context.Background(), call)
+	if e != nil || access.AgentCallFrom(ctx) != call {
 		t.Fatal("actor agent call was not exposed", e)
 	}
-	if ctx, e = withAgentCall(mcp, call); e != nil || agentCallFrom(ctx) != call {
+	if ctx, e = op.WithAgentCall(mcp, call); e != nil || access.AgentCallFrom(ctx) != call {
 		t.Fatal("matching actor was rejected", e)
 	}
-	if ctx, e = withAgentCall(context.Background(), nil); e != nil || agentCallFrom(ctx) != nil {
+	if ctx, e = op.WithAgentCall(context.Background(), nil); e != nil || access.AgentCallFrom(ctx) != nil {
 		t.Fatal("human actor gained an agent call", e)
 	}
 }

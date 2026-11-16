@@ -12,6 +12,10 @@ import (
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
+
+	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestProductionRegistryTransport(t *testing.T) {
@@ -50,7 +54,7 @@ func TestOIDCTransportAndOrigins(t *testing.T) {
 	if _, e := transport.RoundTrip(r); e == nil || called {
 		t.Fatal("insecure OIDC request reached transport")
 	}
-	s := &Server{Config: Config{PublicURL: "https://admin.example"}}
+	s := &Server{Config: config.Config{PublicURL: "https://admin.example"}}
 	for _, endpoint := range []string{"http://issuer.example/token", "https://user:password@issuer.example/token", "https://issuer.example/token#fragment"} {
 		if secureEndpoint(endpoint) {
 			t.Fatalf("accepted %s", endpoint)
@@ -72,7 +76,7 @@ func TestOIDCTransportAndOrigins(t *testing.T) {
 		t.Fatal("production cookie lacks host prefix")
 	}
 	for _, origin := range []string{"https://admin.example/#fragment", "https://admin.example?query", "https://user@admin.example", "javascript:alert(1)"} {
-		if validOrigin(origin, false) {
+		if config.ValidOrigin(origin, false) {
 			t.Fatalf("accepted malformed origin %s", origin)
 		}
 	}
@@ -115,7 +119,7 @@ func TestRedactedDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics omit the context state: %s", fields)
 	}
 	s := &Server{}
-	if e := s.authorize(context.Background(), nil, Principal{Platform: true}, "business.contact.read", Resource{}, true); e == nil {
+	if e := s.Authorize(context.Background(), nil, access.Principal{Platform: true}, "business.contact.read", access.Resource{}, true); e == nil {
 		t.Fatal("platform bypass accepts an unknown action domain")
 	}
 }
@@ -154,7 +158,7 @@ func TestWrappedErrorResponses(t *testing.T) {
 	if code, body := respond(fmt.Errorf("insert: %w", &mariadb.MySQLError{Number: 1062, Message: secret})); code != 409 || strings.Contains(body, secret) {
 		t.Fatalf("wrapped SQL error mapped to %d: %s", code, body)
 	}
-	if code, body := respond(fmt.Errorf("outer: %w", bad("Visible validation message."))); code != 400 || !strings.Contains(body, "Visible validation message.") {
+	if code, body := respond(fmt.Errorf("outer: %w", registry.Bad("Visible validation message."))); code != 400 || !strings.Contains(body, "Visible validation message.") {
 		t.Fatalf("wrapped API error mapped to %d: %s", code, body)
 	}
 	if code, body := respond(fmt.Errorf("connect %s: %w", secret, errors.New(secret))); code != 500 || strings.Contains(body, secret) || strings.Contains(body, "connect") {

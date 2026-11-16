@@ -1,18 +1,15 @@
 package control
 
 import (
-	"context"
-	"database/sql"
-	"encoding/json"
-	"errors"
 	"net/http"
-	"slices"
-	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Agent permissions are delegation ceilings, never independent user roles.
-var agentPermissions = []Row{
+var agentPermissions = []registry.Row{
 	{"code": "workspaces.write", "label": "Create isolated workspaces", "description": "Allocate bounded, empty development databases on the Space target or platform-configured development target and manage your own workspaces. Never copies production records."},
 	{"code": "workspaces.test", "label": "Test workspace Apps", "description": "Issue short-lived browser test sessions for your own workspace Apps. Normal business ACLs still apply. No production records."},
 	{"code": "releases.write", "label": "Upload and test releases", "description": "Upload bounded static builds and capture immutable development App releases."},
@@ -30,7 +27,7 @@ var agentPermissions = []Row{
 
 var (
 	agentDefaultPermissions = []string{"read"}
-	agentPresets            = []Row{
+	agentPresets            = []registry.Row{
 		{"label": "Workspace author", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
 		{"label": "Inspect only", "permissions": []string{"read"}},
 		{"label": "App author", "permissions": []string{"read", "resources.write"}},
@@ -54,14 +51,14 @@ func agentPermissionKinds(code string) []string {
 	return nil
 }
 
-func agentPermissionCatalog() []Row {
-	out := []Row{}
+func agentPermissionCatalog() []registry.Row {
+	out := []registry.Row{}
 	for _, permission := range agentPermissions {
-		p := Row{}
+		p := registry.Row{}
 		for k, v := range permission {
 			p[k] = v
 		}
-		p["scope_kinds"] = agentPermissionKinds(str(p["code"]))
+		p["scope_kinds"] = agentPermissionKinds(registry.Str(p["code"]))
 		out = append(out, p)
 	}
 	return out
@@ -70,7 +67,7 @@ func agentPermissionCatalog() []Row {
 func agentScopeCodes() []string {
 	out := make([]string, 0, len(agentPermissions))
 	for _, permission := range agentPermissions {
-		out = append(out, str(permission["code"]))
+		out = append(out, registry.Str(permission["code"]))
 	}
 	return out
 }
@@ -84,7 +81,6 @@ const (
 	agentMaxDatabases             = 20
 	agentMaxTargets               = 32
 	agentMaxConnections           = 100
-	agentMaxReceipts              = 10000
 	agentMaxConcurrent            = 16
 	agentMaxTokenRotations        = 4096
 	agentMaxSyntheticCases        = 10
@@ -98,262 +94,28 @@ const (
 	agentMaxClientMetadata        = 65536
 )
 
-type agentLimits struct {
-	TargetIDs    []string `json:"target_ids"`
-	MaxDatabases int      `json:"max_databases"`
-}
-type agentGrant struct {
-	ID          string      `json:"id"`
-	User        string      `json:"user_id"`
-	Client      string      `json:"client_id"`
-	Name        string      `json:"client_name"`
-	Tenant      string      `json:"tenant_id"`
-	Kind        string      `json:"scope_kind"`
-	Scope       string      `json:"scope_id"`
-	Permissions []string    `json:"permissions"`
-	Limits      agentLimits `json:"limits"`
-	Revision    int64       `json:"revision"`
-	Audience    string      `json:"resource"`
-}
-
-// Audit identity is metadata, never an authorization credential. Workers carry
-// it from persisted jobs, including after revocation or recovery.
-type (
-	agentAuditKey      struct{}
-	agentAuditIdentity struct{ Grant, Client string }
-)
-
-func agentAuditContext(ctx context.Context, grant, client string) context.Context {
-	if grant == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, agentAuditKey{}, agentAuditIdentity{Grant: grant, Client: client})
-}
-
-type agentAuthorityError struct{ Missing []string }
-
-func (e *agentAuthorityError) Error() string {
-	return "Additional delegated scopes required: " + strings.Join(e.Missing, ", ")
-}
-
-func (e *agentAuthorityError) Unwrap() error { return problem(403, "needs_authorization", e.Error()) }
-
-var errAgentReplay = errors.New("agent operation already committed")
-
-func agentHas(g *agentGrant, permission string) bool {
-	return g != nil && slices.Contains(g.Permissions, permission)
-}
-
-func (s *Server) checkAgent(ctx context.Context, q Queryer, p Principal, res Resource, exact bool) error {
-	g := p.Agent
-	if g == nil {
-		return nil
-	}
-	var revision int64
-	e := q.QueryRowContext(ctx, `SELECT g.revision FROM agent_grants g JOIN users u ON u.id=g.user_id AND u.state='active'
- LEFT JOIN local_accounts l ON l.user_id=u.id WHERE g.id=? AND g.user_id=? AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)
- AND COALESCE(l.must_change_password,0)=0 AND g.audience_uri=? LOCK IN SHARE MODE`, g.ID, p.ID, s.mcpURL()).Scan(&revision)
-	if e != nil && !errors.Is(e, sql.ErrNoRows) {
-		return e
-	}
-	if e != nil || revision != g.Revision {
-		return problem(401, "agent_access_revoked", "Agent access expired or changed; reconnect.")
-	}
-	if a := agentCallFrom(ctx); a != nil {
-		if e := requireAgent(g, a.Permission...); e != nil {
-			return e
-		}
-	}
-	if g.Kind == "platform" {
-		return nil
-	} // Existing platformControlAction still forbids Tenant authoring.
-	if res.Tenant != g.Tenant {
-		return missing()
-	}
-	if e = s.member(ctx, q, Principal{ID: p.ID}, g.Tenant, false); e != nil {
-		return e
-	}
-	switch g.Kind {
-	case "tenant":
-		return nil
-	case "team":
-		if !exact || res.Team == g.Scope {
-			return nil
-		}
-	case "space":
-		workspaceScope := ""
-		_ = q.QueryRowContext(ctx, "SELECT production_space_id FROM development_workspaces WHERE backing_space_id=? AND owner_user_id=? AND owner_agent_grant_id=? AND state<>'archived'", res.Space, p.ID, g.ID).Scan(&workspaceScope)
-		if !exact || res.Space == g.Scope || workspaceScope == g.Scope {
-			return nil
-		}
-	case "app":
-		if !exact || res.App == g.Scope {
-			return nil
-		}
-	}
-	return missing()
-}
-
-func (s *Server) agentScope(ctx context.Context, q Queryer, p Principal, sc scopeSet) scopeSet {
-	g := p.Agent
-	if g == nil || g.Kind == "tenant" || g.Kind == "platform" {
-		return sc
-	}
-	out := scopeSet{}
-	switch g.Kind {
-	case "team":
-		if sc.All || slices.Contains(sc.Teams, g.Scope) {
-			out.Teams = []string{g.Scope}
-		}
-	case "space":
-		own, _ := scanStrings(ctx, q, "SELECT backing_space_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? AND owner_agent_grant_id=? AND state='ready'", g.Scope, p.ID, g.ID)
-		for _, space := range own {
-			if sc.All || slices.Contains(sc.Spaces, space) {
-				out.Spaces = append(out.Spaces, space)
-			}
-		}
-		if sc.All || slices.Contains(sc.Spaces, g.Scope) {
-			out.Spaces = append(out.Spaces, g.Scope)
-		}
-		for _, app := range sc.Apps {
-			var parent string
-			if q.QueryRowContext(ctx, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", app, g.Tenant).Scan(&parent) == nil && parent == g.Scope {
-				out.Apps = append(out.Apps, app)
-			}
-		}
-	case "app":
-		var parent string
-		if q.QueryRowContext(ctx, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", g.Scope, g.Tenant).Scan(&parent) == nil && (sc.All || slices.Contains(sc.Apps, g.Scope) || slices.Contains(sc.Spaces, parent)) {
-			out.Apps = []string{g.Scope}
-		}
-	}
-	return out
-}
-
-func agentMutationBegin(ctx context.Context, tx *sql.Tx, a *AgentCall) error {
-	if a == nil {
-		return nil
-	}
-	if a.Key == "" {
-		return bad("request_key is required for every mutation")
-	}
-	var previous string
-	e := tx.QueryRowContext(ctx, "SELECT input_hash FROM agent_operation_receipts WHERE grant_id=? AND request_key=? FOR UPDATE", a.Grant.ID, a.Key).Scan(&previous)
-	if e == nil {
-		if previous != a.Hash {
-			return conflict("request_key was already used for different arguments")
-		}
-		return errAgentReplay
-	}
-	if !errors.Is(e, sql.ErrNoRows) {
-		return e
-	}
-	var n int
-	if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_operation_receipts WHERE grant_id=?", a.Grant.ID).Scan(&n); e != nil {
-		return e
-	}
-	if n >= agentMaxReceipts {
-		return problem(403, "agent_limit", "This connection has reached its operation limit. Approve a new connection.")
-	}
-	return nil
-}
-
-func agentMutationFinish(ctx context.Context, tx *sql.Tx, a *AgentCall) error {
-	if a == nil {
-		return nil
-	}
-	b, e := json.Marshal(a.ResultRef)
-	if e != nil {
-		return e
-	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO agent_operation_receipts(grant_id,request_key,input_hash,operation,result_json) VALUES(?,?,?,?,?)", a.Grant.ID, a.Key, a.Hash, a.Operation, b)
-	if e == nil {
-		_, e = tx.ExecContext(ctx, "UPDATE agent_grants SET last_used_at=UTC_TIMESTAMP(6) WHERE id=?", a.Grant.ID)
-	}
-	return e
-}
-
-func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user string, res Resource, permission string, targets ...string) error {
-	if grant == "" {
-		return nil
-	}
-	g, e := s.readAgentGrant(ctx, q, grant)
-	if e != nil {
-		return e
-	}
-	p := Principal{ID: user, Agent: g}
-	ctx = context.WithValue(ctx, agentContextKey{}, &AgentCall{Grant: g, Permission: []string{permission}})
-	if e = s.checkAgent(ctx, q, p, res, true); e != nil {
-		return e
-	}
-	if permission == "databases.provision" && (len(targets) != 1 || !slices.Contains(g.Limits.TargetIDs, targets[0])) {
-		return problem(403, "agent_limit", "The queued target is no longer approved for this connection.")
-	}
-	action := "entity.publish"
-	if permission == "production.deploy" {
-		action = "production.deploy"
-	}
-	if permission == "workspaces.write" {
-		action = "workspace.manage"
-	}
-	if permission == "databases.provision" {
-		action = "database.manage"
-	}
-	return s.authorize(ctx, q, p, action, res, true)
-}
-
-func (s *Server) readAgentGrant(ctx context.Context, q Queryer, key string) (*agentGrant, error) {
-	g, e := scanAgentGrant(ctx, q, "SELECT "+agentGrantColumns+" FROM agent_grants g WHERE g.id=?", []any{key})
-	if e != nil {
-		return nil, e
-	}
-	return g, nil
-}
-
-// agentGrantColumns selects an agentGrant from agent_grants g.
-const agentGrantColumns = "g.id,g.user_id,g.client_id,g.client_name,COALESCE(g.tenant_id,''),g.scope_kind,COALESCE(g.scope_id,''),g.revision,g.audience_uri,g.permissions_json,g.limits_json"
-
-// scanAgentGrant reads a grant selected by agentGrantColumns, followed by
-// any extra columns scanned into extra. A read failure returns no grant; a
-// grant whose stored permissions or limits do not decode is returned with
-// the decoding error.
-func scanAgentGrant(ctx context.Context, q Queryer, query string, args []any, extra ...any) (*agentGrant, error) {
-	g := &agentGrant{}
-	var permissions, limits jsonValue
-	dest := []any{&g.ID, &g.User, &g.Client, &g.Name, &g.Tenant, &g.Kind, &g.Scope, &g.Revision, &g.Audience, &permissions, &limits}
-	if e := lookup(ctx, q, query, args, append(dest, extra...)...); e != nil {
-		return nil, e
-	}
-	b, _ := json.Marshal(permissions)
-	if e := json.Unmarshal(b, &g.Permissions); e != nil {
-		return g, e
-	}
-	b, _ = json.Marshal(limits)
-	return g, json.Unmarshal(b, &g.Limits)
-}
-
-func (s *Server) agentPrincipal(r *http.Request) (Principal, error) {
-	var p Principal
+func (s *Server) agentPrincipal(r *http.Request) (access.Principal, error) {
+	var p access.Principal
 	raw := r.Header.Get("Authorization")
 	if len(raw) < 8 || len(raw) > 512 || raw[:7] != "Bearer " {
-		return p, problem(401, "unauthenticated", "An MCP access token is required.")
+		return p, registry.Problem(401, "unauthenticated", "An MCP access token is required.")
 	}
 	// Load the token-bound grant and its permissions in one statement/snapshot.
 	// A later grant edit fails checkAgent; it cannot upgrade this access token.
 	var e error
-	p.Agent, e = scanAgentGrant(r.Context(), s.DB, `SELECT `+agentGrantColumns+`,u.display_name,COALESCE(u.email,'') FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, []any{hash(raw[7:])}, &p.Name, &p.Email)
+	p.Agent, e = access.ScanAgentGrant(r.Context(), s.DB, `SELECT `+access.AgentGrantColumns+`,u.display_name,COALESCE(u.email,'') FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, []any{hash(raw[7:])}, &p.Name, &p.Email)
 	if p.Agent == nil {
-		return p, problem(401, "unauthenticated", "Invalid or expired MCP access token.")
+		return p, registry.Problem(401, "unauthenticated", "Invalid or expired MCP access token.")
 	}
 	if e != nil {
 		return p, e
 	}
 	p.ID = p.Agent.User
-	p.Platform, e = isPlatform(r.Context(), s.DB, p.ID)
+	p.Platform, e = access.IsPlatform(r.Context(), s.DB, p.ID)
 	if e != nil {
 		return p, e
 	}
-	return p, s.checkAgent(r.Context(), s.DB, p, Resource{Tenant: p.Agent.Tenant}, false)
+	return p, s.CheckAgent(r.Context(), s.DB, p, access.Resource{Tenant: p.Agent.Tenant}, false)
 }
 
 // Admission happens before token/database work. Anonymous discovery/metadata

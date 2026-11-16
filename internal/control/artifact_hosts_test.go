@@ -4,6 +4,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aantich/lastapp/internal/config"
 )
 
 func TestAppHostCanonicalPorts(t *testing.T) {
@@ -14,7 +16,7 @@ func TestAppHostCanonicalPorts(t *testing.T) {
 		{"https://apps.example.test:8443", "https://" + app + ".apps.example.test:8443"},
 	} {
 		t.Run(tc.base, func(t *testing.T) {
-			s := &Server{Config: Config{AppOrigin: tc.base}}
+			s := &Server{Config: config.Config{AppOrigin: tc.base}}
 			if got := s.appHostedOrigin(app); got != tc.want {
 				t.Fatalf("origin %q, want %q", got, tc.want)
 			}
@@ -43,14 +45,14 @@ func TestAppHostingRejectsConsoleNamespaceOverlap(t *testing.T) {
 		t.Run(tc.console, func(t *testing.T) {
 			// Reject before database setup, so even UUID-shaped console hosts can
 			// never start inside the wildcard static namespace.
-			s, e := Open(Config{PublicURL: tc.console, AppOrigin: tc.apps})
+			s, e := Open(config.Config{PublicURL: tc.console, AppOrigin: tc.apps})
 			if s != nil || e == nil || !strings.Contains(e.Error(), "host namespace") {
 				t.Fatalf("overlapping host namespace was not rejected at startup: %v", e)
 			}
 		})
 	}
 	for _, console := range []string{"console.example.test", "apps.example.test.evil.test", "otherapps.example.test"} {
-		s := &Server{Config: Config{AppOrigin: "https://apps.example.test"}}
+		s := &Server{Config: config.Config{AppOrigin: "https://apps.example.test"}}
 		if s.serveAppHost(httptest.NewRecorder(), httptest.NewRequest("GET", "https://"+console+"/console/", nil)) {
 			t.Fatalf("claimed a console outside the App namespace: %s", console)
 		}

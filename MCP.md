@@ -196,11 +196,13 @@ family. Neither tools nor documentation can edit MCP delegations or OAuth client
 
 ## Implementation and verification
 
-`agents.go` owns permission/limit catalogs and shared live checks; `agent_oauth.go`
+These files are in `internal/control`. `agents.go` owns permission/limit catalogs;
+the live grant checks are in `internal/access/delegation.go`; `agent_oauth.go`
 owns consent and tokens; `agent_clients.go` owns registration/retention;
 `agent_tools.go` owns typed schemas, transport and adapters; `agent_context.go`
 owns authorized context and canonical agent guides. Shared domain operations
-(`op.go` and the domain services), mutation receipts and workers enforce the
+(`internal/op` and the domain packages `inventory`, `membership`, `roles`,
+`databases`, `entities`), mutation receipts and workers enforce the
 actual operations.
 
 Run `make mcp-test` against the existing local development MariaDB for the

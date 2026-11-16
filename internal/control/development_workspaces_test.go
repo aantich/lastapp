@@ -15,7 +15,10 @@ import (
 
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestDevelopmentWorkspaceReleaseFlow(t *testing.T) {
@@ -41,11 +44,11 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	tenant, space, app, target := newID(), newID(), newID(), newID()
+	tenant, space, app, target := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
 	base := "/v1/tenants/" + tenant
-	c.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "work-" + tenant, "display_name": "Workspace tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
-	oc.want("POST", base+"/memberships", Row{"user_id": joe}, 0, 201)
-	enc, e := s.seal("target", target, "", credentials{Username: dsn.User, Password: dsn.Passwd})
+	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "work-" + tenant, "display_name": "Workspace tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
+	oc.want("POST", base+"/memberships", registry.Row{"user_id": joe}, 0, 201)
+	enc, e := s.seal("target", target, "", databases.Credentials{Username: dsn.User, Password: dsn.Passwd})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -54,12 +57,12 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	}
 	cleanup := func() {
 		s.dataPools.Close()
-		rs, _ := rows(ctx, s.DB, "SELECT id,database_name,runtime_credentials_enc FROM database_resources WHERE tenant_id=? AND management_mode='managed'", tenant)
+		rs, _ := registry.QueryRows(ctx, s.DB, "SELECT id,database_name,runtime_credentials_enc FROM database_resources WHERE tenant_id=? AND management_mode='managed'", tenant)
 		for _, v := range rs {
-			var cr credentials
-			_ = s.unseal("database", str(v["id"]), tenant, []byte(str(v["runtime_credentials_enc"])), &cr)
-			if generatedRE.MatchString(str(v["database_name"])) {
-				_, _ = s.DB.Exec("DROP DATABASE `" + str(v["database_name"]) + "`")
+			var cr databases.Credentials
+			_ = s.unseal("database", registry.Str(v["id"]), tenant, []byte(registry.Str(v["runtime_credentials_enc"])), &cr)
+			if generatedRE.MatchString(registry.Str(v["database_name"])) {
+				_, _ = s.DB.Exec("DROP DATABASE `" + registry.Str(v["database_name"]) + "`")
 			}
 			if generatedRE.MatchString(cr.Username) {
 				_, _ = s.DB.Exec("DROP USER IF EXISTS '" + cr.Username + "'@'" + cr.AccountHost + "'")
@@ -67,7 +70,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		}
 	}
 	t.Cleanup(cleanup)
-	oc.want("POST", base+"/spaces", Row{"id": space, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": owner, "database": Row{"mode": "managed", "target_id": target}}, 0, 201)
+	oc.want("POST", base+"/spaces", registry.Row{"id": space, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": owner, "database": registry.Row{"mode": "managed", "target_id": target}}, 0, 201)
 	var source string
 	if e = s.DB.QueryRow("SELECT database_resource_id FROM spaces WHERE id=?", space).Scan(&source); e != nil {
 		t.Fatal(e)
@@ -82,17 +85,17 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		}
 	}
 	provision(source)
-	oc.want("POST", base+"/spaces/"+space+"/apps", Row{"id": app, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": owner}, 0, 201)
+	oc.want("POST", base+"/spaces/"+space+"/apps", registry.Row{"id": app, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": owner}, 0, 201)
 	definition := entity.Templates()[0]
 	definition.Permissions = []entity.Permission{{Key: "read", Label: "Read", Operation: "read", Relationship: "member", Fields: []string{"name", "website"}}, {Key: "create", Label: "Create", Operation: "create", Relationship: "member", Fields: []string{"name", "website"}}}
-	roleID, inactiveUser, inactiveTeam := newID(), newID(), newID()
-	oc.want("POST", base+"/spaces/"+space+"/roles", Row{"id": roleID, "code": "sensitive-reader", "display_name": "Sensitive reader"}, 0, 201)
-	oc.want("POST", base+"/spaces/"+space+"/role-assignments", Row{"id": newID(), "user_id": joe, "role_id": roleID}, 0, 201)
+	roleID, inactiveUser, inactiveTeam := registry.NewID(), registry.NewID(), registry.NewID()
+	oc.want("POST", base+"/spaces/"+space+"/roles", registry.Row{"id": roleID, "code": "sensitive-reader", "display_name": "Sensitive reader"}, 0, 201)
+	oc.want("POST", base+"/spaces/"+space+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": roleID}, 0, 201)
 	if _, e = s.DB.Exec("INSERT INTO users(id,oidc_issuer,oidc_subject,display_name) VALUES(?, 'test:inactive',?,'Former member')", inactiveUser, inactiveUser); e != nil {
 		t.Fatal(e)
 	}
-	oc.want("POST", base+"/memberships", Row{"user_id": inactiveUser}, 0, 201)
-	oc.want("POST", base+"/teams", Row{"id": inactiveTeam, "slug": "former-team", "display_name": "Former team"}, 0, 201)
+	oc.want("POST", base+"/memberships", registry.Row{"user_id": inactiveUser}, 0, 201)
+	oc.want("POST", base+"/teams", registry.Row{"id": inactiveTeam, "slug": "former-team", "display_name": "Former team"}, 0, 201)
 	definition.Permissions[0].Relationship = "user"
 	definition.Permissions[0].Subject = owner
 	definition.Permissions = append(definition.Permissions,
@@ -100,25 +103,25 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		entity.Permission{Key: "former_user", Label: "Former user", Operation: "read", Relationship: "user", Subject: inactiveUser, Fields: []string{"name"}},
 		entity.Permission{Key: "former_team", Label: "Former team", Operation: "read", Relationship: "team", Subject: inactiveTeam, Fields: []string{"name"}},
 	)
-	made := oc.want("POST", "/v1/spaces/"+space+"/entities", Row{"definition": definition}, 0, 200)
-	eid := str(made["id"])
-	oc.want("POST", "/v1/entities/"+eid+"/publications", Row{}, 1, 202)
+	made := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": definition}, 0, 200)
+	eid := registry.Str(made["id"])
+	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
 	if _, e = s.publicationJob(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	// Baseline copying must also preserve a cyclic entity-reference graph.
 	contact := entity.Templates()[1]
 	contact.Fields = append(contact.Fields, entity.Field{Key: "company", Label: "Company", Type: "reference", Target: eid})
-	contactRow := oc.want("POST", "/v1/spaces/"+space+"/entities", Row{"definition": contact}, 0, 200)
-	contactID := str(contactRow["id"])
-	oc.want("POST", "/v1/entities/"+contactID+"/publications", Row{}, 1, 202)
+	contactRow := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": contact}, 0, 200)
+	contactID := registry.Str(contactRow["id"])
+	oc.want("POST", "/v1/entities/"+contactID+"/publications", registry.Row{}, 1, 202)
 	if _, e = s.publicationJob(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	definition.Fields = append(definition.Fields, entity.Field{Key: "contact", Label: "Contact", Type: "reference", Target: contactID})
 	companyRow := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
-	companySaved := oc.want("PATCH", "/v1/entities/"+eid, Row{"definition": definition}, integer(companyRow["revision"]), 200)
-	oc.want("POST", "/v1/entities/"+eid+"/publications", Row{}, integer(companySaved["revision"]), 202)
+	companySaved := oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": definition}, registry.Integer(companyRow["revision"]), 200)
+	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, registry.Integer(companySaved["revision"]), 202)
 	if _, e = s.publicationJob(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
@@ -138,11 +141,11 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	// A new grant to an inactive recipient remains invalid outside a published copy.
 	inactiveDefinition := definition
 	inactiveDefinition.Permissions = definition.Permissions[3:]
-	if validateEntityRefs(ctx, s.DB, inactiveDefinition, EntityDefinition{ID: eid, TenantID: tenant, SpaceID: space}) == nil {
+	if entities.ValidateEntityRefs(ctx, s.DB, inactiveDefinition, entities.EntityDefinition{ID: eid, TenantID: tenant, SpaceID: space}) == nil {
 		t.Fatal("ordinary publication accepted inactive recipients")
 	}
-	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: newID(), Name: "Private author workspace"}, 0, 200)
-	wid, backing, resource := str(ws["id"]), str(ws["backing_space_id"]), str(ws["database_resource_id"])
+	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: registry.NewID(), Name: "Private author workspace"}, 0, 200)
+	wid, backing, resource := registry.Str(ws["id"]), registry.Str(ws["backing_space_id"]), registry.Str(ws["database_resource_id"])
 	if resource == source {
 		t.Fatal("workspace shares production database")
 	}
@@ -164,10 +167,10 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	for _, m := range ws["mappings"].([]any) {
 		v := m.(map[string]any)
 		if v["kind"] == "app" {
-			devApp = str(v["development_id"])
+			devApp = registry.Str(v["development_id"])
 		}
 		if v["kind"] == "entity" && v["production_id"] == eid {
-			devEntity = str(v["development_id"])
+			devEntity = registry.Str(v["development_id"])
 		}
 	}
 	if devApp == "" || devEntity == eid {
@@ -182,7 +185,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		t.Fatal(info)
 	}
 	oc.want("PATCH", "/v1/apps/"+devApp+"/data-access", entity.AppAccess{Origin: "http://localhost:5391", Inherit: true}, 1, 200)
-	requestData := func(origin, token, method, path string, body any) (int, Row) {
+	requestData := func(origin, token, method, path string, body any) (int, registry.Row) {
 		b, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, "/data/v1"+path, bytes.NewReader(b))
 		r.Header.Set("Origin", origin)
@@ -191,40 +194,40 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		}
 		w := httptest.NewRecorder()
 		c.h.ServeHTTP(w, r)
-		var v Row
+		var v registry.Row
 		_ = json.Unmarshal(w.Body.Bytes(), &v)
 		return w.Code, v
 	}
 	launch := func(app, origin string) string {
-		verifier, nonce := token(32), token(32)
-		code := oc.want("POST", "/v1/apps/"+app+"/launch", Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
-		status, v := requestData(origin, "", "POST", "/session/exchange", Row{"code": code["code"], "verifier": verifier, "nonce": nonce})
+		verifier, nonce := registry.Token(32), registry.Token(32)
+		code := oc.want("POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+		status, v := requestData(origin, "", "POST", "/session/exchange", registry.Row{"code": code["code"], "verifier": verifier, "nonce": nonce})
 		if status != 200 {
 			t.Fatal(status, v)
 		}
-		return str(v["access_token"])
+		return registry.Str(v["access_token"])
 	}
 	prodToken, devToken := launch(app, "http://localhost:5390"), launch(devApp, "http://localhost:5391")
-	if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/records", Row{"id": newID(), "values": Row{"name": "Production only"}}); status != 200 {
+	if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/records", registry.Row{"id": registry.NewID(), "values": registry.Row{"name": "Production only"}}); status != 200 {
 		t.Fatal(status, v)
 	}
-	if status, v := requestData("http://localhost:5391", devToken, "POST", "/entities/company/query", Row{"include_count": true}); status != 200 || integer(v["count"]) != 0 {
+	if status, v := requestData("http://localhost:5391", devToken, "POST", "/entities/company/query", registry.Row{"include_count": true}); status != 200 || registry.Integer(v["count"]) != 0 {
 		t.Fatal("production records copied", status, v)
 	}
-	if status, v := requestData("http://localhost:5391", devToken, "POST", "/entities/company/records", Row{"id": newID(), "values": Row{"name": "Fixture"}}); status != 200 {
+	if status, v := requestData("http://localhost:5391", devToken, "POST", "/entities/company/records", registry.Row{"id": registry.NewID(), "values": registry.Row{"name": "Fixture"}}); status != 200 {
 		t.Fatal(status, v)
 	}
-	if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", Row{"include_count": true}); status != 200 || integer(v["count"]) != 1 {
+	if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", registry.Row{"include_count": true}); status != 200 || registry.Integer(v["count"]) != 1 {
 		t.Fatal("workspace wrote production", status, v)
 	}
 	starter := oc.want("GET", "/v1/apps/"+devApp+"/starter", nil, 0, 200)
-	if !strings.Contains(str(starter["files"]), "connectDevelopment") {
+	if !strings.Contains(registry.Str(starter["files"]), "connectDevelopment") {
 		t.Fatal("starter lacks SDK")
 	}
 	// Publish a compatible development-only backend change, then promote that
 	// exact schema/rule/ACL snapshot while preserving production rows.
 	currentDefinition := oc.want("GET", "/v1/entities/"+devEntity, nil, 0, 200)
-	definition, e = defOf(currentDefinition["draft_json"])
+	definition, e = entities.DefOf(currentDefinition["draft_json"])
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -242,19 +245,19 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		definition.Permissions[i].Fields = append(definition.Permissions[i].Fields, "notes")
 	}
 
-	saved := oc.want("PATCH", "/v1/entities/"+devEntity, Row{"definition": definition}, integer(currentDefinition["revision"]), 200)
-	oc.want("POST", "/v1/entities/"+devEntity+"/publications", Row{}, integer(saved["revision"]), 202)
+	saved := oc.want("PATCH", "/v1/entities/"+devEntity, registry.Row{"definition": definition}, registry.Integer(currentDefinition["revision"]), 200)
+	oc.want("POST", "/v1/entities/"+devEntity+"/publications", registry.Row{}, registry.Integer(saved["revision"]), 202)
 	if _, e = s.publicationJob(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
-	ticket := oc.want("POST", "/v1/apps/"+devApp+"/upload-tickets", Row{}, 0, 201)
-	upload := func(files []artifact.File, want int) Row {
-		b, _ := json.Marshal(Row{"entrypoint": "index.html", "files": files})
+	ticket := oc.want("POST", "/v1/apps/"+devApp+"/upload-tickets", registry.Row{}, 0, 201)
+	upload := func(files []artifact.File, want int) registry.Row {
+		b, _ := json.Marshal(registry.Row{"entrypoint": "index.html", "files": files})
 		r := httptest.NewRequest("POST", "/artifact/v1/upload", bytes.NewReader(b))
-		r.Header.Set("Authorization", "Bearer "+str(ticket["upload_token"]))
+		r.Header.Set("Authorization", "Bearer "+registry.Str(ticket["upload_token"]))
 		w := httptest.NewRecorder()
 		c.h.ServeHTTP(w, r)
-		var v Row
+		var v registry.Row
 		_ = json.Unmarshal(w.Body.Bytes(), &v)
 		if w.Code != want {
 			t.Fatal("upload", w.Code, v)
@@ -271,21 +274,21 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if len(buildList["items"].([]any)) != 1 {
 		t.Fatal("missing uploaded build inventory")
 	}
-	rel := oc.want("POST", "/v1/apps/"+devApp+"/releases", releaseCreateInput{Name: "1.0.0", Build: str(build["id"]), Manifest: releaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{"react": "19.2.0"}}}, 2, 200)
-	oc.want("POST", "/v1/releases/"+str(rel["id"])+"/preview", Row{}, 2, 200)
-	job := oc.want("POST", "/v1/releases/"+str(rel["id"])+"/deploy", Row{}, 2, 202)
-	oc.want("PATCH", "/v1/entities/"+eid, Row{"definition": definition}, 3, 409)
+	rel := oc.want("POST", "/v1/apps/"+devApp+"/releases", releaseCreateInput{Name: "1.0.0", Build: registry.Str(build["id"]), Manifest: releaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{"react": "19.2.0"}}}, 2, 200)
+	oc.want("POST", "/v1/releases/"+registry.Str(rel["id"])+"/preview", registry.Row{}, 2, 200)
+	job := oc.want("POST", "/v1/releases/"+registry.Str(rel["id"])+"/deploy", registry.Row{}, 2, 202)
+	oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": definition}, 3, 409)
 	assertSecurity := func() {
 		t.Helper()
 		actor, access, err := s.actorContext(ctx, s.DB, joe, tenant, space, app)
 		if err != nil {
 			t.Fatal(err)
 		}
-		active, err := row(ctx, s.DB, "SELECT ev.definition_json FROM entity_definitions e JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", eid)
+		active, err := registry.QueryRow(ctx, s.DB, "SELECT ev.definition_json FROM entity_definitions e JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", eid)
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := defOf(active["definition_json"])
+		d, err := entities.DefOf(active["definition_json"])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -296,7 +299,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	interrupted := false
 	for i := 0; i < 8; i++ {
 		if failure == "" && !interrupted {
-			prepared, err := scanAll[entityVersion](ctx, s.DB, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
+			prepared, err := registry.ScanAll[entityVersion](ctx, s.DB, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -318,7 +321,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 					}
 				}
 				db.Close()
-				if status, _ := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", Row{}); status != 409 {
+				if status, _ := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", registry.Row{}); status != 409 {
 					t.Fatal("old runtime accepted an uncommitted storage version", status)
 				}
 				interrupted = true
@@ -339,11 +342,11 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 				}
 			}
 			if prepared > 0 && failure == "missing_build" {
-				buildRow, err := row(ctx, s.DB, "SELECT content_hash FROM app_builds WHERE id=?", build["id"])
+				buildRow, err := registry.QueryRow(ctx, s.DB, "SELECT content_hash FROM app_builds WHERE id=?", build["id"])
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err = os.WriteFile(filepath.Join(s.Config.ArtifactDirectory, str(buildRow["content_hash"]), "index.html"), []byte("corrupt"), 0o600); err != nil {
+				if err = os.WriteFile(filepath.Join(s.Config.ArtifactDirectory, registry.Str(buildRow["content_hash"]), "index.html"), []byte("corrupt"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -357,10 +360,10 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		}
 		assertSecurity()
 	}
-	deployed := oc.want("GET", "/v1/deployments/"+str(job["id"]), nil, 0, 200)
+	deployed := oc.want("GET", "/v1/deployments/"+registry.Str(job["id"]), nil, 0, 200)
 	for _, id := range []string{app, devApp} {
 		recovered := oc.want("GET", "/v1/apps/"+id+"/deployment", nil, 0, 200)
-		if str(recovered["deployment"].(map[string]any)["id"]) != str(job["id"]) {
+		if registry.Str(recovered["deployment"].(map[string]any)["id"]) != registry.Str(job["id"]) {
 			t.Fatal("could not recover deployment", recovered)
 		}
 	}
@@ -373,7 +376,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		if e = s.DB.QueryRow("SELECT COUNT(*) FROM entity_definitions WHERE space_id=? AND pending_version_id IS NOT NULL", space).Scan(&pending); e != nil || pending != 0 {
 			t.Fatal("failed deployment left pending versions", pending, e)
 		}
-		if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", Row{"include_count": true}); status != 200 || integer(v["count"]) != 1 {
+		if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", registry.Row{"include_count": true}); status != 200 || registry.Integer(v["count"]) != 1 {
 			t.Fatal("failed deployment did not restore compatible old API", status, v)
 		}
 		return
@@ -381,13 +384,13 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if deployed["state"] != "active" {
 		t.Fatal(deployed)
 	}
-	captured := oc.want("GET", "/v1/releases/"+str(rel["id"]), nil, 0, 200)
+	captured := oc.want("GET", "/v1/releases/"+registry.Str(rel["id"]), nil, 0, 200)
 	rebased := oc.want("GET", "/v1/workspaces/"+wid, nil, 0, 200)
 	if captured["base_hash"] != rel["base_hash"] || rebased["base_hash"] == rel["base_hash"] {
 		t.Fatal("release base was not immutable or workspace was not rebased")
 	}
 	productionEntity := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
-	if !strings.Contains(str(productionEntity["active_definition"]), "notes") {
+	if !strings.Contains(registry.Str(productionEntity["active_definition"]), "notes") {
 		t.Fatal("captured backend schema did not deploy")
 	}
 	host := strings.TrimPrefix(s.appHostedOrigin(app), "http://")
@@ -397,7 +400,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if !strings.Contains(w.Body.String(), app) || strings.Contains(w.Body.String(), devApp) {
 		t.Fatal("runtime config not rebound", w.Code, w.Body.String())
 	}
-	r = httptest.NewRequest("GET", "http://"+host+"/_lastapp/builds/"+str(build["id"])+"/index.html", nil)
+	r = httptest.NewRequest("GET", "http://"+host+"/_lastapp/builds/"+registry.Str(build["id"])+"/index.html", nil)
 	w = httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "CRM release") {
@@ -410,10 +413,10 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		t.Fatal("App origin exposes console")
 	}
 	currentApp := oc.want("GET", base+"/apps/"+app, nil, 0, 200)
-	oc.want("POST", "/v1/releases/"+str(rel["id"])+"/deploy", Row{}, integer(currentApp["revision"]), 409)
+	oc.want("POST", "/v1/releases/"+registry.Str(rel["id"])+"/deploy", registry.Row{}, registry.Integer(currentApp["revision"]), 409)
 	ws = oc.want("GET", "/v1/workspaces/"+wid, nil, 0, 200)
-	oc.want("POST", "/v1/workspaces/"+wid+"/archive", Row{}, integer(ws["revision"]), 200)
-	if status, _ := requestData("http://localhost:5391", devToken, "POST", "/entities/company/query", Row{}); status != 401 {
+	oc.want("POST", "/v1/workspaces/"+wid+"/archive", registry.Row{}, registry.Integer(ws["revision"]), 200)
+	if status, _ := requestData("http://localhost:5391", devToken, "POST", "/entities/company/query", registry.Row{}); status != 401 {
 		t.Fatal("archived workspace token survived", status)
 	}
 }

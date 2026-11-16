@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	mariadb "github.com/aantich/go-mariadb"
-
-	"github.com/aantich/lastapp/internal/authz"
 )
 
 // Never log Error(): server messages can include SQL containing credentials.
@@ -62,5 +60,3 @@ func errorTypes(err error, out []string) []string {
 	}
 	return out
 }
-
-func controlAction(action string) bool { return authz.IsControlAction(action) }

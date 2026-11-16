@@ -19,49 +19,31 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
-	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 
-	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
-)
-
-const (
-	SuperRole       = authz.SuperRole
-	TenantAdminRole = authz.TenantAdminRole
+	"github.com/aantich/lastapp/internal/inventory"
+	"github.com/aantich/lastapp/internal/membership"
+	"github.com/aantich/lastapp/internal/op"
+	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-type Config struct {
-	WorkspaceDatabaseTarget string        `json:"workspace_database_target_id"`
-	ArtifactDirectory       string        `json:"artifact_directory"`
-	AgentClients            []AgentClient `json:"agent_clients"`
-	DevelopmentUIOrigin     string        `json:"development_ui_origin"`
-	AppOrigin               string        `json:"app_origin"`
-	Address                 string        `json:"address"`
-	PublicURL               string        `json:"public_url"`
-	RegistryDSN             string        `json:"registry_dsn"`
-	EncryptionKey           string        `json:"encryption_key"`
-	EncryptionKeyID         string        `json:"encryption_key_id"`
-	OIDCIssuer              string        `json:"oidc_issuer"`
-	OIDCClientID            string        `json:"oidc_client_id"`
-	OIDCClientSecret        string        `json:"oidc_client_secret"`
-	Development             bool          `json:"development"`
-	AllowedNetworks         []string      `json:"allowed_networks"`
-	TrustedProxies          []string      `json:"trusted_proxies"`
-	RuntimeAccountHost      string        `json:"runtime_account_host"`
-}
-
 type Server struct {
+	*access.Checker
 	uploadSlots            chan struct{}
 	agentSlots             chan struct{}
 	agentBootstrapSlots    chan struct{}
@@ -78,40 +60,22 @@ type Server struct {
 	passwordSlots          chan struct{}
 	trustedProxies         []netip.Prefix
 	DB                     *sql.DB
-	Config                 Config
+	Config                 config.Config
 	key                    cipher.AEAD
 	registryName           string
 	mux                    *http.ServeMux
 	auth                   *oidcAuth
 	Log                    *slog.Logger
-	run                    *runner
-	inv                    *inventory
-	members                *membership
-	authority              *authority
-	storage                *storage
-	authoring              *authoring
+	run                    *op.Runner
+	inv                    *inventory.Inventory
+	members                *membership.Members
+	authority              *roles.Authority
+	storage                *databases.Storage
+	authoring              *entities.Authoring
 }
-type Queryer interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}
-type (
-	Row      map[string]any
-	APIError struct {
-		Status        int
-		Code, Message string
-	}
-)
 
-func (e *APIError) Error() string                { return e.Code + ": " + e.Message }
-func problem(status int, code, msg string) error { return &APIError{status, code, msg} }
-func bad(msg string) error                       { return problem(400, "invalid_request", msg) }
-func missing() error                             { return problem(404, "not_found", "Resource not found or not accessible.") }
-func conflict(msg string) error                  { return problem(409, "conflict", msg) }
-
-func LoadConfig(path string) (Config, error) {
-	var c Config
+func LoadConfig(path string) (config.Config, error) {
+	var c config.Config
 	b, e := os.ReadFile(path)
 	if e != nil {
 		return c, e
@@ -120,8 +84,8 @@ func LoadConfig(path string) (Config, error) {
 	return c, e
 }
 
-func Open(c Config) (*Server, error) {
-	if c.WorkspaceDatabaseTarget != "" && id(c.WorkspaceDatabaseTarget) != nil {
+func Open(c config.Config) (*Server, error) {
+	if c.WorkspaceDatabaseTarget != "" && registry.ID(c.WorkspaceDatabaseTarget) != nil {
 		return nil, fmt.Errorf("invalid workspace_database_target_id")
 	}
 	seenClients := map[string]bool{}
@@ -140,17 +104,17 @@ func Open(c Config) (*Server, error) {
 	if e != nil {
 		return nil, e
 	}
-	if !validOrigin(c.PublicURL, c.Development) {
+	if !config.ValidOrigin(c.PublicURL, c.Development) {
 		return nil, fmt.Errorf("public_url must be an origin (loopback in development)")
 	}
-	if c.DevelopmentUIOrigin != "" && (!c.Development || !validOrigin(c.DevelopmentUIOrigin, true)) {
+	if c.DevelopmentUIOrigin != "" && (!c.Development || !config.ValidOrigin(c.DevelopmentUIOrigin, true)) {
 		return nil, fmt.Errorf("development_ui_origin requires development mode and a loopback origin")
 	}
 	adminURL, _ := url.Parse(c.PublicURL)
 	appURL, _ := url.Parse(c.AppOrigin)
 	appNamespace := appHostNamespace(c.AppOrigin)
 	adminHost := strings.TrimSuffix(strings.ToLower(adminURL.Hostname()), ".")
-	if c.AppOrigin != "" && (appURL == nil || !validOrigin(c.AppOrigin, false) || adminHost == strings.TrimPrefix(appNamespace, ".") || appNamespace != "" && strings.HasSuffix(adminHost, appNamespace) || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
+	if c.AppOrigin != "" && (appURL == nil || !config.ValidOrigin(c.AppOrigin, false) || adminHost == strings.TrimPrefix(appNamespace, ".") || appNamespace != "" && strings.HasSuffix(adminHost, appNamespace) || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
 		return nil, fmt.Errorf("app_origin must use a separate secure host namespace that does not contain public_url")
 	}
 	host, _, e := net.SplitHostPort(c.Address)
@@ -219,12 +183,13 @@ func Open(c Config) (*Server, error) {
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
-	s.run = &runner{db: db, access: s}
-	s.authoring = &authoring{db: db, run: s.run, config: &s.Config, queue: s.queueDefinition, actorContext: s.actorContext}
-	s.storage = &storage{db: db, run: s.run, seal: s.seal, config: &s.Config, registryName: cfg.DBName}
-	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.allocate, prepareAccount: s.prepareAccount}
-	s.members = &membership{db: db, run: s.run, prepareAccount: s.prepareAccount}
-	s.authority = &authority{db: db, run: s.run}
+	s.Checker = &access.Checker{Audience: s.mcpURL()}
+	s.run = &op.Runner{DB: db, Access: s.Checker}
+	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.queueDefinition, ActorContext: s.actorContext}
+	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.seal, Config: &s.Config, RegistryName: cfg.DBName}
+	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, PrepareAccount: s.prepareAccount}
+	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}
+	s.authority = &roles.Authority{DB: db, Run: s.run}
 	return s, nil
 }
 
@@ -278,57 +243,6 @@ func CheckSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func id(v string) error {
-	parsed, e := uuid.Parse(v)
-	if e != nil || parsed.String() != v || parsed == uuid.Nil {
-		return bad("IDs must be canonical UUIDs.")
-	}
-	return nil
-}
-func newID() string { return uuid.NewString() }
-
-var slugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-
-func named(slug, name string) error {
-	if !slugRE.MatchString(slug) {
-		return bad("Slug must start with a letter and use lowercase letters, numbers or hyphens (maximum 63 characters).")
-	}
-	if strings.TrimSpace(name) == "" || len(name) > 160 {
-		return bad("Name must contain 1–160 bytes.")
-	}
-	return nil
-}
-
-// Record lifecycle states shared by registry tables. The migrations' CHECK
-// constraints define which states each table allows; Go comparisons and written
-// values use these names, while static SQL predicates keep the readable literal.
-const (
-	stateActive    = "active"
-	stateDisabled  = "disabled"
-	stateSuspended = "suspended"
-	stateArchived  = "archived"
-	stateRetired   = "retired"
-	stateRevoked   = "revoked"
-)
-
-// enabledState reports whether state is valid for active/disabled records
-// such as users, memberships, groups, roles and database targets.
-func enabledState(state string) bool {
-	return state == stateActive || state == stateDisabled
-}
-
-func validState(state string) bool {
-	return state == stateActive || state == stateSuspended || state == stateArchived
-}
-
-func token(n int) string {
-	b := make([]byte, n)
-	if _, e := rand.Read(b); e != nil {
-		panic(e)
-	}
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
 func (s *Server) encryptionKeyID() string {
 	if s.Config.EncryptionKeyID != "" {
 		return s.Config.EncryptionKeyID
@@ -372,99 +286,16 @@ func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) er
 	return json.Unmarshal(b, out)
 }
 
-func rows(ctx context.Context, q Queryer, query string, args ...any) ([]Row, error) {
-	r, e := q.QueryContext(ctx, query, args...)
-	if e != nil {
-		return nil, e
-	}
-	defer r.Close()
-	cols, e := r.Columns()
-	if e != nil {
-		return nil, e
-	}
-	out := []Row{}
-	for r.Next() {
-		vals := make([]any, len(cols))
-		ptr := make([]any, len(cols))
-		for i := range vals {
-			ptr[i] = &vals[i]
-		}
-		if e = r.Scan(ptr...); e != nil {
-			return nil, e
-		}
-		v := Row{}
-		for i, k := range cols {
-			switch t := vals[i].(type) {
-			case []byte:
-				if strings.HasSuffix(k, "_json") && !strings.HasPrefix(k, "f_") {
-					var obj any
-					if json.Unmarshal(t, &obj) == nil {
-						v[k] = obj
-					} else {
-						v[k] = string(t)
-					}
-				} else {
-					v[k] = string(t)
-				}
-			default:
-				v[k] = t
-			}
-		}
-		out = append(out, v)
-	}
-	return out, r.Err()
-}
-
-func row(ctx context.Context, q Queryer, query string, args ...any) (Row, error) {
-	rs, e := rows(ctx, q, query, args...)
-	if e != nil {
-		return nil, e
-	}
-	if len(rs) == 0 {
-		return nil, missing()
-	}
-	return rs[0], nil
-}
-
-func str(v any) string {
-	if v == nil {
-		return ""
-	}
-	return fmt.Sprint(v)
-}
-
-func integer(v any) int64 {
-	switch n := v.(type) {
-	case bool:
-		if n {
-			return 1
-		}
-		return 0
-	case int64:
-		return n
-	case uint64:
-		return int64(n)
-	case float64:
-		return int64(n)
-	case json.Number:
-		i, _ := n.Int64()
-		return i
-	default:
-		i, _ := strconv.ParseInt(str(v), 10, 64)
-		return i
-	}
-}
-
 func decode(w http.ResponseWriter, r *http.Request, out any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if e := d.Decode(out); e != nil {
-		return bad("Invalid or unsupported JSON request fields.")
+		return registry.Bad("Invalid or unsupported JSON request fields.")
 	}
 	var extra any
 	if e := d.Decode(&extra); !errors.Is(e, io.EOF) {
-		return bad("Request must contain one JSON object.")
+		return registry.Bad("Request must contain one JSON object.")
 	}
 	return nil
 }
@@ -477,7 +308,7 @@ func send(w http.ResponseWriter, status int, value any) {
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
-	o := classify(err)
+	o := op.Classify(err)
 	if o.Unmapped {
 		fields := []any{"operation", r.Method + " " + r.Pattern}
 		if rid := r.Header.Get("X-Request-ID"); rid != requestIDFrom(r.Context()) {
@@ -489,14 +320,14 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if o.Status == 429 {
 		w.Header().Set("Retry-After", "1")
 	}
-	send(w, o.Status, Row{"error": o.payload(r.Header.Get("X-Request-ID"))})
+	send(w, o.Status, registry.Row{"error": o.Payload(r.Header.Get("X-Request-ID"))})
 }
 
 func expectedRevision(r *http.Request) (int64, error) {
 	v := strings.Trim(r.Header.Get("If-Match"), `"`)
 	n, e := strconv.ParseInt(v, 10, 64)
 	if e != nil || n < 1 {
-		return 0, revisionRequired()
+		return 0, op.RevisionRequired()
 	}
 	return n, nil
 }
@@ -507,27 +338,8 @@ func ifMatch(r *http.Request) int64 {
 	return n
 }
 
-func checkRevision(got, want int64) error {
-	if got != want {
-		return problem(412, "stale_revision", "This resource changed. Refresh before saving.")
-	}
-	return nil
-}
-
-// audit is the context shim of auditAs for code not yet migrated to actors.
-func audit(ctx context.Context, q Queryer, tenant, user, action, kind, record, request string, details any) error {
-	return auditAs(ctx, q, Actor{Principal: Principal{ID: user}, RequestID: request, Agent: agentCallFrom(ctx)}, tenant, action, kind, record, details)
-}
-
-func nullable(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
-}
-
 // mutate is the context shim of runner.mutate for handlers not yet migrated
 // to operations with an explicit Actor.
-func (s *Server) mutate(ctx context.Context, p Principal, action string, res Resource, request string, fn func(*sql.Tx) error) error {
-	return s.run.mutate(ctx, actorFrom(ctx, p, request), action, res, fn)
+func (s *Server) mutate(ctx context.Context, p access.Principal, action string, res access.Resource, request string, fn func(*sql.Tx) error) error {
+	return s.run.Mutate(ctx, op.ActorFrom(ctx, p, request), action, res, fn)
 }

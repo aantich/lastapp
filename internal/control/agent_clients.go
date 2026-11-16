@@ -10,6 +10,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 // RFC 7591 registration records public-client metadata only. It cannot create
@@ -24,7 +27,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { <-s.agentBootstrapSlots }()
 	reject := func(code, message string) {
-		send(w, 400, Row{"error": code, "error_description": message})
+		send(w, 400, registry.Row{"error": code, "error_description": message})
 	}
 	media, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if e != nil || media != "application/json" {
@@ -88,7 +91,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 		reject("invalid_client_metadata", "Unsupported OAuth scope.")
 		return
 	}
-	client := AgentClient{ID: "lastapp-client-" + newID(), Name: in.Name, Redirects: in.Redirects, Scope: strings.Join(scopes, " ")}
+	client := config.AgentClient{ID: "lastapp-client-" + registry.NewID(), Name: in.Name, Redirects: in.Redirects, Scope: strings.Join(scopes, " ")}
 	metadata, _ := json.Marshal(client)
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {
@@ -126,13 +129,13 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, e)
 		return
 	}
-	send(w, 201, Row{"client_id": client.ID, "client_id_issued_at": time.Now().Unix(), "client_name": client.Name, "redirect_uris": client.Redirects, "grant_types": in.Grants, "response_types": []string{"code"}, "token_endpoint_auth_method": "none", "scope": client.Scope})
+	send(w, 201, registry.Row{"client_id": client.ID, "client_id_issued_at": time.Now().Unix(), "client_name": client.Name, "redirect_uris": client.Redirects, "grant_types": in.Grants, "response_types": []string{"code"}, "token_endpoint_auth_method": "none", "scope": client.Scope})
 }
 
 // Unapproved registrations have a short, bounded lifetime. Approved client
 // identities use the longer retention window and do not consume anonymous quota.
 // Never evict a client during consent/code exchange or while a grant is live.
-func cleanupAgentClients(ctx context.Context, q Queryer) error {
+func cleanupAgentClients(ctx context.Context, q registry.Queryer) error {
 	_, e := q.ExecContext(ctx, `DELETE FROM agent_oauth_clients WHERE
  ((created_at<? AND NOT EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=agent_oauth_clients.id)) OR last_used_at<?)
  AND NOT EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=agent_oauth_clients.id AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6))

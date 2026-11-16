@@ -10,6 +10,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/membership"
+	"github.com/aantich/lastapp/internal/op"
+	"github.com/aantich/lastapp/internal/registry"
 )
 
 func TestPasswordLengthBounds(t *testing.T) {
@@ -26,7 +32,7 @@ func TestPasswordLengthBounds(t *testing.T) {
 		{"invalid unicode", "password\xff", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if e := validatePassword(tc.password); (e == nil) != tc.valid {
+			if e := membership.ValidatePassword(tc.password); (e == nil) != tc.valid {
 				t.Fatalf("valid=%v, error=%v", tc.valid, e)
 			}
 		})
@@ -52,11 +58,11 @@ func TestPublicPasswordPolicy(t *testing.T) {
 		t.Fatal(e)
 	}
 	p := config.Policy
-	if p.Min != minPasswordLength || p.Max != maxPasswordLength || p.Hint != passwordLengthHint() {
+	if p.Min != membership.MinPasswordLength || p.Max != membership.MaxPasswordLength || p.Hint != membership.PasswordLengthHint() {
 		t.Fatal("config differs from authoritative policy", p)
 	}
 	for _, n := range []int{p.Min - 1, p.Min, p.Max, p.Max + 1} {
-		e := validatePassword(strings.Repeat("😀", n))
+		e := membership.ValidatePassword(strings.Repeat("😀", n))
 		if (e == nil) != (n >= p.Min && n <= p.Max) {
 			t.Fatalf("public bounds disagree with Unicode validation at %d: %v", n, e)
 		}
@@ -70,10 +76,10 @@ func TestPublicPasswordPolicy(t *testing.T) {
 // login's database deadline and turn a correct password into a server error.
 func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
 	s, platform, _, _, _ := foundationFixture(t)
-	email, password := "slow-"+newID()+"@example.test", "Slow derivation 8!"
-	platform.want("POST", "/admin/v1/users", Row{"display_name": "Slow derivation", "email": email, "password": password}, 0, 201)
+	email, password := "slow-"+registry.NewID()+"@example.test", "Slow derivation 8!"
+	platform.want("POST", "/admin/v1/users", registry.Row{"display_name": "Slow derivation", "email": email, "password": password}, 0, 201)
 	start := time.Now()
-	passwordKey(password, make([]byte, 16), passwordIterations)
+	membership.PasswordKey(password, make([]byte, 16), membership.PasswordIterations)
 	derivation := time.Since(start)
 	// Each database phase is far shorter than half a derivation; the derivation
 	// itself is longer than this deadline.
@@ -93,28 +99,28 @@ func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
 func TestRequestDeadlineExcludesPasswordDerivation(t *testing.T) {
 	_, platform, _, _, _ := foundationFixture(t)
 	start := time.Now()
-	passwordKey("Slow derivation 8!", make([]byte, 16), passwordIterations)
+	membership.PasswordKey("Slow derivation 8!", make([]byte, 16), membership.PasswordIterations)
 	derivation := time.Since(start)
-	previous := requestTimeout
-	requestTimeout = derivation / 2
-	t.Cleanup(func() { requestTimeout = previous })
-	account := func(label string) Row {
-		return Row{"display_name": "Slow " + label, "email": "slow-" + label + "-" + newID() + "@example.test", "password": "Slow derivation 8!"}
+	previous := op.RequestTimeout
+	op.RequestTimeout = derivation / 2
+	t.Cleanup(func() { op.RequestTimeout = previous })
+	account := func(label string) registry.Row {
+		return registry.Row{"display_name": "Slow " + label, "email": "slow-" + label + "-" + registry.NewID() + "@example.test", "password": "Slow derivation 8!"}
 	}
 	user := account("user")
 	platform.want("POST", "/admin/v1/users", user, 0, 201)
-	tenant := newID()
-	platform.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "slow-" + tenant, "display_name": "Slow derivation", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": account("admin")}, 0, 201)
-	platform.want("POST", "/v1/tenants/"+tenant+"/memberships", Row{"account": account("member")}, 0, 201)
-	platform.want("POST", "/admin/v1/tenants/"+tenant+"/administrators", Row{"account": account("administrator")}, 0, 201)
+	tenant := registry.NewID()
+	platform.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "slow-" + tenant, "display_name": "Slow derivation", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": account("admin")}, 0, 201)
+	platform.want("POST", "/v1/tenants/"+tenant+"/memberships", registry.Row{"account": account("member")}, 0, 201)
+	platform.want("POST", "/admin/v1/tenants/"+tenant+"/administrators", registry.Row{"account": account("administrator")}, 0, 201)
 	// A password change derives twice (current and new password).
-	signedIn := passwordSignIn(platform, str(user["email"]), "Slow derivation 8!", 200)
-	signedIn.want("POST", "/auth/password", Row{"current_password": "Slow derivation 8!", "new_password": "Fast derivation 9!"}, 0, 200)
+	signedIn := passwordSignIn(platform, registry.Str(user["email"]), "Slow derivation 8!", 200)
+	signedIn.want("POST", "/auth/password", registry.Row{"current_password": "Slow derivation 8!", "new_password": "Fast derivation 9!"}, 0, 200)
 }
 
 func passwordSignIn(c testClient, email, password string, want int) testClient {
 	c.t.Helper()
-	b, _ := json.Marshal(Row{"email": email, "password": password})
+	b, _ := json.Marshal(registry.Row{"email": email, "password": password})
 	r := httptest.NewRequest("POST", "/auth/login/password", bytes.NewReader(b))
 	r.Header.Set("Origin", c.s.Config.PublicURL)
 	w := httptest.NewRecorder()
@@ -141,7 +147,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 	if e := s.InitAuth(context.Background()); e != nil {
 		t.Fatal(e)
 	}
-	email, password := "local-"+newID()+"@example.test", "Boot8!ab"
+	email, password := "local-"+registry.NewID()+"@example.test", "Boot8!ab"
 	user, e := s.BootstrapLocal(context.Background(), "Local operator", email, password)
 	if e != nil {
 		t.Fatal(e)
@@ -158,7 +164,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 		t.Fatal("unsafe password cost accepted")
 	}
 	for _, origin := range []string{"", "https://untrusted.example"} {
-		b, _ := json.Marshal(Row{"email": email, "password": password})
+		b, _ := json.Marshal(registry.Row{"email": email, "password": password})
 		r := httptest.NewRequest("POST", "/auth/login/password", bytes.NewReader(b))
 		r.Header.Set("Origin", origin)
 		w := httptest.NewRecorder()
@@ -182,13 +188,13 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 
 func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	s, platform, operator, oidcOwner, _ := foundationFixture(t)
-	tenant, email := newID(), "owner-"+newID()+"@example.test"
+	tenant, email := registry.NewID(), "owner-"+registry.NewID()+"@example.test"
 	temporary, personal := "Temp8!ab", "Own8!xyz"
-	create := Row{"id": tenant, "slug": "accounts-" + tenant, "display_name": "Account workspace", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": Row{"display_name": "Account owner", "email": email, "password": temporary}}
+	create := registry.Row{"id": tenant, "slug": "accounts-" + tenant, "display_name": "Account workspace", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": registry.Row{"display_name": "Account owner", "email": email, "password": temporary}}
 	platform.want("POST", "/admin/v1/tenants", create, 0, 201)
 	base := "/v1/tenants/" + tenant
 	members := platform.want("GET", base+"/memberships", nil, 0, 200)["items"].([]any)
-	user := str(members[0].(map[string]any)["user_id"])
+	user := registry.Str(members[0].(map[string]any)["user_id"])
 	passwordSignIn(platform, email, "Wrong password", 401)
 	passwordSignIn(platform, "unknown@example.test", temporary, 401)
 	admin := passwordSignIn(platform, email, temporary, 200)
@@ -197,11 +203,11 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 		t.Fatal("initial local account has wrong authority", me)
 	}
 	admin.want("GET", base+"/overview", nil, 0, 403)
-	admin.want("POST", base+"/spaces", Row{}, 0, 403)
+	admin.want("POST", base+"/spaces", registry.Row{}, 0, 403)
 	oldSession := passwordSignIn(platform, email, temporary, 200)
-	admin.want("POST", "/auth/password", Row{"current_password": "wrong", "new_password": personal}, 0, 401)
+	admin.want("POST", "/auth/password", registry.Row{"current_password": "wrong", "new_password": personal}, 0, 401)
 	// The successful password change rotates the current session and revokes all others.
-	b, _ := json.Marshal(Row{"current_password": temporary, "new_password": personal})
+	b, _ := json.Marshal(registry.Row{"current_password": temporary, "new_password": personal})
 	r := httptest.NewRequest("POST", "/auth/password", bytes.NewReader(b))
 	r.Header.Set("Origin", s.Config.PublicURL)
 	r.Header.Set("X-CSRF-Token", admin.csrf)
@@ -227,46 +233,46 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	passwordSignIn(platform, email, personal, 200)
 	admin.want("GET", base+"/overview", nil, 0, 200)
 	admin.want("GET", "/admin/v1/users", nil, 0, 403)
-	platform.want("POST", base+"/memberships", Row{"user_id": operator}, 0, 201)
-	platform.want("POST", base+"/role-assignments", Row{"id": newID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 400)
-	platform.want("POST", "/admin/v1/role-assignments", Row{"id": newID(), "user_id": user, "role_id": SuperRole}, 0, 409)
+	platform.want("POST", base+"/memberships", registry.Row{"user_id": operator}, 0, 201)
+	platform.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": operator, "role_id": access.TenantAdminRole}, 0, 400)
+	platform.want("POST", "/admin/v1/role-assignments", registry.Row{"id": registry.NewID(), "user_id": user, "role_id": access.SuperRole}, 0, 409)
 	// Creation of another Tenant never replaces this global user's password.
-	another := newID()
+	another := registry.NewID()
 	create["id"], create["slug"] = another, "existing-"+another
 	platform.want("POST", "/admin/v1/tenants", create, 0, 409)
-	create["initial_admin"] = Row{"email": email}
+	create["initial_admin"] = registry.Row{"email": email}
 	platform.want("POST", "/admin/v1/tenants", create, 0, 201)
 	var sameUser string
 	if e := s.DB.QueryRow("SELECT user_id FROM tenant_memberships WHERE tenant_id=?", another).Scan(&sameUser); e != nil || sameUser != user {
 		t.Fatal("existing account was not reused", e)
 	}
 	// Fixture metadata is enough to exercise resource authority without provisioning a new server.
-	target, db, space, app := newID(), newID(), newID(), newID()
-	platform.want("POST", "/admin/v1/database-targets", Row{"id": target, "display_name": "Account fixture", "canonical_host": "127.0.0.1", "port": 33317, "tls_mode": "disabled"}, 0, 201)
-	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: token(32)})
+	target, db, space, app := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
+	platform.want("POST", "/admin/v1/database-targets", registry.Row{"id": target, "display_name": "Account fixture", "canonical_host": "127.0.0.1", "port": 33317, "tls_mode": "disabled"}, 0, 201)
+	enc, e := s.seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
 	if e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES (?,?,?,?,'registered','shared','ready',?)", db, tenant, target, "fixture_"+db, enc); e != nil {
 		t.Fatal(e)
 	}
-	body := Row{"id": space, "slug": "sales", "display_name": "Sales", "initial_manager_user_id": user, "database": Row{"resource_id": db}}
+	body := registry.Row{"id": space, "slug": "sales", "display_name": "Sales", "initial_manager_user_id": user, "database": registry.Row{"resource_id": db}}
 	platform.want("POST", base+"/spaces", body, 0, 403)
 	admin.want("POST", base+"/spaces", body, 0, 201)
-	body = Row{"id": app, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": user}
+	body = registry.Row{"id": app, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": user}
 	platform.want("POST", base+"/spaces/"+space+"/apps", body, 0, 403)
 	admin.want("POST", base+"/spaces/"+space+"/apps", body, 0, 201)
-	platform.want("PATCH", base+"/apps/"+app, Row{"display_name": "Forbidden"}, 1, 403)
-	platform.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
-	platform.want("POST", base+"/spaces/"+space+"/roles", Row{"id": newID(), "code": "forbidden", "display_name": "Forbidden"}, 0, 403)
-	platform.want("POST", base+"/teams", Row{"id": newID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
-	admin.want("POST", base+"/apps/"+app+"/microapps", Row{"id": newID(), "slug": "deals", "display_name": "Deals"}, 0, 201)
-	admin.want("PATCH", base, Row{"display_name": "My company"}, 1, 200)
-	admin.want("PATCH", base, Row{"plan_id": "10000000-0000-4000-8000-000000000002"}, 2, 400)
+	platform.want("PATCH", base+"/apps/"+app, registry.Row{"display_name": "Forbidden"}, 1, 403)
+	platform.want("POST", base+"/apps/"+app+"/microapps", registry.Row{"id": registry.NewID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	platform.want("POST", base+"/spaces/"+space+"/roles", registry.Row{"id": registry.NewID(), "code": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	platform.want("POST", base+"/teams", registry.Row{"id": registry.NewID(), "slug": "forbidden", "display_name": "Forbidden"}, 0, 403)
+	admin.want("POST", base+"/apps/"+app+"/microapps", registry.Row{"id": registry.NewID(), "slug": "deals", "display_name": "Deals"}, 0, 201)
+	admin.want("PATCH", base, registry.Row{"display_name": "My company"}, 1, 200)
+	admin.want("PATCH", base, registry.Row{"plan_id": "10000000-0000-4000-8000-000000000002"}, 2, 400)
 	// Account creation/membership is atomic and credential data never enters audit.
-	memberEmail := "member-" + newID() + "@example.test"
-	memberAccount := Row{"display_name": "New member", "email": memberEmail, "password": temporary}
-	admin.want("POST", base+"/memberships", Row{"account": memberAccount}, 0, 403)
+	memberEmail := "member-" + registry.NewID() + "@example.test"
+	memberAccount := registry.Row{"display_name": "New member", "email": memberEmail, "password": temporary}
+	admin.want("POST", base+"/memberships", registry.Row{"account": memberAccount}, 0, 403)
 	admin.want("POST", "/admin/v1/users", memberAccount, 0, 403)
 	var n int
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM local_accounts WHERE login_email=?", memberEmail).Scan(&n); e != nil || n != 0 {
@@ -276,22 +282,22 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	// can reuse that identity without knowing or replacing its password.
 	member := platform.want("POST", "/admin/v1/users", memberAccount, 0, 201)
 	platform.want("POST", "/admin/v1/users", memberAccount, 0, 409)
-	admin.want("POST", base+"/memberships", Row{"account": Row{"email": memberEmail}}, 0, 201)
-	admin.want("POST", "/v1/tenants/"+another+"/memberships", Row{"account": memberAccount}, 0, 403)
-	added := admin.want("POST", "/v1/tenants/"+another+"/memberships", Row{"account": Row{"email": memberEmail}}, 0, 201)
+	admin.want("POST", base+"/memberships", registry.Row{"account": registry.Row{"email": memberEmail}}, 0, 201)
+	admin.want("POST", "/v1/tenants/"+another+"/memberships", registry.Row{"account": memberAccount}, 0, 403)
+	added := admin.want("POST", "/v1/tenants/"+another+"/memberships", registry.Row{"account": registry.Row{"email": memberEmail}}, 0, 201)
 	if added["user_id"] != member["id"] {
 		t.Fatal("trusted global account not reused")
 	}
 	passwordSignIn(platform, memberEmail, temporary, 200)
-	if strings.Contains(str(member), temporary) || strings.Contains(str(member), "password_hash") {
+	if strings.Contains(registry.Str(member), temporary) || strings.Contains(registry.Str(member), "password_hash") {
 		t.Fatal("user creation exposed credentials")
 	}
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE CAST(details_json AS CHAR) LIKE ?", "%"+temporary+"%").Scan(&n); e != nil || n != 0 {
 		t.Fatal("password entered audit history", e)
 	}
-	platform.as(oidcOwner).want("POST", "/auth/password", Row{"current_password": temporary, "new_password": personal}, 0, 400)
-	badID := newID()
-	create["id"], create["slug"], create["plan_id"], create["initial_admin"] = badID, "rollback-"+badID, newID(), Row{"display_name": "Rollback", "email": "rollback-" + badID + "@example.test", "password": temporary}
+	platform.as(oidcOwner).want("POST", "/auth/password", registry.Row{"current_password": temporary, "new_password": personal}, 0, 400)
+	badID := registry.NewID()
+	create["id"], create["slug"], create["plan_id"], create["initial_admin"] = badID, "rollback-"+badID, registry.NewID(), registry.Row{"display_name": "Rollback", "email": "rollback-" + badID + "@example.test", "password": temporary}
 	platform.want("POST", "/admin/v1/tenants", create, 0, 404)
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM local_accounts WHERE login_email=?", "rollback-"+badID+"@example.test").Scan(&n); e != nil || n != 0 {
 		t.Fatal("failed Tenant create left an account", e)
@@ -301,16 +307,16 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 // TestAccountDeadlineRenewsOnlyAfterDerivation pins that only a derived
 // password renews the request deadline; choosing an existing account keeps it.
 func TestAccountDeadlineRenewsOnlyAfterDerivation(t *testing.T) {
-	ctx, cancel := withRequestDeadline(context.Background())
+	ctx, cancel := op.WithRequestDeadline(context.Background())
 	defer cancel()
 	original, _ := ctx.Deadline()
 	time.Sleep(10 * time.Millisecond)
-	kept, keep := preparedAccount{Email: "existing@example.test"}.deadline(ctx)
+	kept, keep := membership.PreparedAccount{Email: "existing@example.test"}.Deadline(ctx)
 	defer keep()
 	if deadline, _ := kept.Deadline(); !deadline.Equal(original) {
 		t.Fatal("an account without a derived password renewed the request deadline")
 	}
-	renewed, stop := preparedAccount{Email: "new@example.test", Hash: []byte{1}, Salt: []byte{2}}.deadline(ctx)
+	renewed, stop := membership.PreparedAccount{Email: "new@example.test", Hash: []byte{1}, Salt: []byte{2}}.Deadline(ctx)
 	defer stop()
 	if deadline, _ := renewed.Deadline(); !deadline.After(original) {
 		t.Fatal("a derived password did not renew the request deadline")
