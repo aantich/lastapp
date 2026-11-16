@@ -41,7 +41,8 @@ When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/
 ```sh
 make stop                  # stop these local services; preserve data
 make test                  # Go unit tests and compilation; DB tests skip by default
-make integration           # actual MariaDB + Chrome tests; run make dev first
+make integration           # actual MariaDB backend tests (run make dev first), then make e2e
+make e2e                   # Chrome tests on a disposable MariaDB/API; dev data untouched
 ```
 
 Do not delete `.local/config.json` while retaining its database: its encryption key is needed to read stored connection credentials. The development identity provider is explicitly loopback-only. Production can use local accounts, trusted OIDC, or both.
@@ -129,4 +130,4 @@ and `rounded-panel` without choosing a fixed palette. See the
 [reference and theme extension guide](design/references/paces-neo.md).
 
 
-Security fixes and operating boundaries are recorded in [the remediation report](review/security-2026-11-12/FIXES.md). Run `make integration` for the API/security/browser suites. The local Vite UI on port 5173 is an explicit development-only origin; login returns there, and writes use the proxy. Production accepts only its configured admin origin and requires verified TLS for TCP registry connections.
+Security fixes and operating boundaries are recorded in [the remediation report](review/security-2026-11-12/FIXES.md). Run `make integration` for the API/security/browser suites; `make e2e` alone runs the browser suite on its own throwaway database. The local Vite UI on port 5173 is an explicit development-only origin; login returns there, and writes use the proxy. Production accepts only its configured admin origin and requires verified TLS for TCP registry connections.

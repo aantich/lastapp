@@ -151,23 +151,31 @@ make test                       # unit/build checks; DB tests may skip
 GOCACHE="$PWD/.local/go-cache" go vet ./...
 make mcp-test                   # TestAgent* only: MCP/OAuth/agent security + agent worker
 make integration                # full backend race/security + browser suite
+make e2e                        # browser suite only, on a disposable stack
 make client                     # SDK + example client.js; needs web/admin npm ci
 python3 design/validate_schema.py --check  # offline DDL parity only
 python3 scripts/verify_driver.py           # pinned driver integrity
 git diff --check
 ```
 
-`make mcp-test` and `make integration` require the existing local development
-config/server. `make mcp-test` runs only the `TestAgent*` control tests with race
-detection; the general security suite (`LASTAPP_SECURITY_CONFIG`) and the browser
-suite run under `make integration`. `make client` compiles with the console's
-TypeScript, so run `make web` (or `make dev`) once first; `npm run test:e2e` and
-therefore `make integration` run `make client` automatically through the
-`pretest:e2e` hook. Database fixtures use disposable registries; worker tests clean
+`make mcp-test` and the backend half of `make integration` require the existing
+local development config/server. `make mcp-test` runs only the `TestAgent*` control
+tests with race detection; the general security suite (`LASTAPP_SECURITY_CONFIG`)
+runs under `make integration`, whose browser half is `make e2e` (below). `make client`
+compiles with the console's TypeScript, so run `make web` (or `make dev`) once first;
+`make e2e` runs `make client` automatically through the `pretest:e2e` hook. Database fixtures use disposable registries; worker tests clean
 their owned generated resources. Do not point them at production. Plain Go tests
-without explicit fixture config are not integration evidence. The browser suite
-uses installed Chrome locally and a Vite server on 5173; CI uses Chromium.
-Rebuild with `make dev` after Go or embedded-console changes before browser testing.
+without explicit fixture config are not integration evidence. The browser suite never touches the development stack or its data: `make e2e`
+(`scripts/e2e.py`, also used by CI) starts a fresh MariaDB from
+`docker-compose.e2e.yaml` (Compose project `lastapp-e2e`, tmpfs, port 33318),
+prepares it the way CI does (`scripts/ci_config.py` + `TestPrepareFixture`),
+builds the current source and runs a separate API on 8797, development issuer on
+8798 and Vite on 5183, then stops them and removes the container. Its disposable
+config, secrets, binaries, artifacts and logs are in `.local/e2e/` (recreated each
+run). The ports are chosen only in `scripts/e2e.py`; tests read them through
+`LASTAPP_E2E` (`web/admin/tests/stack.ts`), so `npm run test:e2e` alone refuses to
+run. Pass Playwright arguments with `make e2e ARGS=tests/security.spec.ts`. Docker
+is required. Chrome is used locally, Chromium in CI.
 
 For registry changes, add a forward Goose migration (the startup schema check
 derives its required version from the newest embedded migration), then regenerate
