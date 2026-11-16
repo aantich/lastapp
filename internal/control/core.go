@@ -85,6 +85,7 @@ type Server struct {
 	auth                   *oidcAuth
 	Log                    *slog.Logger
 	run                    *runner
+	inv                    *inventory
 }
 type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -215,6 +216,7 @@ func Open(c Config) (*Server, error) {
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.run = &runner{db: db, access: s}
+	s.inv = &inventory{db: db, run: s.run}
 	return s, nil
 }
 
@@ -486,9 +488,15 @@ func expectedRevision(r *http.Request) (int64, error) {
 	v := strings.Trim(r.Header.Get("If-Match"), `"`)
 	n, e := strconv.ParseInt(v, 10, 64)
 	if e != nil || n < 1 {
-		return 0, problem(428, "revision_required", "Send If-Match with the current resource revision.")
+		return 0, revisionRequired()
 	}
 	return n, nil
+}
+
+// ifMatch returns the If-Match revision, or 0 for the operation to reject.
+func ifMatch(r *http.Request) int64 {
+	n, _ := expectedRevision(r)
+	return n
 }
 
 func checkRevision(got, want int64) error {

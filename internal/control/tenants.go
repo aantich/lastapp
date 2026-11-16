@@ -37,13 +37,81 @@ func (in planInput) validate() error {
 	return bad("The default layout must be allowed by this plan.")
 }
 
-func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return e
+// inventory owns the Tenant inventory operations: plans, Tenants, Spaces,
+// Apps and micro-apps. Console handlers and MCP tools both call these methods.
+type inventory struct {
+	db  *sql.DB
+	run *runner
+}
+
+func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		return Page[Row]{}, e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+	return pageQuery(ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+}
+
+func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Row, error) {
+	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		return nil, e
+	}
+	return row(ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
+}
+
+func (v *inventory) CreatePlan(ctx context.Context, a Actor, in planInput) (Ref, error) {
+	if e := id(in.ID); e != nil {
+		return Ref{}, e
+	}
+	if e := in.validate(); e != nil {
+		return Ref{}, e
+	}
+	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
+		_, e := tx.ExecContext(ctx, "INSERT INTO plans (id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", in.ID, in.Code, in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases)
+		if e != nil {
+			return e
+		}
+		return auditAs(ctx, tx, a, "", "plan.created", "plan", in.ID, Row{"code": in.Code})
+	})
+	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, "plans", "", in.ID)
+}
+
+func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in planInput, revision int64) (Ref, error) {
+	if e := in.validate(); e != nil {
+		return Ref{}, e
+	}
+	if revision < 1 {
+		return Ref{}, revisionRequired()
+	}
+	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
+		old, e := row(ctx, tx, "SELECT id,revision,code FROM plans WHERE id=? FOR UPDATE", record)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+			return e
+		}
+		if str(old["code"]) != in.Code {
+			return bad("Plan codes are immutable.")
+		}
+		_, e = tx.ExecContext(ctx, "UPDATE plans SET display_name=?,allow_shared_database=?,allow_dedicated_database=?,allow_managed_database=?,allow_registered_database=?,allow_dedicated_compute=?,default_layout=?,max_spaces=?,max_apps=?,max_databases=?,revision=revision+1 WHERE id=?", in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases, record)
+		if e != nil {
+			return e
+		}
+		return auditAs(ctx, tx, a, "", "plan.updated", "plan", record, Row{"affects": "future allocations"})
+	})
+	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, "plans", "", record)
+}
+
+func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Plans(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
 	if e == nil {
-		sendPage(w, r, v)
+		send(w, 200, v)
 	}
 	return e
 }
@@ -53,23 +121,11 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p Principal)
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if e := id(in.ID); e != nil {
-		return e
+	v, e := s.inv.CreatePlan(r.Context(), httpActor(r, p), in)
+	if e == nil {
+		sendRef(w, 201, v)
 	}
-	if e := in.validate(); e != nil {
-		return e
-	}
-	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		_, e := tx.ExecContext(r.Context(), "INSERT INTO plans (id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", in.ID, in.Code, in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases)
-		if e != nil {
-			return e
-		}
-		return audit(r.Context(), tx, "", p.ID, "plan.created", "plan", in.ID, r.Header.Get("X-Request-ID"), Row{"code": in.Code})
-	})
-	if e != nil {
-		return e
-	}
-	return result(w, r, s, "plans", "", in.ID, 201)
+	return e
 }
 
 func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -77,35 +133,11 @@ func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal)
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if e := in.validate(); e != nil {
-		return e
+	v, e := s.inv.UpdatePlan(r.Context(), httpActor(r, p), r.PathValue("id"), in, ifMatch(r))
+	if e == nil {
+		sendRef(w, 200, v)
 	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	record := r.PathValue("id")
-	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := row(r.Context(), tx, "SELECT id,revision,code FROM plans WHERE id=? FOR UPDATE", record)
-		if e != nil {
-			return e
-		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
-			return e
-		}
-		if str(old["code"]) != in.Code {
-			return bad("Plan codes are immutable.")
-		}
-		_, e = tx.ExecContext(r.Context(), "UPDATE plans SET display_name=?,allow_shared_database=?,allow_dedicated_database=?,allow_managed_database=?,allow_registered_database=?,allow_dedicated_compute=?,default_layout=?,max_spaces=?,max_apps=?,max_databases=?,revision=revision+1 WHERE id=?", in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases, record)
-		if e != nil {
-			return e
-		}
-		return audit(r.Context(), tx, "", p.ID, "plan.updated", "plan", record, r.Header.Get("X-Request-ID"), Row{"affects": "future allocations"})
-	})
-	if e != nil {
-		return e
-	}
-	return result(w, r, s, "plans", "", record, 200)
+	return e
 }
 
 func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) error {

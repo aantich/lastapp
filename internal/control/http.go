@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -266,6 +267,17 @@ func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) err
 		sendPage(w, r, v)
 	}
 	return e
+}
+
+// httpActor is the console caller of an operation.
+func httpActor(r *http.Request, p Principal) Actor {
+	return actorFrom(r.Context(), p, r.Header.Get("X-Request-ID"))
+}
+
+// sendRef sends a mutation result with its revision as the ETag.
+func sendRef(w http.ResponseWriter, status int, v Ref) {
+	w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
+	send(w, status, v)
 }
 
 func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, record string, status int) error {

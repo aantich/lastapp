@@ -87,6 +87,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Change area | Authoritative source / reuse point |
 | --- | --- |
 | Management routes and console-session wrapper | `internal/control/http.go`; domain handlers in `internal/control` |
+| Operations shared by console and MCP | `op.go`: `Actor`/`AgentCall`, `runner.mutate` (lock, live authorization, production guard, receipt, audit), one error `classify`, `PageRequest`/`Page`; domain services such as `inventory` (`tenants.go`, `inventory.go`). Handlers decode → call the operation → send; MCP adapters call the same operation directly |
 | Fixed role IDs/actions/scope categories | `internal/authz/catalog.go`; `auth.go`, `roles.go` resolve current authority |
 | Password policy and public settings | `internal/control/passwords.go` → `GET /v1/config`; shared frontend controls |
 | Entity document, types, expressions, ACL semantics and limits | `internal/entity`; `GET /v1/entity-capabilities` |
@@ -119,7 +120,12 @@ including exact decimals, nulls, permission paths and old/new update checks.
 
 Console, App and MCP credentials are separate; none is a general-purpose token
 for the other surfaces. MCP invokes the same management operations in process,
-not an unauthenticated HTTP endpoint or a synthetic superadmin session.
+not an unauthenticated HTTP endpoint or a synthetic superadmin session. Migrated
+domains expose typed operations that take an explicit `Actor`; tools for the
+remaining domains still adapt through the in-process handler shim
+`executeManagement`, which `TestLoopbackRatchet` prevents from gaining callers.
+Golden files in `internal/control/testdata` pin the MCP tool schemas and the
+response shapes of representative endpoints; refactors must leave them unchanged.
 
 Important management groups are Tenant/Space/App/micro-app inventory, scoped
 `roles`, `role-assignments`, `recipients`, memberships/teams, database resources,

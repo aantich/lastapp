@@ -548,7 +548,42 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 	return context.WithValue(ctx, agentContextKey{}, a), nil
 }
 
-func agentWriteResult(ctx context.Context, data Row, e error) (any, error) {
+// inventoryUpdate selects the Space, App or micro-app metadata operation.
+func (s *Server) inventoryUpdate(resource string) func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error) {
+	switch resource {
+	case "space":
+		return s.inv.UpdateSpace
+	case "app":
+		return s.inv.UpdateApp
+	}
+	return s.inv.UpdateMicroapp
+}
+
+// agentFits enforces the MCP response bound on an operation result, measured
+// as its serialized JSON (with the encoder's trailing newline).
+func agentFits(v any) error {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	if len(b)+1 > agentMaxResponse {
+		return problem(413, "response_limit", "Response exceeds the context limit. Use a smaller page or entity section; for schemas, select one field.")
+	}
+	return nil
+}
+
+// agentSized passes a successful operation result through agentFits.
+func agentSized[T any](v T, e error) (any, error) {
+	if e != nil {
+		return nil, e
+	}
+	if e = agentFits(v); e != nil {
+		return nil, e
+	}
+	return v, nil
+}
+
+func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
 	if errors.Is(e, errAgentReplay) {
 		a := agentCallFrom(ctx)
 		a.Committed = true
@@ -587,6 +622,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	kind, key := "", ""
 	var body any
 	var fn endpoint
+	var call func(context.Context, Actor) (any, error)
 	permissions := []string{"resources.write"}
 	switch {
 	case in.Space != nil:
@@ -623,8 +659,9 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "microapp"
 		key = in.Microapp.ID
-		fn = s.createMicroapp
-		body = in.Microapp
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.CreateMicroapp(ctx, a, res.Tenant, target.ID, *in.Microapp)
+		}
 	case in.Team != nil:
 		if target.Kind != "tenant" {
 			return nil, bad("Team creation requires a Tenant target.")
@@ -657,8 +694,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "plan"
 		key = in.Plan.ID
-		fn = s.createPlan
-		body = in.Plan
+		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreatePlan(ctx, a, *in.Plan) }
 		permissions = []string{"platform.manage"}
 	}
 	if e = id(key); e != nil {
@@ -667,6 +703,10 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": kind, "id": key}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
+	}
+	if call != nil {
+		data, e := agentSized(call(ctx, agentActor(ctx, p)))
+		return agentWriteResult(ctx, data, e)
 	}
 	data, e := s.executeManagement(ctx, p, fn, "POST", agentScopePath(res, target), paths, body, 0)
 	return agentWriteResult(ctx, data, e)
@@ -705,6 +745,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	paths["id"] = in.ID
 	permissions := []string{"resources.write"}
 	var fn endpoint
+	var call func(context.Context, Actor) (any, error)
 	body := Row{}
 	if in.Name != nil {
 		body["display_name"] = *in.Name
@@ -725,12 +766,15 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		body["default_layout"] = *in.Layout
 	}
 	switch in.Resource {
-	case "space":
-		fn = s.updateSpace
-	case "app":
-		fn = s.updateApp
-	case "microapp":
-		fn = s.updateMicroapp
+	case "space", "app", "microapp":
+		update := s.inventoryUpdate(in.Resource)
+		patch := metadataPatch{Name: in.Name, Compute: in.Compute, Artifact: in.Artifact, Order: in.Order}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if in.PlanID != nil || in.Layout != nil {
+				return nil, bad("Invalid or unsupported JSON request fields.")
+			}
+			return update(ctx, a, res.Tenant, in.ID, patch, in.Revision)
+		}
 	case "team":
 		fn = s.updateGroup
 	case "role":
@@ -750,10 +794,9 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		if target.Kind != "platform" || in.Plan == nil {
 			return nil, bad("Plan update requires platform scope and the complete plan object.")
 		}
-		if body, e = compactFields(in.Plan); e != nil {
-			return nil, e
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.UpdatePlan(ctx, a, in.ID, *in.Plan, in.Revision)
 		}
-		fn = s.updatePlan
 		permissions = []string{"platform.manage"}
 	default:
 		return nil, bad("Unsupported metadata resource.")
@@ -767,6 +810,10 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": in.Resource, "id": in.ID}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
+	}
+	if call != nil {
+		data, e := agentSized(call(ctx, agentActor(ctx, p)))
+		return agentWriteResult(ctx, data, e)
 	}
 	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)
@@ -789,13 +836,13 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	permissions := []string{"lifecycle.manage", "access.manage"}
 	body := Row{"state": in.State}
 	var fn endpoint
+	var call func(context.Context, Actor) (any, error)
 	switch in.Resource {
-	case "space":
-		fn = s.updateSpace
-	case "app":
-		fn = s.updateApp
-	case "microapp":
-		fn = s.updateMicroapp
+	case "space", "app", "microapp":
+		update := s.inventoryUpdate(in.Resource)
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return update(ctx, a, res.Tenant, in.ID, metadataPatch{State: &in.State}, in.Revision)
+		}
 	case "team":
 		fn = s.updateGroup
 	case "role":
@@ -826,6 +873,10 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	ctx, e = s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": in.Resource, "id": in.ID}, in, permissions...)
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
+	}
+	if call != nil {
+		data, e := agentSized(call(ctx, agentActor(ctx, p)))
+		return agentWriteResult(ctx, data, e)
 	}
 	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -241,117 +242,116 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 	return result(w, r, s, "apps", tenant, in.ID, 201)
 }
 
-func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
-	sc, e := s.scopes(r.Context(), s.DB, p, tenant, "microapp.read")
+// Microapps pages the micro-apps a may read in tenant, optionally of one App.
+// Without an App filter, development workspace Apps are excluded.
+func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, page PageRequest) (Page[Row], error) {
+	sc, e := v.run.scopes(ctx, a, tenant, "microapp.read")
 	if e != nil {
-		return e
+		return Page[Row]{}, e
 	}
 	filter, args := scopeSQL(sc, "a.space_id", "m.app_id")
 	args = append([]any{tenant}, args...)
 	query := "SELECT m.id,m.tenant_id,m.app_id,m.slug,m.display_name,m.artifact_ref,m.navigation_order,m.state,m.revision,m.created_at,a.display_name AS app_name,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
-	if app := r.URL.Query().Get("app_id"); app != "" {
-		if e = s.authorize(r.Context(), s.DB, p, "microapp.read", Resource{Tenant: tenant, App: app}, false); e != nil {
-			return e
+	if app != "" {
+		if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: app}); e != nil {
+			return Page[Row]{}, e
 		}
 		query += " AND m.app_id=?"
 		args = append(args, app)
 	} else {
 		query += " AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)"
 	}
-	v, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+	return pageQuery(ctx, v.db, page, collectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
 }
 
-func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in microappCreateInput
-	if e := decode(w, r, &in); e != nil {
-		return e
+func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Row, error) {
+	m, e := row(ctx, v.db, "SELECT id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state,revision FROM microapp_installations WHERE tenant_id=? AND id=?", tenant, record)
+	if e != nil {
+		return nil, e
 	}
+	if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: str(m["app_id"])}); e != nil {
+		return nil, e
+	}
+	return m, nil
+}
+
+func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app string, in microappCreateInput) (Ref, error) {
 	if e := id(in.ID); e != nil {
-		return e
+		return Ref{}, e
 	}
 	if e := named(in.Slug, in.Name); e != nil {
-		return e
+		return Ref{}, e
 	}
 	if len(in.Artifact) > 1024 {
-		return bad("Artifact reference is too long.")
+		return Ref{}, bad("Artifact reference is too long.")
 	}
-	tenant, app := r.PathValue("tenant"), r.PathValue("app")
-	parent, e := row(r.Context(), s.DB, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", app, tenant)
+	parent, e := row(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", app, tenant)
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
 	res := Resource{Tenant: tenant, Space: str(parent["space_id"]), App: app}
-	e = s.mutate(r.Context(), p, "microapp.manage", res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		if _, e := policyFor(r.Context(), tx, tenant); e != nil {
+	e = v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
+		if _, e := policyFor(ctx, tx, tenant); e != nil {
 			return e
 		}
-		if e := metadataQuota(r.Context(), tx, tenant, "microapp_installations"); e != nil {
+		if e := metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 			return e
 		}
-		a, e := row(r.Context(), tx, "SELECT a.state,sp.state AS space_state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", app, tenant)
+		parent, e := row(ctx, tx, "SELECT a.state,sp.state AS space_state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", app, tenant)
 		if e != nil {
 			return e
 		}
-		if str(a["state"]) != stateActive || str(a["space_state"]) != stateActive {
+		if str(parent["state"]) != stateActive || str(parent["space_state"]) != stateActive {
 			return conflict("The parent App and Space must be active.")
 		}
-		_, e = tx.ExecContext(r.Context(), "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, nullable(in.Artifact), in.Order)
+		_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, nullable(in.Artifact), in.Order)
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, tenant, p.ID, "microapp.created", "microapp", in.ID, r.Header.Get("X-Request-ID"), Row{"app_id": app})
+		return auditAs(ctx, tx, a, tenant, "microapp.created", "microapp", in.ID, Row{"app_id": app})
 	})
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return result(w, r, s, "microapp_installations", tenant, in.ID, 201)
+	return v.run.ref(ctx, "microapp_installations", tenant, in.ID)
 }
 
-func (s *Server) updateSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
-	return s.patchInventory(w, r, p, "spaces", "space.manage", Resource{Tenant: r.PathValue("tenant"), Space: r.PathValue("id")})
+func (v *inventory) UpdateSpace(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
+	return v.patch(ctx, a, "spaces", "space.manage", Resource{Tenant: tenant, Space: record}, record, in, revision)
 }
 
-func (s *Server) updateApp(w http.ResponseWriter, r *http.Request, p Principal) error {
-	parent, e := row(r.Context(), s.DB, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", r.PathValue("id"), r.PathValue("tenant"))
+func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
+	parent, e := row(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", record, tenant)
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return s.patchInventory(w, r, p, "apps", "app.manage", Resource{Tenant: r.PathValue("tenant"), Space: str(parent["space_id"]), App: r.PathValue("id")})
+	return v.patch(ctx, a, "apps", "app.manage", Resource{Tenant: tenant, Space: str(parent["space_id"]), App: record}, record, in, revision)
 }
 
-func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
-	parent, e := row(r.Context(), s.DB, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", r.PathValue("id"), r.PathValue("tenant"))
+func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
+	parent, e := row(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", record, tenant)
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return s.patchInventory(w, r, p, "microapp_installations", "microapp.manage", Resource{Tenant: r.PathValue("tenant"), Space: str(parent["space_id"]), App: str(parent["app_id"])})
+	return v.patch(ctx, a, "microapp_installations", "microapp.manage", Resource{Tenant: tenant, Space: str(parent["space_id"]), App: str(parent["app_id"])}, record, in, revision)
 }
 
-func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Principal, table, action string, res Resource) error {
-	var in metadataPatch
-	if e := decode(w, r, &in); e != nil {
-		return e
+// patch changes Space, App or micro-app metadata and lifecycle state under the
+// record's revision. Restoring an archived Space or App rechecks plan quotas.
+func (v *inventory) patch(ctx context.Context, a Actor, table, action string, res Resource, record string, in metadataPatch, revision int64) (Ref, error) {
+	if revision < 1 {
+		return Ref{}, revisionRequired()
 	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	record := r.PathValue("id")
-	e = s.mutate(r.Context(), p, action, res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := lockRecord(r.Context(), tx, table, res.Tenant, record)
+	e := v.run.mutate(ctx, a, action, res, func(tx *sql.Tx) error {
+		old, e := lockRecord(ctx, tx, table, res.Tenant, record)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+		if e = checkRevision(integer(old["revision"]), revision); e != nil {
 			return e
 		}
 		if table != "spaces" {
-			parent, e := row(r.Context(), tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", res.Space, res.Tenant)
+			parent, e := row(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", res.Space, res.Tenant)
 			if e != nil {
 				return e
 			}
@@ -360,11 +360,11 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 			}
 		}
 		if table == "microapp_installations" {
-			a, e := row(r.Context(), tx, "SELECT state FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant)
+			app, e := row(ctx, tx, "SELECT state FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant)
 			if e != nil {
 				return e
 			}
-			if str(a["state"]) != stateActive {
+			if str(app["state"]) != stateActive {
 				return conflict("The parent App must be active.")
 			}
 		}
@@ -382,14 +382,14 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 				return bad("Invalid state.")
 			}
 			if str(old["state"]) == stateArchived && *in.State != stateArchived && (table == "apps" || table == "spaces") {
-				policy, e := policyFor(r.Context(), tx, res.Tenant)
+				policy, e := policyFor(ctx, tx, res.Tenant)
 				if e != nil {
 					return e
 				}
 				if table == "apps" {
-					e = appQuota(r.Context(), tx, res.Tenant, res.Space, policy, false)
+					e = appQuota(ctx, tx, res.Tenant, res.Space, policy, false)
 				} else {
-					e = quota(r.Context(), tx, res.Tenant, table, "max_"+table, policy)
+					e = quota(ctx, tx, res.Tenant, table, "max_"+table, policy)
 				}
 				if e != nil {
 					return e
@@ -406,11 +406,11 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 				return bad("Invalid compute mode.")
 			}
 			var previous string
-			if e = tx.QueryRowContext(r.Context(), "SELECT compute_mode FROM apps WHERE id=? AND tenant_id=?", record, res.Tenant).Scan(&previous); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT compute_mode FROM apps WHERE id=? AND tenant_id=?", record, res.Tenant).Scan(&previous); e != nil {
 				return e
 			}
 			if *in.Compute == "dedicated" && previous != *in.Compute {
-				policy, e := policyFor(r.Context(), tx, res.Tenant)
+				policy, e := policyFor(ctx, tx, res.Tenant)
 				if e != nil {
 					return e
 				}
@@ -438,14 +438,59 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 			}
 		}
 		args = append(args, record, res.Tenant)
-		_, e = tx.ExecContext(r.Context(), "UPDATE "+table+" SET "+strings.Join(sets, ",")+" WHERE id=? AND tenant_id=?", args...)
-		if e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE "+table+" SET "+strings.Join(sets, ",")+" WHERE id=? AND tenant_id=?", args...); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, res.Tenant, p.ID, table+".updated", table, record, r.Header.Get("X-Request-ID"), Row{"state": in.State})
+		return auditAs(ctx, tx, a, res.Tenant, table+".updated", table, record, Row{"state": in.State})
 	})
 	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, table, res.Tenant, record)
+}
+
+func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Microapps(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.URL.Query().Get("app_id"), pageRequest(r.URL.Query()))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in microappCreateInput
+	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	return result(w, r, s, table, res.Tenant, record, 200)
+	v, e := s.inv.CreateMicroapp(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("app"), in)
+	if e == nil {
+		sendRef(w, 201, v)
+	}
+	return e
+}
+
+func (s *Server) updateSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	return updateInventory(w, r, p, s.inv.UpdateSpace)
+}
+
+func (s *Server) updateApp(w http.ResponseWriter, r *http.Request, p Principal) error {
+	return updateInventory(w, r, p, s.inv.UpdateApp)
+}
+
+func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
+	return updateInventory(w, r, p, s.inv.UpdateMicroapp)
+}
+
+// updateInventory is the console adapter of the Space, App and micro-app
+// metadata and lifecycle operations.
+func updateInventory(w http.ResponseWriter, r *http.Request, p Principal, update func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error)) error {
+	var in metadataPatch
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := update(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"), in, ifMatch(r))
+	if e == nil {
+		sendRef(w, 200, v)
+	}
+	return e
 }

@@ -57,10 +57,21 @@ func actorFrom(ctx context.Context, p Principal, requestID string) Actor {
 	return Actor{Principal: p, RequestID: requestID, Agent: agentCallFrom(ctx)}
 }
 
+// agentActor is the actor of one MCP tool call. Every call gets its own
+// operation request ID, as an HTTP request would.
+func agentActor(ctx context.Context, p Principal) Actor {
+	return actorFrom(ctx, p, newID())
+}
+
 // Ref is the compact result of a mutation: the record and its new revision.
 type Ref struct {
 	ID       string `json:"id"`
 	Revision int64  `json:"revision"`
+}
+
+// revisionRequired rejects an update without an expected revision.
+func revisionRequired() error {
+	return problem(428, "revision_required", "Send If-Match with the current resource revision.")
 }
 
 // opError is the one transport-independent classification of an operation
@@ -191,6 +202,34 @@ func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resourc
 		a.Agent.Committed = true
 	}
 	return nil
+}
+
+// authorize is a read-side live authorization check for a.
+func (r *runner) authorize(ctx context.Context, a Actor, action string, res Resource) error {
+	return r.access.authorize(withAgentCall(ctx, a.Agent), r.db, a.Principal, action, res, false)
+}
+
+// scopes returns a's live read scopes in tenant; apply them before paging.
+func (r *runner) scopes(ctx context.Context, a Actor, tenant, action string) (scopeSet, error) {
+	return r.access.scopes(withAgentCall(ctx, a.Agent), r.db, a.Principal, tenant, action)
+}
+
+// ref reads a record's compact result after its mutation committed.
+func (r *runner) ref(ctx context.Context, table, tenant, record string) (Ref, error) {
+	query := "SELECT id,revision FROM " + table + " WHERE id=?"
+	args := []any{record}
+	if tenant != "" {
+		query += " AND tenant_id=?"
+		args = append(args, tenant)
+	}
+	var v Ref
+	if e := r.db.QueryRowContext(ctx, query, args...).Scan(&v.ID, &v.Revision); e != nil {
+		if errors.Is(e, sql.ErrNoRows) {
+			return v, missing()
+		}
+		return v, e
+	}
+	return v, nil
 }
 
 // auditAs records an audit event attributed to a: the human user, the request
