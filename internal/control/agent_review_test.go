@@ -16,6 +16,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -366,7 +367,7 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 		t.Fatal(e)
 	}
 	p.Agent = g
-	input := spaceCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "reuse-direct", Name: "Reuse direct"}, Manager: p.ID}
+	input := inventory.SpaceCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "reuse-direct", Name: "Reuse direct"}, Manager: p.ID}
 	input.Database.Mode = "managed"
 	input.Database.Layout = "shared"
 	// Existing shared resource: the shared operation itself needs no allocation.

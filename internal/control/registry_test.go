@@ -15,6 +15,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -104,7 +105,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	sameJSON(t, s.DB, plan, "SELECT id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at FROM plans WHERE id=?", limited["id"])
 
 	for i, artifact := range []string{"", "https://example.test/a.js"} {
-		in := microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "typed-" + registry.NewID()[:8], Name: "Typed"}, Artifact: artifact, Order: i}
+		in := inventory.MicroappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "typed-" + registry.NewID()[:8], Name: "Typed"}, Artifact: artifact, Order: i}
 		if _, e = s.inv.CreateMicroapp(ctx, admin, tenant, app, in); e != nil {
 			t.Fatal(e)
 		}
@@ -540,7 +541,7 @@ func jsonKeys(t reflect.Type) []string {
 // members must therefore be declared in sorted order (snapshot records keep
 // their own documented order and are not Row replacements).
 func TestRegistryRecordKeysAreSorted(t *testing.T) {
-	for _, v := range []any{registry.Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, membership.Membership{}, membership.Team{}, membership.TeamMember{}, membership.Administrator{}, User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
+	for _, v := range []any{registry.Plan{}, inventory.Tenant{}, inventory.TenantItem{}, inventory.Space{}, inventory.SpaceItem{}, inventory.App{}, inventory.AppItem{}, inventory.Microapp{}, inventory.MicroappItem{}, membership.Membership{}, membership.Team{}, membership.TeamMember{}, membership.Administrator{}, inventory.User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
 		keys := jsonKeys(reflect.TypeOf(v))
 		if len(keys) == 0 || !slices.IsSorted(keys) {
 			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)

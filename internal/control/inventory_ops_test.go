@@ -10,6 +10,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -49,7 +50,7 @@ func TestInventoryOperations(t *testing.T) {
 	human := op.Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 
 	// Console actor: create, revision rules and audit attribution.
-	in := microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Order: 2}
+	in := inventory.MicroappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Order: 2}
 	ref, e := s.inv.CreateMicroapp(ctx, human, tenant, app, in)
 	if e != nil || ref.ID != in.ID || ref.Revision != 1 {
 		t.Fatal("console create", ref, e)
@@ -59,11 +60,11 @@ func TestInventoryOperations(t *testing.T) {
 		t.Fatal("console audit attribution", request, details, e)
 	}
 	name := "Renamed"
-	_, e = s.inv.UpdateMicroapp(ctx, human, tenant, in.ID, metadataPatch{Name: &name}, 0)
+	_, e = s.inv.UpdateMicroapp(ctx, human, tenant, in.ID, inventory.MetadataPatch{Name: &name}, 0)
 	wantProblem(t, e, 428, "revision_required")
-	_, e = s.inv.UpdateMicroapp(ctx, human, tenant, in.ID, metadataPatch{Name: &name}, 7)
+	_, e = s.inv.UpdateMicroapp(ctx, human, tenant, in.ID, inventory.MetadataPatch{Name: &name}, 7)
 	wantProblem(t, e, 412, "stale_revision")
-	if ref, e = s.inv.UpdateMicroapp(ctx, human, tenant, in.ID, metadataPatch{Name: &name}, 1); e != nil || ref.Revision != 2 {
+	if ref, e = s.inv.UpdateMicroapp(ctx, human, tenant, in.ID, inventory.MetadataPatch{Name: &name}, 1); e != nil || ref.Revision != 2 {
 		t.Fatal("console update", ref, e)
 	}
 	page, e := s.inv.Microapps(ctx, human, tenant, app, op.PageRequest{Limit: 1})
@@ -78,13 +79,13 @@ func TestInventoryOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='outsider'").Scan(&outsider); e != nil {
 		t.Fatal(e)
 	}
-	_, e = s.inv.CreateMicroapp(ctx, op.Actor{Principal: access.Principal{ID: outsider}, RequestID: registry.NewID()}, tenant, app, microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "denied", Name: "Denied"}})
+	_, e = s.inv.CreateMicroapp(ctx, op.Actor{Principal: access.Principal{ID: outsider}, RequestID: registry.NewID()}, tenant, app, inventory.MicroappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "denied", Name: "Denied"}})
 	wantProblem(t, e, 404, "not_found")
 	_, e = s.inv.Plans(ctx, human, op.PageRequest{})
 	wantProblem(t, e, 403, "forbidden")
 
 	// Agent actor: receipt, replay, conflicting reuse and grant attribution.
-	agentIn := microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "agent", Name: "Agent"}}
+	agentIn := inventory.MicroappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "agent", Name: "Agent"}}
 	call := agentCall(p, "lastapp_create", agentIn, "resources.write")
 	agent := op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}
 	if _, e = s.inv.CreateMicroapp(ctx, agent, tenant, app, agentIn); e != nil || !call.Committed {
@@ -98,11 +99,11 @@ func TestInventoryOperations(t *testing.T) {
 		t.Fatal("replay executed again", e)
 	}
 	reused := &access.AgentCall{Grant: call.Grant, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: "different"}
-	_, e = s.inv.UpdateMicroapp(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: reused}, tenant, agentIn.ID, metadataPatch{Name: &name}, 1)
+	_, e = s.inv.UpdateMicroapp(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: reused}, tenant, agentIn.ID, inventory.MetadataPatch{Name: &name}, 1)
 	wantProblem(t, e, 409, "conflict")
 	missingScope := agentCall(p, "lastapp_lifecycle", nil, "lifecycle.manage")
 	archived := registry.StateArchived
-	_, e = s.inv.UpdateMicroapp(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: missingScope}, tenant, agentIn.ID, metadataPatch{State: &archived}, 1)
+	_, e = s.inv.UpdateMicroapp(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: missingScope}, tenant, agentIn.ID, inventory.MetadataPatch{State: &archived}, 1)
 	wantProblem(t, e, 403, "needs_authorization")
 	if o := op.Classify(e); o.Authority == nil || len(o.Authority.Missing) != 1 || o.Authority.Missing[0] != "lifecycle.manage" {
 		t.Fatal("missing scopes not classified", e)
@@ -118,15 +119,15 @@ func TestTenantInventoryOperations(t *testing.T) {
 	ctx := context.Background()
 	platform := op.Actor{Principal: access.Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
 	human := op.Actor{Principal: access.Principal{ID: owner}, RequestID: registry.NewID()}
-	tenant := tenantCreateInput{ID: registry.NewID(), Slug: "ops-tenant", Name: "Ops", Plan: "10000000-0000-4000-8000-000000000001", Admin: owner}
+	tenant := inventory.TenantCreateInput{ID: registry.NewID(), Slug: "ops-tenant", Name: "Ops", Plan: "10000000-0000-4000-8000-000000000001", Admin: owner}
 	_, e := s.inv.CreateTenant(ctx, human, tenant)
 	wantProblem(t, e, 403, "forbidden")
 	if ref, e := s.inv.CreateTenant(ctx, platform, tenant); e != nil || ref.Revision != 1 {
 		t.Fatal("platform create", ref, e)
 	}
-	_, e = s.inv.UpdateTenant(ctx, platform, tenant.ID, tenantPatch{}, 0)
+	_, e = s.inv.UpdateTenant(ctx, platform, tenant.ID, inventory.TenantPatch{}, 0)
 	wantProblem(t, e, 428, "revision_required")
-	_, e = s.inv.UpdateTenant(ctx, platform, tenant.ID, tenantPatch{}, 9)
+	_, e = s.inv.UpdateTenant(ctx, platform, tenant.ID, inventory.TenantPatch{}, 9)
 	wantProblem(t, e, 412, "stale_revision")
 	_, e = s.inv.UpdateTenantProfile(ctx, platform, tenant.ID, "Platform rename", 1)
 	wantProblem(t, e, 403, "tenant_authority_required")
@@ -141,7 +142,7 @@ func TestTenantInventoryOperations(t *testing.T) {
 	if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'ops_metadata_only','registered','shared','ready',X'00')", resource, tenant.ID, target); e != nil {
 		t.Fatal(e)
 	}
-	space := spaceCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
+	space := inventory.SpaceCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
 	space.Database.Resource = resource
 	if _, e = s.inv.CreateSpace(ctx, human, tenant.ID, space); e != nil {
 		t.Fatal("console space", e)
@@ -160,7 +161,7 @@ func TestTenantInventoryOperations(t *testing.T) {
 		t.Fatal(e)
 	}
 	p := access.Principal{ID: owner, Agent: g}
-	app := appCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
+	app := inventory.AppCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
 	call := agentCall(p, "lastapp_create", app, "resources.write")
 	agent := op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}
 	if _, e = s.inv.CreateApp(ctx, agent, tenant.ID, space.ID, app); e != nil || !call.Committed {

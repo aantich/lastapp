@@ -31,6 +31,7 @@ import (
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -65,7 +66,7 @@ type Server struct {
 	auth                   *oidcAuth
 	Log                    *slog.Logger
 	run                    *op.Runner
-	inv                    *inventory
+	inv                    *inventory.Inventory
 	members                *membership.Members
 	authority              *roles.Authority
 	storage                *databases.Storage
@@ -185,7 +186,7 @@ func Open(c config.Config) (*Server, error) {
 	s.run = &op.Runner{DB: db, Access: s.Checker}
 	s.authoring = &authoring{db: db, run: s.run, config: &s.Config, queue: s.queueDefinition, actorContext: s.actorContext}
 	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.seal, Config: &s.Config, RegistryName: cfg.DBName}
-	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.Allocate, prepareAccount: s.prepareAccount}
+	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, PrepareAccount: s.prepareAccount}
 	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}
 	s.authority = &roles.Authority{DB: db, Run: s.run}
 	return s, nil

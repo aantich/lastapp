@@ -19,6 +19,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -56,29 +57,29 @@ type agentTenantInput struct {
 	Admin  string `json:"initial_admin_user_id"`
 }
 type agentCreateInput struct {
-	Target     *agentTarget         `json:"target,omitempty"`
-	RequestKey string               `json:"request_key" jsonschema:"Fresh canonical UUID for this logical mutation. Reuse unchanged arguments when retrying."`
-	Space      *spaceCreateInput    `json:"space,omitempty"`
-	App        *appCreateInput      `json:"app,omitempty"`
-	Microapp   *microappCreateInput `json:"microapp,omitempty"`
-	Team       *op.NamedInput       `json:"team,omitempty"`
-	Role       *agentRoleInput      `json:"role,omitempty"`
-	Tenant     *agentTenantInput    `json:"tenant,omitempty"`
-	Plan       *planInput           `json:"plan,omitempty"`
+	Target     *agentTarget                   `json:"target,omitempty"`
+	RequestKey string                         `json:"request_key" jsonschema:"Fresh canonical UUID for this logical mutation. Reuse unchanged arguments when retrying."`
+	Space      *inventory.SpaceCreateInput    `json:"space,omitempty"`
+	App        *inventory.AppCreateInput      `json:"app,omitempty"`
+	Microapp   *inventory.MicroappCreateInput `json:"microapp,omitempty"`
+	Team       *op.NamedInput                 `json:"team,omitempty"`
+	Role       *agentRoleInput                `json:"role,omitempty"`
+	Tenant     *agentTenantInput              `json:"tenant,omitempty"`
+	Plan       *inventory.PlanInput           `json:"plan,omitempty"`
 }
 type agentUpdateInput struct {
-	Resource   string       `json:"resource"`
-	ID         string       `json:"id"`
-	Target     *agentTarget `json:"target,omitempty"`
-	Revision   int64        `json:"expected_revision"`
-	RequestKey string       `json:"request_key"`
-	Name       *string      `json:"display_name,omitempty"`
-	Compute    *string      `json:"compute_mode,omitempty"`
-	Artifact   *string      `json:"artifact_ref,omitempty"`
-	Order      *int         `json:"navigation_order,omitempty"`
-	Plan       *planInput   `json:"plan,omitempty"`
-	PlanID     *string      `json:"plan_id,omitempty"`
-	Layout     *string      `json:"default_layout,omitempty"`
+	Resource   string               `json:"resource"`
+	ID         string               `json:"id"`
+	Target     *agentTarget         `json:"target,omitempty"`
+	Revision   int64                `json:"expected_revision"`
+	RequestKey string               `json:"request_key"`
+	Name       *string              `json:"display_name,omitempty"`
+	Compute    *string              `json:"compute_mode,omitempty"`
+	Artifact   *string              `json:"artifact_ref,omitempty"`
+	Order      *int                 `json:"navigation_order,omitempty"`
+	Plan       *inventory.PlanInput `json:"plan,omitempty"`
+	PlanID     *string              `json:"plan_id,omitempty"`
+	Layout     *string              `json:"default_layout,omitempty"`
 }
 type agentLifecycleInput struct {
 	Resource   string       `json:"resource"`
@@ -475,7 +476,7 @@ func (s *Server) beginAgentWrite(ctx context.Context, p access.Principal, key st
 }
 
 // inventoryUpdate selects the Space, App or micro-app metadata operation.
-func (s *Server) inventoryUpdate(resource string) func(context.Context, op.Actor, string, string, metadataPatch, int64) (op.Ref, error) {
+func (s *Server) inventoryUpdate(resource string) func(context.Context, op.Actor, string, string, inventory.MetadataPatch, int64) (op.Ref, error) {
 	switch resource {
 	case "space":
 		return s.inv.UpdateSpace
@@ -617,7 +618,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		}
 		kind = "tenant"
 		key = in.Tenant.ID
-		tenant := tenantCreateInput{ID: in.Tenant.ID, Slug: in.Tenant.Slug, Name: in.Tenant.Name, Plan: in.Tenant.Plan, Admin: in.Tenant.Admin, Layout: in.Tenant.Layout}
+		tenant := inventory.TenantCreateInput{ID: in.Tenant.ID, Slug: in.Tenant.Slug, Name: in.Tenant.Name, Plan: in.Tenant.Plan, Admin: in.Tenant.Admin, Layout: in.Tenant.Layout}
 		call = func(ctx context.Context, a op.Actor) (any, error) { return s.inv.CreateTenant(ctx, a, tenant) }
 		permissions = []string{"platform.manage"}
 	case in.Plan != nil:
@@ -657,7 +658,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 	switch in.Resource {
 	case "space", "app", "microapp":
 		update := s.inventoryUpdate(in.Resource)
-		patch := metadataPatch{Name: in.Name, Compute: in.Compute, Artifact: in.Artifact, Order: in.Order}
+		patch := inventory.MetadataPatch{Name: in.Name, Compute: in.Compute, Artifact: in.Artifact, Order: in.Order}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if in.PlanID != nil || in.Layout != nil {
 				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
@@ -687,7 +688,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 		permissions = []string{"access.manage"}
 	case "tenant":
 		if p.Agent.Kind == "platform" {
-			patch := tenantPatch{Name: in.Name, Plan: in.PlanID, Layout: in.Layout}
+			patch := inventory.TenantPatch{Name: in.Name, Plan: in.PlanID, Layout: in.Layout}
 			call = func(ctx context.Context, a op.Actor) (any, error) {
 				if in.Compute != nil || in.Artifact != nil || in.Order != nil {
 					return nil, registry.Bad("Invalid or unsupported JSON request fields.")
@@ -753,7 +754,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 	case "space", "app", "microapp":
 		update := s.inventoryUpdate(in.Resource)
 		call = func(ctx context.Context, a op.Actor) (any, error) {
-			return update(ctx, a, res.Tenant, in.ID, metadataPatch{State: &in.State}, in.Revision)
+			return update(ctx, a, res.Tenant, in.ID, inventory.MetadataPatch{State: &in.State}, in.Revision)
 		}
 	case "team":
 		call = func(ctx context.Context, a op.Actor) (any, error) {
@@ -776,7 +777,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 			return nil, registry.Bad("Tenant lifecycle requires platform scope.")
 		}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
-			return s.inv.UpdateTenant(ctx, a, in.ID, tenantPatch{State: &in.State}, in.Revision)
+			return s.inv.UpdateTenant(ctx, a, in.ID, inventory.TenantPatch{State: &in.State}, in.Revision)
 		}
 		permissions = append(permissions, "platform.manage")
 	case "entity":
