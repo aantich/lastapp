@@ -100,18 +100,14 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 			}
 		}
 		// Complete mappings are allocated once and survive later release captures.
-		ids := map[string]string{}
-		maps, e := rows(ctx, tx, "SELECT development_id,production_id FROM workspace_items WHERE workspace_id=?", ws["id"])
+		ids, e := workspaceIDs(ctx, tx, ws.ID)
 		if e != nil {
 			return e
-		}
-		for _, m := range maps {
-			ids[str(m["development_id"])] = str(m["production_id"])
 		}
 		for key, kind := range snapshotIDs(base) {
 			if ids[key] == "" {
 				ids[key] = newID()
-				if _, e = tx.ExecContext(ctx, "INSERT INTO workspace_items(workspace_id,kind,development_id,production_id) VALUES(?,?,?,?)", ws["id"], kind, key, ids[key]); e != nil {
+				if _, e = tx.ExecContext(ctx, "INSERT INTO workspace_items(workspace_id,kind,development_id,production_id) VALUES(?,?,?,?)", ws.ID, kind, key, ids[key]); e != nil {
 					return e
 				}
 			}
@@ -119,7 +115,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		production := remapSnapshot(base, ids)
 		snapshotJSON, _ := json.Marshal(production)
 		manifestJSON, _ := json.Marshal(in.Manifest)
-		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a.TenantID, a.ID, in.Build, ws["id"], in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws["base_hash"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a.TenantID, a.ID, in.Build, ws.ID, in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws.BaseHash); e != nil {
 			return e
 		}
 		return auditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
@@ -211,13 +207,9 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 		if err != nil {
 			return err
 		}
-		ids := map[string]string{}
-		mappings, err := rows(ctx, tx, "SELECT development_id,production_id FROM workspace_items WHERE workspace_id=?", rel["workspace_id"])
+		ids, err := workspaceIDs(ctx, tx, str(rel["workspace_id"]))
 		if err != nil {
 			return err
-		}
-		for _, m := range mappings {
-			ids[str(m["development_id"])] = str(m["production_id"])
 		}
 		if snapshotContractHash(remapSnapshot(currentSnapshot, ids)) != str(rel["snapshot_hash"]) {
 			return conflict("Workspace configuration changed after this release was captured. Capture and test a fresh release.")

@@ -211,18 +211,20 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 }
 
 func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
-	vs, e := rows(ctx, q, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.state='preparing' ORDER BY w.created_at LIMIT 1")
-	if e != nil || len(vs) == 0 {
+	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.state='preparing' ORDER BY w.created_at LIMIT 1")
+	if ae, ok := e.(*APIError); ok && ae.Status == 404 {
+		return nil
+	}
+	if e != nil {
 		return e
 	}
-	v := vs[0]
 	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	ctx = context.WithValue(ctx, workspaceOperationKey{}, str(v["id"]))
-	p := Principal{ID: str(v["owner_user_id"])}
-	if str(v["owner_agent_grant_id"]) != "" {
-		p.Agent, e = s.readAgentGrant(ctx, q, str(v["owner_agent_grant_id"]))
+	ctx = context.WithValue(ctx, workspaceOperationKey{}, v.ID)
+	p := Principal{ID: v.Owner}
+	if deref(v.OwnerGrant) != "" {
+		p.Agent, e = s.readAgentGrant(ctx, q, deref(v.OwnerGrant))
 		if e != nil {
 			return e
 		}
@@ -236,17 +238,17 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 		if e = s.workspaceOwner(ctx, q, p, v); e != nil {
 			return e
 		}
-		if v["database_state"] == "pending" || v["database_state"] == "provisioning" {
+		if deref(v.DatabaseState) == "pending" || deref(v.DatabaseState) == "provisioning" {
 			return nil
 		}
-		if v["database_state"] != "ready" {
+		if deref(v.DatabaseState) != "ready" {
 			return conflict("Workspace storage failed. Inspect database setup and retry workspace preparation.")
 		}
-		defs, e := scanAll[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v["backing_space_id"])
+		defs, e := scanAll[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.BackingSpace)
 		if e != nil {
 			return e
 		}
-		if e = s.prepareSnapshotTables(ctx, str(v["database_resource_id"]), defs); e != nil {
+		if e = s.prepareSnapshotTables(ctx, deref(v.DatabaseResource), defs); e != nil {
 			return e
 		}
 		candidates := map[string]bool{}
@@ -258,7 +260,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 			return e
 		}
 		defer tx.Rollback()
-		if e = lockTenant(ctx, tx, str(v["tenant_id"])); e != nil {
+		if e = lockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
 		if e = s.workspaceOwner(ctx, tx, p, v); e != nil {
@@ -288,7 +290,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 			}
 		}
 		if ready {
-			apps, err := scanAll[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=?", v["backing_space_id"])
+			apps, err := scanAll[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=?", v.BackingSpace)
 			if err != nil {
 				return err
 			}
@@ -301,7 +303,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 					return err
 				}
 			}
-			if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state='ready',revision=revision+1 WHERE id=? AND state='preparing'", v["id"]); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state='ready',revision=revision+1 WHERE id=? AND state='preparing'", v.ID); e != nil {
 				return e
 			}
 		}
@@ -316,7 +318,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 	} else {
 		s.logger(ctx).Warn("workspace preparation failed", diagnostic(e)...)
 	}
-	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v["id"])
+	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
 	return err
 }
 

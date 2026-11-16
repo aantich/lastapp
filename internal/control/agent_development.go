@@ -29,7 +29,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (Row, error)
+	var call func(context.Context, Actor) (any, error)
 	permission := "workspaces.write"
 	switch in.Action {
 	case "create":
@@ -37,12 +37,12 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 			return nil, bad("create needs production space_id.")
 		}
 		create := workspaceCreateInput{ID: stableAgentID(p, in.RequestKey), Name: in.Name}
-		call = func(ctx context.Context, a Actor) (Row, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
+		call = func(ctx context.Context, a Actor) (any, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
 	case "archive", "retry":
 		if id(in.Workspace) != nil || in.Revision < 1 {
 			return nil, bad("workspace_id and expected_revision are required.")
 		}
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.changeWorkspace(ctx, a, in.Workspace, in.Action == "retry", in.Revision)
 		}
 	case "launch":
@@ -50,7 +50,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 			return nil, bad("launch needs a workspace app_id and launch parameters.")
 		}
 		permission = "workspaces.test"
-		call = func(ctx context.Context, a Actor) (Row, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
+		call = func(ctx context.Context, a Actor) (any, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
 	default:
 		return nil, bad("action is create, archive, retry or launch.")
 	}

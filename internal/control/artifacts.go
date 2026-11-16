@@ -82,23 +82,23 @@ func (s *Server) releaseRoutes() {
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }
 
-func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal, app string) (appRecord, Row, error) {
+func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal, app string) (appRecord, Workspace, error) {
 	a, e := s.appRow(ctx, q, app)
 	if e != nil {
-		return appRecord{}, nil, e
+		return appRecord{}, Workspace{}, e
 	}
 	if a.State != stateActive {
-		return appRecord{}, nil, conflict("Restore the App before developing or releasing it.")
+		return appRecord{}, Workspace{}, conflict("Restore the App before developing or releasing it.")
 	}
-	w, e := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=? AND state='ready'", a.SpaceID)
+	w, e := scanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=? AND w.state='ready'", a.SpaceID)
 	if e != nil {
-		return appRecord{}, nil, missing()
+		return appRecord{}, Workspace{}, missing()
 	}
 	if e = s.workspaceOwner(ctx, q, p, w); e != nil {
-		return appRecord{}, nil, e
+		return appRecord{}, Workspace{}, e
 	}
 	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: a.TenantID, App: app}, true); e != nil {
-		return appRecord{}, nil, e
+		return appRecord{}, Workspace{}, e
 	}
 	return a, w, nil
 }

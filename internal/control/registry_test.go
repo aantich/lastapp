@@ -451,6 +451,33 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, record, "SELECT * FROM apps WHERE id=?", app)
+
+	// Development workspaces (an unpublished draft blocks capture).
+	if _, e = s.DB.Exec("UPDATE entity_definitions SET state='archived' WHERE id=?", draft.ID); e != nil {
+		t.Fatal(e)
+	}
+	workspace, e := s.CreateWorkspace(ctx, admin, reviewSpace, workspaceCreateInput{Name: "Typed"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	workspace, e = s.Workspace(ctx, admin, workspace.ID)
+	if e != nil || workspace.Mappings == nil || len(*workspace.Mappings) == 0 {
+		t.Fatal("workspace view", e)
+	}
+	untypedWorkspace, e := rows(ctx, s.DB, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.id=?", workspace.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	delete(untypedWorkspace[0], "base_json")
+	untypedWorkspace[0]["mappings"], e = rows(ctx, s.DB, "SELECT kind,development_id,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", workspace.ID)
+	if e != nil || mustJSON(t, workspace) != mustJSON(t, untypedWorkspace[0]) {
+		t.Fatalf("workspace differs\nwant: %s\ngot:  %s", mustJSON(t, untypedWorkspace[0]), mustJSON(t, workspace))
+	}
+	workspaces, e := s.Workspaces(ctx, admin, reviewSpace, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, workspaces.Items, "SELECT id,display_name,production_space_id,backing_space_id,state,error_message,revision,created_at,owner_agent_grant_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? ORDER BY created_at DESC,id", reviewSpace, p.ID)
 }
 
 func mustJSON(t *testing.T, v any) string {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
 )
@@ -143,26 +144,96 @@ func (s *Server) workspaceRoutes() {
 	s.api("POST /v1/apps/{app}/development-launch", s.developmentLaunch)
 }
 
-func (s *Server) workspaceRow(ctx context.Context, q Queryer, p Principal, id string) (Row, error) {
-	v, e := row(ctx, q, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.id=?", id)
-	if e != nil {
-		return nil, e
-	}
-	if e = s.workspaceOwner(ctx, q, p, v); e != nil {
-		return nil, e
-	}
-	return v, nil
+// Workspace is a development workspace. Read with its backing storage
+// (workspaceStorage), it also carries the database resource and its state;
+// the workspace view adds its item mappings.
+type Workspace struct {
+	BackingSpace     string              `json:"backing_space_id"`
+	BaseHash         string              `json:"base_hash"`
+	CreatedAt        time.Time           `json:"created_at"`
+	DatabaseResource *string             `json:"database_resource_id,omitempty"`
+	DatabaseState    *string             `json:"database_state,omitempty"`
+	Name             string              `json:"display_name"`
+	Error            *string             `json:"error_message"`
+	ID               string              `json:"id"`
+	Mappings         *[]workspaceMapping `json:"mappings,omitempty"`
+	OwnerGrant       *string             `json:"owner_agent_grant_id"`
+	Owner            string              `json:"owner_user_id"`
+	ProductionSpace  string              `json:"production_space_id"`
+	Revision         int64               `json:"revision"`
+	State            string              `json:"state"`
+	TenantID         string              `json:"tenant_id"`
 }
 
-func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v Row) error {
-	if str(v["owner_user_id"]) != p.ID {
+// workspaceColumns selects a Workspace from development_workspaces w.
+const workspaceColumns = "w.backing_space_id,w.base_hash,w.created_at,w.display_name,w.error_message,w.id,w.owner_agent_grant_id,w.owner_user_id,w.production_space_id,w.revision,w.state,w.tenant_id"
+
+func (v *Workspace) fields() []any {
+	return []any{&v.BackingSpace, &v.BaseHash, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.Owner, &v.ProductionSpace, &v.Revision, &v.State, &v.TenantID}
+}
+
+// workspaceStorage selects a Workspace with its backing database resource
+// and that resource's state; the query continues with a WHERE clause.
+const workspaceStorage = "SELECT " + workspaceColumns + ",sp.database_resource_id,d.state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id"
+
+func scanWorkspaceStorage(ctx context.Context, q Queryer, where string, args ...any) (Workspace, error) {
+	var v Workspace
+	return v, lookup(ctx, q, workspaceStorage+" "+where, args, append(v.fields(), &v.DatabaseResource, &v.DatabaseState)...)
+}
+
+// WorkspaceItem is a workspace in a Space's collection.
+type WorkspaceItem struct {
+	BackingSpace    string    `json:"backing_space_id"`
+	CreatedAt       time.Time `json:"created_at"`
+	Name            string    `json:"display_name"`
+	Error           *string   `json:"error_message"`
+	ID              string    `json:"id"`
+	OwnerGrant      *string   `json:"owner_agent_grant_id"`
+	ProductionSpace string    `json:"production_space_id"`
+	Revision        int64     `json:"revision"`
+	State           string    `json:"state"`
+}
+
+func (v *WorkspaceItem) fields() []any {
+	return []any{&v.BackingSpace, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.ProductionSpace, &v.Revision, &v.State}
+}
+
+// workspaceMapping maps a development record to its production counterpart.
+type workspaceMapping struct {
+	Development string `json:"development_id"`
+	Kind        string `json:"kind"`
+	Production  string `json:"production_id"`
+}
+
+func (v *workspaceMapping) fields() []any { return []any{&v.Development, &v.Kind, &v.Production} }
+
+// workspaceIDs maps a workspace's development ids to production ids.
+func workspaceIDs(ctx context.Context, q Queryer, workspace string) (map[string]string, error) {
+	mappings, e := scanAll[workspaceMapping](ctx, q, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=?", workspace)
+	ids := map[string]string{}
+	for _, m := range mappings {
+		ids[m.Development] = m.Production
+	}
+	return ids, e
+}
+
+func (s *Server) workspaceRow(ctx context.Context, q Queryer, p Principal, id string) (Workspace, error) {
+	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.id=?", id)
+	if e != nil {
+		return v, e
+	}
+	return v, s.workspaceOwner(ctx, q, p, v)
+}
+
+func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v Workspace) error {
+	if v.Owner != p.ID {
 		return missing()
 	}
-	if p.Agent != nil && str(v["owner_agent_grant_id"]) != p.Agent.ID {
+	if p.Agent != nil && deref(v.OwnerGrant) != p.Agent.ID {
 		return missing()
 	}
 	var active string
-	if e := q.QueryRowContext(ctx, "SELECT state FROM spaces WHERE id=?", v["production_space_id"]).Scan(&active); e != nil {
+	if e := q.QueryRowContext(ctx, "SELECT state FROM spaces WHERE id=?", v.ProductionSpace).Scan(&active); e != nil {
 		return e
 	}
 	if active != stateActive {
@@ -179,14 +250,14 @@ func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v R
 		}
 		p.Agent = original
 	}
-	return s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["production_space_id"])}, true)
+	return s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, true)
 }
 
 func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, space string) error {
 	if space == "" {
 		return nil
 	}
-	v, e := row(ctx, q, "SELECT w.* FROM development_workspaces w WHERE w.backing_space_id=?", space)
+	v, e := scanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", space)
 	if e != nil {
 		if ae, ok := e.(*APIError); ok && ae.Status == 404 {
 			return nil
@@ -196,66 +267,62 @@ func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, spa
 	if e = s.workspaceOwner(ctx, q, p, v); e != nil {
 		return e
 	}
-	if str(v["state"]) != "ready" && ctx.Value(workspaceOperationKey{}) != str(v["id"]) {
+	if v.State != "ready" && ctx.Value(workspaceOperationKey{}) != v.ID {
 		return conflict("Workspace is not ready. Inspect its status or retry preparation.")
 	}
 	return nil
 }
 
-func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page PageRequest) (Page[Row], error) {
+func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page PageRequest) (Page[WorkspaceItem], error) {
 	p := actor.Principal
-	sp, e := row(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", space)
-	if e != nil {
-		return Page[Row]{}, e
+	var tenant string
+	var parent *string
+	if e := lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", []any{space}, &tenant, &parent); e != nil {
+		return Page[WorkspaceItem]{}, e
 	}
-	if sp["workspace_id"] != nil {
-		return Page[Row]{}, bad("Select the production Space.")
+	if parent != nil {
+		return Page[WorkspaceItem]{}, bad("Select the production Space.")
 	}
-	if e = s.authorize(ctx, s.DB, p, "workspace.manage", Resource{Tenant: str(sp["tenant_id"]), Space: space}, true); e != nil {
-		return Page[Row]{}, e
+	if e := s.authorize(ctx, s.DB, p, "workspace.manage", Resource{Tenant: tenant, Space: space}, true); e != nil {
+		return Page[WorkspaceItem]{}, e
 	}
-	query := "SELECT id,display_name,production_space_id,backing_space_id,state,error_message,revision,created_at,owner_agent_grant_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=?"
+	query := "SELECT backing_space_id,created_at,display_name,error_message,id,owner_agent_grant_id,production_space_id,revision,state FROM development_workspaces WHERE production_space_id=? AND owner_user_id=?"
 	args := []any{space, p.ID}
 	if p.Agent != nil {
 		query += " AND owner_agent_grant_id=?"
 		args = append(args, p.Agent.ID)
 	}
-	vs, e := pageQuery(ctx, s.DB, page, collectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
-	return vs, e
+	return pageScan[WorkspaceItem](ctx, s.DB, page, collectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
 }
 
-func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (Row, error) {
+func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (Workspace, error) {
 	p := actor.Principal
 	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
-		return nil, e
+		return v, e
 	}
-	delete(v, "base_json")
-	mappings, e := rows(ctx, s.DB, "SELECT kind,development_id,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v["id"])
-	if e != nil {
-		return nil, e
-	}
-	v["mappings"] = mappings
-	return v, nil
+	mappings, e := scanAll[workspaceMapping](ctx, s.DB, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v.ID)
+	v.Mappings = &mappings
+	return v, e
 }
 
-func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string, in workspaceCreateInput) (Row, error) {
+func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string, in workspaceCreateInput) (Workspace, error) {
 	p := actor.Principal
 	if in.ID == "" {
 		in.ID = actor.operationID()
 	}
 	if e := id(in.ID); e != nil {
-		return nil, e
+		return Workspace{}, e
 	}
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
-		return nil, bad("Enter a workspace name (maximum 160 bytes).")
+		return Workspace{}, bad("Enter a workspace name (maximum 160 bytes).")
 	}
 	sp, e := row(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", space)
 	if e != nil {
-		return nil, e
+		return Workspace{}, e
 	}
 	if sp["workspace_id"] != nil {
-		return nil, bad("Workspaces cannot contain workspaces.")
+		return Workspace{}, bad("Workspaces cannot contain workspaces.")
 	}
 	res := Resource{Tenant: str(sp["tenant_id"]), Space: space}
 	e = s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
@@ -311,64 +378,69 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 		return auditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, Row{"production_space_id": res.Space, "backing_space_id": backing})
 	})
 	if e != nil {
-		return nil, e
+		return Workspace{}, e
 	}
 	return s.Workspace(ctx, actor, in.ID)
 }
 
-func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (Row, error) {
+// entityVersionRef names an entity and one of its versions.
+type entityVersionRef struct{ Entity, Version string }
+
+func (v *entityVersionRef) fields() []any { return []any{&v.Entity, &v.Version} }
+
+func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (Workspace, error) {
 	p := actor.Principal
 	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
-		return nil, e
+		return Workspace{}, e
 	}
 	rev := revision
 	if rev < 1 {
-		return nil, revisionRequired()
+		return Workspace{}, revisionRequired()
 	}
-	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["production_space_id"])}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, func(tx *sql.Tx) error {
 		v, e = s.workspaceRow(ctx, tx, p, workspace)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(v["revision"]), rev); e != nil {
+		if e = checkRevision(v.Revision, rev); e != nil {
 			return e
 		}
 		state := stateArchived
 		if retry {
-			if v["state"] != "failed" {
+			if v.State != "failed" {
 				return conflict("Only failed preparation can be retried.")
 			}
 			state = "preparing"
-			failed, e := rows(ctx, tx, "SELECT e.id,v.id AS version_id FROM entity_definitions e JOIN entity_versions v ON v.entity_id=e.id AND v.state='failed' WHERE e.space_id=? AND e.active_version_id IS NULL AND e.pending_version_id IS NULL", v["backing_space_id"])
+			failed, e := scanAll[entityVersionRef](ctx, tx, "SELECT e.id,v.id FROM entity_definitions e JOIN entity_versions v ON v.entity_id=e.id AND v.state='failed' WHERE e.space_id=? AND e.active_version_id IS NULL AND e.pending_version_id IS NULL", v.BackingSpace)
 			if e != nil {
 				return e
 			}
 			for _, def := range failed {
-				if _, e = tx.ExecContext(ctx, "UPDATE entity_versions SET state='queued',attempt_id=NULL,error_message=NULL,finished_at=NULL WHERE id=?", def["version_id"]); e != nil {
+				if _, e = tx.ExecContext(ctx, "UPDATE entity_versions SET state='queued',attempt_id=NULL,error_message=NULL,finished_at=NULL WHERE id=?", def.Version); e != nil {
 					return e
 				}
-				if _, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", def["version_id"], def["id"]); e != nil {
+				if _, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", def.Version, def.Entity); e != nil {
 					return e
 				}
 			}
 
-			if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='pending',revision=revision+1 WHERE id=? AND state='failed'", v["database_resource_id"]); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='pending',revision=revision+1 WHERE id=? AND state='failed'", v.DatabaseResource); e != nil {
 				return e
 			}
 		}
-		if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state=?,error_message=NULL,revision=revision+1 WHERE id=?", state, v["id"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state=?,error_message=NULL,revision=revision+1 WHERE id=?", state, v.ID); e != nil {
 			return e
 		}
 		if !retry {
-			if _, e = tx.ExecContext(ctx, "UPDATE spaces SET state='archived',revision=revision+1 WHERE id=?", v["backing_space_id"]); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE spaces SET state='archived',revision=revision+1 WHERE id=?", v.BackingSpace); e != nil {
 				return e
 			}
 		}
-		return auditAs(ctx, tx, actor, str(v["tenant_id"]), "workspace."+state, "workspace", str(v["id"]), Row{})
+		return auditAs(ctx, tx, actor, v.TenantID, "workspace."+state, "workspace", v.ID, Row{})
 	})
 	if e != nil {
-		return nil, e
+		return Workspace{}, e
 	}
 	return s.Workspace(ctx, actor, workspace)
 }

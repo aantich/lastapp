@@ -81,9 +81,12 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 		return false, e
 	}
 	ctx = agentAuditContext(ctx, deref(v.AgentGrant), agentClient)
-	workspace, _ := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=?", v.SpaceID)
-	if workspace != nil && workspace["state"] == "preparing" {
-		ctx = context.WithValue(ctx, workspaceOperationKey{}, str(workspace["id"]))
+	var workspace *Workspace
+	if w, err := scanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", v.SpaceID); err == nil {
+		workspace = &w
+	}
+	if workspace != nil && workspace.State == "preparing" {
+		ctx = context.WithValue(ctx, workspaceOperationKey{}, workspace.ID)
 	}
 
 	if len(cursor) > 0 {
@@ -113,15 +116,15 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 			}
 		}
 		if denied == nil && workspace != nil {
-			actor := Principal{ID: str(workspace["owner_user_id"])}
-			if str(workspace["owner_agent_grant_id"]) != "" {
-				actor.Agent, denied = s.readAgentGrant(ctx, tx, str(workspace["owner_agent_grant_id"]))
+			actor := Principal{ID: workspace.Owner}
+			if deref(workspace.OwnerGrant) != "" {
+				actor.Agent, denied = s.readAgentGrant(ctx, tx, *workspace.OwnerGrant)
 				if denied == nil {
 					denied = requireAgent(actor.Agent, "workspaces.write")
 				}
 			}
 			if denied == nil {
-				denied = s.workspaceOwner(ctx, tx, actor, workspace)
+				denied = s.workspaceOwner(ctx, tx, actor, *workspace)
 			}
 		}
 
