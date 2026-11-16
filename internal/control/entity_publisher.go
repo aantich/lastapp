@@ -81,9 +81,14 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 		return false, e
 	}
 	ctx = agentAuditContext(ctx, deref(v.AgentGrant), agentClient)
+	// Only a missing row means "no workspace". Any other read error fails
+	// closed: a workspace job must not skip its owner's authority recheck.
 	var workspace *Workspace
-	if w, err := scanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", v.SpaceID); err == nil {
+	w, e := scanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", v.SpaceID)
+	if e == nil {
 		workspace = &w
+	} else if ae, ok := e.(*APIError); !ok || ae.Status != 404 {
+		return false, e
 	}
 	if workspace != nil && workspace.State == "preparing" {
 		ctx = context.WithValue(ctx, workspaceOperationKey{}, workspace.ID)

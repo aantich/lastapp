@@ -3,8 +3,10 @@ package control
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -65,6 +67,14 @@ func TestEntityRuntime(t *testing.T) {
 	eid := str(created["id"])
 	c.want("GET", "/v1/entities/"+eid, nil, 0, 403)
 	oc.want("POST", "/v1/entities/"+eid+"/publications", Row{}, 1, 202)
+	// A failed workspace read is not "no workspace": the job fails closed and
+	// stays queued for a retry instead of skipping the owner's authority check.
+	if _, e := s.publicationJob(ctx, failingWorkspaceRead{s.DB}); e == nil || isAPIStatus(e, 404) {
+		t.Fatal("publication proceeded after the workspace read failed", e)
+	}
+	if v, e := row(ctx, s.DB, "SELECT state FROM entity_versions WHERE entity_id=?", eid); e != nil || v["state"] != "queued" {
+		t.Fatal("publication left the queue after the workspace read failed", v, e)
+	}
 	if _, e := s.publicationJob(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
@@ -391,4 +401,20 @@ func TestTenantDataFairness(t *testing.T) {
 	if len(limiter.counts) != 0 {
 		t.Fatal("idle Tenant counters retained")
 	}
+}
+
+// failingWorkspaceRead fails the publisher's workspace lookup with a database
+// error (not a missing row) and passes every other query through.
+type failingWorkspaceRead struct{ Queryer }
+
+func (q failingWorkspaceRead) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if strings.Contains(query, "FROM development_workspaces") {
+		return q.Queryer.QueryRowContext(ctx, "SELECT no_such_column FROM development_workspaces")
+	}
+	return q.Queryer.QueryRowContext(ctx, query, args...)
+}
+
+func isAPIStatus(e error, status int) bool {
+	var ae *APIError
+	return errors.As(e, &ae) && ae.Status == status
 }
