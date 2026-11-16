@@ -2,11 +2,13 @@ package control
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -134,7 +136,11 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	}
 	p.Agent = g
 	// Team discovery uses the same shared, scoped API as the console.
-	direct, e := s.executeManagement(context.Background(), p, s.recipientOptions, "GET", "/v1/tenants/"+tenant+"/spaces/"+space+"/recipients?type=team", map[string]string{"tenant": tenant, "space": space}, nil, 0)
+	scope, res, e := scopeOf(tenant, "", space, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	direct, e := s.authority.Recipients(context.Background(), actorFrom(context.Background(), p, newID()), scope, res, true, PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -211,7 +217,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 		t.Fatal(e)
 	}
 	// A human takes ownership explicitly; no stale agent binding can strand it.
-	_, e = s.executeManagement(ctx, Principal{ID: p.ID}, s.retryDatabase, "POST", "/retry", map[string]string{"tenant": tenant, "id": first}, nil, 3)
+	_, e = s.storage.RetryDatabase(ctx, Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}, tenant, first, 3)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -387,15 +393,91 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	}
 }
 
-func TestAgentOperationResponseErrors(t *testing.T) {
-	s := &Server{}
-	for _, payload := range []string{strings.Repeat("x", agentMaxResponse+1), `not-json`} {
-		_, e := s.executeManagement(context.Background(), Principal{}, func(w http.ResponseWriter, r *http.Request, p Principal) error {
-			_, e := w.Write([]byte(payload))
-			return e
-		}, "GET", "/test", nil, nil, 0)
-		if e == nil {
-			t.Fatal("write/JSON error silently became successful empty response")
+// TestAgentOperationResponseLimit pins the MCP response bound on operation
+// results: an over-limit read fails without content, and an over-limit result
+// of a committed mutation still reports the commit and its compact resource so
+// the agent does not retry a mutation that already happened.
+func TestAgentOperationResponseLimit(t *testing.T) {
+	large := Row{"payload": strings.Repeat("x", agentMaxResponse)}
+	isLimit := func(e error) bool {
+		var ae *APIError
+		return errors.As(e, &ae) && ae.Code == "response_limit" && ae.Status == 413
+	}
+	if v, e := agentSized(Row{"id": "small"}, nil); e != nil || v.(Row)["id"] != "small" {
+		t.Fatal("in-limit result was not passed through", v, e)
+	}
+	failed := errors.New("operation failed")
+	if v, e := agentSized(large, failed); v != nil || !errors.Is(e, failed) {
+		t.Fatal("operation error was not returned unchanged", v, e)
+	}
+	// A read has no agent receipt: the over-limit result is an error with no data.
+	v, e := agentSized(large, nil)
+	if v != nil || !isLimit(e) {
+		t.Fatal("over-limit read result was returned", e)
+	}
+	ref := Row{"kind": "app", "id": newID()}
+	call := &AgentCall{Operation: "lastapp_create", Key: newID(), ResultRef: ref}
+	ctx := context.WithValue(context.Background(), agentContextKey{}, call)
+	// The mutation did not commit: the agent sees the limit error and may retry.
+	data, limit := agentSized(large, nil)
+	if v, e := agentWriteResult(ctx, data, limit); v != nil || !isLimit(e) {
+		t.Fatal("uncommitted over-limit mutation reported success", v, e)
+	}
+	// The mutation committed: the reply is the compact committed outcome.
+	call.Committed = true
+	v, e = agentWriteResult(ctx, data, limit)
+	if e != nil {
+		t.Fatal("committed over-limit mutation returned an error an agent would retry", e)
+	}
+	out := v.(Row)
+	if out["committed"] != true || !reflect.DeepEqual(out["resource"], ref) || out["response_error"].(Row)["code"] != "response_limit" {
+		t.Fatal("committed over-limit mutation lost its committed resource", out)
+	}
+	if e = agentFits(out); e != nil {
+		t.Fatal("compact committed reply exceeds the response bound", e)
+	}
+	// Other errors after a commit pass through unchanged.
+	if _, e = agentWriteResult(ctx, nil, failed); !errors.Is(e, failed) {
+		t.Fatal("non-limit error was rewritten", e)
+	}
+	// A replayed request reports the stored receipt and marks the call committed.
+	replayed := &AgentCall{Operation: "lastapp_create", Key: newID(), ResultRef: ref}
+	v, e = agentWriteResult(context.WithValue(context.Background(), agentContextKey{}, replayed), nil, errAgentReplay)
+	if e != nil || v.(Row)["replayed"] != true || v.(Row)["committed"] != true || !replayed.Committed {
+		t.Fatal("replayed mutation was not reported as committed", v, e)
+	}
+}
+
+// TestActorIsTheAgentSource pins the Actor as the only source of an
+// operation's delegated call: an Actor that omits the agent call already in
+// its context fails instead of running with delegation checks but no receipt.
+func TestActorIsTheAgentSource(t *testing.T) {
+	r := &runner{access: &Server{}}
+	call := &AgentCall{Operation: "lastapp_create", Key: newID()}
+	mcp := context.WithValue(context.Background(), agentContextKey{}, call)
+	for name, a := range map[string]Actor{
+		"missing agent": {Principal: Principal{ID: newID()}, RequestID: newID()},
+		"other agent":   {Principal: Principal{ID: newID()}, RequestID: newID(), Agent: &AgentCall{Operation: "lastapp_create"}},
+	} {
+		if e := r.mutate(mcp, a, "apps.create", Resource{Tenant: newID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, errActorAgentMismatch) {
+			t.Fatal(name, "mutation accepted a mismatched actor", e)
 		}
+		if e := r.authorize(mcp, a, "apps.read", Resource{Tenant: newID()}); !errors.Is(e, errActorAgentMismatch) {
+			t.Fatal(name, "read authorization accepted a mismatched actor", e)
+		}
+		if _, e := r.scopes(mcp, a, newID(), "apps.read"); !errors.Is(e, errActorAgentMismatch) {
+			t.Fatal(name, "scope lookup accepted a mismatched actor", e)
+		}
+	}
+	// The Actor's own call is what the authorization checks see.
+	ctx, e := withAgentCall(context.Background(), call)
+	if e != nil || agentCallFrom(ctx) != call {
+		t.Fatal("actor agent call was not exposed", e)
+	}
+	if ctx, e = withAgentCall(mcp, call); e != nil || agentCallFrom(ctx) != call {
+		t.Fatal("matching actor was rejected", e)
+	}
+	if ctx, e = withAgentCall(context.Background(), nil); e != nil || agentCallFrom(ctx) != nil {
+		t.Fatal("human actor gained an agent call", e)
 	}
 }

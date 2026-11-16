@@ -186,7 +186,10 @@ is enforced on production creation/restoration and deployment.
 
 Console sessions, App data tokens and MCP tokens are separate. MCP tools invoke
 the same Go management operations as the console; they do not bypass policy via
-direct SQL, loopback calls or a privileged synthetic user. The transport uses
+direct SQL, network loopback calls or a privileged synthetic user. Every tool
+calls its domain operation directly with the delegated call as the operation's
+actor; there is no in-process HTTP adapter, so revisions come only from
+`expected_revision` and results keep the same response bound. The transport uses
 authorization code + S256 PKCE, exact resource binding, rotating refresh tokens
 and token/grant revision checks. Reuse of a rotated refresh token revokes its
 family. Neither tools nor documentation can edit MCP delegations or OAuth clients.
@@ -196,8 +199,9 @@ family. Neither tools nor documentation can edit MCP delegations or OAuth client
 `agents.go` owns permission/limit catalogs and shared live checks; `agent_oauth.go`
 owns consent and tokens; `agent_clients.go` owns registration/retention;
 `agent_tools.go` owns typed schemas, transport and adapters; `agent_context.go`
-owns authorized context and canonical agent guides. Shared domain handlers,
-mutation receipts and workers enforce the actual operations.
+owns authorized context and canonical agent guides. Shared domain operations
+(`op.go` and the domain services), mutation receipts and workers enforce the
+actual operations.
 
 Run `make mcp-test` against the existing local development MariaDB for the
 `TestAgent*` protocol, OAuth, delegation, isolation, replay, response-limit and

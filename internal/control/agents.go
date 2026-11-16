@@ -130,16 +130,6 @@ func agentAuditContext(ctx context.Context, grant, client string) context.Contex
 	return context.WithValue(ctx, agentAuditKey{}, agentAuditIdentity{Grant: grant, Client: client})
 }
 
-type (
-	agentContextKey struct{}
-	agentExecution  struct {
-		Grant                *agentGrant
-		Permission           []string
-		Operation, Key, Hash string
-		Result               Row
-		Committed            bool
-	}
-)
 type agentAuthorityError struct{ Missing []string }
 
 func (e *agentAuthorityError) Error() string {
@@ -169,7 +159,7 @@ func (s *Server) checkAgent(ctx context.Context, q Queryer, p Principal, res Res
 	if e != nil || revision != g.Revision {
 		return problem(401, "agent_access_revoked", "Agent access expired or changed; reconnect.")
 	}
-	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
+	if a := agentCallFrom(ctx); a != nil {
 		if e := requireAgent(g, a.Permission...); e != nil {
 			return e
 		}
@@ -240,9 +230,8 @@ func (s *Server) agentScope(ctx context.Context, q Queryer, p Principal, sc scop
 	return out
 }
 
-func (s *Server) agentMutationBegin(ctx context.Context, tx *sql.Tx) error {
-	a, ok := ctx.Value(agentContextKey{}).(*agentExecution)
-	if !ok {
+func agentMutationBegin(ctx context.Context, tx *sql.Tx, a *AgentCall) error {
+	if a == nil {
 		return nil
 	}
 	if a.Key == "" {
@@ -269,12 +258,11 @@ func (s *Server) agentMutationBegin(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func (s *Server) agentMutationFinish(ctx context.Context, tx *sql.Tx) error {
-	a, ok := ctx.Value(agentContextKey{}).(*agentExecution)
-	if !ok {
+func agentMutationFinish(ctx context.Context, tx *sql.Tx, a *AgentCall) error {
+	if a == nil {
 		return nil
 	}
-	b, e := json.Marshal(a.Result)
+	b, e := json.Marshal(a.ResultRef)
 	if e != nil {
 		return e
 	}
@@ -283,13 +271,6 @@ func (s *Server) agentMutationFinish(ctx context.Context, tx *sql.Tx) error {
 		_, e = tx.ExecContext(ctx, "UPDATE agent_grants SET last_used_at=UTC_TIMESTAMP(6) WHERE id=?", a.Grant.ID)
 	}
 	return e
-}
-
-func operationID(ctx context.Context) string {
-	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
-		return str(a.Result["id"])
-	}
-	return newID()
 }
 
 func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user string, res Resource, permission string, targets ...string) error {
@@ -301,7 +282,7 @@ func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user str
 		return e
 	}
 	p := Principal{ID: user, Agent: g}
-	ctx = context.WithValue(ctx, agentContextKey{}, &agentExecution{Grant: g, Permission: []string{permission}})
+	ctx = context.WithValue(ctx, agentContextKey{}, &AgentCall{Grant: g, Permission: []string{permission}})
 	if e = s.checkAgent(ctx, q, p, res, true); e != nil {
 		return e
 	}

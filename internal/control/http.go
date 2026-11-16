@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -246,14 +247,14 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 	return e
 }
 
-func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
+func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page PageRequest) (Page[Row], error) {
+	p := actor.Principal
 	action := "audit.read"
 	if tenant == "" {
 		action = "platform.admin"
 	}
-	if e := s.authorize(r.Context(), s.DB, p, action, Resource{Tenant: tenant}, false); e != nil {
-		return e
+	if e := s.authorize(ctx, s.DB, p, action, Resource{Tenant: tenant}, false); e != nil {
+		return Page[Row]{}, e
 	}
 	args := []any{}
 	where := "1=1"
@@ -261,11 +262,19 @@ func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) err
 		where = "a.tenant_id=?"
 		args = append(args, tenant)
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,COALESCE(u.display_name,'System worker') AS actor_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+	v, e := pageQuery(ctx, s.DB, page, collectionFor("audit-events"), "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,COALESCE(u.display_name,'System worker') AS actor_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+	return v, e
+}
+
+// httpActor is the console caller of an operation.
+func httpActor(r *http.Request, p Principal) Actor {
+	return actorFrom(r.Context(), p, r.Header.Get("X-Request-ID"))
+}
+
+// sendRef sends a mutation result with its revision as the ETag.
+func sendRef(w http.ResponseWriter, status int, v Ref) {
+	w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
+	send(w, status, v)
 }
 
 func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, record string, status int) error {
@@ -291,4 +300,17 @@ func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (
 		args = append(args, tenant)
 	}
 	return row(ctx, tx, query+" FOR UPDATE", args...)
+}
+
+func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Audits(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
+	return reply(w, 200, v, e)
+}
+
+// reply sends an operation's successful result with status.
+func reply[T any](w http.ResponseWriter, status int, v T, e error) error {
+	if e == nil {
+		send(w, status, v)
+	}
+	return e
 }

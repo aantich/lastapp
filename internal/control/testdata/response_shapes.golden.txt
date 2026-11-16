@@ -1,0 +1,739 @@
+DELETE /v1/tenants/{tenant}/teams/{id}/members/{user} -> 200
+  $ object
+  .ok bool
+GET /admin/v1/plans -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].allow_dedicated_compute number
+  .items[].allow_dedicated_database number
+  .items[].allow_managed_database number
+  .items[].allow_registered_database number
+  .items[].allow_shared_database number
+  .items[].code string
+  .items[].created_at string
+  .items[].default_layout string
+  .items[].display_name string
+  .items[].id string
+  .items[].max_apps number
+  .items[].max_databases number
+  .items[].max_spaces number
+  .items[].revision number
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /admin/v1/tenants -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].app_count number
+  .items[].created_at string
+  .items[].default_layout null
+  .items[].default_shared_database_id null
+  .items[].display_name string
+  .items[].id string
+  .items[].plan_id string
+  .items[].plan_name string
+  .items[].revision number
+  .items[].slug string
+  .items[].space_count number
+  .items[].state string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /admin/v1/tenants as owner -> 403
+  $ object
+  .error object
+  .error.code string=forbidden
+  .error.message string=Platform administrator permission is required.
+  .error.request_id string
+  .error.retryable bool
+GET /admin/v1/tenants/{tenant}/administrators -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].display_name string
+  .items[].email string
+  .items[].id string
+  .items[].revision number
+  .items[].state string
+  .items[].user_id string
+  .items[].user_state string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant} -> 200
+  $ object
+  .created_at string
+  .default_layout null
+  .default_shared_database_id null
+  .display_name string
+  .id string
+  .plan_id string
+  .plan_name string
+  .revision number
+  .slug string
+  .state string
+GET /v1/tenants/{tenant}/apps -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].compute_mode string
+  .items[].created_at string
+  .items[].display_name string
+  .items[].id string
+  .items[].microapp_count number
+  .items[].revision number
+  .items[].slug string
+  .items[].space_id string
+  .items[].space_name string
+  .items[].state string
+  .items[].tenant_id string
+  .items[].workspace_id null
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant}/apps/{app} -> 200
+  $ object
+  .active_release_id null
+  .compute_mode string
+  .display_name string
+  .id string
+  .revision number
+  .slug string
+  .space_id string
+  .space_name string
+  .state string
+  .tenant_id string
+  .tenant_name string
+  .workspace_id null
+GET /v1/tenants/{tenant}/apps?space_id -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].compute_mode string
+  .items[].created_at string
+  .items[].display_name string
+  .items[].id string
+  .items[].microapp_count number
+  .items[].revision number
+  .items[].slug string
+  .items[].space_id string
+  .items[].space_name string
+  .items[].state string
+  .items[].tenant_id string
+  .items[].workspace_id null
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant}/memberships -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].administrator_id null|string
+  .items[].administrator_revision null|number
+  .items[].created_at string
+  .items[].display_name string
+  .items[].email string
+  .items[].platform_admin number
+  .items[].revision number
+  .items[].state string
+  .items[].user_id string
+  .items[].user_state string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant}/microapps -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].app_id string
+  .items[].app_name string
+  .items[].artifact_ref string
+  .items[].created_at string
+  .items[].display_name string
+  .items[].id string
+  .items[].navigation_order number
+  .items[].revision number
+  .items[].slug string
+  .items[].space_id string
+  .items[].state string
+  .items[].tenant_id string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant}/spaces -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].app_count number
+  .items[].created_at string
+  .items[].database_layout string
+  .items[].database_name string
+  .items[].database_resource_id string
+  .items[].database_state string
+  .items[].display_name string
+  .items[].id string
+  .items[].revision number
+  .items[].slug string
+  .items[].state string
+  .items[].tenant_id string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant}/spaces/{space} -> 200
+  $ object
+  .database_layout string
+  .database_name string
+  .database_resource_id string
+  .database_state string
+  .display_name string
+  .id string
+  .revision number
+  .slug string
+  .state string
+  .tenant_id string
+  .tenant_name string
+  .workspace_id null
+GET /v1/tenants/{tenant}/teams -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].display_name string
+  .items[].id string
+  .items[].revision number
+  .items[].slug string
+  .items[].state string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/tenants/{tenant}/teams/{id} -> 200
+  $ object
+  .display_name string
+  .id string
+  .revision number
+  .slug string
+  .state string
+GET /v1/tenants/{tenant}/teams/{id}/members -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].administrator_id null
+  .items[].administrator_revision null
+  .items[].display_name string
+  .items[].platform_admin number
+  .items[].reviewer_id null
+  .items[].reviewer_revision null
+  .items[].state string
+  .items[].tenant_state string
+  .items[].user_id string
+  .items[].user_state string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+PATCH /admin/v1/plans/{id} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /admin/v1/plans/{id} stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+PATCH /admin/v1/plans/{id} without If-Match -> 428
+  $ object
+  .error object
+  .error.code string=revision_required
+  .error.message string=Send If-Match with the current resource revision.
+  .error.request_id string
+  .error.retryable bool
+PATCH /admin/v1/tenants/{id} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/tenants/{tenant} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/tenants/{tenant}/apps/{id} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/tenants/{tenant}/memberships/{user} -> 200
+  $ object
+  .ok bool
+PATCH /v1/tenants/{tenant}/microapps/{id} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/tenants/{tenant}/microapps/{id} invalid -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Compute mode applies only to Apps.
+  .error.request_id string
+  .error.retryable bool
+PATCH /v1/tenants/{tenant}/microapps/{id} unknown field -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid or unsupported JSON request fields.
+  .error.request_id string
+  .error.retryable bool
+PATCH /v1/tenants/{tenant}/spaces/{id} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/tenants/{tenant}/teams/{id} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/tenants/{tenant}/teams/{id}/members/{user} -> 200
+  $ object
+  .ok bool
+POST /admin/v1/plans -> 201
+  $ object
+  .id string
+  .revision number
+POST /admin/v1/tenants -> 201
+  $ object
+  .id string
+  .revision number
+POST /admin/v1/tenants/{tenant}/administrators bad -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Choose an existing account or enter account details.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/tenants/{tenant}/apps/{app}/microapps -> 201
+  $ object
+  .id string
+  .revision number
+POST /v1/tenants/{tenant}/memberships -> 201
+  $ object
+  .user_id string
+POST /v1/tenants/{tenant}/spaces -> 201
+  $ object
+  .id string
+  .revision number
+POST /v1/tenants/{tenant}/spaces/{space}/apps -> 201
+  $ object
+  .id string
+  .revision number
+POST /v1/tenants/{tenant}/teams -> 201
+  $ object
+  .id string
+  .revision number
+POST /v1/tenants/{tenant}/teams/{id}/members -> 200
+  $ object
+  .ok bool
+mcp lastapp_create microapp -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_create microapp without resources.write -> 200
+  $ object
+  .authorization_url string
+  .error object
+  .error.code string=needs_authorization
+  .error.message string=Additional delegated scopes required: resources.write
+  .error.request_id string
+  .error.retryable bool
+  .guidance string
+  .ok bool
+  .required_scopes array
+  .required_scopes[] string
+mcp lastapp_create plan -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_create plan replay -> 200
+  $ object
+  .data object
+  .data.committed bool
+  .data.next string
+  .data.replayed bool
+  .data.resource object
+  .data.resource.id string
+  .data.resource.type string
+  .ok bool
+mcp lastapp_create team -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_get app -> 200
+  $ object
+  .data object
+  .data.active_release_id null
+  .data.compute_mode string
+  .data.display_name string
+  .data.id string
+  .data.revision number
+  .data.slug string
+  .data.space_id string
+  .data.space_name string
+  .data.state string
+  .data.tenant_id string
+  .data.tenant_name string
+  .data.workspace_id null
+  .ok bool
+mcp lastapp_get microapp -> 200
+  $ object
+  .data object
+  .data.app_id string
+  .data.artifact_ref null
+  .data.display_name string
+  .data.id string
+  .data.navigation_order number
+  .data.revision number
+  .data.slug string
+  .data.state string
+  .data.tenant_id string
+  .ok bool
+mcp lastapp_get plan -> 200
+  $ object
+  .data object
+  .data.allow_dedicated_compute number
+  .data.allow_dedicated_database number
+  .data.allow_managed_database number
+  .data.allow_registered_database number
+  .data.allow_shared_database number
+  .data.code string
+  .data.created_at string
+  .data.default_layout string
+  .data.display_name string
+  .data.id string
+  .data.max_apps number
+  .data.max_databases null
+  .data.max_spaces null
+  .data.revision number
+  .ok bool
+mcp lastapp_get space -> 200
+  $ object
+  .data object
+  .data.database_layout string
+  .data.database_name string
+  .data.database_resource_id string
+  .data.database_state string
+  .data.display_name string
+  .data.id string
+  .data.revision number
+  .data.slug string
+  .data.state string
+  .data.tenant_id string
+  .data.tenant_name string
+  .data.workspace_id null
+  .ok bool
+mcp lastapp_get team -> 200
+  $ object
+  .data object
+  .data.display_name string
+  .data.id string
+  .data.revision number
+  .data.slug string
+  .data.state string
+  .ok bool
+mcp lastapp_get tenant from platform -> 200
+  $ object
+  .data object
+  .data.created_at string
+  .data.default_layout null
+  .data.default_shared_database_id null
+  .data.display_name string
+  .data.id string
+  .data.plan_id string
+  .data.plan_name string
+  .data.revision number
+  .data.slug string
+  .data.state string
+  .ok bool
+mcp lastapp_get tenant from tenant -> 200
+  $ object
+  .data object
+  .data.created_at string
+  .data.default_layout null
+  .data.default_shared_database_id null
+  .data.display_name string
+  .data.id string
+  .data.plan_id string
+  .data.plan_name string
+  .data.revision number
+  .data.slug string
+  .data.state string
+  .ok bool
+mcp lastapp_lifecycle microapp -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_lifecycle microapp stale -> 200
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_lifecycle team -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_list app -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].compute_mode string
+  .data.items[].created_at string
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].microapp_count number
+  .data.items[].revision number
+  .data.items[].slug string
+  .data.items[].space_id string
+  .data.items[].space_name string
+  .data.items[].state string
+  .data.items[].tenant_id string
+  .data.items[].workspace_id null
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list microapp -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].app_id string
+  .data.items[].app_name string
+  .data.items[].artifact_ref null
+  .data.items[].created_at string
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].navigation_order number
+  .data.items[].revision number
+  .data.items[].slug string
+  .data.items[].space_id string
+  .data.items[].state string
+  .data.items[].tenant_id string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list plan -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].allow_dedicated_compute number
+  .data.items[].allow_dedicated_database number
+  .data.items[].allow_managed_database number
+  .data.items[].allow_registered_database number
+  .data.items[].allow_shared_database number
+  .data.items[].code string
+  .data.items[].created_at string
+  .data.items[].default_layout string
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].max_apps null|number
+  .data.items[].max_databases null|number
+  .data.items[].max_spaces null|number
+  .data.items[].revision number
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list space -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].app_count number
+  .data.items[].created_at string
+  .data.items[].database_layout string
+  .data.items[].database_name string
+  .data.items[].database_resource_id string
+  .data.items[].database_state string
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].revision number
+  .data.items[].slug string
+  .data.items[].state string
+  .data.items[].tenant_id string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list team -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].revision number
+  .data.items[].slug string
+  .data.items[].state string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list team_member -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].administrator_id null
+  .data.items[].administrator_revision null
+  .data.items[].display_name string
+  .data.items[].platform_admin number
+  .data.items[].reviewer_id null
+  .data.items[].reviewer_revision null
+  .data.items[].state string
+  .data.items[].tenant_state string
+  .data.items[].user_id string
+  .data.items[].user_state string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list tenant -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].app_count number
+  .data.items[].created_at string
+  .data.items[].default_layout null
+  .data.items[].default_shared_database_id null
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].plan_id string
+  .data.items[].plan_name string
+  .data.items[].revision number
+  .data.items[].slug string
+  .data.items[].space_count number
+  .data.items[].state string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list tenant_member -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].administrator_id null|string
+  .data.items[].administrator_revision null|number
+  .data.items[].created_at string
+  .data.items[].display_name string
+  .data.items[].email string
+  .data.items[].platform_admin number
+  .data.items[].revision number
+  .data.items[].state string
+  .data.items[].user_id string
+  .data.items[].user_state string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_membership team add -> 200
+  $ object
+  .data object
+  .data.ok bool
+  .ok bool
+mcp lastapp_membership tenant set_state -> 200
+  $ object
+  .data object
+  .data.ok bool
+  .ok bool
+mcp lastapp_update app -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_update microapp -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_update microapp unsupported field -> 200
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid or unsupported JSON request fields.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_update plan -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_update plan stale -> 200
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_update space -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_update team -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool
+mcp lastapp_update tenant -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.revision number
+  .ok bool

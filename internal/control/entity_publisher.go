@@ -598,7 +598,7 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v Row, d
 		if err != nil {
 			return err
 		}
-		if e = s.validateEntityRefsCandidates(ctx, tx, d, Row{"tenant_id": tenant, "space_id": space, "id": entityID}, candidates); e != nil {
+		if e = validateEntityRefsCandidates(ctx, tx, d, Row{"tenant_id": tenant, "space_id": space, "id": entityID}, candidates); e != nil {
 			return e
 		}
 		if e = s.projectPermissions(ctx, tx, v, d); e != nil {

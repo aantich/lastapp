@@ -29,35 +29,28 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var fn endpoint
-	var body any
-	paths := map[string]string{}
+	var call func(context.Context, Actor) (Row, error)
 	permission := "workspaces.write"
 	switch in.Action {
 	case "create":
 		if id(in.Space) != nil {
 			return nil, bad("create needs production space_id.")
 		}
-		paths["space"] = in.Space
-		body = workspaceCreateInput{ID: stableAgentID(p, in.RequestKey), Name: in.Name}
-		fn = s.workspaceCreate
+		create := workspaceCreateInput{ID: stableAgentID(p, in.RequestKey), Name: in.Name}
+		call = func(ctx context.Context, a Actor) (Row, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
 	case "archive", "retry":
 		if id(in.Workspace) != nil || in.Revision < 1 {
 			return nil, bad("workspace_id and expected_revision are required.")
 		}
-		paths["workspace"] = in.Workspace
-		fn = s.workspaceArchive
-		if in.Action == "retry" {
-			fn = s.workspaceRetry
+		call = func(ctx context.Context, a Actor) (Row, error) {
+			return s.changeWorkspace(ctx, a, in.Workspace, in.Action == "retry", in.Revision)
 		}
 	case "launch":
 		if id(in.App) != nil || in.Launch == nil {
 			return nil, bad("launch needs a workspace app_id and launch parameters.")
 		}
-		paths["app"] = in.App
-		body = in.Launch
 		permission = "workspaces.test"
-		fn = s.developmentLaunch
+		call = func(ctx context.Context, a Actor) (Row, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
 	default:
 		return nil, bad("action is create, archive, retry or launch.")
 	}
@@ -65,7 +58,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 	if e != nil {
 		return nil, e
 	}
-	v, e := s.executeManagement(ctx, p, fn, "POST", "/v1/development/"+in.Action, paths, body, in.Revision)
+	v, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, v, e)
 }
 
@@ -74,27 +67,26 @@ func (s *Server) toolAgentRelease(ctx context.Context, p Principal, raw json.Raw
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var fn endpoint
-	var body any
-	paths := map[string]string{}
+	var call func(context.Context, Actor) (Row, error)
 	permission := "releases.write"
 	switch in.Action {
 	case "upload_ticket":
-		fn = s.artifactTicket
-		paths["app"] = in.App
+		call = func(ctx context.Context, a Actor) (Row, error) { return s.UploadTicket(ctx, a, in.App) }
 	case "capture":
-		fn = s.releaseCreate
-		paths["app"] = in.App
 		if in.Capture == nil {
 			return nil, bad("capture parameters required.")
 		}
-		body = in.Capture
+		call = func(ctx context.Context, a Actor) (Row, error) {
+			return s.CreateRelease(ctx, a, in.App, *in.Capture, in.Revision)
+		}
 	case "preview":
-		fn = s.releasePreview
-		paths["release"] = in.Release
+		call = func(ctx context.Context, a Actor) (Row, error) {
+			return s.PreviewRelease(ctx, a, in.Release, in.Revision)
+		}
 	case "deploy":
-		fn = s.releaseDeploy
-		paths["release"] = in.Release
+		call = func(ctx context.Context, a Actor) (Row, error) {
+			return s.DeployRelease(ctx, a, in.Release, in.Revision)
+		}
 		permission = "production.deploy"
 	default:
 		return nil, bad("action is upload_ticket, capture, preview or deploy.")
@@ -115,6 +107,6 @@ func (s *Server) toolAgentRelease(ctx context.Context, p Principal, raw json.Raw
 	if e != nil {
 		return nil, e
 	}
-	v, e := s.executeManagement(ctx, p, fn, "POST", "/v1/releases/"+in.Action, paths, body, in.Revision)
+	v, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, v, e)
 }

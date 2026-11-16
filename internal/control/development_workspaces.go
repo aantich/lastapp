@@ -17,9 +17,8 @@ const (
 )
 
 type (
-	workspaceAllocationKey struct{}
-	workspaceOperationKey  struct{}
-	workspaceCreateInput   struct {
+	workspaceOperationKey struct{}
+	workspaceCreateInput  struct {
 		ID   string `json:"id"`
 		Name string `json:"display_name"`
 	}
@@ -194,97 +193,91 @@ func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, spa
 	return nil
 }
 
-func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p Principal) error {
-	sp, e := row(r.Context(), s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", r.PathValue("space"))
+func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page PageRequest) (Page[Row], error) {
+	p := actor.Principal
+	sp, e := row(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", space)
 	if e != nil {
-		return e
+		return Page[Row]{}, e
 	}
 	if sp["workspace_id"] != nil {
-		return bad("Select the production Space.")
+		return Page[Row]{}, bad("Select the production Space.")
 	}
-	if e = s.authorize(r.Context(), s.DB, p, "workspace.manage", Resource{Tenant: str(sp["tenant_id"]), Space: r.PathValue("space")}, true); e != nil {
-		return e
+	if e = s.authorize(ctx, s.DB, p, "workspace.manage", Resource{Tenant: str(sp["tenant_id"]), Space: space}, true); e != nil {
+		return Page[Row]{}, e
 	}
 	query := "SELECT id,display_name,production_space_id,backing_space_id,state,error_message,revision,created_at,owner_agent_grant_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=?"
-	args := []any{r.PathValue("space"), p.ID}
+	args := []any{space, p.ID}
 	if p.Agent != nil {
 		query += " AND owner_agent_grant_id=?"
 		args = append(args, p.Agent.ID)
 	}
-	vs, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY created_at DESC,id", args...)
-	if e == nil {
-		sendPage(w, r, vs)
-	}
-	return e
+	vs, e := pageQuery(ctx, s.DB, page, collectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
+	return vs, e
 }
 
-func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := s.workspaceRow(r.Context(), s.DB, p, r.PathValue("workspace"))
+func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (Row, error) {
+	p := actor.Principal
+	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	delete(v, "base_json")
-	mappings, e := rows(r.Context(), s.DB, "SELECT kind,development_id,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v["id"])
+	mappings, e := rows(ctx, s.DB, "SELECT kind,development_id,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v["id"])
 	if e != nil {
-		return e
+		return nil, e
 	}
 	v["mappings"] = mappings
-	send(w, 200, v)
-	return nil
+	return v, nil
 }
 
-func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in workspaceCreateInput
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
+func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string, in workspaceCreateInput) (Row, error) {
+	p := actor.Principal
 	if in.ID == "" {
-		in.ID = operationID(r.Context())
+		in.ID = actor.operationID()
 	}
 	if e := id(in.ID); e != nil {
-		return e
+		return nil, e
 	}
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
-		return bad("Enter a workspace name (maximum 160 bytes).")
+		return nil, bad("Enter a workspace name (maximum 160 bytes).")
 	}
-	sp, e := row(r.Context(), s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", r.PathValue("space"))
+	sp, e := row(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", space)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	if sp["workspace_id"] != nil {
-		return bad("Workspaces cannot contain workspaces.")
+		return nil, bad("Workspaces cannot contain workspaces.")
 	}
-	res := Resource{Tenant: str(sp["tenant_id"]), Space: r.PathValue("space")}
-	e = s.mutate(r.Context(), p, "workspace.manage", res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	res := Resource{Tenant: str(sp["tenant_id"]), Space: space}
+	e = s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
 		var owned, total int
-		if e := tx.QueryRowContext(r.Context(), "SELECT COUNT(*),COALESCE(SUM(owner_user_id=?),0) FROM development_workspaces WHERE production_space_id=? AND state<>'archived'", p.ID, res.Space).Scan(&total, &owned); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(owner_user_id=?),0) FROM development_workspaces WHERE production_space_id=? AND state<>'archived'", p.ID, res.Space).Scan(&total, &owned); e != nil {
 			return e
 		}
 		if owned >= maxOwnedWorkspaces || total >= maxSpaceWorkspaces {
 			return conflict("Archive an unused workspace before creating another.")
 		}
-		if e := s.ensureSnapshotReady(r.Context(), tx, res.Space); e != nil {
+		if e := s.ensureSnapshotReady(ctx, tx, res.Space); e != nil {
 			return e
 		}
-		base, e := s.snapshot(r.Context(), tx, res.Space)
+		base, e := s.snapshot(ctx, tx, res.Space)
 		if e != nil {
 			return e
 		}
 		b, _ := json.Marshal(base)
-		source, e := row(r.Context(), tx, "SELECT sp.database_layout,d.target_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.id=?", res.Space)
+		source, e := row(ctx, tx, "SELECT sp.database_layout,d.target_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.id=?", res.Space)
 		if e != nil {
 			return e
 		}
 		if s.Config.WorkspaceDatabaseTarget != "" {
 			source["target_id"] = s.Config.WorkspaceDatabaseTarget
 		}
-		policy, e := policyFor(r.Context(), tx, res.Tenant)
+		policy, e := policyFor(ctx, tx, res.Tenant)
 		if e != nil {
 			return e
 		}
 		backing, resource := newID(), newID()
-		ctx := context.WithValue(r.Context(), workspaceAllocationKey{}, res)
-		if e = s.allocateDatabase(ctx, tx, p, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: str(source["database_layout"]), Target: str(source["target_id"])}, policy, r.Header.Get("X-Request-ID")); e != nil {
+		if e = s.storage.allocate(ctx, tx, actor, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: str(source["database_layout"]), Target: str(source["target_id"])}, policy, &res); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES(?,?,?,?,?,?)", backing, res.Tenant, "dev-"+strings.ReplaceAll(in.ID, "-", ""), in.Name, resource, source["database_layout"]); e != nil {
@@ -300,40 +293,32 @@ func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Princ
 		if _, e = tx.ExecContext(ctx, "UPDATE spaces SET workspace_id=? WHERE id=?", in.ID, backing); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, p, res.Tenant, backing, "", p.ID, r.Header.Get("X-Request-ID")); e != nil {
+		if e = assignInitialManager(ctx, tx, actor, res.Tenant, backing, "", p.ID); e != nil {
 			return e
 		}
 		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID, p.ID); e != nil {
 			return e
 		}
-		return audit(ctx, tx, res.Tenant, p.ID, "workspace.created", "workspace", in.ID, r.Header.Get("X-Request-ID"), Row{"production_space_id": res.Space, "backing_space_id": backing})
+		return auditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, Row{"production_space_id": res.Space, "backing_space_id": backing})
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
-	r.SetPathValue("workspace", in.ID)
-	return s.workspaceGet(w, r, p)
+	return s.Workspace(ctx, actor, in.ID)
 }
 
-func (s *Server) workspaceArchive(w http.ResponseWriter, r *http.Request, p Principal) error {
-	return s.workspaceState(w, r, p, false)
-}
-
-func (s *Server) workspaceRetry(w http.ResponseWriter, r *http.Request, p Principal) error {
-	return s.workspaceState(w, r, p, true)
-}
-
-func (s *Server) workspaceState(w http.ResponseWriter, r *http.Request, p Principal, retry bool) error {
-	v, e := s.workspaceRow(r.Context(), s.DB, p, r.PathValue("workspace"))
+func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (Row, error) {
+	p := actor.Principal
+	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
+	rev := revision
+	if rev < 1 {
+		return nil, revisionRequired()
 	}
-	e = s.mutate(r.Context(), p, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["production_space_id"])}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		v, e = s.workspaceRow(r.Context(), tx, p, r.PathValue("workspace"))
+	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["production_space_id"])}, func(tx *sql.Tx) error {
+		v, e = s.workspaceRow(ctx, tx, p, workspace)
 		if e != nil {
 			return e
 		}
@@ -346,37 +331,37 @@ func (s *Server) workspaceState(w http.ResponseWriter, r *http.Request, p Princi
 				return conflict("Only failed preparation can be retried.")
 			}
 			state = "preparing"
-			failed, e := rows(r.Context(), tx, "SELECT e.id,v.id AS version_id FROM entity_definitions e JOIN entity_versions v ON v.entity_id=e.id AND v.state='failed' WHERE e.space_id=? AND e.active_version_id IS NULL AND e.pending_version_id IS NULL", v["backing_space_id"])
+			failed, e := rows(ctx, tx, "SELECT e.id,v.id AS version_id FROM entity_definitions e JOIN entity_versions v ON v.entity_id=e.id AND v.state='failed' WHERE e.space_id=? AND e.active_version_id IS NULL AND e.pending_version_id IS NULL", v["backing_space_id"])
 			if e != nil {
 				return e
 			}
 			for _, def := range failed {
-				if _, e = tx.ExecContext(r.Context(), "UPDATE entity_versions SET state='queued',attempt_id=NULL,error_message=NULL,finished_at=NULL WHERE id=?", def["version_id"]); e != nil {
+				if _, e = tx.ExecContext(ctx, "UPDATE entity_versions SET state='queued',attempt_id=NULL,error_message=NULL,finished_at=NULL WHERE id=?", def["version_id"]); e != nil {
 					return e
 				}
-				if _, e = tx.ExecContext(r.Context(), "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", def["version_id"], def["id"]); e != nil {
+				if _, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", def["version_id"], def["id"]); e != nil {
 					return e
 				}
 			}
 
-			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET state='pending',revision=revision+1 WHERE id=? AND state='failed'", v["database_resource_id"]); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='pending',revision=revision+1 WHERE id=? AND state='failed'", v["database_resource_id"]); e != nil {
 				return e
 			}
 		}
-		if _, e = tx.ExecContext(r.Context(), "UPDATE development_workspaces SET state=?,error_message=NULL,revision=revision+1 WHERE id=?", state, v["id"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state=?,error_message=NULL,revision=revision+1 WHERE id=?", state, v["id"]); e != nil {
 			return e
 		}
 		if !retry {
-			if _, e = tx.ExecContext(r.Context(), "UPDATE spaces SET state='archived',revision=revision+1 WHERE id=?", v["backing_space_id"]); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE spaces SET state='archived',revision=revision+1 WHERE id=?", v["backing_space_id"]); e != nil {
 				return e
 			}
 		}
-		return audit(r.Context(), tx, str(v["tenant_id"]), p.ID, "workspace."+state, "workspace", str(v["id"]), r.Header.Get("X-Request-ID"), Row{})
+		return auditAs(ctx, tx, actor, str(v["tenant_id"]), "workspace."+state, "workspace", str(v["id"]), Row{})
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
-	return s.workspaceGet(w, r, p)
+	return s.Workspace(ctx, actor, workspace)
 }
 
 func lockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
@@ -411,4 +396,33 @@ func (s *Server) productionMutationGuard(ctx context.Context, q Queryer, p Princ
 		return requireAgent(p.Agent, "production.deploy")
 	}
 	return nil
+}
+
+func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Workspaces(r.Context(), httpActor(r, p), r.PathValue("space"), pageRequest(r.URL.Query()))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Workspace(r.Context(), httpActor(r, p), r.PathValue("workspace"))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in workspaceCreateInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.CreateWorkspace(r.Context(), httpActor(r, p), r.PathValue("space"), in)
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) workspaceArchive(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.changeWorkspace(r.Context(), httpActor(r, p), r.PathValue("workspace"), false, ifMatch(r))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) workspaceRetry(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.changeWorkspace(r.Context(), httpActor(r, p), r.PathValue("workspace"), true, ifMatch(r))
+	return reply(w, 200, v, e)
 }

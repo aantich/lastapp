@@ -1,56 +1,8 @@
 package control
 
 import (
-	"database/sql"
 	"net/http"
-	"strings"
 )
-
-func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
-	t, space := r.PathValue("tenant"), r.PathValue("space")
-	if e := s.authorize(r.Context(), s.DB, p, "space.read", Resource{Tenant: t, Space: space}, false); e != nil {
-		return e
-	}
-	v, e := row(r.Context(), s.DB, "SELECT sp.id,sp.workspace_id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", t, space)
-	if e == nil {
-		send(w, 200, v)
-	}
-	return e
-}
-
-func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		Name string `json:"display_name"`
-	}
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
-	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
-		return bad("Enter a company name (maximum 160 bytes).")
-	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	t := r.PathValue("tenant")
-	e = s.mutate(r.Context(), p, "tenant.manage", Resource{Tenant: t}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		before, e := lockRecord(r.Context(), tx, "tenants", "", t)
-		if e != nil {
-			return e
-		}
-		if e = checkRevision(integer(before["revision"]), rev); e != nil {
-			return e
-		}
-		if _, e = tx.ExecContext(r.Context(), "UPDATE tenants SET display_name=?,revision=revision+1 WHERE id=?", in.Name, t); e != nil {
-			return e
-		}
-		return audit(r.Context(), tx, t, p.ID, "tenant.profile_updated", "tenant", t, r.Header.Get("X-Request-ID"), Row{"display_name": in.Name})
-	})
-	if e != nil {
-		return e
-	}
-	return result(w, r, s, "tenants", "", t, 200)
-}
 
 func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Principal) error {
 	t := r.PathValue("tenant")

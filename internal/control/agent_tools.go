@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
 )
 
@@ -314,7 +314,7 @@ func (s *Server) mcpHandler() http.Handler {
 					e = resolved.Validate(args)
 				}
 				var data any
-				a := &agentExecution{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
+				a := &AgentCall{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
 				call = context.WithValue(call, agentContextKey{}, a)
 				if e != nil {
 					e = bad("Tool arguments do not match its published schema: " + e.Error())
@@ -325,17 +325,16 @@ func (s *Server) mcpHandler() http.Handler {
 				if e == nil {
 					result["data"] = data
 				} else {
-					capture := newOperationResponse()
-					fake, _ := http.NewRequestWithContext(call, "POST", "/mcp", nil)
-					fake.Header.Set("X-Request-ID", newID())
-					writeError(capture, fake, e)
-					value, _ := capture.Value()
-					result["error"] = value["error"]
-					var ae *APIError
-					if errors.As(e, &ae) && ae.Code == "needs_authorization" {
-						var scopeError *agentAuthorityError
-						if errors.As(e, &scopeError) {
-							result["required_scopes"] = scopeError.Missing
+					o := classify(e)
+					rid := newID()
+					if o.Unmapped {
+						fields := []any{"operation", "mcp " + current.Name, "operation_request_id", rid}
+						requestLogger(call).Error("request failed", append(fields, diagnostic(e)...)...)
+					}
+					result["error"] = o.payload(rid)
+					if o.Code == "needs_authorization" {
+						if o.Authority != nil {
+							result["required_scopes"] = o.Authority.Missing
 						}
 						result["authorization_url"] = s.Config.PublicURL + "/console/account"
 						result["guidance"] = "The user must explicitly expand Agent access in the console. Refresh/reconnect, reread revisions, and retry. Nothing has executed."
@@ -345,7 +344,7 @@ func (s *Server) mcpHandler() http.Handler {
 				if len(b) > agentMaxResponse {
 					result = Row{"ok": false, "error": Row{"code": "response_limit", "message": "Inspect a smaller scope or page; no content was silently truncated."}}
 					if a.Committed {
-						result["committed"], result["resource"] = true, a.Result
+						result["committed"], result["resource"] = true, a.ResultRef
 						result["guidance"] = "The mutation committed. Inspect the resource using a smaller section/page; reuse the same request_key for unchanged retries."
 					}
 					b, _ = json.Marshal(result)
@@ -385,63 +384,6 @@ func agentToolVisible(spec agentToolSpec, g *agentGrant) bool {
 		return agentHas(g, "resources.write") || agentHas(g, "access.manage") || agentHas(g, "platform.manage")
 	}
 	return true
-}
-
-// Shared in-process operation boundary. Both transports call the same validated
-// Go operations; there are no network calls, synthetic cookies or admin actors.
-type operationResponse struct {
-	headers http.Header
-	status  int
-	body    bytes.Buffer
-	err     error
-}
-
-func newOperationResponse() *operationResponse      { return &operationResponse{headers: http.Header{}} }
-func (w *operationResponse) Header() http.Header    { return w.headers }
-func (w *operationResponse) WriteHeader(status int) { w.status = status }
-func (w *operationResponse) Write(b []byte) (int, error) {
-	if w.err != nil {
-		return 0, w.err
-	}
-	if w.body.Len()+len(b) > agentMaxResponse {
-		w.err = problem(413, "response_limit", "Response exceeds the context limit. Use a smaller page or entity section; for schemas, select one field.")
-		return 0, w.err
-	}
-	return w.body.Write(b)
-}
-
-func (w *operationResponse) Value() (Row, error) {
-	if w.err != nil {
-		return nil, w.err
-	}
-	out := Row{}
-	if e := json.Unmarshal(w.body.Bytes(), &out); e != nil {
-		return nil, e
-	}
-	return out, nil
-}
-
-func (s *Server) executeManagement(ctx context.Context, p Principal, fn endpoint, method, path string, values map[string]string, body any, revision int64) (Row, error) {
-	b, e := json.Marshal(body)
-	if e != nil {
-		return nil, e
-	}
-	r, e := http.NewRequestWithContext(context.WithValue(ctx, pageContextKey{}, &pageInfo{}), method, path, bytes.NewReader(b))
-	if e != nil {
-		return nil, e
-	}
-	r.Header.Set("X-Request-ID", newID())
-	if revision > 0 {
-		r.Header.Set("If-Match", strconv.FormatInt(revision, 10))
-	}
-	for k, v := range values {
-		r.SetPathValue(k, v)
-	}
-	out := newOperationResponse()
-	if e = fn(out, r, p); e != nil {
-		return nil, e
-	}
-	return out.Value()
 }
 
 func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTarget, error) {
@@ -501,20 +443,11 @@ func agentPaths(res Resource, target *agentTarget) map[string]string {
 	return v
 }
 
-func agentScopePath(res Resource, target *agentTarget) string {
-	if target.Kind == "platform" {
-		return "/admin/v1"
-	}
-	base := "/v1/tenants/" + res.Tenant
-	switch target.Kind {
-	case "team":
-		base += "/teams/" + target.ID
-	case "space":
-		base += "/spaces/" + target.ID
-	case "app":
-		base += "/apps/" + target.ID
-	}
-	return base
+// agentScope is the role/assignment scope of a normalized agent target, the
+// one the matching console route would select.
+func agentScope(res Resource, target *agentTarget) (authz.Scope, Resource, error) {
+	paths := agentPaths(res, target)
+	return scopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
 }
 
 func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, result Row, input any, permissions ...string) (context.Context, error) {
@@ -524,16 +457,16 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 	if e := requireAgent(p.Agent, permissions...); e != nil {
 		return ctx, e
 	}
-	old, _ := ctx.Value(agentContextKey{}).(*agentExecution)
+	old := agentCallFrom(ctx)
 	operation := ""
 	if old != nil {
 		operation = old.Operation
 	}
 	a := old
 	if a == nil {
-		a = &agentExecution{}
+		a = &AgentCall{}
 	}
-	*a = agentExecution{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(Row{"operation": operation, "input": input}), Result: result}
+	*a = AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(Row{"operation": operation, "input": input}), ResultRef: result}
 	var previous string
 	var saved any
 	e := s.DB.QueryRowContext(ctx, "SELECT input_hash,result_json FROM agent_operation_receipts WHERE grant_id=? AND request_key=?", p.Agent.ID, key).Scan(&previous, &saved)
@@ -549,18 +482,53 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 	return context.WithValue(ctx, agentContextKey{}, a), nil
 }
 
-func agentWriteResult(ctx context.Context, data Row, e error) (any, error) {
+// inventoryUpdate selects the Space, App or micro-app metadata operation.
+func (s *Server) inventoryUpdate(resource string) func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error) {
+	switch resource {
+	case "space":
+		return s.inv.UpdateSpace
+	case "app":
+		return s.inv.UpdateApp
+	}
+	return s.inv.UpdateMicroapp
+}
+
+// agentFits enforces the MCP response bound on an operation result, measured
+// as its serialized JSON (with the encoder's trailing newline).
+func agentFits(v any) error {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	if len(b)+1 > agentMaxResponse {
+		return problem(413, "response_limit", "Response exceeds the context limit. Use a smaller page or entity section; for schemas, select one field.")
+	}
+	return nil
+}
+
+// agentSized passes a successful operation result through agentFits.
+func agentSized[T any](v T, e error) (any, error) {
+	if e != nil {
+		return nil, e
+	}
+	if e = agentFits(v); e != nil {
+		return nil, e
+	}
+	return v, nil
+}
+
+func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
 	if errors.Is(e, errAgentReplay) {
-		a := ctx.Value(agentContextKey{}).(*agentExecution)
+		a := agentCallFrom(ctx)
 		a.Committed = true
-		return Row{"replayed": true, "committed": true, "resource": a.Result, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
+		return Row{"replayed": true, "committed": true, "resource": a.ResultRef, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
 	}
 	var ae *APIError
 	if errors.As(e, &ae) && ae.Code == "response_limit" {
-		// executeManagement reached response serialization after the mutation
-		// committed. The receipt is the authoritative, compact outcome.
-		if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok && a.Committed {
-			return Row{"committed": true, "resource": a.Result, "response_error": Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
+		// The operation committed but its result exceeds the response bound.
+		// The receipt is the authoritative, compact outcome.
+		if a := agentCallFrom(ctx); a != nil && a.Committed {
+			return Row{"committed": true, "resource": a.ResultRef, "response_error": Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
 		}
 	}
 	return data, e
@@ -584,10 +552,8 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	if count != 1 {
 		return nil, bad("Supply exactly one resource object.")
 	}
-	paths := agentPaths(res, target)
 	kind, key := "", ""
-	var body any
-	var fn endpoint
+	var call func(context.Context, Actor) (any, error)
 	permissions := []string{"resources.write"}
 	switch {
 	case in.Space != nil:
@@ -596,52 +562,62 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "space"
 		key = in.Space.ID
-		fn = s.createSpace
 		if in.Space.Manager == "" {
 			in.Space.Manager = p.ID
 		}
 		if in.Space.Manager != p.ID {
 			permissions = append(permissions, "access.manage")
 		}
-		body = in.Space
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.CreateSpace(ctx, a, res.Tenant, *in.Space)
+		}
 	case in.App != nil:
 		if target.Kind != "space" {
 			return nil, bad("App creation requires a Space target.")
 		}
 		kind = "app"
 		key = in.App.ID
-		fn = s.createApp
 		if in.App.Manager == "" {
 			in.App.Manager = p.ID
 		}
 		if in.App.Manager != p.ID {
 			permissions = append(permissions, "access.manage")
 		}
-		body = in.App
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.CreateApp(ctx, a, res.Tenant, target.ID, *in.App)
+		}
 	case in.Microapp != nil:
 		if target.Kind != "app" {
 			return nil, bad("Micro-app creation requires an App target.")
 		}
 		kind = "microapp"
 		key = in.Microapp.ID
-		fn = s.createMicroapp
-		body = in.Microapp
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.CreateMicroapp(ctx, a, res.Tenant, target.ID, *in.Microapp)
+		}
 	case in.Team != nil:
 		if target.Kind != "tenant" {
 			return nil, bad("Team creation requires a Tenant target.")
 		}
 		kind = "team"
 		key = in.Team.ID
-		fn = s.createGroup
-		body = in.Team
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.members.CreateTeam(ctx, a, res.Tenant, *in.Team)
+		}
 	case in.Role != nil:
 		if target.Kind != "space" && target.Kind != "app" {
 			return nil, bad("Custom roles belong to a Space or App; Tenant/team roles are fixed.")
 		}
 		kind = "role"
 		key = in.Role.ID
-		fn = s.createRole
-		body = in.Role
+		role := roleInput{ID: in.Role.ID, Code: in.Role.Code, Name: in.Role.Name}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			scope, sr, e := agentScope(res, target)
+			if e != nil {
+				return nil, e
+			}
+			return s.authority.CreateRole(ctx, a, scope, sr, role)
+		}
 		permissions = []string{"access.manage"}
 	case in.Tenant != nil:
 		if target.Kind != "platform" {
@@ -649,8 +625,8 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "tenant"
 		key = in.Tenant.ID
-		fn = s.createTenant
-		body = in.Tenant
+		tenant := tenantCreateInput{ID: in.Tenant.ID, Slug: in.Tenant.Slug, Name: in.Tenant.Name, Plan: in.Tenant.Plan, Admin: in.Tenant.Admin, Layout: in.Tenant.Layout}
+		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreateTenant(ctx, a, tenant) }
 		permissions = []string{"platform.manage"}
 	case in.Plan != nil:
 		if target.Kind != "platform" {
@@ -658,8 +634,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "plan"
 		key = in.Plan.ID
-		fn = s.createPlan
-		body = in.Plan
+		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreatePlan(ctx, a, *in.Plan) }
 		permissions = []string{"platform.manage"}
 	}
 	if e = id(key); e != nil {
@@ -669,25 +644,8 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, "POST", agentScopePath(res, target), paths, body, 0)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
-}
-
-func compactFields(v any) (Row, error) {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return nil, e
-	}
-	out := Row{}
-	if e = json.Unmarshal(b, &out); e != nil {
-		return nil, e
-	}
-	for k, value := range out {
-		if value == nil {
-			delete(out, k)
-		}
-	}
-	return out, nil
 }
 
 func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
@@ -702,59 +660,71 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	if e = id(in.ID); e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["id"] = in.ID
 	permissions := []string{"resources.write"}
-	var fn endpoint
-	body := Row{}
-	if in.Name != nil {
-		body["display_name"] = *in.Name
-	}
-	if in.Compute != nil {
-		body["compute_mode"] = *in.Compute
-	}
-	if in.Artifact != nil {
-		body["artifact_ref"] = *in.Artifact
-	}
-	if in.Order != nil {
-		body["navigation_order"] = *in.Order
-	}
-	if in.PlanID != nil {
-		body["plan_id"] = *in.PlanID
-	}
-	if in.Layout != nil {
-		body["default_layout"] = *in.Layout
-	}
+	var call func(context.Context, Actor) (any, error)
 	switch in.Resource {
-	case "space":
-		fn = s.updateSpace
-	case "app":
-		fn = s.updateApp
-	case "microapp":
-		fn = s.updateMicroapp
+	case "space", "app", "microapp":
+		update := s.inventoryUpdate(in.Resource)
+		patch := metadataPatch{Name: in.Name, Compute: in.Compute, Artifact: in.Artifact, Order: in.Order}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if in.PlanID != nil || in.Layout != nil {
+				return nil, bad("Invalid or unsupported JSON request fields.")
+			}
+			return update(ctx, a, res.Tenant, in.ID, patch, in.Revision)
+		}
 	case "team":
-		fn = s.updateGroup
+		patch := teamPatch{Name: in.Name}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
+				return nil, bad("Invalid or unsupported JSON request fields.")
+			}
+			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, patch, in.Revision)
+		}
 	case "role":
-		fn = s.updateRole
+		patch := rolePatch{Name: in.Name}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
+				return nil, bad("Invalid or unsupported JSON request fields.")
+			}
+			scope, sr, e := agentScope(res, target)
+			if e != nil {
+				return nil, e
+			}
+			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, patch, in.Revision)
+		}
 		permissions = []string{"access.manage"}
 	case "tenant":
 		if p.Agent.Kind == "platform" {
-			fn = s.updateTenant
+			patch := tenantPatch{Name: in.Name, Plan: in.PlanID, Layout: in.Layout}
+			call = func(ctx context.Context, a Actor) (any, error) {
+				if in.Compute != nil || in.Artifact != nil || in.Order != nil {
+					return nil, bad("Invalid or unsupported JSON request fields.")
+				}
+				return s.inv.UpdateTenant(ctx, a, in.ID, patch, in.Revision)
+			}
 			permissions = []string{"platform.manage"}
 		} else {
 			if in.ID != res.Tenant {
 				return nil, missing()
 			}
-			fn = s.updateTenantProfile
+			call = func(ctx context.Context, a Actor) (any, error) {
+				if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
+					return nil, bad("Invalid or unsupported JSON request fields.")
+				}
+				name := ""
+				if in.Name != nil {
+					name = *in.Name
+				}
+				return s.inv.UpdateTenantProfile(ctx, a, res.Tenant, name, in.Revision)
+			}
 		}
 	case "plan":
 		if target.Kind != "platform" || in.Plan == nil {
 			return nil, bad("Plan update requires platform scope and the complete plan object.")
 		}
-		if body, e = compactFields(in.Plan); e != nil {
-			return nil, e
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.UpdatePlan(ctx, a, in.ID, *in.Plan, in.Revision)
 		}
-		fn = s.updatePlan
 		permissions = []string{"platform.manage"}
 	default:
 		return nil, bad("Unsupported metadata resource.")
@@ -769,7 +739,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -785,38 +755,50 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	if e = id(in.ID); e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["id"] = in.ID
 	permissions := []string{"lifecycle.manage", "access.manage"}
-	body := Row{"state": in.State}
-	var fn endpoint
+	var call func(context.Context, Actor) (any, error)
 	switch in.Resource {
-	case "space":
-		fn = s.updateSpace
-	case "app":
-		fn = s.updateApp
-	case "microapp":
-		fn = s.updateMicroapp
+	case "space", "app", "microapp":
+		update := s.inventoryUpdate(in.Resource)
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return update(ctx, a, res.Tenant, in.ID, metadataPatch{State: &in.State}, in.Revision)
+		}
 	case "team":
-		fn = s.updateGroup
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, teamPatch{State: &in.State}, in.Revision)
+		}
 	case "role":
-		fn = s.updateRole
+		call = func(ctx context.Context, a Actor) (any, error) {
+			scope, sr, e := agentScope(res, target)
+			if e != nil {
+				return nil, e
+			}
+			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, rolePatch{State: &in.State}, in.Revision)
+		}
 	case "database":
-		fn = s.updateDatabase
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.storage.UpdateDatabase(ctx, a, res.Tenant, in.ID, databaseChange{State: in.State}, in.Revision)
+		}
 	case "tenant":
 		if target.Kind != "platform" {
 			return nil, bad("Tenant lifecycle requires platform scope.")
 		}
-		fn = s.updateTenant
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.UpdateTenant(ctx, a, in.ID, tenantPatch{State: &in.State}, in.Revision)
+		}
 		permissions = append(permissions, "platform.manage")
 	case "entity":
-		v, e := s.entityRow(ctx, s.DB, p, in.ID, "entity.manage")
+		v, e := s.authoring.entityRow(ctx, s.DB, agentActor(ctx, p), in.ID, "entity.manage")
 		if e != nil {
 			return nil, e
 		}
-		body["definition"] = v["draft_json"]
-		paths["entity"] = in.ID
-		fn = s.entitySave
+		call = func(ctx context.Context, a Actor) (any, error) {
+			d, e := defOf(v["draft_json"])
+			if e != nil {
+				return nil, e
+			}
+			return s.authoring.SaveEntity(ctx, a, in.ID, entitySaveInput{Definition: d, State: in.State}, in.Revision)
+		}
 		permissions = append(permissions, "entities.publish")
 	default:
 		return nil, bad("Unsupported lifecycle resource.")
@@ -828,7 +810,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -841,10 +823,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		return nil, bad("definition is required.")
 	}
 	key := in.Entity
-	var fn endpoint
-	paths := map[string]string{}
-	body := Row{"definition": in.Definition}
-	method := "PATCH"
+	var call func(context.Context, Actor) (any, error)
 	if key == "" {
 		res, target, e := s.agentRoot(p, in.Target)
 		if e != nil {
@@ -853,11 +832,12 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		if target.Kind != "space" {
 			return nil, bad("New entities require a Space target.")
 		}
-		paths = agentPaths(res, target)
 		key = stableAgentID(p, in.RequestKey)
-		body["id"] = key
-		fn = s.entityCreate
-		method = "POST"
+		create := entityCreateInput{ID: key, Definition: *in.Definition}
+		space := agentPaths(res, target)["space"]
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.authoring.CreateEntity(ctx, a, space, create)
+		}
 	} else {
 		if e := id(key); e != nil {
 			return nil, e
@@ -865,14 +845,16 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Existing drafts require expected_revision.")
 		}
-		paths["entity"] = key
-		fn = s.entitySave
+		save := entitySaveInput{Definition: *in.Definition}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.authoring.SaveEntity(ctx, a, key, save, in.Revision)
+		}
 	}
 	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "entity", "id": key}, in, "entities.draft")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, method, "/v1/entities/"+key, paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -896,7 +878,7 @@ func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw js
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, s.entityPublish, "POST", "/v1/entities/"+in.Entity+"/publications", map[string]string{"entity": in.Entity}, Row{}, in.Revision)
+	data, e := agentSized(s.authoring.PublishEntity(ctx, agentActor(ctx, p), in.Entity, in.Revision))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -908,7 +890,8 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	if len(in.Cases) > agentMaxSyntheticCases {
 		return nil, bad("Synthetic case count exceeds the published schema limit.")
 	}
-	v, e := s.entityRow(ctx, s.DB, p, in.Entity, "entity.manage")
+	a := agentActor(ctx, p)
+	v, e := s.authoring.entityRow(ctx, s.DB, a, in.Entity, "entity.manage")
 	if e != nil {
 		return nil, e
 	}
@@ -919,8 +902,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 		}
 		in.Definition = &d
 	}
-	paths := map[string]string{"entity": in.Entity}
-	result, e := s.executeManagement(ctx, p, s.entityValidate, "POST", "/v1/entities/"+in.Entity+"/validate?view=diagnostics", paths, Row{"definition": in.Definition}, 0)
+	result, e := s.authoring.ValidateEntity(ctx, a, in.Entity, *in.Definition, "diagnostics")
+	if e == nil {
+		e = agentFits(result)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -930,12 +915,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v["draft_json"]), "published_version": v["active_version_id"], "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
 	cases := []Row{}
 	for _, c := range in.Cases {
-		body, e := compactFields(c)
-		if e != nil {
-			return nil, e
+		data, e := s.authoring.TestEntity(ctx, a, in.Entity, entityTestInput{Definition: *in.Definition, App: c.App, User: c.User, Operation: c.Operation, Record: c.Record, Values: c.Values})
+		if e == nil {
+			e = agentFits(data)
 		}
-		body["definition"] = in.Definition
-		data, e := s.executeManagement(ctx, p, s.entityTest, "POST", "/v1/entities/"+in.Entity+"/test", paths, body, 0)
 		if e != nil {
 			return nil, e
 		}
@@ -955,28 +938,22 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["id"] = in.ID
-	var fn endpoint
-	method := "POST"
-	body := Row{}
+	var call func(context.Context, Actor, authz.Scope, Resource) (any, error)
 	switch in.Action {
 	case "grant":
 		if (in.User == "") == (in.Team == "") {
 			return nil, bad("Choose exactly one user_id or team_id recipient.")
 		}
-		fn = s.createGrant
-		body = Row{"id": in.ID, "role_id": in.Role}
-		if in.User != "" {
-			body["user_id"] = in.User
-		} else {
-			body["group_id"] = in.Team
+		grant := assignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
+		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
+			return s.authority.Grant(ctx, a, scope, sr, grant)
 		}
 	case "revoke":
-		fn = s.deleteGrant
-		method = "DELETE"
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Revocation requires expected_revision.")
+		}
+		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
+			return s.authority.Revoke(ctx, a, scope, sr, in.ID, in.Revision)
 		}
 	default:
 		return nil, bad("Action must be grant or revoke.")
@@ -992,7 +969,13 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, method, agentScopePath(res, target)+"/role-assignments", paths, body, in.Revision)
+	data, e := agentSized(func() (any, error) {
+		scope, sr, e := agentScope(res, target)
+		if e != nil {
+			return nil, e
+		}
+		return call(ctx, agentActor(ctx, p), scope, sr)
+	}())
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -1011,37 +994,34 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 	if e = id(in.User); e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["user"] = in.User
-	paths["id"] = target.ID
-	body := Row{"user_id": in.User}
-	path := agentScopePath(res, target) + "/memberships"
-	fn := s.addMembership
-	method := "POST"
+	var call func(context.Context, Actor) (any, error)
 	switch in.Action {
 	case "add":
-		if target.Kind == "team" {
-			fn = s.addGroupMember
-			path = agentScopePath(res, target) + "/members"
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if target.Kind == "team" {
+				return s.members.AddTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
+			}
+			return s.members.AddMembership(ctx, a, res.Tenant, accountChoice{User: in.User})
 		}
 	case "set_state":
-		body = Row{"state": in.State}
-		method = "PATCH"
-		fn = s.updateMembership
-		if target.Kind == "team" {
-			fn = s.updateGroupMember
-		}
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Membership/team revision is required.")
+		}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if target.Kind == "team" {
+				return s.members.SetTeamMemberState(ctx, a, res.Tenant, target.ID, in.User, in.State, in.Revision)
+			}
+			return s.members.UpdateMembership(ctx, a, res.Tenant, in.User, in.State, in.Revision)
 		}
 	case "remove":
 		if target.Kind != "team" {
 			return nil, bad("Tenant membership is disable-only.")
 		}
-		fn = s.removeGroupMember
-		method = "DELETE"
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Team revision is required.")
+		}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.members.RemoveTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
 		}
 	default:
 		return nil, bad("Unsupported membership action.")
@@ -1050,7 +1030,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, method, path, paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -1069,7 +1049,7 @@ func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.R
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, s.appAccessSave, "PATCH", "/v1/apps/"+in.App+"/data-access", map[string]string{"app": in.App}, in.Access, in.Revision)
+	data, e := agentSized(s.authoring.SaveAppAccess(ctx, agentActor(ctx, p), in.App, in.Access, in.Revision))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -1084,14 +1064,16 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.Ra
 	if p.Agent.Kind != "tenant" {
 		return nil, bad("Provisioning requires a Tenant-scoped connection.")
 	}
-	var fn endpoint
-	body := Row{}
+	tenant := p.Agent.Tenant
+	var call func(context.Context, Actor) (any, error)
 	switch in.Action {
 	case "provision":
-		fn = s.createDatabase
-		body = Row{"id": in.ID, "management_mode": "managed", "layout": in.Layout, "target_id": in.TargetID}
+		db := databaseInput{ID: in.ID, Mode: "managed", Layout: in.Layout, Target: in.TargetID}
+		call = func(ctx context.Context, a Actor) (any, error) { return s.storage.CreateDatabase(ctx, a, tenant, db) }
 	case "retry":
-		fn = s.retryDatabase
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.storage.RetryDatabase(ctx, a, tenant, in.ID, in.Revision)
+		}
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Retry requires expected_revision.")
 		}
@@ -1102,6 +1084,6 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.Ra
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, "POST", "/v1/tenants/"+p.Agent.Tenant+"/database-resources", map[string]string{"tenant": p.Agent.Tenant, "id": in.ID}, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }

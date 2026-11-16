@@ -1,53 +1,45 @@
 package control
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
-
-	"github.com/aantich/lastapp/internal/authz"
 )
 
-// Account, membership and authority are one operation for the platform operator.
+// AddAdministrator makes an existing account or a new local account a Tenant
+// administrator: account, membership and authority are one platform operation.
 // Existing credentials are never replaced; no Tenant-authoring authority is added.
-func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return e
-	}
-	var in struct {
-		User    string        `json:"user_id"`
-		Account *accountInput `json:"account"`
-	}
-	if e := decode(w, r, &in); e != nil {
-		return e
+func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant string, in accountChoice) (memberRef, error) {
+	if e := m.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		return memberRef{}, e
 	}
 	if (in.User == "") == (in.Account == nil) {
-		return bad("Choose an existing account or enter account details.")
+		return memberRef{}, bad("Choose an existing account or enter account details.")
 	}
 	var account preparedAccount
 	var e error
 	if in.Account != nil {
-		account, e = s.prepareAccount(*in.Account)
+		account, e = m.prepareAccount(*in.Account)
 	} else {
 		e = id(in.User)
 	}
 	if e != nil {
-		return e
+		return memberRef{}, e
 	}
-	t := r.PathValue("tenant")
-	e = s.mutate(r.Context(), p, "authorization.manage", Resource{Tenant: t}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		if e := s.authorize(r.Context(), tx, p, "platform.admin", Resource{}, true); e != nil {
+	e = m.run.mutate(ctx, a, "authorization.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		if e := m.run.authorizeTx(ctx, tx, a, "platform.admin", Resource{}); e != nil {
 			return e
 		}
 		if in.Account != nil {
 			var e error
-			in.User, e = localAccount(r.Context(), tx, account, true)
+			in.User, e = localAccount(ctx, tx, account, true)
 			if e != nil {
 				return e
 			}
 		}
 		var state string
-		if e := tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
 			if errors.Is(e, sql.ErrNoRows) {
 				return missing()
 			}
@@ -56,7 +48,7 @@ func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, 
 		if state != stateActive {
 			return bad("Enable this account before assigning Tenant administration.")
 		}
-		platform, e := isPlatform(r.Context(), tx, in.User)
+		platform, e := isPlatform(ctx, tx, in.User)
 		if e != nil {
 			return e
 		}
@@ -64,82 +56,72 @@ func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, 
 			return bad("Choose an account without platform administration privileges.")
 		}
 		var memberState string
-		e = tx.QueryRowContext(r.Context(), "SELECT state FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", t, in.User).Scan(&memberState)
+		e = tx.QueryRowContext(ctx, "SELECT state FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", tenant, in.User).Scan(&memberState)
 		if errors.Is(e, sql.ErrNoRows) {
-			if e = metadataQuota(r.Context(), tx, t, "tenant_memberships"); e != nil {
+			if e = metadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(r.Context(), "INSERT INTO tenant_memberships(tenant_id,user_id) VALUES (?,?)", t, in.User); e != nil {
+			if _, e = tx.ExecContext(ctx, "INSERT INTO tenant_memberships(tenant_id,user_id) VALUES (?,?)", tenant, in.User); e != nil {
 				return e
 			}
-			if e = audit(r.Context(), tx, t, p.ID, "membership.created", "user", in.User, r.Header.Get("X-Request-ID"), Row{"state": stateActive}); e != nil {
+			if e = auditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, Row{"state": stateActive}); e != nil {
 				return e
 			}
 		} else if e != nil {
 			return e
 		} else if memberState != stateActive {
-			if _, e = tx.ExecContext(r.Context(), "UPDATE tenant_memberships SET state='active',revision=revision+1 WHERE tenant_id=? AND user_id=?", t, in.User); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE tenant_memberships SET state='active',revision=revision+1 WHERE tenant_id=? AND user_id=?", tenant, in.User); e != nil {
 				return e
 			}
-			if e = audit(r.Context(), tx, t, p.ID, "membership.updated", "user", in.User, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": memberState}, "after": Row{"state": stateActive}}); e != nil {
+			if e = auditAs(ctx, tx, a, tenant, "membership.updated", "user", in.User, Row{"before": Row{"state": memberState}, "after": Row{"state": stateActive}}); e != nil {
 				return e
 			}
 		}
 		var count int
-		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM access_grants WHERE tenant_id=? AND user_id=? AND role_id=?", t, in.User, TenantAdminRole).Scan(&count); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM access_grants WHERE tenant_id=? AND user_id=? AND role_id=?", tenant, in.User, TenantAdminRole).Scan(&count); e != nil {
 			return e
 		}
 		if count == 0 {
-			if e = metadataQuota(r.Context(), tx, t, "access_grants"); e != nil {
+			if e = metadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
 				return e
 			}
 			grant := newID()
-			if _, e = tx.ExecContext(r.Context(), "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", grant, t, in.User, TenantAdminRole); e != nil {
+			if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", grant, tenant, in.User, TenantAdminRole); e != nil {
 				return e
 			}
-			return auditChange(r.Context(), tx, t, p.ID, "grant.created", "access_grants", "access_grant", grant, r.Header.Get("X-Request-ID"), nil)
+			return auditChangeAs(ctx, tx, a, tenant, "grant.created", "access_grants", "access_grant", grant, nil)
 		}
 		return nil
 	})
+	if e != nil {
+		return memberRef{}, e
+	}
+	return memberRef{UserID: in.User}, nil
+}
+
+func (m *membership) Administrators(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Row], error) {
+	if e := m.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		return Page[Row]{}, e
+	}
+	return pageQuery(ctx, m.db, page, collectionFor("administrators"), "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,u.id", tenant, TenantAdminRole)
+}
+
+func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in accountChoice
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.members.AddAdministrator(r.Context(), httpActor(r, p), r.PathValue("tenant"), in)
 	if e == nil {
-		send(w, 201, Row{"user_id": in.User})
+		send(w, 201, v)
 	}
 	return e
 }
 
 func (s *Server) tenantAdministrators(w http.ResponseWriter, r *http.Request, p Principal) error {
-	t := r.PathValue("tenant")
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return e
-	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,u.id", t, TenantAdminRole)
+	v, e := s.members.Administrators(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
 	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
-}
-
-// Scope managers can search eligible recipients without reading the global user
-// directory or receiving broader membership-management authority.
-func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p Principal) error {
-	scope, res, e := requestScope(r)
-	if e != nil {
-		return e
-	}
-	if scope.Kind == authz.Platform {
-		return bad("A Tenant scope is required.")
-	}
-	if e = s.authorize(r.Context(), s.DB, p, "authorization.manage", res, false); e != nil {
-		return e
-	}
-	var v []Row
-	if r.URL.Query().Get("type") == "team" {
-		v, e = pageRows(r.Context(), s.DB, r, "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
-	} else {
-		v, e = pageRows(r.Context(), s.DB, r, "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, SuperRole)
-	}
-	if e == nil {
-		sendPage(w, r, v)
+		send(w, 200, v)
 	}
 	return e
 }

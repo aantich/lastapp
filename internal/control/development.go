@@ -105,7 +105,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		if e = s.allocateDatabase(ctx, tx, Principal{ID: owner}, tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, newID()); e != nil {
+		if e = s.storage.allocate(ctx, tx, actorFrom(ctx, Principal{ID: owner}, newID()), tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET default_shared_database_id=? WHERE id=?", resource, tenant); e != nil {
@@ -114,14 +114,14 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES (?,?,'crm','CRM',?,'shared')", space, tenant, resource); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, Principal{ID: operator}, tenant, space, "", owner, newID()); e != nil {
+		if e = assignInitialManager(ctx, tx, actorFrom(ctx, Principal{ID: operator}, newID()), tenant, space, "", owner); e != nil {
 			return e
 		}
 		for _, a := range []struct{ id, slug, name string }{{app, "deal-review", "Deal review"}, {second, "forecasting", "Forecasting"}} {
 			if _, e = tx.ExecContext(ctx, "INSERT INTO apps(id,tenant_id,space_id,slug,display_name) VALUES (?,?,?,?,?)", a.id, tenant, space, a.slug, a.name); e != nil {
 				return e
 			}
-			if e = assignInitialManager(ctx, tx, Principal{ID: operator}, tenant, space, a.id, owner, newID()); e != nil {
+			if e = assignInitialManager(ctx, tx, actorFrom(ctx, Principal{ID: operator}, newID()), tenant, space, a.id, owner); e != nil {
 				return e
 			}
 		}

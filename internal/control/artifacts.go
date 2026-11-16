@@ -103,23 +103,24 @@ func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal
 	return a, w, nil
 }
 
-func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (Row, error) {
+	p := actor.Principal
 	if s.artifactDirectory() == "" {
-		return conflict("Configure persistent artifact storage first.")
+		return nil, conflict("Configure persistent artifact storage first.")
 	}
-	a, _, e := s.ownedDevelopmentApp(r.Context(), s.DB, p, r.PathValue("app"))
+	a, _, e := s.ownedDevelopmentApp(ctx, s.DB, p, app)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	if p.Agent != nil {
 		if e = requireAgent(p.Agent, "releases.write"); e != nil {
-			return e
+			return nil, e
 		}
 	}
 	secret := token(32)
-	e = s.mutate(r.Context(), p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, func(tx *sql.Tx) error {
 		var n int
-		if e := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM artifact_uploads WHERE user_id=? AND expires_at>UTC_TIMESTAMP(6) AND build_id IS NULL", p.ID).Scan(&n); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM artifact_uploads WHERE user_id=? AND expires_at>UTC_TIMESTAMP(6) AND build_id IS NULL", p.ID).Scan(&n); e != nil {
 			return e
 		}
 		if n >= maxOutstandingUploads {
@@ -129,14 +130,13 @@ func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p Princi
 		if p.Agent != nil {
 			rev = p.Agent.Revision
 		}
-		_, e := tx.ExecContext(r.Context(), "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a["tenant_id"], a["id"], p.ID, agentID(p), rev, time.Now().Add(uploadTicketLifetime))
+		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a["tenant_id"], a["id"], p.ID, agentID(p), rev, time.Now().Add(uploadTicketLifetime))
 		return e
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
-	send(w, 201, Row{"upload_url": s.Config.PublicURL + "/artifact/v1/upload", "upload_token": secret, "expires_in": int(uploadTicketLifetime.Seconds()), "limits": artifact.Limits, "instructions": "POST {entrypoint:'index.html',files:[{path:'...',content_base64:'...'}]} using Authorization: Bearer <upload_token>. A ticket uploads one immutable build; identical retries return its build ID. Do not put tokens or local development credentials in builds."})
-	return nil
+	return Row{"upload_url": s.Config.PublicURL + "/artifact/v1/upload", "upload_token": secret, "expires_in": int(uploadTicketLifetime.Seconds()), "limits": artifact.Limits, "instructions": "POST {entrypoint:'index.html',files:[{path:'...',content_base64:'...'}]} using Authorization: Bearer <upload_token>. A ticket uploads one immutable build; identical retries return its build ID. Do not put tokens or local development credentials in builds."}, nil
 }
 
 func (s *Server) uploadPrincipal(ctx context.Context, q Queryer, v Row) (Principal, error) {
@@ -266,19 +266,17 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) buildList(w http.ResponseWriter, r *http.Request, p Principal) error {
-	a, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
+func (s *Server) Builds(ctx context.Context, actor Actor, app string, page PageRequest) (Page[Row], error) {
+	p := actor.Principal
+	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return e
+		return Page[Row]{}, e
 	}
-	if e = s.authorize(r.Context(), s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
-		return e
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
+		return Page[Row]{}, e
 	}
-	vs, e := pageRows(r.Context(), s.DB, r, "SELECT id,content_hash,entrypoint,size_bytes,created_at FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a["id"])
-	if e == nil {
-		sendPage(w, r, vs)
-	}
-	return e
+	vs, e := pageQuery(ctx, s.DB, page, collectionFor("builds"), "SELECT id,content_hash,entrypoint,size_bytes,created_at FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a["id"])
+	return vs, e
 }
 
 // App hosts are selected before the console router. A hostile App can never
@@ -398,4 +396,14 @@ func (s *Server) ensureReleaseBuild(ctx context.Context, q Queryer, release stri
 		return conflict("Release files are unavailable or corrupt on this server. Restore the shared artifact storage before deploying.")
 	}
 	return nil
+}
+
+func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.UploadTicket(r.Context(), httpActor(r, p), r.PathValue("app"))
+	return reply(w, 201, v, e)
+}
+
+func (s *Server) buildList(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Builds(r.Context(), httpActor(r, p), r.PathValue("app"), pageRequest(r.URL.Query()))
+	return reply(w, 200, v, e)
 }

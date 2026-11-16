@@ -38,45 +38,42 @@ var (
 	pinnedVersionRE = regexp.MustCompile(`^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|sha256:[a-f0-9]{64})$`)
 )
 
-func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in releaseCreateInput
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
+func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in releaseCreateInput, revision int64) (Row, error) {
+	p := actor.Principal
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 || id(in.Build) != nil {
-		return bad("Provide a release name and uploaded build ID.")
+		return nil, bad("Provide a release name and uploaded build ID.")
 	}
-	rev, e := expectedRevision(r)
+	rev := revision
+	if rev < 1 {
+		return nil, revisionRequired()
+	}
+	a, ws, e := s.ownedDevelopmentApp(ctx, s.DB, p, app)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	a, ws, e := s.ownedDevelopmentApp(r.Context(), s.DB, p, r.PathValue("app"))
-	if e != nil {
-		return e
-	}
-	record := operationID(r.Context())
-	e = s.mutate(r.Context(), p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		a, e = s.appRow(r.Context(), tx, str(a["id"]))
+	record := actor.operationID()
+	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, func(tx *sql.Tx) error {
+		a, e = s.appRow(ctx, tx, str(a["id"]))
 		if e != nil {
 			return e
 		}
 		if e = checkRevision(integer(a["revision"]), rev); e != nil {
 			return e
 		}
-		if _, e = row(r.Context(), tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", in.Build, a["id"]); e != nil {
+		if _, e = row(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", in.Build, a["id"]); e != nil {
 			return e
 		}
 		var count int
-		if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM app_releases WHERE app_id=?", a["id"]).Scan(&count); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_releases WHERE app_id=?", a["id"]).Scan(&count); e != nil {
 			return e
 		}
 		if count >= maxAppReleases {
 			return conflict("Release limit reached. Start a fresh workspace.")
 		}
-		if e = s.ensureSnapshotReady(r.Context(), tx, str(a["space_id"])); e != nil {
+		if e = s.ensureSnapshotReady(ctx, tx, str(a["space_id"])); e != nil {
 			return e
 		}
-		base, e := s.snapshot(r.Context(), tx, str(a["space_id"]))
+		base, e := s.snapshot(ctx, tx, str(a["space_id"]))
 		if e != nil {
 			return e
 		}
@@ -104,7 +101,7 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 		}
 		// Complete mappings are allocated once and survive later release captures.
 		ids := map[string]string{}
-		maps, e := rows(r.Context(), tx, "SELECT development_id,production_id FROM workspace_items WHERE workspace_id=?", ws["id"])
+		maps, e := rows(ctx, tx, "SELECT development_id,production_id FROM workspace_items WHERE workspace_id=?", ws["id"])
 		if e != nil {
 			return e
 		}
@@ -114,7 +111,7 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 		for key, kind := range snapshotIDs(base) {
 			if ids[key] == "" {
 				ids[key] = newID()
-				if _, e = tx.ExecContext(r.Context(), "INSERT INTO workspace_items(workspace_id,kind,development_id,production_id) VALUES(?,?,?,?)", ws["id"], kind, key, ids[key]); e != nil {
+				if _, e = tx.ExecContext(ctx, "INSERT INTO workspace_items(workspace_id,kind,development_id,production_id) VALUES(?,?,?,?)", ws["id"], kind, key, ids[key]); e != nil {
 					return e
 				}
 			}
@@ -122,31 +119,28 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 		production := remapSnapshot(base, ids)
 		snapshotJSON, _ := json.Marshal(production)
 		manifestJSON, _ := json.Marshal(in.Manifest)
-		if _, e = tx.ExecContext(r.Context(), "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a["tenant_id"], a["id"], in.Build, ws["id"], in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws["base_hash"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a["tenant_id"], a["id"], in.Build, ws["id"], in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws["base_hash"]); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, str(a["tenant_id"]), p.ID, "release.created", "release", record, r.Header.Get("X-Request-ID"), Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
+		return auditAs(ctx, tx, actor, str(a["tenant_id"]), "release.created", "release", record, Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
-	r.SetPathValue("release", record)
-	return s.releaseGet(w, r, p)
+	return s.Release(ctx, actor, record)
 }
 
-func (s *Server) releaseList(w http.ResponseWriter, r *http.Request, p Principal) error {
-	a, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
+func (s *Server) Releases(ctx context.Context, actor Actor, app string, page PageRequest) (Page[Row], error) {
+	p := actor.Principal
+	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return e
+		return Page[Row]{}, e
 	}
-	if e = s.authorize(r.Context(), s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
-		return e
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
+		return Page[Row]{}, e
 	}
-	vs, e := pageRows(r.Context(), s.DB, r, "SELECT rel.id,rel.display_name,rel.build_id,rel.snapshot_hash,rel.created_at FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a["id"], a["id"])
-	if e == nil {
-		sendPage(w, r, vs)
-	}
-	return e
+	vs, e := pageQuery(ctx, s.DB, page, collectionFor("releases"), "SELECT rel.id,rel.display_name,rel.build_id,rel.snapshot_hash,rel.created_at FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a["id"], a["id"])
+	return vs, e
 }
 
 func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id string) (Row, error) {
@@ -171,36 +165,37 @@ func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id stri
 	return v, nil
 }
 
-func (s *Server) releaseGet(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := s.releaseRow(r.Context(), s.DB, p, r.PathValue("release"))
+func (s *Server) Release(ctx context.Context, actor Actor, release string) (Row, error) {
+	p := actor.Principal
+	v, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	v["preview_url"] = s.appHostedOrigin(str(v["app_id"])) + "/"
 	v["production_url"] = s.appHostedOrigin(str(v["production_app_id"])) + "/"
-	send(w, 200, v)
-	return nil
+	return v, nil
 }
 
-func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Principal) error {
-	rel, e := s.releaseRow(r.Context(), s.DB, p, r.PathValue("release"))
+func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string, revision int64) (Row, error) {
+	p := actor.Principal
+	rel, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	a, _, e := s.ownedDevelopmentApp(r.Context(), s.DB, p, str(rel["app_id"]))
+	a, _, e := s.ownedDevelopmentApp(ctx, s.DB, p, str(rel["app_id"]))
 	if e != nil {
-		return e
+		return nil, e
 	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
+	rev := revision
+	if rev < 1 {
+		return nil, revisionRequired()
 	}
 	origin := s.appHostedOrigin(str(a["id"]))
 	if origin == "" {
-		return conflict("Configure the App hosting origin first.")
+		return nil, conflict("Configure the App hosting origin first.")
 	}
-	e = s.mutate(r.Context(), p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		a, e = s.appRow(r.Context(), tx, str(a["id"]))
+	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, func(tx *sql.Tx) error {
+		a, e = s.appRow(ctx, tx, str(a["id"]))
 		if e != nil {
 			return e
 		}
@@ -209,15 +204,15 @@ func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Princi
 		}
 		// The shared Tenant mutation lock also covers entity/role/App changes.
 		// Validate the complete snapshot under that lock, not in an earlier read.
-		if e = s.ensureSnapshotReady(r.Context(), tx, str(a["space_id"])); e != nil {
+		if e = s.ensureSnapshotReady(ctx, tx, str(a["space_id"])); e != nil {
 			return e
 		}
-		currentSnapshot, err := s.snapshot(r.Context(), tx, str(a["space_id"]))
+		currentSnapshot, err := s.snapshot(ctx, tx, str(a["space_id"]))
 		if err != nil {
 			return err
 		}
 		ids := map[string]string{}
-		mappings, err := rows(r.Context(), tx, "SELECT development_id,production_id FROM workspace_items WHERE workspace_id=?", rel["workspace_id"])
+		mappings, err := rows(ctx, tx, "SELECT development_id,production_id FROM workspace_items WHERE workspace_id=?", rel["workspace_id"])
 		if err != nil {
 			return err
 		}
@@ -234,16 +229,15 @@ func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Princi
 		old := access.Origin
 		access.Origin = origin
 		b, _ := json.Marshal(access)
-		if _, e = tx.ExecContext(r.Context(), "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel["id"], b, origin, old, origin, a["id"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel["id"], b, origin, old, origin, a["id"]); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, str(a["tenant_id"]), p.ID, "release.preview_activated", "app", str(a["id"]), r.Header.Get("X-Request-ID"), Row{"release_id": rel["id"]})
+		return auditAs(ctx, tx, actor, str(a["tenant_id"]), "release.preview_activated", "app", str(a["id"]), Row{"release_id": rel["id"]})
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
-	send(w, 200, Row{"id": rel["id"], "url": origin + "/"})
-	return nil
+	return Row{"id": rel["id"], "url": origin + "/"}, nil
 }
 
 func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal, res Resource) error {
@@ -267,25 +261,26 @@ func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal
 	return nil
 }
 
-func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p Principal) error {
-	rel, e := s.releaseRow(r.Context(), s.DB, p, r.PathValue("release"))
+func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string, revision int64) (Row, error) {
+	p := actor.Principal
+	rel, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
+	rev := revision
+	if rev < 1 {
+		return nil, revisionRequired()
 	}
 	res := Resource{Tenant: str(rel["tenant_id"]), Space: str(rel["production_space_id"])}
-	if e = s.deploymentAuthority(r.Context(), s.DB, p, res); e != nil {
-		return e
+	if e = s.deploymentAuthority(ctx, s.DB, p, res); e != nil {
+		return nil, e
 	}
-	if e = s.ensureReleaseBuild(r.Context(), s.DB, str(rel["id"])); e != nil {
-		return e
+	if e = s.ensureReleaseBuild(ctx, s.DB, str(rel["id"])); e != nil {
+		return nil, e
 	}
-	record := operationID(r.Context())
-	ctx := context.WithValue(r.Context(), deploymentOperationKey{}, record)
-	e = s.mutate(ctx, p, "production.deploy", res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	record := actor.operationID()
+	ctx = context.WithValue(ctx, deploymentOperationKey{}, record)
+	e = s.run.mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
 		a, e := s.appRow(ctx, tx, str(rel["production_app_id"]))
 		if e != nil {
 			if ae, ok := e.(*APIError); !ok || ae.Status != 404 {
@@ -343,59 +338,97 @@ func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p Princip
 		if _, e = tx.ExecContext(ctx, "INSERT INTO release_deployments(id,tenant_id,space_id,release_id,target_app_id,created_by,agent_grant_id,agent_grant_revision,plan_json) VALUES(?,?,?,?,?,?,?,?,?)", record, res.Tenant, res.Space, rel["id"], rel["production_app_id"], p.ID, agentID(p), grantRev, pb); e != nil {
 			return e
 		}
-		return audit(ctx, tx, res.Tenant, p.ID, "release.deployment_queued", "deployment", record, r.Header.Get("X-Request-ID"), Row{"release_id": rel["id"], "snapshot_hash": rel["snapshot_hash"]})
+		return auditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, Row{"release_id": rel["id"], "snapshot_hash": rel["snapshot_hash"]})
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
-	send(w, 202, Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."})
-	return nil
+	return Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."}, nil
 }
 
-func (s *Server) deploymentGet(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := row(r.Context(), s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", r.PathValue("deployment"))
+func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string) (Row, error) {
+	p := actor.Principal
+	v, e := row(ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	if e = s.authorize(r.Context(), s.DB, p, "release.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, false); e != nil {
-		return e
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, false); e != nil {
+		return nil, e
 	}
 	v["url"] = s.appHostedOrigin(str(v["target_app_id"])) + "/"
-	send(w, 200, v)
-	return nil
+	return v, nil
 }
 
 // Recover the durable job after a browser reload or a lost deploy response.
 // A pending sibling deployment also explains a shared Space's mutation fence.
-func (s *Server) appDeployment(w http.ResponseWriter, r *http.Request, p Principal) error {
-	a, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
+func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Row, error) {
+	p := actor.Principal
+	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	if e = s.authorize(r.Context(), s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
-		return e
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
+		return nil, e
 	}
 	space := str(a["space_id"])
 	var production string
-	e = s.DB.QueryRowContext(r.Context(), "SELECT production_space_id FROM development_workspaces WHERE backing_space_id=?", space).Scan(&production)
+	e = s.DB.QueryRowContext(ctx, "SELECT production_space_id FROM development_workspaces WHERE backing_space_id=?", space).Scan(&production)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
-		return e
+		return nil, e
 	}
 	if production != "" {
 		space = production
 	}
-	vs, e := rows(r.Context(), s.DB, `SELECT `+deploymentStatusColumns+`
+	vs, e := rows(ctx, s.DB, `SELECT `+deploymentStatusColumns+`
  FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id
  WHERE d.tenant_id=? AND d.space_id=? AND (d.state IN ('queued','preparing','publishing') OR d.target_app_id=? OR rel.app_id=?)
  ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a["tenant_id"], space, a["id"], a["id"])
 	if e != nil {
-		return e
+		return nil, e
 	}
 	var deployment any
 	if len(vs) > 0 {
 		vs[0]["url"] = s.appHostedOrigin(str(vs[0]["target_app_id"])) + "/"
 		deployment = vs[0]
 	}
-	send(w, 200, Row{"deployment": deployment})
-	return nil
+	return Row{"deployment": deployment}, nil
+}
+
+func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in releaseCreateInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.CreateRelease(r.Context(), httpActor(r, p), r.PathValue("app"), in, ifMatch(r))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) releaseList(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Releases(r.Context(), httpActor(r, p), r.PathValue("app"), pageRequest(r.URL.Query()))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) releaseGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Release(r.Context(), httpActor(r, p), r.PathValue("release"))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.PreviewRelease(r.Context(), httpActor(r, p), r.PathValue("release"), ifMatch(r))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.DeployRelease(r.Context(), httpActor(r, p), r.PathValue("release"), ifMatch(r))
+	return reply(w, 202, v, e)
+}
+
+func (s *Server) deploymentGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Deployment(r.Context(), httpActor(r, p), r.PathValue("deployment"))
+	return reply(w, 200, v, e)
+}
+
+func (s *Server) appDeployment(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.AppDeployment(r.Context(), httpActor(r, p), r.PathValue("app"))
+	return reply(w, 200, v, e)
 }
