@@ -454,7 +454,7 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 // operation's delegated call: an Actor that omits the agent call already in
 // its context fails instead of running with delegation checks but no receipt.
 func TestActorIsTheAgentSource(t *testing.T) {
-	r := &runner{access: &Server{}}
+	r := &runner{access: &access.Checker{}}
 	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID()}
 	mcp := context.WithValue(context.Background(), access.AgentContextKey{}, call)
 	for name, a := range map[string]Actor{

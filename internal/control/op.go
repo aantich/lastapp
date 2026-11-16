@@ -151,8 +151,7 @@ func (o opError) payload(requestID string) registry.Row {
 type runner struct {
 	db *sql.DB
 	// access provides the live authorization checks (authorize, scopes, guards).
-	// It is the only *Server dependency and becomes internal/access.
-	access *Server
+	access *access.Checker
 }
 
 func (r *runner) mutate(ctx context.Context, a Actor, action string, res access.Resource, fn func(*sql.Tx) error) error {
