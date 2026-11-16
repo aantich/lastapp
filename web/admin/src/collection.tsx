@@ -1,11 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, Search } from "lucide-react";
-import { api } from "./api";
 import type { Item, Page } from "./api-types";
+import { useApiQuery } from "./query";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
 type CollectionProps = {
   path: string;
-  reload: number;
   columns: [string, (row: Item) => ReactNode][];
   actions?: (row: Item) => ReactNode;
   empty?: string;
@@ -15,45 +14,27 @@ export function Collection(props: CollectionProps) {
 }
 function ScopedCollection({
   path,
-  reload,
   columns,
   actions,
   empty = "No records yet.",
 }: CollectionProps) {
-  const [items, setItems] = useState<Item[]>([]),
-    [query, setQuery] = useState(""),
-    [page, setPage] = useState(1),
-    [more, setMore] = useState(false),
-    [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
+  const [query, setQuery] = useState(""),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1);
+  // Typing waits briefly before searching so each keystroke is not a request.
   useEffect(() => {
-    let live = true;
-    setLoading(true);
-    setError("");
-    const timer = setTimeout(() => {
-      api<Page>(
-        path +
-          (path.includes("?") ? "&" : "?") +
-          `page=${page}&q=${encodeURIComponent(query)}`,
-      )
-        .then((v) => {
-          if (live) {
-            setItems(v.items);
-            setMore(!!v.pagination?.has_more);
-          }
-        })
-        .catch((e) => {
-          if (live) setError(e.message);
-        })
-        .finally(() => {
-          if (live) setLoading(false);
-        });
-    }, 150);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [path, page, query, reload]);
+    const timer = setTimeout(() => setSearch(query), 150);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const result = useApiQuery<Page>(
+      path +
+        (path.includes("?") ? "&" : "?") +
+        `page=${page}&q=${encodeURIComponent(search)}`,
+    ),
+    loading = result.isPending || query !== search,
+    items = (!loading && result.data?.items) || [],
+    more = !loading && !!result.data?.pagination?.has_more,
+    error = result.error?.message || "";
   return (
     <section className="panel list-panel">
       <div className="toolbar">
@@ -65,8 +46,6 @@ function ScopedCollection({
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setItems([]);
-              setMore(false);
               setPage(1);
             }}
           />

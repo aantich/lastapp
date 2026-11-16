@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
@@ -9,7 +9,7 @@ import {
   usePasswordPolicy,
   generatePassword,
 } from "./new-password-input";
-import { errorMessage } from "./use-action";
+import { useAction } from "./use-action";
 import type { Item } from "./api-types";
 export type Field = {
   key: string;
@@ -50,32 +50,18 @@ export function FormModal({
 }) {
   const policy = usePasswordPolicy();
   const [values, setValues] = useState<Item>(modal.initial);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [visible, setVisible] = useState<string[]>([]);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const { busy, run } = useAction(modal, {
+    onSuccess: done,
+    onError: setError,
+  });
   const dialogRef = useDialogFocus(() => {
     if (!busy) close();
   });
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await modal.save(values);
-      if (mounted.current) done();
-    } catch (e) {
-      if (mounted.current) {
-        setError(errorMessage(e));
-        setBusy(false);
-      }
-    }
+    void run(() => modal.save(values));
   }
   return (
     <div

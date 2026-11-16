@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { refreshQueries } from "./query";
 
 // The one place that turns a caught value into the text a screen shows.
 export function errorMessage(e: unknown): string {
@@ -12,11 +13,13 @@ export function errorMessage(e: unknown): string {
   return String(e);
 }
 
-// Runs one screen mutation at a time. A second call while one is in flight is
-// ignored (double-submit guard). The previous error is cleared when an action
-// starts. Results are applied only if the component is still mounted and the
-// `context` (usually the route) is the one the action started in, so a slow
-// response cannot overwrite a screen the user has already left.
+// The console's one mutation mechanism. Runs one screen mutation at a time. A
+// second call while one is in flight is ignored (double-submit guard). The
+// previous error is cleared when an action starts. A successful action
+// invalidates the cached reads (query.ts), so mounted screens refetch what the
+// server changed. Results are applied only if the component is still mounted
+// and the `context` (usually the route) is the one the action started in, so a
+// slow response cannot overwrite a screen the user has already left.
 export function useAction(
   context: unknown,
   {
@@ -47,6 +50,7 @@ export function useAction(
     latest.current.onError("");
     try {
       await fn();
+      void refreshQueries();
       if (current()) latest.current.onSuccess();
     } catch (e) {
       if (current()) latest.current.onError(errorMessage(e));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, RefreshCw, ExternalLink } from "lucide-react";
 import { api } from "./api";
 import { Collection } from "./collection";
@@ -6,7 +6,8 @@ import { FormModal, type Modal } from "./form-modal";
 import { status } from "./console-forms";
 import type { Item } from "./api-types";
 import "./development-workspaces.css";
-import { errorMessage } from "./use-action";
+import { useAction } from "./use-action";
+import { refreshQueries, useApiQuery } from "./query";
 
 export function DevelopmentWorkspaces({
   space,
@@ -15,22 +16,19 @@ export function DevelopmentWorkspaces({
   space: string;
   openSpace: (id: string) => void;
 }) {
-  const [reload, setReload] = useState(0),
-    [modal, setModal] = useState<Modal | null>(null),
+  const [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState("");
-  async function change(row: Item, retry: boolean) {
-    try {
-      await api(
-        `/v1/workspaces/${row.id}/${retry ? "retry" : "archive"}`,
-        "POST",
-        {},
-        row.revision,
-      );
-      setReload((x) => x + 1);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }
+  const { busy, run } = useAction(space, {
+    onSuccess: () => {},
+    onError: setError,
+  });
+  const change = (row: Item, retry: boolean) =>
+    api(
+      `/v1/workspaces/${row.id}/${retry ? "retry" : "archive"}`,
+      "POST",
+      {},
+      row.revision,
+    );
   return (
     <section className="development-page">
       <div className="development-heading">
@@ -43,7 +41,7 @@ export function DevelopmentWorkspaces({
         <div className="development-actions">
           <button
             aria-label="Refresh workspaces"
-            onClick={() => setReload((x) => x + 1)}
+            onClick={() => void refreshQueries()}
           >
             <RefreshCw size={16} />
           </button>
@@ -84,7 +82,6 @@ export function DevelopmentWorkspaces({
       <Collection
         key={space}
         path={`/v1/spaces/${space}/workspaces`}
-        reload={reload}
         columns={[
           [
             "Workspace",
@@ -112,7 +109,12 @@ export function DevelopmentWorkspaces({
               </button>
             )}
             {r.state === "failed" && (
-              <button onClick={() => change(r, true)}>Retry</button>
+              <button
+                disabled={busy}
+                onClick={() => void run(() => change(r, true))}
+              >
+                Retry
+              </button>
             )}
             {r.state !== "archived" && (
               <button
@@ -143,10 +145,7 @@ export function DevelopmentWorkspaces({
         <FormModal
           modal={modal}
           close={() => setModal(null)}
-          done={() => {
-            setModal(null);
-            setReload((x) => x + 1);
-          }}
+          done={() => setModal(null)}
           lookups={{}}
         />
       )}
@@ -160,18 +159,9 @@ export function DevelopmentBanner({
   workspace: string;
   openSpace: (id: string) => void;
 }) {
-  const [info, setInfo] = useState<Item>();
-  useEffect(() => {
-    let alive = true;
-    api<Item>("/v1/workspaces/" + workspace)
-      .then((v) => {
-        if (alive) setInfo(v);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [workspace]);
+  // The banner is decoration: without workspace details it still marks the
+  // screen as development, so a failed read shows no error.
+  const { data: info } = useApiQuery<Item>("/v1/workspaces/" + workspace);
   return (
     <aside className="development-banner">
       <div>

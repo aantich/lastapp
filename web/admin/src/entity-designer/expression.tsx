@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { EntityCatalog, Item } from "../api-types";
+import "./entity.css";
+import { useListKeys } from "../list-keys";
+import { choiceLabel } from "./shared";
 // One expression shape for the SDK and the console (packages/client).
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
 const own = (value: Item, key: string) =>
   Object.hasOwn(value, key) ? value[key] : undefined;
-export const choiceLabel = (field: Item, key: string): string => {
-  const label = own(field.value_labels || {}, key);
-  return typeof label === "string" ? label : key;
-};
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
 const booleanOptions = ["true", "false"].map((v) => ({ value: v, label: v }));
@@ -49,6 +48,7 @@ export function Expression({
     (p) => !contextType || contextType === "text" || p.type === contextType,
   );
   const args = value.args || [];
+  const argKeys = useListKeys(args.length);
   const options = (catalog.operators || []).filter(
     (o) => formula || o.kind !== "numeric",
   );
@@ -210,7 +210,7 @@ export function Expression({
       {mode === "op" && depth < catalog.limits.Depth && (
         <div className="expression-args">
           {args.map((a, i) => (
-            <div key={i}>
+            <div key={argKeys.keys[i]}>
               <Expression
                 value={a}
                 onChange={(v) => update(i, v)}
@@ -225,9 +225,13 @@ export function Expression({
               {args.length > (operator?.min_args ?? 2) && (
                 <button
                   className="text-button"
-                  onClick={() =>
-                    onChange({ ...value, args: args.filter((_, j) => j !== i) })
-                  }
+                  onClick={() => {
+                    argKeys.remove(i);
+                    onChange({
+                      ...value,
+                      args: args.filter((_, j) => j !== i),
+                    });
+                  }}
                 >
                   Remove argument
                 </button>

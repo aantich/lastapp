@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
 import { useAction } from "./use-action";
+import { useApiQuery } from "./query";
 import { status } from "./console-forms";
 import type { Item } from "./api-types";
 const spaceManager = "00000000-0000-4000-8000-000000000005",
@@ -10,41 +11,25 @@ const spaceManager = "00000000-0000-4000-8000-000000000005",
 export function AccessControl({
   tenant,
   caps,
-  reload,
-  refresh,
   scopeKind,
   scopeId,
 }: {
   tenant: string;
   caps: Item;
-  reload: number;
-  refresh: () => void;
   scopeKind: "space" | "app";
   scopeId: string;
 }) {
   const path = `/v1/tenants/${tenant}/${scopeKind === "space" ? "spaces" : "apps"}/${scopeId}`;
   const [view, setView] = useState("assignments"),
     [modal, setModal] = useState<Modal | null>(null),
-    [error, setError] = useState(""),
-    [meta, setMeta] = useState<Item>({});
+    [error, setError] = useState("");
+  // An App's Space decides delegated authority; a Space is its own scope.
+  const metaQuery = useApiQuery<Item>(scopeKind === "app" ? path : null),
+    meta = metaQuery.data || {};
   const { busy, run: act } = useAction(path, {
     onSuccess: () => changed(),
     onError: setError,
   });
-  useEffect(() => {
-    let live = true;
-    if (scopeKind === "app")
-      api<Item>(path)
-        .then((v) => {
-          if (live) setMeta(v);
-        })
-        .catch((e) => {
-          if (live) setError(e.message);
-        });
-    return () => {
-      live = false;
-    };
-  }, [path]);
   const canManage =
     !!caps["authorization.manage"]?.all ||
     (caps["authorization.manage"]?.spaces || []).includes(
@@ -59,7 +44,6 @@ export function AccessControl({
     role === spaceManager || role === appManager;
   function changed() {
     setModal(null);
-    refresh();
   }
   function assign() {
     setModal({
@@ -180,15 +164,14 @@ export function AccessControl({
           </button>
         )}
       </div>
-      {error && (
+      {(error || metaQuery.error) && (
         <div className="error" role="alert">
-          {error}
+          {error || metaQuery.error?.message}
         </div>
       )}
       <Collection
         key={path + view}
         path={path + (view === "roles" ? "/roles" : "/role-assignments")}
-        reload={reload}
         columns={
           view === "roles"
             ? [

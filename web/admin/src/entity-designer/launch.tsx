@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { api } from "../api";
+import { useApiQuery } from "../query";
 import type { LaunchCode, LaunchInfo } from "../api-types";
 export function AppLaunch() {
   const [error, setError] = useState(""),
@@ -8,18 +9,11 @@ export function AppLaunch() {
   const app = q.get("app") || "",
     nonce = q.get("nonce") || "",
     challenge = q.get("challenge") || "";
-  const [info, setInfo] = useState<LaunchInfo | null>(null);
-  useEffect(() => {
-    let live = true;
-    api<LaunchInfo>("/v1/apps/" + encodeURIComponent(app) + "/launch-info")
-      .then((v) => {
-        if (live) setInfo(v);
-      })
-      .catch((e) => setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [app]);
+  const launchQuery = useApiQuery<LaunchInfo>(
+      "/v1/apps/" + encodeURIComponent(app) + "/launch-info",
+    ),
+    info = launchQuery.data || null,
+    shownError = error || launchQuery.error?.message || "";
   return (
     <main className="password-welcome">
       <section className="welcome-card">
@@ -35,9 +29,9 @@ export function AppLaunch() {
           Authorize this App to use your current Space permissions within its
           approved access ceiling.
         </p>
-        {error && (
+        {shownError && (
           <p className="error" role="alert">
-            {error}
+            {shownError}
           </p>
         )}
         {done ? (

@@ -17,6 +17,7 @@ export async function api<T = unknown>(
   method = "GET",
   body?: unknown,
   revision?: number,
+  signal?: AbortSignal,
 ): Promise<T> {
   const started = sessionGeneration;
   const csrf =
@@ -36,6 +37,7 @@ export async function api<T = unknown>(
       ...(revision ? { "If-Match": String(revision) } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    signal,
   });
   const json: { error?: { code?: string; message?: string } } = await res
     .json()
