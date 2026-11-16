@@ -107,30 +107,31 @@ func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRunti
 	if e != nil {
 		return rt, e
 	}
-	v, e := row(ctx, tx, "SELECT e.id,e.active_version_id,v.definition_hash FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.tenant_id=? AND e.space_id=? AND e.entity_key=? AND e.state='active'", se["tenant_id"], se["space_id"], key)
+	var entityID, version, hash string
+	e = lookup(ctx, tx, "SELECT e.id,e.active_version_id,v.definition_hash FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.tenant_id=? AND e.space_id=? AND e.entity_key=? AND e.state='active'", []any{se["tenant_id"], se["space_id"], key}, &entityID, &version, &hash)
 	if e != nil {
 		return rt, e
 	}
-	cacheKey := str(v["active_version_id"]) + ":" + str(v["definition_hash"])
+	cacheKey := version + ":" + hash
 	var found bool
 	rt.d, found = s.definitions.peek(cacheKey)
 	if !found {
 		var source string
-		if e = tx.QueryRowContext(ctx, "SELECT definition_json FROM entity_versions WHERE id=? AND entity_id=?", v["active_version_id"], v["id"]).Scan(&source); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT definition_json FROM entity_versions WHERE id=? AND entity_id=?", version, entityID).Scan(&source); e != nil {
 			return rt, e
 		}
-		rt.d, e = s.definitions.get(cacheKey, str(v["definition_hash"]), source)
+		rt.d, e = s.definitions.get(cacheKey, hash, source)
 		if e != nil {
 			return rt, e
 		}
 	}
-	rt.entityID, rt.version = str(v["id"]), str(v["active_version_id"])
-	ps, e := rows(ctx, tx, "SELECT id,security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
+	rt.entityID, rt.version = entityID, version
+	ps, e := scanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
 	if e != nil {
 		return rt, e
 	}
 	for _, p := range ps {
-		rt.permissionRevisions[str(p["id"])] = integer(p["security_revision"])
+		rt.permissionRevisions[p.ID] = p.Revision
 	}
 	if e = tx.Commit(); e != nil {
 		return rt, e
@@ -169,13 +170,13 @@ func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRunti
 func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se Row) error {
 	path := strings.TrimPrefix(r.URL.Path, "/data/v1/")
 	if path == "schema" && r.Method == "GET" {
-		vs, e := rows(r.Context(), s.DB, "SELECT entity_key FROM entity_definitions WHERE tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL ORDER BY entity_key LIMIT 100", se["tenant_id"], se["space_id"])
+		keys, e := scanStrings(r.Context(), s.DB, "SELECT entity_key FROM entity_definitions WHERE tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL ORDER BY entity_key LIMIT 100", se["tenant_id"], se["space_id"])
 		if e != nil {
 			return e
 		}
 		out := []any{}
-		for _, v := range vs {
-			rt, e := s.loadRuntime(r.Context(), se, str(v["entity_key"]))
+		for _, key := range keys {
+			rt, e := s.loadRuntime(r.Context(), se, key)
 			if e != nil {
 				return e
 			}
@@ -385,11 +386,13 @@ func (rt dataRuntime) checkGate(ctx context.Context, q Queryer, lock bool) error
 	if lock {
 		suffix = " LOCK IN SHARE MODE"
 	}
-	v, e := row(ctx, q, "SELECT version_id,gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=?"+suffix, rt.entityID, rt.session["tenant_id"], rt.session["space_id"])
+	var version string
+	var open bool
+	e := lookup(ctx, q, "SELECT COALESCE(version_id,''),gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=?"+suffix, []any{rt.entityID, rt.session["tenant_id"], rt.session["space_id"]}, &version, &open)
 	if e != nil {
 		return e
 	}
-	if integer(v["gate_open"]) != 1 || str(v["version_id"]) != rt.version {
+	if !open || version != rt.version {
 		return problem(409, "publication_in_progress", "Entity definition changed or is publishing. Refresh and retry.")
 	}
 	return nil
@@ -708,11 +711,11 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 	lockIDs = uniqueStrings(lockIDs)
 	slices.Sort(lockIDs)
 	for _, key := range lockIDs {
-		v, e := row(r.Context(), tx, "SELECT gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=? LOCK IN SHARE MODE", key, rt.session["tenant_id"], rt.session["space_id"])
-		if e != nil {
+		var open bool
+		if e := lookup(r.Context(), tx, "SELECT gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=? LOCK IN SHARE MODE", []any{key, rt.session["tenant_id"], rt.session["space_id"]}, &open); e != nil {
 			return e
 		}
-		if integer(v["gate_open"]) != 1 {
+		if !open {
 			return problem(409, "publication_in_progress", "A referenced entity is publishing. Retry shortly.")
 		}
 	}
@@ -883,11 +886,11 @@ func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRun
 			}
 		}
 		if f.Type == "reference" {
-			vdef, e := row(ctx, s.DB, "SELECT entity_key FROM entity_definitions WHERE id=? AND space_id=? AND state='active'", f.Target, rt.session["space_id"])
-			if e != nil {
+			var targetKey string
+			if e := lookup(ctx, s.DB, "SELECT entity_key FROM entity_definitions WHERE id=? AND space_id=? AND state='active'", []any{f.Target, rt.session["space_id"]}, &targetKey); e != nil {
 				return bad("Unavailable reference.")
 			}
-			target, e := s.loadRuntime(ctx, rt.session, str(vdef["entity_key"]))
+			target, e := s.loadRuntime(ctx, rt.session, targetKey)
 			if e != nil {
 				return e
 			}

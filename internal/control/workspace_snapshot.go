@@ -342,9 +342,9 @@ func ensureReferenceConstraints(ctx context.Context, q Queryer, entityID string,
 	return nil
 }
 
-func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v Row) (map[string]bool, error) {
-	if v["deployment_id"] != nil {
-		job, e := row(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", v["deployment_id"])
+func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v entityVersion) (map[string]bool, error) {
+	if v.Deployment != nil {
+		job, e := row(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", *v.Deployment)
 		if e != nil {
 			return nil, e
 		}
@@ -361,13 +361,13 @@ func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v Row) (m
 		return ids, nil
 	}
 	var n int
-	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM development_workspaces WHERE backing_space_id=? AND state='preparing'", v["space_id"]).Scan(&n); e != nil {
+	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM development_workspaces WHERE backing_space_id=? AND state='preparing'", v.SpaceID).Scan(&n); e != nil {
 		return nil, e
 	}
 	if n == 0 {
 		return nil, nil
 	}
-	vs, e := rows(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v["space_id"])
+	vs, e := rows(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v.SpaceID)
 	if e != nil {
 		return nil, e
 	}

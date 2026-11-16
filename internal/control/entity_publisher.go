@@ -45,6 +45,23 @@ func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(
 	return s.dataPools.Acquire(ctx, resource+":"+generation, func() (*sql.DB, error) { return s.businessDB(ctx, resource, false) })
 }
 
+// entityVersion is an entity publication as the publisher and deployment
+// workers apply it, with the database resource of its Space.
+type entityVersion struct {
+	ID, TenantID, SpaceID, EntityID, State, Hash, CreatedBy, Resource string
+	BaseVersion, Deployment, AgentGrant, Attempt, StoragePlanHash     *string
+	Compiler                                                          int64
+	Definition, StoragePlan                                           jsonValue
+}
+
+// versionColumns selects an entityVersion from entity_versions v joined to
+// spaces sp.
+const versionColumns = "v.id,v.tenant_id,v.space_id,v.entity_id,v.state,v.definition_hash,v.created_by,sp.database_resource_id,v.base_version_id,v.deployment_id,v.agent_grant_id,v.attempt_id,v.storage_plan_hash,v.compiler_version,v.definition_json,v.storage_plan_json"
+
+func (v *entityVersion) fields() []any {
+	return []any{&v.ID, &v.TenantID, &v.SpaceID, &v.EntityID, &v.State, &v.Hash, &v.CreatedBy, &v.Resource, &v.BaseVersion, &v.Deployment, &v.AgentGrant, &v.Attempt, &v.StoragePlanHash, &v.Compiler, &v.Definition, &v.StoragePlan}
+}
+
 func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*string) (bool, error) {
 	last := ""
 	if len(cursor) > 0 {
@@ -53,40 +70,43 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	// A newly created Space is authorable before managed provisioning finishes.
 	// Do not fail its queued definition merely because storage is still starting;
 	// skip it so this same worker can provision storage and return to publication.
-	v, e := row(ctx, q, "SELECT v.*,ag.client_id AS agent_client_id,e.active_version_id,e.pending_version_id,sp.database_resource_id FROM entity_versions v JOIN entity_definitions e ON e.id=v.entity_id JOIN spaces sp ON sp.id=v.space_id AND sp.state='active' JOIN database_resources d ON d.id=sp.database_resource_id JOIN tenants t ON t.id=v.tenant_id AND t.state='active' LEFT JOIN agent_grants ag ON ag.id=v.agent_grant_id WHERE v.state IN ('queued','publishing') AND (v.state='publishing' OR d.state NOT IN ('pending','provisioning')) ORDER BY (v.tenant_id>?) DESC,v.tenant_id,v.created_at,v.id LIMIT 1", last)
+	var v entityVersion
+	var agentClient string
+	var activeVersion *string
+	e := lookup(ctx, q, "SELECT "+versionColumns+",COALESCE(ag.client_id,''),e.active_version_id FROM entity_versions v JOIN entity_definitions e ON e.id=v.entity_id JOIN spaces sp ON sp.id=v.space_id AND sp.state='active' JOIN database_resources d ON d.id=sp.database_resource_id JOIN tenants t ON t.id=v.tenant_id AND t.state='active' LEFT JOIN agent_grants ag ON ag.id=v.agent_grant_id WHERE v.state IN ('queued','publishing') AND (v.state='publishing' OR d.state NOT IN ('pending','provisioning')) ORDER BY (v.tenant_id>?) DESC,v.tenant_id,v.created_at,v.id LIMIT 1", []any{last}, append(v.fields(), &agentClient, &activeVersion)...)
 	if e != nil {
 		if ae, ok := e.(*APIError); ok && ae.Status == 404 {
 			return false, nil
 		}
 		return false, e
 	}
-	ctx = agentAuditContext(ctx, str(v["agent_grant_id"]), str(v["agent_client_id"]))
-	workspace, _ := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=?", v["space_id"])
+	ctx = agentAuditContext(ctx, deref(v.AgentGrant), agentClient)
+	workspace, _ := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=?", v.SpaceID)
 	if workspace != nil && workspace["state"] == "preparing" {
 		ctx = context.WithValue(ctx, workspaceOperationKey{}, str(workspace["id"]))
 	}
 
 	if len(cursor) > 0 {
-		*cursor[0] = str(v["tenant_id"])
+		*cursor[0] = v.TenantID
 	}
 	attempt := newID()
-	if v["state"] == "queued" && (str(v["agent_grant_id"]) != "" || workspace != nil || v["deployment_id"] != nil) {
+	if v.State == "queued" && (deref(v.AgentGrant) != "" || workspace != nil || v.Deployment != nil) {
 		tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if err != nil {
 			return true, err
 		}
 		defer tx.Rollback()
 		var locked string
-		if err = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", v["tenant_id"]).Scan(&locked); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", v.TenantID).Scan(&locked); err != nil {
 			return true, err
 		}
 		permission := "entities.publish"
-		if v["deployment_id"] != nil {
+		if v.Deployment != nil {
 			permission = "production.deploy"
 		}
-		denied := s.agentJobAllowed(ctx, tx, str(v["agent_grant_id"]), str(v["created_by"]), Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, permission)
-		if denied == nil && v["deployment_id"] != nil {
-			job, err := row(ctx, tx, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", v["deployment_id"])
+		denied := s.agentJobAllowed(ctx, tx, deref(v.AgentGrant), v.CreatedBy, Resource{Tenant: v.TenantID, Space: v.SpaceID}, permission)
+		if denied == nil && v.Deployment != nil {
+			job, err := row(ctx, tx, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", *v.Deployment)
 			denied = err
 			if denied == nil {
 				_, denied = s.deploymentPrincipal(ctx, tx, job)
@@ -110,44 +130,44 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 			if !errors.As(denied, &ae) {
 				return true, denied
 			}
-			if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message='Agent authority expired or was revoked before this job started.',finished_at=UTC_TIMESTAMP(6) WHERE id=? AND state='queued'", v["id"]); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message='Agent authority expired or was revoked before this job started.',finished_at=UTC_TIMESTAMP(6) WHERE id=? AND state='queued'", v.ID); err != nil {
 				return true, err
 			}
-			if _, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", v["entity_id"], v["id"]); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", v.EntityID, v.ID); err != nil {
 				return true, err
 			}
-			if err = audit(ctx, tx, str(v["tenant_id"]), str(v["created_by"]), "entity.publication_failed", "entity", str(v["entity_id"]), newID(), Row{"version": v["id"], "error_code": "agent_access_revoked"}); err != nil {
+			if err = audit(ctx, tx, v.TenantID, v.CreatedBy, "entity.publication_failed", "entity", v.EntityID, newID(), Row{"version": v.ID, "error_code": "agent_access_revoked"}); err != nil {
 				return true, err
 			}
 			return true, tx.Commit()
 		}
-		if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v["id"]); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v.ID); err != nil {
 			return true, err
 		}
 		if err = tx.Commit(); err != nil {
 			return true, err
 		}
-	} else if _, e = q.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v["id"]); e != nil {
+	} else if _, e = q.ExecContext(ctx, "UPDATE entity_versions SET state='publishing',attempt_id=?,error_message=NULL WHERE id=?", attempt, v.ID); e != nil {
 		return true, e
 	}
-	v["attempt_id"] = attempt
+	v.Attempt = &attempt
 	run, cancel := context.WithTimeout(ctx, 45*time.Second)
-	e = s.publishEntity(run, v)
+	e = s.publishEntity(run, v, activeVersion)
 	cancel()
 	if e == nil {
 		return true, nil
 	}
-	s.logger(ctx).Warn("entity publication failed", append([]any{"entity_id", v["entity_id"]}, diagnostic(e)...)...)
+	s.logger(ctx).Warn("entity publication failed", append([]any{"entity_id", v.EntityID}, diagnostic(e)...)...)
 	message := "Publication failed. Check database/schema privileges and retry; existing data is preserved."
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
 	}
 	var active string
-	if err := s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v["entity_id"]).Scan(&active); err != nil {
+	if err := s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v.EntityID).Scan(&active); err != nil {
 		return true, err
 	}
-	if active == str(v["id"]) { // Activation committed: keep the durable job recoverable until opening succeeds.
-		_, err := s.DB.ExecContext(ctx, "UPDATE entity_versions SET error_message=? WHERE id=? AND attempt_id=?", message, v["id"], attempt)
+	if active == v.ID { // Activation committed: keep the durable job recoverable until opening succeeds.
+		_, err := s.DB.ExecContext(ctx, "UPDATE entity_versions SET error_message=? WHERE id=? AND attempt_id=?", message, v.ID, attempt)
 		return true, err
 	}
 	s.restorePublicationBase(ctx, v)
@@ -156,37 +176,37 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 		return true, err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6) WHERE id=? AND attempt_id=? AND state<>'published'", message, v["id"], attempt); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6) WHERE id=? AND attempt_id=? AND state<>'published'", message, v.ID, attempt); err != nil {
 		return true, err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=? AND (active_version_id IS NULL OR active_version_id<>?)", v["entity_id"], v["id"], v["id"])
+	_, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=? AND (active_version_id IS NULL OR active_version_id<>?)", v.EntityID, v.ID, v.ID)
 	if err != nil {
 		return true, err
 	}
-	if err = audit(ctx, tx, str(v["tenant_id"]), str(v["created_by"]), "entity.publication_failed", "entity", str(v["entity_id"]), newID(), Row{"version": v["id"]}); err != nil {
+	if err = audit(ctx, tx, v.TenantID, v.CreatedBy, "entity.publication_failed", "entity", v.EntityID, newID(), Row{"version": v.ID}); err != nil {
 		return true, err
 	}
 	return true, tx.Commit()
 }
 
-func (s *Server) publishEntity(ctx context.Context, v Row) error {
-	d, e := defOf(v["definition_json"])
+func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersion *string) error {
+	d, e := defOf(v.Definition.value())
 	if e != nil {
 		return e
 	}
 	var plan data.StoragePlan
-	if integer(v["compiler_version"]) != 1 || v["storage_plan_json"] == nil {
+	if v.Compiler != 1 || v.StoragePlan.value() == nil {
 		return bad("Publication compiler/plan is unsupported; review and publish a new version.")
 	}
-	planJSON, _ := json.Marshal(v["storage_plan_json"])
+	planJSON, _ := json.Marshal(v.StoragePlan)
 	if e = json.Unmarshal(planJSON, &plan); e != nil {
 		return e
 	}
-	if entity.Hash(plan) != str(v["storage_plan_hash"]) || entity.Hash(d) != str(v["definition_hash"]) {
+	if entity.Hash(plan) != deref(v.StoragePlanHash) || entity.Hash(d) != v.Hash {
 		return ownershipConflict()
 	}
-	entityID, version, attempt := str(v["entity_id"]), str(v["id"]), str(v["attempt_id"])
-	db, e := s.businessDB(ctx, str(v["database_resource_id"]), true)
+	entityID, version, attempt := v.EntityID, v.ID, deref(v.Attempt)
+	db, e := s.businessDB(ctx, v.Resource, true)
 	if e != nil {
 		return e
 	}
@@ -220,7 +240,7 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	if exists && comment != tableMarker {
 		return ownershipConflict()
 	}
-	_, e = conn.ExecContext(ctx, "INSERT INTO _lastapp_entity_state(entity_id,tenant_id,space_id,layout_hash) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE entity_id=entity_id", entityID, v["tenant_id"], v["space_id"], entity.Hash(d.Fields))
+	_, e = conn.ExecContext(ctx, "INSERT INTO _lastapp_entity_state(entity_id,tenant_id,space_id,layout_hash) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE entity_id=entity_id", entityID, v.TenantID, v.SpaceID, entity.Hash(d.Fields))
 	if e != nil {
 		return e
 	}
@@ -230,7 +250,7 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	}
 	var tenant, space string
 	e = tx.QueryRowContext(ctx, "SELECT tenant_id,space_id FROM _lastapp_entity_state WHERE entity_id=? FOR UPDATE", entityID).Scan(&tenant, &space)
-	if e == nil && (tenant != str(v["tenant_id"]) || space != str(v["space_id"])) {
+	if e == nil && (tenant != v.TenantID || space != v.SpaceID) {
 		e = ownershipConflict()
 	}
 	if e == nil {
@@ -245,17 +265,17 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	}
 	// Additive preparation is resumable; never drop an existing table/column.
 	var old entity.Definition
-	if v["base_version_id"] != nil {
-		r, e := row(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", v["base_version_id"])
+	if v.BaseVersion != nil {
+		r, e := versionDefinition(ctx, s.DB, *v.BaseVersion)
 		if e != nil {
 			return e
 		}
-		old, e = defOf(r["definition_json"])
+		old, e = defOf(r.value())
 		if e != nil {
 			return e
 		}
 	}
-	alreadyActivated := str(v["active_version_id"]) == version
+	alreadyActivated := deref(activeVersion) == version
 	if exists && !alreadyActivated {
 		var hasRows bool
 		if e = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+data.Table(entityID)+" LIMIT 1)").Scan(&hasRows); e != nil {
@@ -382,8 +402,8 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	if e = rt.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&lockedTenant); e != nil {
 		return e
 	}
-	if v["deployment_id"] != nil {
-		job, err := row(ctx, rt, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", v["deployment_id"])
+	if v.Deployment != nil {
+		job, err := row(ctx, rt, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", *v.Deployment)
 		if err != nil {
 			return err
 		}
@@ -424,8 +444,8 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	return done.Commit()
 }
 
-func openPublicationGate(ctx context.Context, q Queryer, v Row, layoutHash string) error {
-	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v["id"], layoutHash, v["entity_id"], v["attempt_id"])
+func openPublicationGate(ctx context.Context, q Queryer, v entityVersion, layoutHash string) error {
+	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v.ID, layoutHash, v.EntityID, deref(v.Attempt))
 	if err != nil {
 		return err
 	}
@@ -433,7 +453,7 @@ func openPublicationGate(ctx context.Context, q Queryer, v Row, layoutHash strin
 		// A deployment can restart after opening storage but before its registry
 		// transaction commits. MariaDB reports zero changed rows on that retry.
 		var matched int
-		if err = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM _lastapp_entity_state WHERE entity_id=? AND attempt_id=? AND version_id=? AND layout_hash=? AND gate_open=1", v["entity_id"], v["attempt_id"], v["id"], layoutHash).Scan(&matched); err != nil {
+		if err = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM _lastapp_entity_state WHERE entity_id=? AND attempt_id=? AND version_id=? AND layout_hash=? AND gate_open=1", v.EntityID, deref(v.Attempt), v.ID, layoutHash).Scan(&matched); err != nil {
 			return err
 		}
 		if matched != 1 {
@@ -461,24 +481,33 @@ func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) er
 	return nil
 }
 
-func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v Row, d entity.Definition) error {
-	previous, e := rows(ctx, tx, "SELECT id,state,security_hash,security_revision FROM permissions WHERE entity_id=?", v["entity_id"])
+// projectedPermission is the security state of an entity permission that a
+// publication compares before projecting it again.
+type projectedPermission struct {
+	ID, State, Hash string
+	Revision        int64
+}
+
+func (v *projectedPermission) fields() []any { return []any{&v.ID, &v.State, &v.Hash, &v.Revision} }
+
+func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v entityVersion, d entity.Definition) error {
+	previous, e := scanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=?", v.EntityID)
 	if e != nil {
 		return e
 	}
-	byID := map[string]Row{}
+	byID := map[string]projectedPermission{}
 	for _, p := range previous {
-		byID[str(p["id"])] = p
+		byID[p.ID] = p
 	}
-	_, e = tx.ExecContext(ctx, "DELETE rp FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id JOIN roles r ON r.id=rp.role_id AND r.scope_kind='space' WHERE p.entity_id=?", v["entity_id"])
+	_, e = tx.ExecContext(ctx, "DELETE rp FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id JOIN roles r ON r.id=rp.role_id AND r.scope_kind='space' WHERE p.entity_id=?", v.EntityID)
 	if e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(ctx, "UPDATE permissions SET state='disabled' WHERE entity_id=?", v["entity_id"]); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE permissions SET state='disabled' WHERE entity_id=?", v.EntityID); e != nil {
 		return e
 	}
 	for _, p := range d.Permissions {
-		pid := entity.PermissionID(str(v["entity_id"]), p.Key)
+		pid := entity.PermissionID(v.EntityID, p.Key)
 		security := p
 		security.Label = ""
 		security.Roles = slices.Clone(security.Roles)
@@ -489,13 +518,13 @@ func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v Row, d en
 		slices.Sort(security.Delegable)
 		securityHash := entity.Hash([]any{security, d.Owner, d.Team, d.Sharing})
 		revision := int64(1)
-		if old := byID[pid]; old != nil {
-			revision = integer(old["security_revision"])
-			if old["state"] != stateActive || str(old["security_hash"]) != securityHash {
+		if old, ok := byID[pid]; ok {
+			revision = old.Revision
+			if old.State != stateActive || old.Hash != securityHash {
 				revision++
 			}
 		}
-		_, e = tx.ExecContext(ctx, "INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id,security_hash,security_revision) VALUES(?,?,'data',?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE security_revision=VALUES(security_revision),security_hash=VALUES(security_hash),description=VALUES(description),version_id=VALUES(version_id),state='active'", pid, p.Key, p.Label, "e:"+str(v["entity_id"]), v["tenant_id"], v["space_id"], v["entity_id"], v["id"], securityHash, revision)
+		_, e = tx.ExecContext(ctx, "INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id,security_hash,security_revision) VALUES(?,?,'data',?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE security_revision=VALUES(security_revision),security_hash=VALUES(security_hash),description=VALUES(description),version_id=VALUES(version_id),state='active'", pid, p.Key, p.Label, "e:"+v.EntityID, v.TenantID, v.SpaceID, v.EntityID, v.ID, securityHash, revision)
 		if e != nil {
 			return e
 		}
@@ -534,19 +563,19 @@ func verifyEntityColumns(ctx context.Context, q Queryer, id string, d entity.Def
 	return nil
 }
 
-func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
-	if v["base_version_id"] == nil {
+func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
+	if v.BaseVersion == nil {
 		return
 	}
-	rowDef, e := row(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", v["base_version_id"])
+	base, e := versionDefinition(ctx, s.DB, *v.BaseVersion)
 	if e != nil {
 		return
 	}
-	d, e := defOf(rowDef["definition_json"])
+	d, e := defOf(base.value())
 	if e != nil {
 		return
 	}
-	db, e := s.businessDB(ctx, str(v["database_resource_id"]), true)
+	db, e := s.businessDB(ctx, v.Resource, true)
 	if e != nil {
 		return
 	}
@@ -556,42 +585,43 @@ func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 		return
 	}
 	defer conn.Close()
-	lock := "lastapp:entity:" + str(v["entity_id"])
+	lock := "lastapp:entity:" + v.EntityID
 	var got int
 	if e = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lock).Scan(&got); e != nil || got != 1 {
 		return
 	}
 	defer releasePinnedLock(conn, lock)
-	if verifyEntityColumns(ctx, conn, str(v["entity_id"]), d) != nil {
+	if verifyEntityColumns(ctx, conn, v.EntityID, d) != nil {
 		return
 	}
 	var current string
-	if s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v["entity_id"]).Scan(&current) != nil || current != str(v["base_version_id"]) {
+	if s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v.EntityID).Scan(&current) != nil || current != *v.BaseVersion {
 		return
 	}
-	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"]); e != nil {
+	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", *v.BaseVersion, v.EntityID, deref(v.Attempt)); e != nil {
 		// Best effort: if this fails the gate stays closed, which fails closed.
-		s.logger(ctx).Warn("restore publication base failed", append([]any{"entity_id", str(v["entity_id"])}, diagnostic(e)...)...)
+		s.logger(ctx).Warn("restore publication base failed", append([]any{"entity_id", v.EntityID}, diagnostic(e)...)...)
 	}
 }
 
 // activateEntityVersion changes only registry authority. Deployment workers call
 // it for every prepared entity in the same transaction as roles and App policies.
-func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v Row, d entity.Definition) error {
-	entityID, version, attempt := str(v["entity_id"]), str(v["id"]), str(v["attempt_id"])
-	tenant, space := str(v["tenant_id"]), str(v["space_id"])
-	current, e := row(ctx, tx, "SELECT e.*,v.attempt_id FROM entity_definitions e JOIN entity_versions v ON v.id=? WHERE e.id=? FOR UPDATE", version, entityID)
+func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entityVersion, d entity.Definition) error {
+	entityID, version, attempt := v.EntityID, v.ID, deref(v.Attempt)
+	tenant, space := v.TenantID, v.SpaceID
+	var active, pending, current string
+	e := lookup(ctx, tx, "SELECT COALESCE(e.active_version_id,''),COALESCE(e.pending_version_id,''),COALESCE(v.attempt_id,'') FROM entity_definitions e JOIN entity_versions v ON v.id=? WHERE e.id=? FOR UPDATE", []any{version, entityID}, &active, &pending, &current)
 	if e != nil {
 		return e
 	}
-	if str(current["attempt_id"]) != attempt {
+	if current != attempt {
 		return conflict("Publication attempt superseded.")
 	}
-	if str(current["active_version_id"]) != version {
-		if str(current["active_version_id"]) != str(v["base_version_id"]) || str(current["pending_version_id"]) != version {
+	if active != version {
+		if active != deref(v.BaseVersion) || pending != version {
 			return conflict("Publication base changed; review again.")
 		}
-		if e = s.authorize(ctx, tx, Principal{ID: str(v["created_by"])}, "entity.publish", Resource{Tenant: tenant, Space: space}, true); e != nil {
+		if e = s.authorize(ctx, tx, Principal{ID: v.CreatedBy}, "entity.publish", Resource{Tenant: tenant, Space: space}, true); e != nil {
 			return e
 		}
 		candidates, err := s.publicationCandidates(ctx, tx, v)
@@ -607,7 +637,7 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v Row, d
 		if _, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET active_version_id=?,revision=revision+1 WHERE id=?", version, entityID); e != nil {
 			return e
 		}
-		if e = audit(ctx, tx, tenant, str(v["created_by"]), "entity.published", "entity", entityID, newID(), Row{"version": version, "hash": entity.Hash(d)}); e != nil {
+		if e = audit(ctx, tx, tenant, v.CreatedBy, "entity.published", "entity", entityID, newID(), Row{"version": version, "hash": entity.Hash(d)}); e != nil {
 			return e
 		}
 	}

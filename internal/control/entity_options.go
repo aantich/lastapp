@@ -25,7 +25,7 @@ func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt
 	if e != nil {
 		return e
 	}
-	var out []Row
+	var out []Named
 	if f.Type == "user" {
 		where := " AND u.id=?"
 		args := []any{rt.session["tenant_id"], pattern, query}
@@ -34,7 +34,7 @@ func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt
 		} else {
 			args = append(args, rt.actor.Actor)
 		}
-		out, e = rows(r.Context(), s.DB, "SELECT u.id,u.display_name FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.id=?)"+where+" ORDER BY u.display_name,u.id LIMIT 50", args...)
+		out, e = scanAll[Named](r.Context(), s.DB, "SELECT u.display_name,u.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.id=?)"+where+" ORDER BY u.display_name,u.id LIMIT 50", args...)
 	} else {
 		where := " AND EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.tenant_id=g.tenant_id AND gm.group_id=g.id AND gm.user_id=? AND gm.state='active')"
 		args := []any{rt.session["tenant_id"], pattern, query, rt.actor.Actor}
@@ -42,7 +42,7 @@ func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt
 			where = ""
 			args = args[:3]
 		}
-		out, e = rows(r.Context(), s.DB, "SELECT g.id,g.display_name FROM groups g WHERE g.tenant_id=? AND g.state='active' AND (g.display_name LIKE ? OR g.id=?)"+where+" ORDER BY g.display_name,g.id LIMIT 50", args...)
+		out, e = scanAll[Named](r.Context(), s.DB, "SELECT g.display_name,g.id FROM groups g WHERE g.tenant_id=? AND g.state='active' AND (g.display_name LIKE ? OR g.id=?)"+where+" ORDER BY g.display_name,g.id LIMIT 50", args...)
 	}
 	if e == nil {
 		send(w, 200, Row{"items": out})

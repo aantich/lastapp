@@ -296,7 +296,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	interrupted := false
 	for i := 0; i < 8; i++ {
 		if failure == "" && !interrupted {
-			prepared, err := rows(ctx, s.DB, "SELECT v.* FROM entity_versions v WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
+			prepared, err := scanAll[entityVersion](ctx, s.DB, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -309,7 +309,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 				}
 				for _, version := range prepared {
 					var plan data.StoragePlan
-					encoded, _ := json.Marshal(version["storage_plan_json"])
+					encoded, _ := json.Marshal(version.StoragePlan)
 					if err = json.Unmarshal(encoded, &plan); err != nil {
 						t.Fatal(err)
 					}

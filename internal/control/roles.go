@@ -172,13 +172,14 @@ type Recipient struct {
 
 func (v *Recipient) fields() []any { return []any{&v.Name, &v.Email, &v.ID, &v.UserID} }
 
-// TeamRecipient is an active team that can receive a role.
-type TeamRecipient struct {
+// Named is an id with its display name: a team that can receive a role, or
+// a user or team a business record can name or share with.
+type Named struct {
 	Name string `json:"display_name"`
 	ID   string `json:"id"`
 }
 
-func (v *TeamRecipient) fields() []any { return []any{&v.Name, &v.ID} }
+func (v *Named) fields() []any { return []any{&v.Name, &v.ID} }
 
 func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 	var state string
@@ -544,11 +545,11 @@ func (v *authority) Recipients(ctx context.Context, a Actor, scope authz.Scope, 
 }
 
 // TeamRecipients is Recipients for active teams.
-func (v *authority) TeamRecipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[TeamRecipient], error) {
+func (v *authority) TeamRecipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Named], error) {
 	if e := v.recipientScope(ctx, a, scope, res); e != nil {
-		return Page[TeamRecipient]{}, e
+		return Page[Named]{}, e
 	}
-	return pageScan[TeamRecipient](ctx, v.db, page, collectionFor("team-recipients"), "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
+	return pageScan[Named](ctx, v.db, page, collectionFor("team-recipients"), "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
 }
 
 func (v *authority) recipientScope(ctx context.Context, a Actor, scope authz.Scope, res Resource) error {

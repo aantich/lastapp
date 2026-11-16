@@ -234,12 +234,12 @@ func (s *Server) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRun
 		return bad("Search is too long.")
 	}
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(search) + "%"
-	var recipients []Row
+	var recipients []Named
 	var e error
 	if kind == "user" {
-		recipients, e = rows(r.Context(), s.DB, "SELECT u.id,u.display_name FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.email LIKE ? OR u.id=?) ORDER BY u.display_name,u.id LIMIT 50", rt.session["tenant_id"], pattern, pattern, search)
+		recipients, e = scanAll[Named](r.Context(), s.DB, "SELECT u.display_name,u.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.email LIKE ? OR u.id=?) ORDER BY u.display_name,u.id LIMIT 50", rt.session["tenant_id"], pattern, pattern, search)
 	} else if kind == "team" {
-		recipients, e = rows(r.Context(), s.DB, "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' AND (display_name LIKE ? OR id=?) ORDER BY display_name,id LIMIT 50", rt.session["tenant_id"], pattern, search)
+		recipients, e = scanAll[Named](r.Context(), s.DB, "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' AND (display_name LIKE ? OR id=?) ORDER BY display_name,id LIMIT 50", rt.session["tenant_id"], pattern, search)
 	} else {
 		return bad("Choose user or team.")
 	}

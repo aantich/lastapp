@@ -164,7 +164,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 		}
 		var storage *sql.DB
 		for _, captured := range plan.Snapshot.Entities {
-			version, err := row(attempt, tx, "SELECT ev.*,sp.database_resource_id FROM entity_versions ev JOIN spaces sp ON sp.id=ev.space_id WHERE ev.id=? AND ev.deployment_id=? AND ev.state='prepared'", plan.Versions[captured.ID], v["id"])
+			version, err := scanOne[entityVersion](attempt, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.id=? AND v.deployment_id=? AND v.state='prepared'", plan.Versions[captured.ID], v["id"])
 			if err != nil {
 				if ae, ok := err.(*APIError); ok && ae.Status == 404 {
 					continue
@@ -186,10 +186,10 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			if e = openPublicationGate(attempt, storage, version, entity.Hash(captured.Definition.Fields)); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(attempt, "UPDATE entity_versions SET state='published',finished_at=UTC_TIMESTAMP(6) WHERE id=?", version["id"]); e != nil {
+			if _, e = tx.ExecContext(attempt, "UPDATE entity_versions SET state='published',finished_at=UTC_TIMESTAMP(6) WHERE id=?", version.ID); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(attempt, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", captured.ID, version["id"]); e != nil {
+			if _, e = tx.ExecContext(attempt, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", captured.ID, version.ID); e != nil {
 				return e
 			}
 		}
@@ -269,15 +269,15 @@ func (s *Server) failDeployment(ctx context.Context, job Row, message string) er
 	if err = lockTenant(ctx, tx, str(job["tenant_id"])); err != nil {
 		return err
 	}
-	versions, err := rows(ctx, tx, "SELECT v.*,sp.database_resource_id FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job["id"])
+	versions, err := scanAll[entityVersion](ctx, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job["id"])
 	if err != nil {
 		return err
 	}
 	for _, version := range versions {
-		if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6) WHERE id=?", message, version["id"]); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE entity_versions SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6) WHERE id=?", message, version.ID); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", version["entity_id"], version["id"]); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", version.EntityID, version.ID); err != nil {
 			return err
 		}
 	}

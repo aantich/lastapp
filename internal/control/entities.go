@@ -223,11 +223,11 @@ func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, spac
 		c.Teams[g] = true
 	}
 	if app != "" {
-		v, e := row(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", app, tenant, space)
-		if e != nil {
+		var access jsonValue
+		if e := lookup(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", []any{app, tenant, space}, &access); e != nil {
 			return c, a, e
 		}
-		b, _ := json.Marshal(v["data_access_json"])
+		b, _ := json.Marshal(access)
 		if e = json.Unmarshal(b, &a); e != nil {
 			return c, a, e
 		}
@@ -249,14 +249,16 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	tenant, record := r.PathValue("tenant"), r.PathValue("id")
 	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		v, e := row(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
+		var current int64
+		var mode string
+		e := lookup(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &mode)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(v["revision"]), rev); e != nil {
+		if e = checkRevision(current, rev); e != nil {
 			return e
 		}
-		if v["management_mode"] != "registered" {
+		if mode != "registered" {
 			return bad("Managed storage uses its target's schema authority.")
 		}
 		enc, e := s.seal("schema", record, tenant, in)
@@ -828,7 +830,7 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 		}
 		out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
-	roles, e := rows(ctx, v.db, "SELECT id,display_name FROM roles WHERE app_id=? AND domain='data' AND state='active'", current["id"])
+	roles, e := scanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current["id"])
 	if e != nil {
 		return nil, e
 	}
