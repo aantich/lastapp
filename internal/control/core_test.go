@@ -10,6 +10,7 @@ import (
 
 	"github.com/pressly/goose/v3"
 
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -33,7 +34,7 @@ func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 	block, _ := aes.NewCipher(make([]byte, 32))
 	key, _ := cipher.NewGCM(block)
 	s := &Server{key: key}
-	value := credentials{Username: "runtime", Password: "secret-value"}
+	value := databases.Credentials{Username: "runtime", Password: "secret-value"}
 	enc, e := s.seal("database", "resource-a", "tenant-a", value)
 	if e != nil {
 		t.Fatal(e)
@@ -41,7 +42,7 @@ func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 	if bytes.Contains(enc, []byte(value.Password)) {
 		t.Fatal("plaintext secret in envelope")
 	}
-	var out credentials
+	var out databases.Credentials
 	if e = s.unseal("database", "resource-a", "tenant-a", enc, &out); e != nil || out != value {
 		t.Fatal("roundtrip", e)
 	}

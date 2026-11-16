@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -240,7 +241,7 @@ func (s *Server) actorContext(ctx context.Context, q registry.Queryer, user, ten
 }
 
 func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	var in credentials
+	var in databases.Credentials
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}

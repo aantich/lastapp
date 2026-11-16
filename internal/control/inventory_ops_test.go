@@ -8,6 +8,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -356,24 +357,24 @@ func TestStorageOperations(t *testing.T) {
 	_, e := s.storage.Targets(ctx, human, op.PageRequest{})
 	wantProblem(t, e, 403, "forbidden")
 	name := "Renamed target"
-	_, e = s.storage.UpdateTarget(ctx, platform, denied, targetPatch{Name: &name}, 0)
+	_, e = s.storage.UpdateTarget(ctx, platform, denied, databases.TargetPatch{Name: &name}, 0)
 	wantProblem(t, e, 428, "revision_required")
-	_, e = s.storage.UpdateTarget(ctx, platform, denied, targetPatch{Name: &name}, 2)
+	_, e = s.storage.UpdateTarget(ctx, platform, denied, databases.TargetPatch{Name: &name}, 2)
 	wantProblem(t, e, 412, "stale_revision")
 	disabled := registry.StateDisabled
-	if ref, e := s.storage.UpdateTarget(ctx, platform, denied, targetPatch{State: &disabled}, 1); e != nil || ref.Revision != 2 {
+	if ref, e := s.storage.UpdateTarget(ctx, platform, denied, databases.TargetPatch{State: &disabled}, 1); e != nil || ref.Revision != 2 {
 		t.Fatal("platform target update", ref, e)
 	}
 	available, e := s.storage.AvailableTargets(ctx, human, tenant, true, op.PageRequest{})
 	if e != nil || len(available.Items) != 1 || available.Items[0].ID != allowed {
 		t.Fatal("available targets", available, e)
 	}
-	_, e = s.storage.CreateTarget(ctx, platform, targetInput{ID: registry.NewID(), Name: "Bad", Host: "db.example", Port: 3306, TLS: "none"})
+	_, e = s.storage.CreateTarget(ctx, platform, databases.TargetInput{ID: registry.NewID(), Name: "Bad", Host: "db.example", Port: 3306, TLS: "none"})
 	wantProblem(t, e, 400, "invalid_request")
 
 	// Resources: registration, reads, revisions and the retirement guard.
 	record := registry.NewID()
-	in := databaseInput{ID: record, Mode: "registered", Layout: "shared", Target: allowed, Database: "review_registered", Credentials: credentials{Username: "u", Password: "p"}}
+	in := databases.DatabaseInput{ID: record, Mode: "registered", Layout: "shared", Target: allowed, Database: "review_registered", Credentials: databases.Credentials{Username: "u", Password: "p"}}
 	if ref, e := s.storage.CreateDatabase(ctx, human, tenant, in); e != nil || ref.ID != record {
 		t.Fatal("register database", ref, e)
 	}
@@ -383,14 +384,14 @@ func TestStorageOperations(t *testing.T) {
 	if page, e := s.storage.Databases(ctx, human, tenant, op.PageRequest{}); e != nil || len(page.Items) == 0 {
 		t.Fatal("databases", page, e)
 	}
-	_, e = s.storage.UpdateDatabase(ctx, human, tenant, record, databaseChange{State: registry.StateRetired}, 0)
+	_, e = s.storage.UpdateDatabase(ctx, human, tenant, record, databases.DatabaseChange{State: registry.StateRetired}, 0)
 	wantProblem(t, e, 428, "revision_required")
-	_, e = s.storage.UpdateDatabase(ctx, human, tenant, record, databaseChange{State: registry.StateRetired}, 1)
+	_, e = s.storage.UpdateDatabase(ctx, human, tenant, record, databases.DatabaseChange{State: registry.StateRetired}, 1)
 	wantProblem(t, e, 409, "conflict") // still pending
 	if _, e = s.DB.Exec("UPDATE database_resources SET state='failed' WHERE id=?", record); e != nil {
 		t.Fatal(e)
 	}
-	if ref, e := s.storage.UpdateDatabase(ctx, human, tenant, record, databaseChange{State: registry.StateRetired}, 1); e != nil || ref.Revision != 2 {
+	if ref, e := s.storage.UpdateDatabase(ctx, human, tenant, record, databases.DatabaseChange{State: registry.StateRetired}, 1); e != nil || ref.Revision != 2 {
 		t.Fatal("retire database", ref, e)
 	}
 	var n int
@@ -400,7 +401,7 @@ func TestStorageOperations(t *testing.T) {
 
 	// Agent actor: managed provisioning is limited to approved targets.
 	call := agentCall(p, "lastapp_database", "provision", "databases.provision")
-	_, e = s.storage.CreateDatabase(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}, tenant, databaseInput{ID: registry.NewID(), Mode: "managed", Layout: "shared", Target: denied})
+	_, e = s.storage.CreateDatabase(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}, tenant, databases.DatabaseInput{ID: registry.NewID(), Mode: "managed", Layout: "shared", Target: denied})
 	wantProblem(t, e, 403, "needs_authorization")
 }
 

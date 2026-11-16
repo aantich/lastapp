@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -263,7 +264,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if bytes.Contains(encoded, []byte(state.Legacy)) || bytes.Contains(encoded, []byte("credentials")) {
 		t.Fatal("audit leaked credential payload")
 	}
-	var runtime credentials
+	var runtime databases.Credentials
 	var enc []byte
 	if e := s.DB.QueryRow("SELECT runtime_credentials_enc FROM database_resources WHERE id=?", registered).Scan(&enc); e != nil {
 		t.Fatal(e)
@@ -271,7 +272,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if e := s.unseal("database", registered, tenant, enc, &runtime); e != nil {
 		t.Fatal(e)
 	}
-	targetRow, _ := targetEndpoint(ctx, s.DB, target)
+	targetRow, _ := databases.TargetEndpoint(ctx, s.DB, target)
 	db, e := s.targetDB(ctx, targetRow, runtime, fixtureDB)
 	if e != nil {
 		t.Fatal(e)
@@ -319,7 +320,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if registry.Str(failed["last_error_code"]) != "ownership_conflict" {
 		t.Fatalf("account collision adopted: %v", failed)
 	}
-	unrelated, e := s.targetDB(ctx, targetRow, credentials{Username: accountName, Password: "unrelated-account-password"}, "")
+	unrelated, e := s.targetDB(ctx, targetRow, databases.Credentials{Username: accountName, Password: "unrelated-account-password"}, "")
 	if e != nil {
 		t.Fatal("unrelated account password was changed")
 	}

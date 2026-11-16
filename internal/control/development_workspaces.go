@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -269,7 +270,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor op.Actor, space stri
 			return e
 		}
 		backing, resource := registry.NewID(), registry.NewID()
-		if e = s.storage.allocate(ctx, tx, actor, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: target}, policy, &res); e != nil {
+		if e = s.storage.Allocate(ctx, tx, actor, res.Tenant, databases.DatabaseInput{ID: resource, Mode: "managed", Layout: layout, Target: target}, policy, &res); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES(?,?,?,?,?,?)", backing, res.Tenant, "dev-"+strings.ReplaceAll(in.ID, "-", ""), in.Name, resource, layout); e != nil {

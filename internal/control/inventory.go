@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -47,7 +48,7 @@ type inventory struct {
 	db  *sql.DB
 	run *op.Runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databaseInput, policy registry.Policy, workspace *access.Resource) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databases.DatabaseInput, policy registry.Policy, workspace *access.Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
@@ -189,7 +190,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 					}
 				}
 				resource = registry.NewID()
-				dbIn := databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: in.Database.Target}
+				dbIn := databases.DatabaseInput{ID: resource, Mode: "managed", Layout: layout, Target: in.Database.Target}
 				if e = v.allocateDatabase(ctx, tx, a, tenant, dbIn, policy, nil); e != nil {
 					return e
 				}

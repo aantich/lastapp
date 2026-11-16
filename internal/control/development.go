@@ -11,6 +11,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -36,7 +37,7 @@ func (s *Server) SeedDevelopment(ctx context.Context, provisionerPassword string
 		return nil
 	}
 	const target = "20000000-0000-4000-8000-000000000001"
-	enc, e := s.seal("target", target, "", credentials{Username: "lastapp_provisioner", Password: provisionerPassword})
+	enc, e := s.seal("target", target, "", databases.Credentials{Username: "lastapp_provisioner", Password: provisionerPassword})
 	if e != nil {
 		return e
 	}
@@ -108,7 +109,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		if e = s.storage.allocate(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: owner}, registry.NewID()), tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
+		if e = s.storage.Allocate(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: owner}, registry.NewID()), tenant, databases.DatabaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET default_shared_database_id=? WHERE id=?", resource, tenant); e != nil {

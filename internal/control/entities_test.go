@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -24,7 +25,7 @@ func TestEntityRuntime(t *testing.T) {
 	tenant, space, app, resource, target := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "entities-" + tenant, "display_name": "Entity tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	name := "entity_test_" + strings.ReplaceAll(registry.NewID(), "-", "")
-	runtime, ddl := credentials{Username: "er_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}, credentials{Username: "es_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}
+	runtime, ddl := databases.Credentials{Username: "er_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}, databases.Credentials{Username: "es_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, e := s.DB.Exec(q, args...); e != nil {
@@ -32,7 +33,7 @@ func TestEntityRuntime(t *testing.T) {
 		}
 	}
 	exec("CREATE DATABASE `" + name + "`")
-	for _, cred := range []credentials{runtime, ddl} {
+	for _, cred := range []databases.Credentials{runtime, ddl} {
 		exec("CREATE USER '" + cred.Username + "'@'" + s.Config.RuntimeAccountHost + "' IDENTIFIED BY '" + cred.Password + "'")
 	}
 	exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + runtime.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
@@ -42,7 +43,7 @@ func TestEntityRuntime(t *testing.T) {
 		if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
 			t.Error("fixture database cleanup failed", err)
 		}
-		for _, cr := range []credentials{runtime, ddl} {
+		for _, cr := range []databases.Credentials{runtime, ddl} {
 			if _, err := s.DB.Exec("DROP USER '" + cr.Username + "'@'" + s.Config.RuntimeAccountHost + "'"); err != nil {
 				t.Error("fixture account cleanup failed", err)
 			}

@@ -20,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -95,7 +96,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Agent fixture','127.0.0.2',33317,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
-	enc, e := s.seal("database", db, tenant, credentials{Username: "fixture", Password: registry.Token(32)})
+	enc, e := s.seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -352,7 +353,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	if e = json.Unmarshal(b, &state); e != nil {
 		t.Fatal(e)
 	}
-	provisioner, e := s.seal("target", "20000000-0000-4000-8000-000000000001", "", credentials{Username: "lastapp_provisioner", Password: state.Provisioner})
+	provisioner, e := s.seal("target", "20000000-0000-4000-8000-000000000001", "", databases.Credentials{Username: "lastapp_provisioner", Password: state.Provisioner})
 	if e != nil {
 		t.Fatal(e)
 	}

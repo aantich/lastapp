@@ -14,6 +14,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -202,28 +203,28 @@ var (
 )
 
 func (s *Server) provision(ctx context.Context, record string) error {
-	job, e := registry.ScanOne[resourceAccess](ctx, s.DB, "SELECT "+resourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
+	job, e := registry.ScanOne[databases.ResourceAccess](ctx, s.DB, "SELECT "+databases.ResourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
 	if e != nil {
 		return e
 	}
 	tenant, name := job.TenantID, job.Name
-	var runtime credentials
+	var runtime databases.Credentials
 	if e = s.unseal("database", record, tenant, job.Runtime, &runtime); e != nil {
 		return e
 	}
 	if job.Mode == "registered" {
-		db, e := s.targetDB(ctx, job.databaseEndpoint, runtime, name)
+		db, e := s.targetDB(ctx, job.DatabaseEndpoint, runtime, name)
 		if e != nil {
 			return e
 		}
 		defer db.Close()
 		return validateRuntime(ctx, db, name, false)
 	}
-	var admin credentials
+	var admin databases.Credentials
 	if e = s.unseal("target", job.TargetID, "", job.Provisioning, &admin); e != nil {
 		return e
 	}
-	db, e := s.targetDB(ctx, job.databaseEndpoint, admin, "")
+	db, e := s.targetDB(ctx, job.DatabaseEndpoint, admin, "")
 	if e != nil {
 		return e
 	}
@@ -266,7 +267,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	if e != nil && (!errors.As(e, &me) || me.Number != 1396) {
 		return e
 	}
-	verify, e := s.targetDB(ctx, job.databaseEndpoint, runtime, "")
+	verify, e := s.targetDB(ctx, job.DatabaseEndpoint, runtime, "")
 	if e != nil {
 		return ownershipConflict()
 	}
@@ -279,7 +280,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	if _, e = conn.ExecContext(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON `"+pattern+"`.* TO "+principal); e != nil {
 		return e
 	}
-	verify, e = s.targetDB(ctx, job.databaseEndpoint, runtime, name)
+	verify, e = s.targetDB(ctx, job.DatabaseEndpoint, runtime, name)
 	if e != nil {
 		return e
 	}

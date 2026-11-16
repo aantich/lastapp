@@ -17,6 +17,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -766,7 +767,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 		}
 	case "database":
 		call = func(ctx context.Context, a op.Actor) (any, error) {
-			return s.storage.UpdateDatabase(ctx, a, res.Tenant, in.ID, databaseChange{State: in.State}, in.Revision)
+			return s.storage.UpdateDatabase(ctx, a, res.Tenant, in.ID, databases.DatabaseChange{State: in.State}, in.Revision)
 		}
 	case "tenant":
 		if target.Kind != "platform" {
@@ -1057,7 +1058,7 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p access.Principal, raw 
 	var call func(context.Context, op.Actor) (any, error)
 	switch in.Action {
 	case "provision":
-		db := databaseInput{ID: in.ID, Mode: "managed", Layout: in.Layout, Target: in.TargetID}
+		db := databases.DatabaseInput{ID: in.ID, Mode: "managed", Layout: in.Layout, Target: in.TargetID}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.storage.CreateDatabase(ctx, a, tenant, db)
 		}

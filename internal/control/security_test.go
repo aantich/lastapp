@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -370,8 +371,8 @@ func TestSecurityRegressions(t *testing.T) {
 		if _, e = admin.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(name, "_", `\_`) + "`.* TO '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
 			t.Fatal(e)
 		}
-		targetRow, _ := targetEndpoint(context.Background(), s.DB, target)
-		db, e := s.targetDB(context.Background(), targetRow, credentials{Username: name, Password: password}, name)
+		targetRow, _ := databases.TargetEndpoint(context.Background(), s.DB, target)
+		db, e := s.targetDB(context.Background(), targetRow, databases.Credentials{Username: name, Password: password}, name)
 		if e != nil {
 			t.Fatal(e)
 		}

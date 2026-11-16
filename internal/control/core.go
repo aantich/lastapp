@@ -29,6 +29,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -65,7 +66,7 @@ type Server struct {
 	inv                    *inventory
 	members                *membership
 	authority              *authority
-	storage                *storage
+	storage                *databases.Storage
 	authoring              *authoring
 }
 
@@ -181,8 +182,8 @@ func Open(c config.Config) (*Server, error) {
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
 	s.authoring = &authoring{db: db, run: s.run, config: &s.Config, queue: s.queueDefinition, actorContext: s.actorContext}
-	s.storage = &storage{db: db, run: s.run, seal: s.seal, config: &s.Config, registryName: cfg.DBName}
-	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.allocate, prepareAccount: s.prepareAccount}
+	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.seal, Config: &s.Config, RegistryName: cfg.DBName}
+	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.Allocate, prepareAccount: s.prepareAccount}
 	s.members = &membership{db: db, run: s.run, prepareAccount: s.prepareAccount}
 	s.authority = &authority{db: db, run: s.run}
 	return s, nil

@@ -12,17 +12,18 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
 func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (*sql.DB, error) {
-	v, e := registry.ScanOne[resourceAccess](ctx, s.DB, "SELECT "+resourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=? AND d.state='ready' AND t.state='active'", resource)
+	v, e := registry.ScanOne[databases.ResourceAccess](ctx, s.DB, "SELECT "+databases.ResourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=? AND d.state='ready' AND t.state='active'", resource)
 	if e != nil {
 		return nil, e
 	}
-	var cred credentials
+	var cred databases.Credentials
 	purpose, record, tenant, enc := "database", resource, v.TenantID, v.Runtime
 	if schema {
 		if v.Mode == "managed" {
@@ -37,7 +38,7 @@ func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (
 	if e = s.unseal(purpose, record, tenant, enc, &cred); e != nil {
 		return nil, e
 	}
-	return s.targetDB(ctx, v.databaseEndpoint, cred, v.Name)
+	return s.targetDB(ctx, v.DatabaseEndpoint, cred, v.Name)
 }
 
 func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(), error) {
