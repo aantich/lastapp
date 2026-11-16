@@ -1,5 +1,33 @@
 # Lastapp verification
 
+## Minor Go/docs review fixes — 16 November 2026
+
+- `CheckSchema` derives the required registry version from the newest embedded
+  migration (`TestRequiredSchemaVersionFollowsMigrations` compares it with
+  goose's own collection).
+- `/v1/me` and `/v1/my-tenants` share one membership query; Go-side state
+  comparisons and written values use named constants and one `enabledState`.
+- The CI fixture grants runtime UPDATE,DELETE on every migrated table except
+  the explicit append-only set; `TestDevelopmentRuntimeGrantsCoverRegistryTables`
+  checks `scripts/dev.py` against the same rule. `TestPrepareFixture` itself
+  only runs in CI (opt-in disposable server) and was not executed locally.
+- Flaky `TestTenantAdministratorTask` under `-race`: one 600k PBKDF2 derivation
+  measured about 2.8 s with the race detector on an idle 10-core machine, and an
+  earlier loaded run took 50 s for the test. The 15 s login deadline spanned
+  that uncancellable derivation, so the session transaction could start with an
+  expired context (500 `deadline_exceeded`). The deadline now bounds each
+  database phase. `TestLoginDeadlineExcludesPasswordDerivation` sets the
+  database deadline to half a measured derivation: it failed with the old
+  structure (500) and passes now.
+- `devoidc` logs through `slog`; the Makefile uses node/npm from PATH.
+
+Executed checks: `go build ./...`, `go vet ./...` **PASS**; golangci-lint
+**0 issues** (the web half of `make lint` was not run: no `web/admin`
+node_modules in this worktree and no console source changed); schema validator
+`--check` and driver verification (42 files) **PASS**;
+`LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./internal/...`
+**PASS** (control package 146.8 s; only `TestPrepareFixture` skipped).
+
 ## Error wrapping and structured request logging — 16 November 2026
 
 - Underlying errors are wrapped with `%w` (registry ping, cipher setup, schema
