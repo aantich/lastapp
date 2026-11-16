@@ -182,20 +182,17 @@ func (s *Server) Handler() http.Handler {
 		files.ServeHTTP(w, clone)
 	})
 	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/console/", 302) })
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.observe(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.serveAppHost(w, r) {
 			return
 		}
-		rid := newID()
-		r.Header.Set("X-Request-ID", rid)
-		w.Header().Set("X-Request-ID", rid)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		s.mux.ServeHTTP(w, r)
-	})
+	}))
 }
 
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {

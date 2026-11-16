@@ -1,5 +1,28 @@
 # Lastapp verification
 
+## Error wrapping and structured request logging — 16 November 2026
+
+- Underlying errors are wrapped with `%w` (registry ping, cipher setup, schema
+  check, envelope decryption, trusted proxies, OIDC metadata); cipher
+  construction errors are no longer ignored. Sentinel checks use `errors.Is`.
+  The registry DSN parse error is deliberately not wrapped.
+- `diagnostic()` adds the wrap-chain types and context state, still without
+  messages. Regressions: `TestRedactedDiagnostics` (wrapped secret absent, SQL
+  number and chain present) and `TestWrappedErrorResponses` (wrapped SQL/API
+  errors keep their 409/400 mapping; an unmapped wrapped error is a generic 500).
+- `slog` is configured in `main` (text in development, JSON otherwise). One
+  access line per request with request ID, method, route, status, bytes and
+  duration. `TestAccessLog` sends a secret in query, cookie and Authorization
+  and verifies it never reaches the log and that a client `X-Request-ID` is replaced.
+
+Executed checks: `go build ./...`, `go vet ./...`, `go test ./...` **PASS**;
+golangci-lint **0 issues**; schema validator and driver verification **PASS**;
+control integration suite with the local fixture configuration
+(`go test -race -count=1 ./internal/control`) **PASS**, 51 tests, 132.7 seconds.
+Restarted with `scripts/dev.py`: `/readyz` 200, access lines in
+`.local/lastapp.log`, and a probe with a secret in query/cookie/Authorization
+left no password/token/cookie/Authorization text in the new log lines.
+
 ## Follow-up workspace/release review fixes — 14 November 2026
 
 All four findings from the next review are fixed:

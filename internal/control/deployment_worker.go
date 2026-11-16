@@ -253,7 +253,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
 	} else {
-		s.Log.Warn("release deployment failed", diagnostic(e)...)
+		s.logger(ctx).Warn("release deployment failed", diagnostic(e)...)
 	}
 	return s.failDeployment(ctx, v, message)
 }

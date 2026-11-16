@@ -18,7 +18,7 @@ import (
 func (s *Server) RunWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		if e := s.workerLeader(ctx); e != nil && ctx.Err() == nil {
-			s.Log.Warn("provisioning leader disconnected", diagnostic(e)...)
+			s.logger(ctx).Warn("provisioning leader disconnected", diagnostic(e)...)
 		}
 		select {
 		case <-ctx.Done():
@@ -145,7 +145,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		cancel()
 		code, message, state := "", "", "ready"
 		if err != nil {
-			s.Log.Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, diagnostic(err)...)...)
+			s.logger(ctx).Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, diagnostic(err)...)...)
 			code, message = provisionError(err)
 			state = "failed"
 		}

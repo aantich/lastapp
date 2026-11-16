@@ -240,7 +240,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			return conflict("App build limit reached. Create a fresh workspace.")
 		}
 		if e = artifact.Store(s.artifactDirectory(), in.Files, b); e != nil {
-			s.Log.Warn("artifact storage failed", diagnostic(e)...)
+			s.logger(ctx).Warn("artifact storage failed", diagnostic(e)...)
 			return problem(503, "artifact_storage", "Could not persist the build.")
 		}
 		build := newID()

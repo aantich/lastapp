@@ -137,7 +137,7 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	if e == nil {
 		return true, nil
 	}
-	s.Log.Warn("entity publication failed", append([]any{"entity_id", v["entity_id"]}, diagnostic(e)...)...)
+	s.logger(ctx).Warn("entity publication failed", append([]any{"entity_id", v["entity_id"]}, diagnostic(e)...)...)
 	message := "Publication failed. Check database/schema privileges and retry; existing data is preserved."
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
@@ -571,7 +571,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 	}
 	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"]); e != nil {
 		// Best effort: if this fails the gate stays closed, which fails closed.
-		s.Log.Warn("restore publication base failed", append([]any{"entity_id", str(v["entity_id"])}, diagnostic(e)...)...)
+		s.logger(ctx).Warn("restore publication base failed", append([]any{"entity_id", str(v["entity_id"])}, diagnostic(e)...)...)
 	}
 }
 

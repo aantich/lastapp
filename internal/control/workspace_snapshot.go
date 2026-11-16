@@ -314,7 +314,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
 	} else {
-		s.Log.Warn("workspace preparation failed", diagnostic(e)...)
+		s.logger(ctx).Warn("workspace preparation failed", diagnostic(e)...)
 	}
 	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v["id"])
 	return err

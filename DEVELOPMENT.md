@@ -175,6 +175,15 @@ changes, verify real flows, desktop/mobile layout, errors and stale editor state
 Capture meaningful results in [VERIFICATION.md](VERIFICATION.md), including skips,
 failures and reruns; do not substitute a plan or old receipt for executed checks.
 
+Logging uses `log/slog`: text in development, JSON lines otherwise (stderr;
+`make dev` writes `.local/lastapp.log`). The outer handler (`internal/control/logging.go`)
+is the single source of `X-Request-ID`, puts a request-scoped logger
+(`request_id`, `method`) into the context and writes one `http request` line with
+the route pattern, status, bytes and duration. It never logs query strings,
+bodies, cookies or credential headers. Errors are wrapped with `%w`; `diagnostic()`
+logs only the type chain, SQL number/state, network operation and context state,
+never error messages, and unmapped API errors stay a generic 500.
+
 Keep `.local/`, keys, passwords, build output, traces and screenshots out of git.
 No routine change requires resetting local data, refreshing the driver snapshot,
 testing other database versions or running driver benchmarks.

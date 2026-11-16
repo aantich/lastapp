@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,9 +16,27 @@ import (
 	"github.com/aantich/lastapp/internal/control"
 )
 
+// fatal logs a startup/command failure and exits. Command errors are
+// operator-facing configuration or connection failures; request errors are
+// logged by the server with type-only diagnostics.
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
+}
+
+// configureLogging installs the process-wide structured logger: readable text
+// in development, JSON lines otherwise.
+func configureLogging(development bool) {
+	var h slog.Handler = slog.NewJSONHandler(os.Stderr, nil)
+	if development {
+		h = slog.NewTextHandler(os.Stderr, nil)
+	}
+	slog.SetDefault(slog.New(h))
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: lastapp serve|migrate|bootstrap|seed-development -config path")
+		fatal("usage: lastapp serve|migrate|bootstrap|seed-development -config path")
 	}
 	command := os.Args[1]
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
@@ -32,11 +50,12 @@ func main() {
 	_ = flags.Parse(os.Args[2:]) // ExitOnError: Parse exits on failure
 	c, e := control.LoadConfig(*config)
 	if e != nil {
-		log.Fatal(e)
+		fatal("configuration failed", "error", e)
 	}
+	configureLogging(c.Development)
 	s, e := control.Open(c)
 	if e != nil {
-		log.Fatal(e)
+		fatal("startup failed", "error", e)
 	}
 	defer s.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -47,7 +66,7 @@ func main() {
 	case "bootstrap":
 		if *passwordFile != "" || (*issuer == "" && *subject == "" && *email != "") {
 			if *issuer != "" || *subject != "" {
-				log.Fatal("choose local account or OIDC bootstrap, not both")
+				fatal("choose local account or OIDC bootstrap, not both")
 			}
 			var secret []byte
 			if *passwordFile != "" {
@@ -64,7 +83,7 @@ func main() {
 			break
 		}
 		if *issuer == "" || *subject == "" {
-			log.Fatal("issuer and subject are required")
+			fatal("issuer and subject are required")
 		}
 		var uid string
 		uid, e = s.Bootstrap(ctx, *issuer, *subject, *name, *email)
@@ -96,10 +115,10 @@ func main() {
 			shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if e := server.Shutdown(shutdown); e != nil {
-				log.Printf("shutdown: %v", e)
+				slog.Warn("shutdown incomplete", "error", e)
 			}
 		}()
-		log.Printf("Lastapp listening at %s/console/", c.PublicURL)
+		slog.Info("Lastapp listening", "console", c.PublicURL+"/console/", "address", c.Address)
 		e = server.ListenAndServe()
 		if errors.Is(e, http.ErrServerClosed) {
 			<-stopped
@@ -109,6 +128,6 @@ func main() {
 		e = fmt.Errorf("unknown command %q", command)
 	}
 	if e != nil {
-		log.Fatal(e)
+		fatal(command+" failed", "error", e)
 	}
 }

@@ -441,7 +441,12 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	if ae == nil {
 		ae = &APIError{500, "internal_error", "The operation failed. See the server log with this request ID."}
-		slog.Error("request failed", append([]any{"request_id", r.Header.Get("X-Request-ID"), "operation", r.Method + " " + r.Pattern}, diagnostic(err)...)...)
+		fields := []any{"operation", r.Method + " " + r.Pattern}
+		if rid := r.Header.Get("X-Request-ID"); rid != requestIDFrom(r.Context()) {
+			// MCP tool calls run operations under their own request IDs.
+			fields = append(fields, "operation_request_id", rid)
+		}
+		requestLogger(r.Context()).Error("request failed", append(fields, diagnostic(err)...)...)
 	}
 	if ae.Status == 429 {
 		w.Header().Set("Retry-After", "1")
