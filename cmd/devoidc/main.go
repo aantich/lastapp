@@ -10,13 +10,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"html/template"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +35,15 @@ func random() string {
 
 func encode(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
 
+// fatal logs a startup failure and exits, like the lastapp command.
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
+}
+
 func main() {
+	// The issuer only ever runs in local development, so it always logs text.
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	address := flag.String("address", "127.0.0.1:8788", "loopback address")
 	origin := flag.String("app-origin", "http://127.0.0.1:8787", "allowed Lastapp origin")
 	devUI := flag.String("development-ui-origin", "http://127.0.0.1:5173", "allowed loopback development UI origin")
@@ -43,18 +51,18 @@ func main() {
 	flag.Parse()
 	host, _, e := net.SplitHostPort(*address)
 	if e != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		log.Fatal("development issuer must bind to loopback")
+		fatal("development issuer must bind to loopback", "address", *address)
 	}
 	for _, raw := range []string{*origin, *devUI} {
 		u, e := url.Parse(raw)
 		if e != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Scheme != "http" || net.ParseIP(u.Hostname()) == nil || !net.ParseIP(u.Hostname()).IsLoopback() {
-			log.Fatal("development origins must be HTTP loopback origins")
+			fatal("development origins must be HTTP loopback origins", "origin", raw)
 		}
 	}
 	issuer := "http://" + *address
 	key, e := rsa.GenerateKey(rand.Reader, 2048)
 	if e != nil {
-		log.Fatal(e)
+		fatal("signing key generation failed", "error", e)
 	}
 	var mu sync.Mutex
 	codes := map[string]login{}
@@ -144,9 +152,9 @@ func main() {
 		w.Header().Set("Cache-Control", "no-store")
 		reply(w, map[string]any{"access_token": random(), "token_type": "Bearer", "expires_in": 300, "id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)})
 	})
-	log.Printf("Local OIDC issuer at %s", issuer)
+	slog.Info("Local OIDC issuer listening", "issuer", issuer)
 	server := &http.Server{Addr: *address, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	if e = server.ListenAndServe(); e != nil && !strings.Contains(e.Error(), "closed") {
-		log.Fatal(fmt.Sprint(e))
+		fatal("development issuer stopped", "error", e)
 	}
 }
