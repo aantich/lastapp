@@ -90,3 +90,74 @@ func TestInventoryOperations(t *testing.T) {
 		t.Fatal("receipts", n, e)
 	}
 }
+
+func TestTenantInventoryOperations(t *testing.T) {
+	s, _, operator, owner, _ := foundationFixture(t)
+	ctx := context.Background()
+	platform := Actor{Principal: Principal{ID: operator, Platform: true}, RequestID: newID()}
+	human := Actor{Principal: Principal{ID: owner}, RequestID: newID()}
+	tenant := tenantCreateInput{ID: newID(), Slug: "ops-tenant", Name: "Ops", Plan: "10000000-0000-4000-8000-000000000001", Admin: owner}
+	_, e := s.inv.CreateTenant(ctx, human, tenant)
+	wantProblem(t, e, 403, "forbidden")
+	if ref, e := s.inv.CreateTenant(ctx, platform, tenant); e != nil || ref.Revision != 1 {
+		t.Fatal("platform create", ref, e)
+	}
+	_, e = s.inv.UpdateTenant(ctx, platform, tenant.ID, tenantPatch{}, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.inv.UpdateTenant(ctx, platform, tenant.ID, tenantPatch{}, 9)
+	wantProblem(t, e, 412, "stale_revision")
+	_, e = s.inv.UpdateTenantProfile(ctx, platform, tenant.ID, "Platform rename", 1)
+	wantProblem(t, e, 403, "tenant_authority_required")
+	if ref, e := s.inv.UpdateTenantProfile(ctx, human, tenant.ID, "Ops company", 1); e != nil || ref.Revision != 2 {
+		t.Fatal("profile update", ref, e)
+	}
+
+	target, resource := newID(), newID()
+	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Ops target','127.0.0.2',33317,'disabled')", target); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'ops_metadata_only','registered','shared','ready',X'00')", resource, tenant.ID, target); e != nil {
+		t.Fatal(e)
+	}
+	space := spaceCreateInput{namedInput: namedInput{ID: newID(), Slug: "ops", Name: "Ops"}, Manager: owner}
+	space.Database.Resource = resource
+	if _, e = s.inv.CreateSpace(ctx, human, tenant.ID, space); e != nil {
+		t.Fatal("console space", e)
+	}
+	var n int
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND action IN ('space.created','grant.created')", human.RequestID).Scan(&n); e != nil || n != 2 {
+		t.Fatal("space audit request attribution", n, e)
+	}
+
+	grant := newID()
+	if _, e = s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'ops','Ops client',?,'tenant','[\"read\",\"resources.write\",\"production.deploy\"]','{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, owner, tenant.ID, s.mcpURL()); e != nil {
+		t.Fatal(e)
+	}
+	g, e := s.readAgentGrant(ctx, s.DB, grant)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := Principal{ID: owner, Agent: g}
+	app := appCreateInput{namedInput: namedInput{ID: newID(), Slug: "ops", Name: "Ops"}, Manager: owner}
+	call := agentCall(p, "lastapp_create", app, "resources.write")
+	agent := Actor{Principal: p, RequestID: newID(), Agent: call}
+	if _, e = s.inv.CreateApp(ctx, agent, tenant.ID, space.ID, app); e != nil || !call.Committed {
+		t.Fatal("agent app", e)
+	}
+	// The initial manager assignment is attributed to the grant too, although
+	// the operation was called with a context that does not carry the call.
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, grant).Scan(&n); e != nil || n != 2 {
+		t.Fatal("agent attribution of app and initial assignment", n, e)
+	}
+	replay := &AgentCall{Grant: g, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash}
+	if _, e = s.inv.CreateApp(ctx, Actor{Principal: p, RequestID: newID(), Agent: replay}, tenant.ID, space.ID, app); !errors.Is(e, errAgentReplay) {
+		t.Fatal("replay executed again", e)
+	}
+	page, e := s.inv.Apps(ctx, agent, tenant.ID, space.ID, PageRequest{})
+	if e != nil || len(page.Items) != 1 {
+		t.Fatal("agent app list", page, e)
+	}
+	// A Tenant-bound delegation never reaches platform inventory.
+	_, e = s.inv.Tenants(ctx, agent, PageRequest{})
+	wantProblem(t, e, 404, "not_found")
+}

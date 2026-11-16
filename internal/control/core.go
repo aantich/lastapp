@@ -216,7 +216,7 @@ func Open(c Config) (*Server, error) {
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.run = &runner{db: db, access: s}
-	s.inv = &inventory{db: db, run: s.run}
+	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.allocateDatabase, prepareAccount: s.prepareAccount}
 	return s, nil
 }
 

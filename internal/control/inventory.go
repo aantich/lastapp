@@ -41,59 +41,72 @@ type microappCreateInput struct {
 	Order    int    `json:"navigation_order,omitempty"`
 }
 
-func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
-	sc, e := s.scopes(r.Context(), s.DB, p, tenant, "space.read")
+// inventory owns the Tenant inventory operations: plans, Tenants, Spaces,
+// Apps and micro-apps. Console handlers and MCP tools both call these methods.
+type inventory struct {
+	db  *sql.DB
+	run *runner
+	// Collaborators of domains not yet extracted, passed explicitly.
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, p Principal, tenant string, in databaseInput, policy Row, request string) error
+	prepareAccount   func(accountInput) (preparedAccount, error)
+}
+
+func (v *inventory) Spaces(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Row], error) {
+	sc, e := v.run.scopes(ctx, a, tenant, "space.read")
 	if e != nil {
-		return e
+		return Page[Row]{}, e
 	}
 	filter, args := scopeSQL(sc, "sp.id", "")
 	args = append([]any{tenant}, args...)
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT sp.id,sp.tenant_id,sp.slug,sp.display_name,sp.database_resource_id,sp.database_layout,sp.state,sp.revision,sp.created_at,d.database_name,d.state AS database_state,(SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+	return pageQuery(ctx, v.db, page, collectionFor("spaces"), "SELECT sp.id,sp.tenant_id,sp.slug,sp.display_name,sp.database_resource_id,sp.database_layout,sp.state,sp.revision,sp.created_at,d.database_name,d.state AS database_state,(SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
 }
 
-func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in spaceCreateInput
-	if e := decode(w, r, &in); e != nil {
-		return e
+func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (Row, error) {
+	if e := v.run.authorize(ctx, a, "space.read", Resource{Tenant: tenant, Space: space}); e != nil {
+		return nil, e
 	}
+	return row(ctx, v.db, "SELECT sp.id,sp.workspace_id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
+}
+
+// CreateSpace binds a new Space to an existing database or allocates managed
+// storage (reusing the Tenant's default shared database), then assigns its
+// initial manager, in one transaction.
+func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in spaceCreateInput) (Ref, error) {
 	if e := id(in.ID); e != nil {
-		return e
+		return Ref{}, e
 	}
 	if e := named(in.Slug, in.Name); e != nil {
-		return e
+		return Ref{}, e
 	}
-	tenant := r.PathValue("tenant")
-	e := s.mutate(r.Context(), p, "space.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	// Database allocation and the initial assignment still read the delegated
+	// call from ctx.
+	ctx = withAgentCall(ctx, a.Agent)
+	e := v.run.mutate(ctx, a, "space.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		// Detect a retried parent create before allocating any child database.
 		var exists int
-		if e := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM spaces WHERE id=?", in.ID).Scan(&exists); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE id=?", in.ID).Scan(&exists); e != nil {
 			return e
 		}
 		if exists > 0 {
 			return conflict("This Space ID already exists; refresh before retrying.")
 		}
-		policy, e := policyFor(r.Context(), tx, tenant)
+		policy, e := policyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
 		}
-		if e = quota(r.Context(), tx, tenant, "spaces", "max_spaces", policy); e != nil {
+		if e = quota(ctx, tx, tenant, "spaces", "max_spaces", policy); e != nil {
 			return e
 		}
 		resource, layout := in.Database.Resource, in.Database.Layout
 		if resource != "" {
 			var private int
-			if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM spaces WHERE database_resource_id=? AND workspace_id IS NOT NULL", resource).Scan(&private); err != nil {
+			if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE database_resource_id=? AND workspace_id IS NOT NULL", resource).Scan(&private); err != nil {
 				return err
 			}
 			if private > 0 {
 				return bad("Development storage cannot be bound to a production Space.")
 			}
-			db, e := row(r.Context(), tx, "SELECT id,layout,state FROM database_resources WHERE tenant_id=? AND id=?", tenant, resource)
+			db, e := row(ctx, tx, "SELECT id,layout,state FROM database_resources WHERE tenant_id=? AND id=?", tenant, resource)
 			if e != nil {
 				return e
 			}
@@ -119,7 +132,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 			}
 			if layout == "shared" && str(policy["default_shared_database_id"]) != "" {
 				resource = str(policy["default_shared_database_id"])
-				db, e := row(r.Context(), tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", resource, tenant)
+				db, e := row(ctx, tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", resource, tenant)
 				if e != nil {
 					return e
 				}
@@ -131,7 +144,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 				}
 			} else {
 				if in.Database.Target == "" {
-					e := tx.QueryRowContext(r.Context(), "SELECT id FROM database_targets WHERE state='active' AND managed_enabled=1 ORDER BY created_at,id LIMIT 1").Scan(&in.Database.Target)
+					e := tx.QueryRowContext(ctx, "SELECT id FROM database_targets WHERE state='active' AND managed_enabled=1 ORDER BY created_at,id LIMIT 1").Scan(&in.Database.Target)
 					if errors.Is(e, sql.ErrNoRows) {
 						return conflict("Managed database creation is not configured. Ask a platform administrator to add a database server.")
 					}
@@ -141,52 +154,148 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 				}
 				resource = newID()
 				dbIn := databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: in.Database.Target}
-				if e = s.allocateDatabase(r.Context(), tx, p, tenant, dbIn, policy, r.Header.Get("X-Request-ID")); e != nil {
+				if e = v.allocateDatabase(ctx, tx, a.Principal, tenant, dbIn, policy, a.RequestID); e != nil {
 					return e
 				}
 				if layout == "shared" {
-					if _, e = tx.ExecContext(r.Context(), "UPDATE tenants SET default_shared_database_id=?,revision=revision+1 WHERE id=?", resource, tenant); e != nil {
+					if _, e = tx.ExecContext(ctx, "UPDATE tenants SET default_shared_database_id=?,revision=revision+1 WHERE id=?", resource, tenant); e != nil {
 						return e
 					}
 				}
 			}
 		}
-		_, e = tx.ExecContext(r.Context(), "INSERT INTO spaces (id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES (?,?,?,?,?,?)", in.ID, tenant, in.Slug, in.Name, resource, layout)
+		_, e = tx.ExecContext(ctx, "INSERT INTO spaces (id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES (?,?,?,?,?,?)", in.ID, tenant, in.Slug, in.Name, resource, layout)
 		if e != nil {
 			return e
 		}
-		if e := assignInitialManager(r.Context(), tx, p, tenant, in.ID, "", in.Manager, r.Header.Get("X-Request-ID")); e != nil {
+		if e := assignInitialManager(ctx, tx, a.Principal, tenant, in.ID, "", in.Manager, a.RequestID); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, tenant, p.ID, "space.created", "space", in.ID, r.Header.Get("X-Request-ID"), Row{"database_resource_id": resource})
+		return auditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, Row{"database_resource_id": resource})
 	})
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return result(w, r, s, "spaces", tenant, in.ID, 201)
+	return v.run.ref(ctx, "spaces", tenant, in.ID)
 }
 
-func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
-	sc, e := s.scopes(r.Context(), s.DB, p, tenant, "app.read")
+// Apps pages the Apps a may read in tenant, optionally of one Space. Without a
+// Space filter, development workspace Apps are excluded.
+func (v *inventory) Apps(ctx context.Context, a Actor, tenant, space string, page PageRequest) (Page[Row], error) {
+	sc, e := v.run.scopes(ctx, a, tenant, "app.read")
 	if e != nil {
-		return e
+		return Page[Row]{}, e
 	}
 	filter, args := scopeSQL(sc, "a.space_id", "a.id")
 	args = append([]any{tenant}, args...)
 	query := "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
-	if space := r.URL.Query().Get("space_id"); space != "" {
-		if e = s.authorize(r.Context(), s.DB, p, "app.read", Resource{Tenant: tenant, Space: space}, false); e != nil {
-			return e
+	if space != "" {
+		if e = v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, Space: space}); e != nil {
+			return Page[Row]{}, e
 		}
 		query += " AND a.space_id=?"
 		args = append(args, space)
 	} else {
 		query += " AND sp.workspace_id IS NULL"
 	}
-	v, e := pageRows(r.Context(), s.DB, r, query+" ORDER BY a.created_at DESC", args...)
+	return pageQuery(ctx, v.db, page, collectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
+}
+
+func (v *inventory) App(ctx context.Context, a Actor, tenant, app string) (Row, error) {
+	if e := v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, App: app}); e != nil {
+		return nil, e
+	}
+	return row(ctx, v.db, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+}
+
+func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string, in appCreateInput) (Ref, error) {
+	if e := id(in.ID); e != nil {
+		return Ref{}, e
+	}
+	if e := named(in.Slug, in.Name); e != nil {
+		return Ref{}, e
+	}
+	if in.Compute == "" {
+		in.Compute = "shared"
+	}
+	if in.Compute != "shared" && in.Compute != "dedicated" {
+		return Ref{}, bad("Invalid compute mode.")
+	}
+	// The initial assignment still reads the delegated call from ctx.
+	ctx = withAgentCall(ctx, a.Agent)
+	e := v.run.mutate(ctx, a, "app.manage", Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
+		parent, e := row(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", space, tenant)
+		if e != nil {
+			return e
+		}
+		if str(parent["state"]) != stateActive {
+			return conflict("The parent Space must be active.")
+		}
+		policy, e := policyFor(ctx, tx, tenant)
+		if e != nil {
+			return e
+		}
+		if e = appQuota(ctx, tx, tenant, space, policy, true); e != nil {
+			return e
+		}
+		if in.Compute == "dedicated" && integer(policy["allow_dedicated_compute"]) != 1 {
+			return problem(403, "plan_restriction", "Dedicated compute is not permitted by this plan.")
+		}
+		_, e = tx.ExecContext(ctx, "INSERT INTO apps (id,tenant_id,space_id,slug,display_name,compute_mode) VALUES (?,?,?,?,?,?)", in.ID, tenant, space, in.Slug, in.Name, in.Compute)
+		if e != nil {
+			return e
+		}
+		if e := assignInitialManager(ctx, tx, a.Principal, tenant, space, in.ID, in.Manager, a.RequestID); e != nil {
+			return e
+		}
+		return auditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, Row{"space_id": space})
+	})
+	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, "apps", tenant, in.ID)
+}
+
+func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Spaces(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
 	if e == nil {
-		sendPage(w, r, v)
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Space(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("space"))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in spaceCreateInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.inv.CreateSpace(r.Context(), httpActor(r, p), r.PathValue("tenant"), in)
+	if e == nil {
+		sendRef(w, 201, v)
+	}
+	return e
+}
+
+func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Apps(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.URL.Query().Get("space_id"), pageRequest(r.URL.Query()))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.App(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("app"))
+	if e == nil {
+		send(w, 200, v)
 	}
 	return e
 }
@@ -196,50 +305,11 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if e := id(in.ID); e != nil {
-		return e
+	v, e := s.inv.CreateApp(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("space"), in)
+	if e == nil {
+		sendRef(w, 201, v)
 	}
-	if e := named(in.Slug, in.Name); e != nil {
-		return e
-	}
-	if in.Compute == "" {
-		in.Compute = "shared"
-	}
-	if in.Compute != "shared" && in.Compute != "dedicated" {
-		return bad("Invalid compute mode.")
-	}
-	tenant, space := r.PathValue("tenant"), r.PathValue("space")
-	e := s.mutate(r.Context(), p, "app.manage", Resource{Tenant: tenant, Space: space}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		parent, e := row(r.Context(), tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", space, tenant)
-		if e != nil {
-			return e
-		}
-		if str(parent["state"]) != stateActive {
-			return conflict("The parent Space must be active.")
-		}
-		policy, e := policyFor(r.Context(), tx, tenant)
-		if e != nil {
-			return e
-		}
-		if e = appQuota(r.Context(), tx, tenant, space, policy, true); e != nil {
-			return e
-		}
-		if in.Compute == "dedicated" && integer(policy["allow_dedicated_compute"]) != 1 {
-			return problem(403, "plan_restriction", "Dedicated compute is not permitted by this plan.")
-		}
-		_, e = tx.ExecContext(r.Context(), "INSERT INTO apps (id,tenant_id,space_id,slug,display_name,compute_mode) VALUES (?,?,?,?,?,?)", in.ID, tenant, space, in.Slug, in.Name, in.Compute)
-		if e != nil {
-			return e
-		}
-		if e := assignInitialManager(r.Context(), tx, p, tenant, space, in.ID, in.Manager, r.Header.Get("X-Request-ID")); e != nil {
-			return e
-		}
-		return audit(r.Context(), tx, tenant, p.ID, "app.created", "app", in.ID, r.Header.Get("X-Request-ID"), Row{"space_id": space})
-	})
-	if e != nil {
-		return e
-	}
-	return result(w, r, s, "apps", tenant, in.ID, 201)
+	return e
 }
 
 // Microapps pages the micro-apps a may read in tenant, optionally of one App.

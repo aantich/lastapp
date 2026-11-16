@@ -37,13 +37,6 @@ func (in planInput) validate() error {
 	return bad("The default layout must be allowed by this plan.")
 }
 
-// inventory owns the Tenant inventory operations: plans, Tenants, Spaces,
-// Apps and micro-apps. Console handlers and MCP tools both call these methods.
-type inventory struct {
-	db  *sql.DB
-	run *runner
-}
-
 func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
 		return Page[Row]{}, e
@@ -214,75 +207,73 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 
 const tenantColumns = "t.id,t.slug,t.display_name,t.state,t.plan_id,t.default_layout,t.default_shared_database_id,t.revision,t.created_at,p.display_name AS plan_name"
 
-func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return e
-	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+type tenantCreateInput struct {
+	ID      string        `json:"id"`
+	Slug    string        `json:"slug"`
+	Name    string        `json:"display_name"`
+	Plan    string        `json:"plan_id"`
+	Admin   string        `json:"initial_admin_user_id"`
+	Account *accountInput `json:"initial_admin"`
+	Layout  string        `json:"default_layout"`
 }
 
-func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
-	if e := s.authorize(r.Context(), s.DB, p, "tenant.read", Resource{Tenant: tenant}, false); e != nil {
-		return e
-	}
-	v, e := row(r.Context(), s.DB, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
-	if e == nil {
-		send(w, 200, v)
-	}
-	return e
+type tenantPatch struct {
+	Name   *string `json:"display_name"`
+	State  *string `json:"state"`
+	Plan   *string `json:"plan_id"`
+	Layout *string `json:"default_layout"`
 }
 
-func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		ID      string        `json:"id"`
-		Slug    string        `json:"slug"`
-		Name    string        `json:"display_name"`
-		Plan    string        `json:"plan_id"`
-		Admin   string        `json:"initial_admin_user_id"`
-		Account *accountInput `json:"initial_admin"`
-		Layout  string        `json:"default_layout"`
+func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		return Page[Row]{}, e
 	}
-	if e := decode(w, r, &in); e != nil {
-		return e
+	return pageQuery(ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
+}
+
+func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Row, error) {
+	if e := v.run.authorize(ctx, a, "tenant.read", Resource{Tenant: tenant}); e != nil {
+		return nil, e
 	}
-	for _, v := range []string{in.ID, in.Plan} {
-		if e := id(v); e != nil {
-			return e
+	return row(ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
+}
+
+// CreateTenant creates a Tenant with its first administrator: an existing
+// account or a new local account. Platform administrators cannot be chosen.
+func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateInput) (Ref, error) {
+	for _, value := range []string{in.ID, in.Plan} {
+		if e := id(value); e != nil {
+			return Ref{}, e
 		}
 	}
 	if e := named(in.Slug, in.Name); e != nil {
-		return e
+		return Ref{}, e
 	}
 	if (in.Admin == "") == (in.Account == nil) {
-		return bad("Select an existing administrator or supply a new administrator account.")
+		return Ref{}, bad("Select an existing administrator or supply a new administrator account.")
 	}
 	var account preparedAccount
 	if in.Account != nil {
-		if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-			return e
+		if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+			return Ref{}, e
 		}
 		var e error
-		account, e = s.prepareAccount(*in.Account)
+		account, e = v.prepareAccount(*in.Account)
 		if e != nil {
-			return e
+			return Ref{}, e
 		}
 	} else if e := id(in.Admin); e != nil {
-		return e
+		return Ref{}, e
 	}
-	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
 		if in.Account != nil {
 			var e error
-			in.Admin, e = localAccount(r.Context(), tx, account, true)
+			in.Admin, e = localAccount(ctx, tx, account, true)
 			if e != nil {
 				return e
 			}
 		}
-		policy, e := row(r.Context(), tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
+		policy, e := row(ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
 		if e != nil {
 			return e
 		}
@@ -290,55 +281,46 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principa
 			return e
 		}
 		var user string
-		if e = tx.QueryRowContext(r.Context(), "SELECT id FROM users WHERE id=? AND state='active'", in.Admin).Scan(&user); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE id=? AND state='active'", in.Admin).Scan(&user); e != nil {
 			return bad("Select an active registered administrator.")
 		}
-		platform, e := isPlatform(r.Context(), tx, in.Admin)
+		platform, e := isPlatform(ctx, tx, in.Admin)
 		if e != nil {
 			return e
 		}
 		if platform {
 			return bad("Choose a Tenant administrator account without platform administration privileges.")
 		}
-		_, e = tx.ExecContext(r.Context(), "INSERT INTO tenants (id,slug,display_name,plan_id,default_layout,created_by) VALUES (?,?,?,?,?,?)", in.ID, in.Slug, in.Name, in.Plan, nullable(in.Layout), p.ID)
+		_, e = tx.ExecContext(ctx, "INSERT INTO tenants (id,slug,display_name,plan_id,default_layout,created_by) VALUES (?,?,?,?,?,?)", in.ID, in.Slug, in.Name, in.Plan, nullable(in.Layout), a.Principal.ID)
 		if e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(r.Context(), "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", in.ID, in.Admin); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", in.ID, in.Admin); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(r.Context(), "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", newID(), in.ID, in.Admin, TenantAdminRole); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", newID(), in.ID, in.Admin, TenantAdminRole); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, in.ID, p.ID, "tenant.created", "tenant", in.ID, r.Header.Get("X-Request-ID"), Row{"initial_admin_user_id": in.Admin})
+		return auditAs(ctx, tx, a, in.ID, "tenant.created", "tenant", in.ID, Row{"initial_admin_user_id": in.Admin})
 	})
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return result(w, r, s, "tenants", "", in.ID, 201)
+	return v.run.ref(ctx, "tenants", "", in.ID)
 }
 
-func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		Name   *string `json:"display_name"`
-		State  *string `json:"state"`
-		Plan   *string `json:"plan_id"`
-		Layout *string `json:"default_layout"`
+// UpdateTenant is the platform operation on a Tenant's name, lifecycle state,
+// plan and default database layout.
+func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in tenantPatch, revision int64) (Ref, error) {
+	if revision < 1 {
+		return Ref{}, revisionRequired()
 	}
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	record := r.PathValue("id")
-	e = s.mutate(r.Context(), p, "platform.admin", Resource{Tenant: record}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := row(r.Context(), tx, "SELECT id,display_name,state,plan_id,default_layout,revision FROM tenants WHERE id=?", record)
+	e := v.run.mutate(ctx, a, "platform.admin", Resource{Tenant: record}, func(tx *sql.Tx) error {
+		old, e := row(ctx, tx, "SELECT id,display_name,state,plan_id,default_layout,revision FROM tenants WHERE id=?", record)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+		if e = checkRevision(integer(old["revision"]), revision); e != nil {
 			return e
 		}
 		name, state, plan, layout := str(old["display_name"]), str(old["state"]), str(old["plan_id"]), str(old["default_layout"])
@@ -357,7 +339,7 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principa
 		if in.Plan != nil {
 			plan = *in.Plan
 		}
-		policy, e := row(r.Context(), tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
+		policy, e := row(ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
 		if e != nil {
 			return e
 		}
@@ -367,16 +349,97 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principa
 				return e
 			}
 		}
-		_, e = tx.ExecContext(r.Context(), "UPDATE tenants SET display_name=?,state=?,plan_id=?,default_layout=?,revision=revision+1 WHERE id=?", name, state, plan, nullable(layout), record)
+		_, e = tx.ExecContext(ctx, "UPDATE tenants SET display_name=?,state=?,plan_id=?,default_layout=?,revision=revision+1 WHERE id=?", name, state, plan, nullable(layout), record)
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, record, p.ID, "tenant.updated", "tenant", record, r.Header.Get("X-Request-ID"), Row{"state": state, "plan_id": plan})
+		return auditAs(ctx, tx, a, record, "tenant.updated", "tenant", record, Row{"state": state, "plan_id": plan})
 	})
 	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, "tenants", "", record)
+}
+
+// UpdateTenantProfile is the Tenant administrator's company-name change.
+func (v *inventory) UpdateTenantProfile(ctx context.Context, a Actor, tenant, name string, revision int64) (Ref, error) {
+	if strings.TrimSpace(name) == "" || len(name) > 160 {
+		return Ref{}, bad("Enter a company name (maximum 160 bytes).")
+	}
+	if revision < 1 {
+		return Ref{}, revisionRequired()
+	}
+	e := v.run.mutate(ctx, a, "tenant.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		before, e := lockRecord(ctx, tx, "tenants", "", tenant)
+		if e != nil {
+			return e
+		}
+		if e = checkRevision(integer(before["revision"]), revision); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET display_name=?,revision=revision+1 WHERE id=?", name, tenant); e != nil {
+			return e
+		}
+		return auditAs(ctx, tx, a, tenant, "tenant.profile_updated", "tenant", tenant, Row{"display_name": name})
+	})
+	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, "tenants", "", tenant)
+}
+
+func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Tenants(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.inv.Tenant(r.Context(), httpActor(r, p), r.PathValue("tenant"))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in tenantCreateInput
+	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	return result(w, r, s, "tenants", "", record, 200)
+	v, e := s.inv.CreateTenant(r.Context(), httpActor(r, p), in)
+	if e == nil {
+		sendRef(w, 201, v)
+	}
+	return e
+}
+
+func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in tenantPatch
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.inv.UpdateTenant(r.Context(), httpActor(r, p), r.PathValue("id"), in, ifMatch(r))
+	if e == nil {
+		sendRef(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in struct {
+		Name string `json:"display_name"`
+	}
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.inv.UpdateTenantProfile(r.Context(), httpActor(r, p), r.PathValue("tenant"), in.Name, ifMatch(r))
+	if e == nil {
+		sendRef(w, 200, v)
+	}
+	return e
 }
 
 func layoutAllowed(policy Row, layout string) error {

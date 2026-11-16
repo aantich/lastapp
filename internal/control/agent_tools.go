@@ -631,28 +631,30 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "space"
 		key = in.Space.ID
-		fn = s.createSpace
 		if in.Space.Manager == "" {
 			in.Space.Manager = p.ID
 		}
 		if in.Space.Manager != p.ID {
 			permissions = append(permissions, "access.manage")
 		}
-		body = in.Space
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.CreateSpace(ctx, a, res.Tenant, *in.Space)
+		}
 	case in.App != nil:
 		if target.Kind != "space" {
 			return nil, bad("App creation requires a Space target.")
 		}
 		kind = "app"
 		key = in.App.ID
-		fn = s.createApp
 		if in.App.Manager == "" {
 			in.App.Manager = p.ID
 		}
 		if in.App.Manager != p.ID {
 			permissions = append(permissions, "access.manage")
 		}
-		body = in.App
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.CreateApp(ctx, a, res.Tenant, target.ID, *in.App)
+		}
 	case in.Microapp != nil:
 		if target.Kind != "app" {
 			return nil, bad("Micro-app creation requires an App target.")
@@ -685,8 +687,8 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "tenant"
 		key = in.Tenant.ID
-		fn = s.createTenant
-		body = in.Tenant
+		tenant := tenantCreateInput{ID: in.Tenant.ID, Slug: in.Tenant.Slug, Name: in.Tenant.Name, Plan: in.Tenant.Plan, Admin: in.Tenant.Admin, Layout: in.Tenant.Layout}
+		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreateTenant(ctx, a, tenant) }
 		permissions = []string{"platform.manage"}
 	case in.Plan != nil:
 		if target.Kind != "platform" {
@@ -782,13 +784,28 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		permissions = []string{"access.manage"}
 	case "tenant":
 		if p.Agent.Kind == "platform" {
-			fn = s.updateTenant
+			patch := tenantPatch{Name: in.Name, Plan: in.PlanID, Layout: in.Layout}
+			call = func(ctx context.Context, a Actor) (any, error) {
+				if in.Compute != nil || in.Artifact != nil || in.Order != nil {
+					return nil, bad("Invalid or unsupported JSON request fields.")
+				}
+				return s.inv.UpdateTenant(ctx, a, in.ID, patch, in.Revision)
+			}
 			permissions = []string{"platform.manage"}
 		} else {
 			if in.ID != res.Tenant {
 				return nil, missing()
 			}
-			fn = s.updateTenantProfile
+			call = func(ctx context.Context, a Actor) (any, error) {
+				if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
+					return nil, bad("Invalid or unsupported JSON request fields.")
+				}
+				name := ""
+				if in.Name != nil {
+					name = *in.Name
+				}
+				return s.inv.UpdateTenantProfile(ctx, a, res.Tenant, name, in.Revision)
+			}
 		}
 	case "plan":
 		if target.Kind != "platform" || in.Plan == nil {
@@ -853,7 +870,9 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 		if target.Kind != "platform" {
 			return nil, bad("Tenant lifecycle requires platform scope.")
 		}
-		fn = s.updateTenant
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.inv.UpdateTenant(ctx, a, in.ID, tenantPatch{State: &in.State}, in.Revision)
+		}
 		permissions = append(permissions, "platform.manage")
 	case "entity":
 		v, e := s.entityRow(ctx, s.DB, p, in.ID, "entity.manage")

@@ -156,14 +156,13 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 			fn = s.releaseList
 		}
 	case "space":
-		fn = s.spaces
-		path += "/spaces"
+		return agentPage(s.inv.Spaces(ctx, agentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "app":
-		fn = s.apps
-		path += "/apps"
+		space := ""
 		if target.Kind == "space" {
-			path += "?space_id=" + target.ID
+			space = target.ID
 		}
+		return agentPage(s.inv.Apps(ctx, agentActor(ctx, p), res.Tenant, space, in.pageRequest()))
 	case "microapp":
 		app := ""
 		if target.Kind == "app" {
@@ -215,8 +214,7 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		if target.Kind != "platform" {
 			return nil, bad("Tenant inventory requires a platform connection.")
 		}
-		fn = s.tenants
-		path = "/admin/v1/tenants"
+		return agentPage(s.inv.Tenants(ctx, agentActor(ctx, p), in.pageRequest()))
 	case "plan":
 		if target.Kind != "platform" {
 			return nil, missing()
@@ -340,19 +338,16 @@ func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMess
 	path := "/v1/" + in.Resource + "/" + in.ID
 	switch in.Resource {
 	case "space":
-		paths["space"] = in.ID
-		fn = s.getSpace
+		return s.inv.Space(ctx, agentActor(ctx, p), res.Tenant, in.ID)
 	case "app":
-		paths["app"] = in.ID
-		fn = s.getApp
+		return s.inv.App(ctx, agentActor(ctx, p), res.Tenant, in.ID)
 	case "team":
 		fn = s.getGroup
 	case "tenant":
 		if p.Agent.Kind != "platform" && in.ID != res.Tenant {
 			return nil, missing()
 		}
-		paths["tenant"] = in.ID
-		fn = s.getTenant
+		return s.inv.Tenant(ctx, agentActor(ctx, p), in.ID)
 	case "database":
 		fn = s.getDatabase
 	case "app_access":
