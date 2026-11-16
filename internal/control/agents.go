@@ -206,10 +206,10 @@ func (s *Server) agentScope(ctx context.Context, q Queryer, p Principal, sc scop
 			out.Teams = []string{g.Scope}
 		}
 	case "space":
-		own, _ := rows(ctx, q, "SELECT backing_space_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? AND owner_agent_grant_id=? AND state='ready'", g.Scope, p.ID, g.ID)
-		for _, v := range own {
-			if sc.All || slices.Contains(sc.Spaces, str(v["backing_space_id"])) {
-				out.Spaces = append(out.Spaces, str(v["backing_space_id"]))
+		own, _ := scanStrings(ctx, q, "SELECT backing_space_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? AND owner_agent_grant_id=? AND state='ready'", g.Scope, p.ID, g.ID)
+		for _, space := range own {
+			if sc.All || slices.Contains(sc.Spaces, space) {
+				out.Spaces = append(out.Spaces, space)
 			}
 		}
 		if sc.All || slices.Contains(sc.Spaces, g.Scope) {
@@ -303,21 +303,32 @@ func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user str
 }
 
 func (s *Server) readAgentGrant(ctx context.Context, q Queryer, key string) (*agentGrant, error) {
-	v, e := row(ctx, q, "SELECT id,user_id,client_id,client_name,COALESCE(tenant_id,'') AS tenant_id,scope_kind,COALESCE(scope_id,'') AS scope_id,permissions_json,limits_json,revision,audience_uri FROM agent_grants WHERE id=?", key)
+	g, e := scanAgentGrant(ctx, q, "SELECT "+agentGrantColumns+" FROM agent_grants g WHERE g.id=?", []any{key})
 	if e != nil {
 		return nil, e
 	}
-	return agentGrantFromRow(v)
+	return g, nil
 }
 
-func agentGrantFromRow(v Row) (*agentGrant, error) {
-	g := &agentGrant{ID: str(v["id"]), User: str(v["user_id"]), Client: str(v["client_id"]), Name: str(v["client_name"]), Tenant: str(v["tenant_id"]), Kind: str(v["scope_kind"]), Scope: str(v["scope_id"]), Revision: integer(v["revision"])}
-	g.Audience = str(v["audience_uri"])
-	b, _ := json.Marshal(v["permissions_json"])
-	if e := json.Unmarshal(b, &g.Permissions); e != nil {
+// agentGrantColumns selects an agentGrant from agent_grants g.
+const agentGrantColumns = "g.id,g.user_id,g.client_id,g.client_name,COALESCE(g.tenant_id,''),g.scope_kind,COALESCE(g.scope_id,''),g.revision,g.audience_uri,g.permissions_json,g.limits_json"
+
+// scanAgentGrant reads a grant selected by agentGrantColumns, followed by
+// any extra columns scanned into extra. A read failure returns no grant; a
+// grant whose stored permissions or limits do not decode is returned with
+// the decoding error.
+func scanAgentGrant(ctx context.Context, q Queryer, query string, args []any, extra ...any) (*agentGrant, error) {
+	g := &agentGrant{}
+	var permissions, limits jsonValue
+	dest := []any{&g.ID, &g.User, &g.Client, &g.Name, &g.Tenant, &g.Kind, &g.Scope, &g.Revision, &g.Audience, &permissions, &limits}
+	if e := lookup(ctx, q, query, args, append(dest, extra...)...); e != nil {
 		return nil, e
 	}
-	b, _ = json.Marshal(v["limits_json"])
+	b, _ := json.Marshal(permissions)
+	if e := json.Unmarshal(b, &g.Permissions); e != nil {
+		return g, e
+	}
+	b, _ = json.Marshal(limits)
 	return g, json.Unmarshal(b, &g.Limits)
 }
 
@@ -329,15 +340,15 @@ func (s *Server) agentPrincipal(r *http.Request) (Principal, error) {
 	}
 	// Load the token-bound grant and its permissions in one statement/snapshot.
 	// A later grant edit fails checkAgent; it cannot upgrade this access token.
-	v, e := row(r.Context(), s.DB, `SELECT g.id,g.user_id,g.client_id,g.client_name,COALESCE(g.tenant_id,'') AS tenant_id,g.scope_kind,COALESCE(g.scope_id,'') AS scope_id,g.permissions_json,g.limits_json,g.revision,g.audience_uri,u.display_name,COALESCE(u.email,'') AS email FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, hash(raw[7:]))
-	if e != nil {
+	var e error
+	p.Agent, e = scanAgentGrant(r.Context(), s.DB, `SELECT `+agentGrantColumns+`,u.display_name,COALESCE(u.email,'') FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, []any{hash(raw[7:])}, &p.Name, &p.Email)
+	if p.Agent == nil {
 		return p, problem(401, "unauthenticated", "Invalid or expired MCP access token.")
 	}
-	p.ID, p.Name, p.Email = str(v["user_id"]), str(v["display_name"]), str(v["email"])
-	p.Agent, e = agentGrantFromRow(v)
 	if e != nil {
 		return p, e
 	}
+	p.ID = p.Agent.User
 	p.Platform, e = isPlatform(r.Context(), s.DB, p.ID)
 	if e != nil {
 		return p, e

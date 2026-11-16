@@ -224,10 +224,20 @@ func (s *Server) Handler() http.Handler {
 	}))
 }
 
+// TenantRef is a Tenant the principal belongs to.
+type TenantRef struct {
+	Name  string `json:"display_name"`
+	ID    string `json:"id"`
+	Slug  string `json:"slug"`
+	State string `json:"state"`
+}
+
+func (v *TenantRef) fields() []any { return []any{&v.Name, &v.ID, &v.Slug, &v.State} }
+
 // myTenants pages the Tenants where the principal has an active membership.
 // It is the one query behind both /v1/me and /v1/my-tenants.
-func (s *Server) myTenants(r *http.Request, p Principal) ([]Row, error) {
-	return pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+func (s *Server) myTenants(r *http.Request, p Principal) ([]TenantRef, error) {
+	return pageRows[TenantRef](r.Context(), s.DB, r, "SELECT t.display_name,t.id,t.slug,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
 }
 
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {

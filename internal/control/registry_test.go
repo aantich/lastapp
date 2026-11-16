@@ -480,6 +480,17 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, workspaces.Items, "SELECT id,display_name,production_space_id,backing_space_id,state,error_message,revision,created_at,owner_agent_grant_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? ORDER BY created_at DESC,id", reviewSpace, p.ID)
+
+	// The principal's Tenants and agent connections.
+	myTenants := rawFields(t, c, "/v1/my-tenants")
+	sameRaw(t, s.DB, myTenants["items"], "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name,t.id LIMIT 50", p.ID)
+	agentGrants := rawFields(t, c, "/v1/agent-access")
+	sameRaw(t, s.DB, agentGrants["items"], `SELECT g.id,g.user_id,g.client_id,g.client_name,g.tenant_id,g.scope_kind,g.scope_id,g.permissions_json,g.limits_json,g.state,g.revision,g.created_at,g.expires_at,g.last_used_at,t.display_name AS tenant_name,u.display_name AS owner_name,
+ COALESCE(sp.display_name,a.display_name,team.display_name,t.display_name,'Platform') AS scope_name
+ FROM agent_grants g JOIN users u ON u.id=g.user_id LEFT JOIN tenants t ON t.id=g.tenant_id
+ LEFT JOIN spaces sp ON g.scope_kind='space' AND sp.id=g.scope_id AND sp.tenant_id=g.tenant_id
+ LEFT JOIN apps a ON g.scope_kind='app' AND a.id=g.scope_id AND a.tenant_id=g.tenant_id
+ LEFT JOIN groups team ON g.scope_kind='team' AND team.id=g.scope_id AND team.tenant_id=g.tenant_id WHERE g.user_id=? ORDER BY g.created_at DESC,g.id LIMIT 50`, p.ID)
 }
 
 func mustJSON(t *testing.T, v any) string {

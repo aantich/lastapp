@@ -162,13 +162,13 @@ func pageOf[T any](info pageInfo, v []T) Page[T] {
 
 // pageRows is the shim for handlers not yet migrated to operations: it takes
 // the collection key from the request path and reports paging through ctx.
-func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]Row, error) {
+func pageRows[T any, P record[T]](ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]T, error) {
 	values := r.URL.Query()
 	key := path.Base(r.URL.Path)
 	if key == "recipients" && values.Get("type") == "team" {
 		key = "team-recipients"
 	}
-	page, e := pageQuery(ctx, q, pageRequest(values), collectionFor(key), query, args...)
+	page, e := pageScan[T, P](ctx, q, pageRequest(values), collectionFor(key), query, args...)
 	if e != nil {
 		return nil, e
 	}
@@ -178,7 +178,7 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 	return page.Items, nil
 }
 
-func sendPage(w http.ResponseWriter, r *http.Request, v []Row) {
+func sendPage[T any](w http.ResponseWriter, r *http.Request, v []T) {
 	info, _ := r.Context().Value(pageContextKey{}).(*pageInfo)
 	send(w, 200, Row{"items": v, "pagination": info})
 }
