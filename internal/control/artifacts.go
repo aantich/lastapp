@@ -83,23 +83,23 @@ func (s *Server) releaseRoutes() {
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }
 
-func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p Principal, app string) (appRecord, Workspace, error) {
+func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p Principal, app string) (appRecord, registry.Workspace, error) {
 	a, e := s.appRow(ctx, q, app)
 	if e != nil {
-		return appRecord{}, Workspace{}, e
+		return appRecord{}, registry.Workspace{}, e
 	}
 	if a.State != registry.StateActive {
-		return appRecord{}, Workspace{}, registry.Conflict("Restore the App before developing or releasing it.")
+		return appRecord{}, registry.Workspace{}, registry.Conflict("Restore the App before developing or releasing it.")
 	}
-	w, e := registry.ScanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=? AND w.state='ready'", a.SpaceID)
+	w, e := registry.ScanOne[registry.Workspace](ctx, q, "SELECT "+registry.WorkspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=? AND w.state='ready'", a.SpaceID)
 	if e != nil {
-		return appRecord{}, Workspace{}, registry.Missing()
+		return appRecord{}, registry.Workspace{}, registry.Missing()
 	}
 	if e = s.workspaceOwner(ctx, q, p, w); e != nil {
-		return appRecord{}, Workspace{}, e
+		return appRecord{}, registry.Workspace{}, e
 	}
 	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: a.TenantID, App: app}, true); e != nil {
-		return appRecord{}, Workspace{}, e
+		return appRecord{}, registry.Workspace{}, e
 	}
 	return a, w, nil
 }

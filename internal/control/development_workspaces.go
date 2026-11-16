@@ -145,40 +145,12 @@ func (s *Server) workspaceRoutes() {
 	s.api("POST /v1/apps/{app}/development-launch", s.developmentLaunch)
 }
 
-// Workspace is a development workspace. Read with its backing storage
-// (workspaceStorage), it also carries the database resource and its state;
-// the workspace view adds its item mappings.
-type Workspace struct {
-	BackingSpace     string              `json:"backing_space_id"`
-	BaseHash         string              `json:"base_hash"`
-	CreatedAt        time.Time           `json:"created_at"`
-	DatabaseResource *string             `json:"database_resource_id,omitempty"`
-	DatabaseState    *string             `json:"database_state,omitempty"`
-	Name             string              `json:"display_name"`
-	Error            *string             `json:"error_message"`
-	ID               string              `json:"id"`
-	Mappings         *[]workspaceMapping `json:"mappings,omitempty"`
-	OwnerGrant       *string             `json:"owner_agent_grant_id"`
-	Owner            string              `json:"owner_user_id"`
-	ProductionSpace  string              `json:"production_space_id"`
-	Revision         int64               `json:"revision"`
-	State            string              `json:"state"`
-	TenantID         string              `json:"tenant_id"`
-}
-
-// workspaceColumns selects a Workspace from development_workspaces w.
-const workspaceColumns = "w.backing_space_id,w.base_hash,w.created_at,w.display_name,w.error_message,w.id,w.owner_agent_grant_id,w.owner_user_id,w.production_space_id,w.revision,w.state,w.tenant_id"
-
-func (v *Workspace) ScanFields() []any {
-	return []any{&v.BackingSpace, &v.BaseHash, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.Owner, &v.ProductionSpace, &v.Revision, &v.State, &v.TenantID}
-}
-
 // workspaceStorage selects a Workspace with its backing database resource
 // and that resource's state; the query continues with a WHERE clause.
-const workspaceStorage = "SELECT " + workspaceColumns + ",sp.database_resource_id,d.state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id"
+const workspaceStorage = "SELECT " + registry.WorkspaceColumns + ",sp.database_resource_id,d.state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id"
 
-func scanWorkspaceStorage(ctx context.Context, q registry.Queryer, where string, args ...any) (Workspace, error) {
-	var v Workspace
+func scanWorkspaceStorage(ctx context.Context, q registry.Queryer, where string, args ...any) (registry.Workspace, error) {
+	var v registry.Workspace
 	return v, registry.Lookup(ctx, q, workspaceStorage+" "+where, args, append(v.ScanFields(), &v.DatabaseResource, &v.DatabaseState)...)
 }
 
@@ -199,18 +171,9 @@ func (v *WorkspaceItem) ScanFields() []any {
 	return []any{&v.BackingSpace, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.ProductionSpace, &v.Revision, &v.State}
 }
 
-// workspaceMapping maps a development record to its production counterpart.
-type workspaceMapping struct {
-	Development string `json:"development_id"`
-	Kind        string `json:"kind"`
-	Production  string `json:"production_id"`
-}
-
-func (v *workspaceMapping) ScanFields() []any { return []any{&v.Development, &v.Kind, &v.Production} }
-
 // workspaceIDs maps a workspace's development ids to production ids.
 func workspaceIDs(ctx context.Context, q registry.Queryer, workspace string) (map[string]string, error) {
-	mappings, e := registry.ScanAll[workspaceMapping](ctx, q, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=?", workspace)
+	mappings, e := registry.ScanAll[registry.WorkspaceMapping](ctx, q, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=?", workspace)
 	ids := map[string]string{}
 	for _, m := range mappings {
 		ids[m.Development] = m.Production
@@ -218,7 +181,7 @@ func workspaceIDs(ctx context.Context, q registry.Queryer, workspace string) (ma
 	return ids, e
 }
 
-func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p Principal, id string) (Workspace, error) {
+func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p Principal, id string) (registry.Workspace, error) {
 	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.id=?", id)
 	if e != nil {
 		return v, e
@@ -226,7 +189,7 @@ func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p Princip
 	return v, s.workspaceOwner(ctx, q, p, v)
 }
 
-func (s *Checker) workspaceOwner(ctx context.Context, q registry.Queryer, p Principal, v Workspace) error {
+func (s *Checker) workspaceOwner(ctx context.Context, q registry.Queryer, p Principal, v registry.Workspace) error {
 	if v.Owner != p.ID {
 		return registry.Missing()
 	}
@@ -258,7 +221,7 @@ func (s *Checker) workspaceGuard(ctx context.Context, q registry.Queryer, p Prin
 	if space == "" {
 		return nil
 	}
-	v, e := registry.ScanOne[Workspace](ctx, q, "SELECT "+workspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", space)
+	v, e := registry.ScanOne[registry.Workspace](ctx, q, "SELECT "+registry.WorkspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", space)
 	if e != nil {
 		if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
 			return nil
@@ -296,35 +259,35 @@ func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page
 	return pageScan[WorkspaceItem](ctx, s.DB, page, collectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
 }
 
-func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (Workspace, error) {
+func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (registry.Workspace, error) {
 	p := actor.Principal
 	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
 		return v, e
 	}
-	mappings, e := registry.ScanAll[workspaceMapping](ctx, s.DB, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v.ID)
+	mappings, e := registry.ScanAll[registry.WorkspaceMapping](ctx, s.DB, "SELECT development_id,kind,production_id FROM workspace_items WHERE workspace_id=? ORDER BY kind,development_id", v.ID)
 	v.Mappings = &mappings
 	return v, e
 }
 
-func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string, in workspaceCreateInput) (Workspace, error) {
+func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string, in workspaceCreateInput) (registry.Workspace, error) {
 	p := actor.Principal
 	if in.ID == "" {
 		in.ID = actor.operationID()
 	}
 	if e := registry.ID(in.ID); e != nil {
-		return Workspace{}, e
+		return registry.Workspace{}, e
 	}
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
-		return Workspace{}, registry.Bad("Enter a workspace name (maximum 160 bytes).")
+		return registry.Workspace{}, registry.Bad("Enter a workspace name (maximum 160 bytes).")
 	}
 	res := Resource{Space: space}
 	var parent *string
 	if e := registry.Lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant, &parent); e != nil {
-		return Workspace{}, e
+		return registry.Workspace{}, e
 	}
 	if parent != nil {
-		return Workspace{}, registry.Bad("Workspaces cannot contain workspaces.")
+		return registry.Workspace{}, registry.Bad("Workspaces cannot contain workspaces.")
 	}
 	e := s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
 		var owned, total int
@@ -379,7 +342,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 		return auditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, registry.Row{"production_space_id": res.Space, "backing_space_id": backing})
 	})
 	if e != nil {
-		return Workspace{}, e
+		return registry.Workspace{}, e
 	}
 	return s.Workspace(ctx, actor, in.ID)
 }
@@ -389,15 +352,15 @@ type entityVersionRef struct{ Entity, Version string }
 
 func (v *entityVersionRef) ScanFields() []any { return []any{&v.Entity, &v.Version} }
 
-func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (Workspace, error) {
+func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (registry.Workspace, error) {
 	p := actor.Principal
 	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
-		return Workspace{}, e
+		return registry.Workspace{}, e
 	}
 	rev := revision
 	if rev < 1 {
-		return Workspace{}, revisionRequired()
+		return registry.Workspace{}, revisionRequired()
 	}
 	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, func(tx *sql.Tx) error {
 		v, e = s.workspaceRow(ctx, tx, p, workspace)
@@ -441,7 +404,7 @@ func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace str
 		return auditAs(ctx, tx, actor, v.TenantID, "workspace."+state, "workspace", v.ID, registry.Row{})
 	})
 	if e != nil {
-		return Workspace{}, e
+		return registry.Workspace{}, e
 	}
 	return s.Workspace(ctx, actor, workspace)
 }
