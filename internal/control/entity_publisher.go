@@ -15,34 +15,34 @@ import (
 )
 
 func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (*sql.DB, error) {
-	v, e := row(ctx, s.DB, "SELECT d.*,t.canonical_host,t.port,t.tls_mode,t.provisioning_credentials_enc,t.state AS target_state FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=? AND d.state='ready' AND t.state='active'", resource)
+	v, e := scanOne[resourceAccess](ctx, s.DB, "SELECT "+resourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=? AND d.state='ready' AND t.state='active'", resource)
 	if e != nil {
 		return nil, e
 	}
 	var cred credentials
-	purpose, record, tenant, enc := "database", resource, str(v["tenant_id"]), v["runtime_credentials_enc"]
+	purpose, record, tenant, enc := "database", resource, v.TenantID, v.Runtime
 	if schema {
-		if v["management_mode"] == "managed" {
-			purpose, record, tenant, enc = "target", str(v["target_id"]), "", v["provisioning_credentials_enc"]
+		if v.Mode == "managed" {
+			purpose, record, tenant, enc = "target", v.TargetID, "", v.Provisioning
 		} else {
-			purpose, enc = "schema", v["schema_credentials_enc"]
+			purpose, enc = "schema", v.Schema
 			if enc == nil {
 				return nil, bad("Storage setup required: a Tenant administrator must supply separate schema credentials.")
 			}
 		}
 	}
-	if e = s.unseal(purpose, record, tenant, []byte(str(enc)), &cred); e != nil {
+	if e = s.unseal(purpose, record, tenant, enc, &cred); e != nil {
 		return nil, e
 	}
-	return s.targetDB(ctx, v, cred, str(v["database_name"]))
+	return s.targetDB(ctx, v.databaseEndpoint, cred, v.Name)
 }
 
 func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(), error) {
-	v, e := row(ctx, s.DB, "SELECT d.credential_generation FROM database_resources d JOIN database_targets t ON t.id=d.target_id AND t.state='active' WHERE d.id=? AND d.state='ready'", resource)
-	if e != nil {
+	var generation string
+	if e := lookup(ctx, s.DB, "SELECT d.credential_generation FROM database_resources d JOIN database_targets t ON t.id=d.target_id AND t.state='active' WHERE d.id=? AND d.state='ready'", []any{resource}, &generation); e != nil {
 		return nil, nil, e
 	}
-	return s.dataPools.Acquire(ctx, resource+":"+str(v["credential_generation"]), func() (*sql.DB, error) { return s.businessDB(ctx, resource, false) })
+	return s.dataPools.Acquire(ctx, resource+":"+generation, func() (*sql.DB, error) { return s.businessDB(ctx, resource, false) })
 }
 
 func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*string) (bool, error) {

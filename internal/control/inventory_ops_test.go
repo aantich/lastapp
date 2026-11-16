@@ -362,7 +362,7 @@ func TestStorageOperations(t *testing.T) {
 		t.Fatal("platform target update", ref, e)
 	}
 	available, e := s.storage.AvailableTargets(ctx, human, tenant, true, PageRequest{})
-	if e != nil || len(available.Items) != 1 || str(available.Items[0]["id"]) != allowed {
+	if e != nil || len(available.Items) != 1 || available.Items[0].ID != allowed {
 		t.Fatal("available targets", available, e)
 	}
 	_, e = s.storage.CreateTarget(ctx, platform, targetInput{ID: newID(), Name: "Bad", Host: "db.example", Port: 3306, TLS: "none"})
@@ -374,7 +374,7 @@ func TestStorageOperations(t *testing.T) {
 	if ref, e := s.storage.CreateDatabase(ctx, human, tenant, in); e != nil || ref.ID != record {
 		t.Fatal("register database", ref, e)
 	}
-	if v, e := s.storage.Database(ctx, human, tenant, record); e != nil || str(v["state"]) != "pending" {
+	if v, e := s.storage.Database(ctx, human, tenant, record); e != nil || v.State != "pending" {
 		t.Fatal("database", v, e)
 	}
 	if page, e := s.storage.Databases(ctx, human, tenant, PageRequest{}); e != nil || len(page.Items) == 0 {

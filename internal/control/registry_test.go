@@ -328,6 +328,40 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameAudit(request, "group.updated", "after", "SELECT id,display_name,state,revision FROM groups WHERE id=?", nil, team.ID)
+
+	// Database targets and resources.
+	if _, e = s.DB.Exec("UPDATE database_resources SET last_verified_at=UTC_TIMESTAMP(6),last_error_code='old' WHERE tenant_id=? AND state='ready'", tenant); e != nil {
+		t.Fatal(e)
+	}
+	targets, e := s.storage.Targets(ctx, root, PageRequest{Limit: 200})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, targets.Items, "SELECT id,display_name,canonical_host,port,tls_mode,state,managed_enabled,revision,created_at FROM database_targets ORDER BY display_name,id LIMIT 200")
+	for _, managed := range []bool{false, true} {
+		available, e := s.storage.AvailableTargets(ctx, admin, tenant, managed, PageRequest{Limit: 200})
+		if e != nil {
+			t.Fatal(e)
+		}
+		filter := ""
+		if managed {
+			filter = " AND managed_enabled=1"
+		}
+		sameJSON(t, s.DB, available.Items, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name,id LIMIT 200")
+	}
+	databaseSQL := "SELECT id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at FROM database_resources WHERE tenant_id=?"
+	databases, e := s.storage.Databases(ctx, admin, tenant, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, databases.Items, databaseSQL+" ORDER BY created_at DESC,id", tenant)
+	for _, d := range databases.Items {
+		one, e := s.storage.Database(ctx, admin, tenant, d.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		sameJSON(t, s.DB, one, databaseSQL+" AND id=?", tenant, d.ID)
+	}
 }
 
 func mustJSON(t *testing.T, v any) string {

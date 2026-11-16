@@ -270,7 +270,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if e := s.unseal("database", registered, tenant, enc, &runtime); e != nil {
 		t.Fatal(e)
 	}
-	targetRow, _ := row(ctx, s.DB, "SELECT * FROM database_targets WHERE id=?", target)
+	targetRow, _ := targetEndpoint(ctx, s.DB, target)
 	db, e := s.targetDB(ctx, targetRow, runtime, fixtureDB)
 	if e != nil {
 		t.Fatal(e)
