@@ -14,6 +14,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -53,7 +54,7 @@ func TestOIDCTransportAndOrigins(t *testing.T) {
 	if _, e := transport.RoundTrip(r); e == nil || called {
 		t.Fatal("insecure OIDC request reached transport")
 	}
-	s := &Server{Config: Config{PublicURL: "https://admin.example"}}
+	s := &Server{Config: config.Config{PublicURL: "https://admin.example"}}
 	for _, endpoint := range []string{"http://issuer.example/token", "https://user:password@issuer.example/token", "https://issuer.example/token#fragment"} {
 		if secureEndpoint(endpoint) {
 			t.Fatalf("accepted %s", endpoint)
@@ -75,7 +76,7 @@ func TestOIDCTransportAndOrigins(t *testing.T) {
 		t.Fatal("production cookie lacks host prefix")
 	}
 	for _, origin := range []string{"https://admin.example/#fragment", "https://admin.example?query", "https://user@admin.example", "javascript:alert(1)"} {
-		if validOrigin(origin, false) {
+		if config.ValidOrigin(origin, false) {
 			t.Fatalf("accepted malformed origin %s", origin)
 		}
 	}

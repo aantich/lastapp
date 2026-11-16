@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -90,7 +91,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 		reject("invalid_client_metadata", "Unsupported OAuth scope.")
 		return
 	}
-	client := AgentClient{ID: "lastapp-client-" + registry.NewID(), Name: in.Name, Redirects: in.Redirects, Scope: strings.Join(scopes, " ")}
+	client := config.AgentClient{ID: "lastapp-client-" + registry.NewID(), Name: in.Name, Redirects: in.Redirects, Scope: strings.Join(scopes, " ")}
 	metadata, _ := json.Marshal(client)
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {

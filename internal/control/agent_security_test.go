@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -361,7 +362,7 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	// An approved and an in-progress client must survive cleanup, even with old timestamps.
 	approved, pending := "lastapp-client-"+registry.NewID(), "lastapp-client-"+registry.NewID()
 	for _, key := range []string{approved, pending} {
-		metadata, _ := json.Marshal(AgentClient{ID: key, Name: "Protected", Redirects: []string{"http://localhost/cb"}})
+		metadata, _ := json.Marshal(config.AgentClient{ID: key, Name: "Protected", Redirects: []string{"http://localhost/cb"}})
 		if _, e := s.DB.Exec("INSERT INTO agent_oauth_clients(id,metadata_json,created_at,last_used_at) VALUES(?,?,?,?)", key, metadata, old, old); e != nil {
 			t.Fatal(e)
 		}

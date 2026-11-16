@@ -27,6 +27,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
@@ -35,26 +36,6 @@ import (
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
-
-type Config struct {
-	WorkspaceDatabaseTarget string        `json:"workspace_database_target_id"`
-	ArtifactDirectory       string        `json:"artifact_directory"`
-	AgentClients            []AgentClient `json:"agent_clients"`
-	DevelopmentUIOrigin     string        `json:"development_ui_origin"`
-	AppOrigin               string        `json:"app_origin"`
-	Address                 string        `json:"address"`
-	PublicURL               string        `json:"public_url"`
-	RegistryDSN             string        `json:"registry_dsn"`
-	EncryptionKey           string        `json:"encryption_key"`
-	EncryptionKeyID         string        `json:"encryption_key_id"`
-	OIDCIssuer              string        `json:"oidc_issuer"`
-	OIDCClientID            string        `json:"oidc_client_id"`
-	OIDCClientSecret        string        `json:"oidc_client_secret"`
-	Development             bool          `json:"development"`
-	AllowedNetworks         []string      `json:"allowed_networks"`
-	TrustedProxies          []string      `json:"trusted_proxies"`
-	RuntimeAccountHost      string        `json:"runtime_account_host"`
-}
 
 type Server struct {
 	*access.Checker
@@ -74,7 +55,7 @@ type Server struct {
 	passwordSlots          chan struct{}
 	trustedProxies         []netip.Prefix
 	DB                     *sql.DB
-	Config                 Config
+	Config                 config.Config
 	key                    cipher.AEAD
 	registryName           string
 	mux                    *http.ServeMux
@@ -88,8 +69,8 @@ type Server struct {
 	authoring              *authoring
 }
 
-func LoadConfig(path string) (Config, error) {
-	var c Config
+func LoadConfig(path string) (config.Config, error) {
+	var c config.Config
 	b, e := os.ReadFile(path)
 	if e != nil {
 		return c, e
@@ -98,7 +79,7 @@ func LoadConfig(path string) (Config, error) {
 	return c, e
 }
 
-func Open(c Config) (*Server, error) {
+func Open(c config.Config) (*Server, error) {
 	if c.WorkspaceDatabaseTarget != "" && registry.ID(c.WorkspaceDatabaseTarget) != nil {
 		return nil, fmt.Errorf("invalid workspace_database_target_id")
 	}
@@ -118,17 +99,17 @@ func Open(c Config) (*Server, error) {
 	if e != nil {
 		return nil, e
 	}
-	if !validOrigin(c.PublicURL, c.Development) {
+	if !config.ValidOrigin(c.PublicURL, c.Development) {
 		return nil, fmt.Errorf("public_url must be an origin (loopback in development)")
 	}
-	if c.DevelopmentUIOrigin != "" && (!c.Development || !validOrigin(c.DevelopmentUIOrigin, true)) {
+	if c.DevelopmentUIOrigin != "" && (!c.Development || !config.ValidOrigin(c.DevelopmentUIOrigin, true)) {
 		return nil, fmt.Errorf("development_ui_origin requires development mode and a loopback origin")
 	}
 	adminURL, _ := url.Parse(c.PublicURL)
 	appURL, _ := url.Parse(c.AppOrigin)
 	appNamespace := appHostNamespace(c.AppOrigin)
 	adminHost := strings.TrimSuffix(strings.ToLower(adminURL.Hostname()), ".")
-	if c.AppOrigin != "" && (appURL == nil || !validOrigin(c.AppOrigin, false) || adminHost == strings.TrimPrefix(appNamespace, ".") || appNamespace != "" && strings.HasSuffix(adminHost, appNamespace) || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
+	if c.AppOrigin != "" && (appURL == nil || !config.ValidOrigin(c.AppOrigin, false) || adminHost == strings.TrimPrefix(appNamespace, ".") || appNamespace != "" && strings.HasSuffix(adminHost, appNamespace) || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
 		return nil, fmt.Errorf("app_origin must use a separate secure host namespace that does not contain public_url")
 	}
 	host, _, e := net.SplitHostPort(c.Address)

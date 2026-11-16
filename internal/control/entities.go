@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -331,7 +332,7 @@ func fieldInventory(fields []entity.Field) []registry.Row {
 type authoring struct {
 	db           *sql.DB
 	run          *op.Runner
-	config       *Config
+	config       *config.Config
 	queue        func(ctx context.Context, tx *sql.Tx, p access.Principal, v EntityDefinition, version string, candidates map[string]bool) error
 	actorContext func(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error)
 }
@@ -901,7 +902,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a op.Actor, app string, i
 			u, _ := url.Parse(in.Origin)
 			admin, _ := url.Parse(v.config.PublicURL)
 			loopback := u != nil && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
-			if !validOrigin(in.Origin, false) || u == nil || len(in.Origin) > 500 || u.Scheme != "https" && !((v.config.Development || workspace) && loopback) || u.Hostname() != strings.ToLower(u.Hostname()) || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(admin.Hostname(), ".")) {
+			if !config.ValidOrigin(in.Origin, false) || u == nil || len(in.Origin) > 500 || u.Scheme != "https" && !((v.config.Development || workspace) && loopback) || u.Hostname() != strings.ToLower(u.Hostname()) || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(admin.Hostname(), ".")) {
 				return registry.Bad("App origin must use a separate host from the console.")
 			}
 		}

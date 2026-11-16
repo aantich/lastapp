@@ -17,6 +17,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -119,7 +120,7 @@ type storage struct {
 	db           *sql.DB
 	run          *op.Runner
 	seal         func(purpose, record, tenant string, value any) ([]byte, error)
-	config       *Config
+	config       *config.Config
 	registryName string
 }
 

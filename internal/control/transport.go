@@ -3,7 +3,6 @@ package control
 import (
 	"crypto/tls"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,18 +20,6 @@ func registryTransport(cfg *mariadb.Config, development bool) error {
 	}
 	cfg.TLS.MinVersion = max(cfg.TLS.MinVersion, tls.VersionTLS12)
 	return nil
-}
-
-func validOrigin(raw string, loopback bool) bool {
-	u, e := url.Parse(raw)
-	if e != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return false
-	}
-	if loopback {
-		ip := net.ParseIP(u.Hostname())
-		return ip != nil && ip.IsLoopback()
-	}
-	return true
 }
 
 func secureEndpoint(raw string) bool {

@@ -17,16 +17,10 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
-
-type AgentClient struct {
-	ID        string   `json:"client_id"`
-	Name      string   `json:"client_name"`
-	Redirects []string `json:"redirect_uris"`
-	Scope     string   `json:"scope,omitempty"`
-}
 
 func (s *Server) mcpURL() string { return s.Config.PublicURL + "/mcp" }
 func (s *Server) agentRoutes() {
@@ -62,23 +56,23 @@ func validAgentRedirect(raw string) bool {
 	return u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
 }
 
-func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClient, error) {
+func (s *Server) resolveAgentClient(ctx context.Context, key string) (config.AgentClient, error) {
 	for _, c := range s.Config.AgentClients {
 		if c.ID == key {
 			return c, nil
 		}
 	}
 	if s.Config.Development && key == "lastapp-development" {
-		return AgentClient{ID: key, Name: "Local development agent", Redirects: []string{"http://127.0.0.1:8790/callback"}}, nil
+		return config.AgentClient{ID: key, Name: "Local development agent", Redirects: []string{"http://127.0.0.1:8790/callback"}}, nil
 	}
 	if strings.HasPrefix(key, "lastapp-client-") {
 		var metadata []byte
 		if e := s.DB.QueryRowContext(ctx, "SELECT metadata_json FROM agent_oauth_clients c WHERE id=? AND (created_at>? OR EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id))", key, time.Now().UTC().Add(-agentUnapprovedClientLifetime)).Scan(&metadata); e != nil {
-			return AgentClient{}, registry.Bad("Unknown OAuth client. Reconnect from your agent to register automatically.")
+			return config.AgentClient{}, registry.Bad("Unknown OAuth client. Reconnect from your agent to register automatically.")
 		}
-		var c AgentClient
+		var c config.AgentClient
 		if e := json.Unmarshal(metadata, &c); e != nil || c.ID != key {
-			return AgentClient{}, registry.Bad("Invalid OAuth client metadata.")
+			return config.AgentClient{}, registry.Bad("Invalid OAuth client metadata.")
 		}
 		return c, nil
 	}
@@ -86,7 +80,7 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 	// proxies, local/private addresses or unbounded bodies are accepted.
 	u, e := url.Parse(key)
 	if e != nil || len(key) > 500 || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Hostname() == "" {
-		return AgentClient{}, registry.Bad("Use a pre-registered client ID or a public HTTPS client metadata URL.")
+		return config.AgentClient{}, registry.Bad("Use a pre-registered client ID or a public HTTPS client metadata URL.")
 	}
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, e := net.SplitHostPort(address)
@@ -113,17 +107,17 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (AgentClien
 	req.Header.Set("Accept", "application/json")
 	response, e := client.Do(req)
 	if e != nil {
-		return AgentClient{}, registry.Bad("Client metadata could not be verified.")
+		return config.AgentClient{}, registry.Bad("Client metadata could not be verified.")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return AgentClient{}, registry.Bad("Client metadata could not be verified.")
+		return config.AgentClient{}, registry.Bad("Client metadata could not be verified.")
 	}
 	b, e := io.ReadAll(io.LimitReader(response.Body, agentMaxClientMetadata+1))
 	if e != nil || len(b) > agentMaxClientMetadata {
-		return AgentClient{}, registry.Bad("Client metadata exceeds its limit.")
+		return config.AgentClient{}, registry.Bad("Client metadata exceeds its limit.")
 	}
-	var c AgentClient
+	var c config.AgentClient
 	if json.Unmarshal(b, &c) != nil || c.ID != key || c.Name == "" || len(c.Name) > 160 || len(c.Redirects) == 0 || len(c.Redirects) > agentMaxClientRedirects {
 		return c, registry.Bad("Invalid client metadata document.")
 	}
