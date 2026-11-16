@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/pressly/goose/v3"
@@ -62,7 +62,7 @@ func TestPrepareFixture(t *testing.T) {
 	}
 	// The runtime grants come from the embedded migrations (the same source as
 	// `lastapp runtime-grants`); confirm they name exactly the migrated tables.
-	tables, e := s.DB.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema='lastapp_control' AND table_type='BASE TABLE' AND table_name<>? ORDER BY table_name", goose.TableName())
+	tables, e := s.DB.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema='lastapp_control' AND table_type='BASE TABLE' AND table_name<>?", goose.TableName())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -82,7 +82,11 @@ func TestPrepareFixture(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if strings.Join(parsed, ",") != strings.Join(migrated, ",") {
+	// Compare in Go byte order: the server's collation orders "apps" and
+	// "app_builds" differently.
+	slices.Sort(parsed)
+	slices.Sort(migrated)
+	if !slices.Equal(parsed, migrated) {
 		t.Fatalf("migration-derived tables %v differ from migrated tables %v", parsed, migrated)
 	}
 	grants, e := RuntimeGrantStatements("lastapp_control", "%")
