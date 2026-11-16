@@ -912,3 +912,19 @@ exercised by these local checks. No commit, push or remote deployment was made.
   `go test -race -count=1 ./internal/...` on the development MariaDB: 5
   packages, 78 top-level tests passed, 1 skipped (`TestPrepareFixture`, e2e
   only); golden snapshots unchanged.
+
+## Typed registry review follow-ups — 16 November 2026
+
+- `TestAccountDeadlineRenewsOnlyAfterDerivation`: choosing an existing account
+  keeps the request deadline; only a derived password renews it
+  (`preparedAccount.deadline`, used by membership, administrator and Tenant
+  creation).
+- `TestEntityRuntime` now makes the publisher's workspace read fail with a
+  database error: the job returns the error and the version stays `queued`.
+  With the previous "any error means no workspace" code it fails.
+- Rebased on the updated `refactor/operations`. `go build`, `go vet`,
+  golangci-lint v2.15.0 (0 issues), `validate_schema.py --check`,
+  `verify_driver.py` passed; `go test -race -count=1 ./internal/...` on the
+  development MariaDB: 5 packages, 82 top-level tests passed, 1 skipped
+  (`TestPrepareFixture`); golden snapshots unchanged. `make e2e`: **34 of 34**
+  Playwright scenarios passed in 2.6 minutes; no e2e listener remained.
