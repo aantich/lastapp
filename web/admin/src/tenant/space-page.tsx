@@ -1,4 +1,6 @@
-import { lazy, Suspense } from "react";
+import { Suspense, type ComponentProps } from "react";
+import { retryableLazy } from "../retryable-lazy";
+import type { EntityDesigner as Designer } from "../entity-designer/designer";
 import { DevelopmentWorkspaces } from "../development-workspaces";
 import { Collection } from "../collection";
 import { AccessControl } from "../access-control";
@@ -6,7 +8,7 @@ import { status as badge } from "../console-forms";
 import { nameColumn, statusColumn, type TenantScreen } from "./screen";
 
 // The entity designer is the console's largest screen; load it on first use.
-const EntityDesigner = lazy(() =>
+const EntityDesigner = retryableLazy<ComponentProps<typeof Designer>>(() =>
   import("../entity-designer/designer").then((m) => ({
     default: m.EntityDesigner,
   })),

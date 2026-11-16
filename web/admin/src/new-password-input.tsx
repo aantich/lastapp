@@ -1,10 +1,5 @@
 import { useEffect, useRef, type InputHTMLAttributes } from "react";
-import { useConsoleConfig } from "./console-config";
-import type { PasswordPolicy } from "./api-types";
-
-export function usePasswordPolicy() {
-  return useConsoleConfig().config.password_policy;
-}
+import { usePasswordPolicy } from "./console-config";
 
 // Native minlength/maxlength count UTF-16 units; the API counts Unicode code
 // points. Use one shared control with the server's limits for every NEW password.
@@ -24,15 +19,4 @@ export function NewPasswordInput(
     );
   }, [props.value, policy]);
   return <input {...props} ref={input} />;
-}
-
-export function generatePassword(policy: PasswordPolicy) {
-  // Prefer 40 hex characters of random entropy, bounded by the server policy.
-  const length = Math.min(policy.max_length, Math.max(policy.min_length, 40));
-  return Array.from(
-    crypto.getRandomValues(new Uint8Array(Math.ceil(length / 2))),
-    (byte) => byte.toString(16).padStart(2, "0"),
-  )
-    .join("")
-    .slice(0, length);
 }

@@ -1,22 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import type { Item, Page } from "./api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
+import { apiKey, useApiQuery } from "./query";
 import { ListboxPopup } from "./select";
-export function RemoteSelect({
-  path,
-  label,
-  value,
-  onChange,
-  initial,
-  required,
-  valueKey = "id",
-  labelKey = "display_name",
-  excludeInactive = false,
-  excludeControl = false,
-  excludePlatform = false,
-}: {
+
+type RemoteSelectProps = {
   path: string;
   label: string;
   value: string;
@@ -28,20 +19,34 @@ export function RemoteSelect({
   excludeInactive?: boolean;
   excludeControl?: boolean;
   excludePlatform?: boolean;
-}) {
+};
+
+// A searchable, paged combobox over a list API. A different path is a
+// different list, so it starts with a fresh search and selection.
+export function RemoteSelect(props: RemoteSelectProps) {
+  return <PathSelect key={props.path} {...props} />;
+}
+
+function PathSelect({
+  path,
+  label,
+  value,
+  onChange,
+  initial,
+  required,
+  valueKey = "id",
+  labelKey = "display_name",
+  excludeInactive = false,
+  excludeControl = false,
+  excludePlatform = false,
+}: RemoteSelectProps) {
   const root = useRef<HTMLSpanElement>(null),
     input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(""),
-    [page, setPage] = useState(1),
-    [options, setOptions] = useState<Option[]>(initial),
-    [selected, setSelected] = useState<Option | undefined>(
-      initial.find((o) => o.value === value),
-    ),
-    [more, setMore] = useState(false),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const list = useListbox(options, choose, root),
-    { open, setOpen, setActive } = list;
+    [search, setSearch] = useState(""),
+    [chosen, setChosen] = useState<Option>();
+  const url = (params: string) =>
+    path + (path.includes("?") ? "&" : "?") + params;
   const convert = (items: Item[]) =>
     items
       .filter(
@@ -59,100 +64,71 @@ export function RemoteSelect({
           String(x[labelKey] || "") +
           (x.email && labelKey === "display_name" ? ` (${x.email})` : ""),
       }));
+  // Typing waits briefly before searching so each keystroke is not a request.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(query), 150);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const openState = useState(false),
+    [open, setOpen] = openState;
+  // One cached result per search; "Load more" appends the next page. The
+  // AbortSignal cancels a superseded or abandoned request.
+  const results = useInfiniteQuery({
+    queryKey: [...apiKey(path), "search", search],
+    queryFn: ({ pageParam, signal }) =>
+      api<Page>(
+        url(`page=${pageParam}&limit=50&q=${encodeURIComponent(search)}`),
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, _pages, page) =>
+      last.pagination?.has_more ? page + 1 : undefined,
+    enabled: open,
+  });
+  const typing = query !== search;
+  const options: Option[] = typing
+    ? []
+    : results.data
+      ? results.data.pages
+          .flatMap((p) => convert(p.items))
+          .filter(
+            (o, i, all) => all.findIndex((x) => x.value === o.value) === i,
+          )
+      : search
+        ? []
+        : initial;
+  const busy = typing || results.isPending || results.isFetchingNextPage,
+    more = !typing && results.hasNextPage,
+    error = results.error?.message || "";
+  // A value set from outside that is not among the loaded options is looked
+  // up by search so the input can show its label.
+  const known =
+    (chosen?.value === value ? chosen : undefined) ||
+    initial.find((o) => o.value === value) ||
+    options.find((o) => o.value === value);
+  const lookup = useApiQuery<Page>(
+    value && !known ? url("limit=50&q=" + encodeURIComponent(value)) : null,
+  );
+  const selected = value
+    ? known ||
+      (lookup.data && convert(lookup.data.items).find((o) => o.value === value))
+    : undefined;
+  const list = useListbox(options, choose, root, openState),
+    { setActive } = list;
   useEffect(() => {
     input.current?.setCustomValidity(
       required && !value ? "Choose an item from the results." : "",
     );
   }, [required, value]);
-  useEffect(() => {
-    setOpen(false);
-    setQuery("");
-    setPage(1);
-    setOptions(initial);
-    setSelected(initial.find((o) => o.value === value));
-  }, [path]);
-  useEffect(() => {
-    if (!value) {
-      setSelected(undefined);
-      return;
-    }
-    const known =
-      initial.find((o) => o.value === value) ||
-      options.find((o) => o.value === value);
-    if (known) {
-      setSelected(known);
-      return;
-    }
-    let live = true;
-    api<Page>(
-      path +
-        (path.includes("?") ? "&" : "?") +
-        "limit=50&q=" +
-        encodeURIComponent(value),
-    )
-      .then((v) => {
-        if (live) setSelected(convert(v.items).find((o) => o.value === value));
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [value, path]);
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    setBusy(true);
-    const timer = setTimeout(
-      () =>
-        api<Page>(
-          path +
-            (path.includes("?") ? "&" : "?") +
-            `page=${page}&limit=50&q=${encodeURIComponent(query)}`,
-        )
-          .then((v) => {
-            if (!live) return;
-            const next = convert(v.items);
-            setOptions((old) =>
-              page === 1
-                ? next
-                : [
-                    ...old,
-                    ...next.filter(
-                      (n) => !old.some((o) => o.value === n.value),
-                    ),
-                  ],
-            );
-            setMore(!!v.pagination?.has_more);
-            setError("");
-          })
-          .catch((e) => {
-            if (live) setError(e.message);
-          })
-          .finally(() => {
-            if (live) setBusy(false);
-          }),
-      150,
-    );
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [
-    path,
-    open,
-    page,
-    query,
-    valueKey,
-    labelKey,
-    excludeInactive,
-    excludeControl,
-    excludePlatform,
-  ]);
   function choose(o: Option) {
-    setSelected(o);
+    setChosen(o);
     onChange(o.value);
     setOpen(false);
     setQuery("");
+    setSearch("");
   }
   return (
     <span className="search-combobox" ref={root}>
@@ -174,15 +150,11 @@ export function RemoteSelect({
           onFocus={() => {
             setOpen(true);
             setQuery("");
-            setPage(1);
+            setSearch("");
           }}
           onChange={(e) => {
             setOpen(true);
             setQuery(e.target.value);
-            setOptions([]);
-            setMore(false);
-            setBusy(true);
-            setPage(1);
             setActive(0);
             if (value) onChange("");
           }}
@@ -209,7 +181,7 @@ export function RemoteSelect({
               type="button"
               className="text-button"
               disabled={busy}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => void results.fetchNextPage()}
             >
               Load more
             </button>

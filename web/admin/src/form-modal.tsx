@@ -4,11 +4,8 @@ import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
 import { NumberInput } from "./number-input";
 import { useDialogFocus } from "./dialog";
-import {
-  NewPasswordInput,
-  usePasswordPolicy,
-  generatePassword,
-} from "./new-password-input";
+import { NewPasswordInput } from "./new-password-input";
+import { generatePassword, usePasswordPolicy } from "./console-config";
 import { useAction } from "./use-action";
 import type { Item } from "./api-types";
 export type Field = {
