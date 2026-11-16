@@ -80,7 +80,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			return tx.Commit()
 		}
 		if v["state"] == "preparing" {
-			defs, e := rows(attempt, q, "SELECT * FROM entity_definitions WHERE space_id=? ORDER BY id", v["space_id"])
+			defs, e := scanAll[EntityDefinition](attempt, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v["space_id"])
 			if e != nil {
 				return e
 			}
@@ -105,11 +105,13 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 				}
 			}
 			for _, d := range plan.Snapshot.Entities {
-				current, e := row(attempt, tx, "SELECT e.*,ev.definition_hash AS active_hash FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", d.ID)
+				var current EntityDefinition
+				var activeHash string
+				e := lookup(attempt, tx, "SELECT "+prefixed("e", entityColumns)+",COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, append(current.fields(), &activeHash)...)
 				if e != nil {
 					return e
 				}
-				if str(current["active_hash"]) == entity.Hash(d.Definition) {
+				if activeHash == entity.Hash(d.Definition) {
 					continue
 				}
 				if e = s.queueDefinition(attempt, tx, p, current, plan.Versions[d.ID], candidates); e != nil {

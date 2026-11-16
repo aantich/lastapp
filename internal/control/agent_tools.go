@@ -792,7 +792,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 			return nil, e
 		}
 		call = func(ctx context.Context, a Actor) (any, error) {
-			d, e := defOf(v["draft_json"])
+			d, e := v.draft()
 			if e != nil {
 				return nil, e
 			}
@@ -895,7 +895,7 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 		return nil, e
 	}
 	if in.Definition == nil {
-		d, e := defOf(v["draft_json"])
+		d, e := v.draft()
 		if e != nil {
 			return nil, e
 		}
@@ -908,10 +908,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	if e != nil {
 		return nil, e
 	}
-	result["draft_revision"] = v["revision"]
+	result["draft_revision"] = v.Revision
 	result["candidate_hash"] = entity.Hash(in.Definition)
 	result["publication_authority_required"] = []string{"entities.publish"}
-	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v["draft_json"]), "published_version": v["active_version_id"], "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
+	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v.Draft), "published_version": v.ActiveVersion, "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
 	cases := []Row{}
 	for _, c := range in.Cases {
 		data, e := s.authoring.TestEntity(ctx, a, in.Entity, entityTestInput{Definition: *in.Definition, App: c.App, User: c.User, Operation: c.Operation, Record: c.Record, Values: c.Values})

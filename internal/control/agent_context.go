@@ -69,7 +69,50 @@ func (s *Server) toolAgentDescribe(ctx context.Context, p Principal, raw json.Ra
 	}
 }
 
-func agentCollection(items []Row, in agentReadInput) (Row, error) {
+// agentEntity is a Space entity in an agent's entity inventory, summarizing
+// its draft.
+type agentEntity struct {
+	ActiveVersion  *string `json:"active_version_id"`
+	Hash           *string `json:"definition_hash"`
+	Description    string  `json:"description"`
+	Fields         []Row   `json:"draft_fields"`
+	Relationships  []Row   `json:"draft_relationships"`
+	Key            string  `json:"entity_key"`
+	ID             string  `json:"id"`
+	Label          string  `json:"label"`
+	PendingVersion *string `json:"pending_version_id"`
+	Revision       int64   `json:"revision"`
+	State          string  `json:"state"`
+	draft          jsonValue
+}
+
+func (v *agentEntity) fields() []any {
+	return []any{&v.ActiveVersion, &v.Hash, &v.draft, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
+}
+
+func (v agentEntity) searchText() string {
+	return searchFields(v.ID, v.Label, "", "", v.Key, "", v.Description)
+}
+
+// agentPermission is a Space data permission in an agent's inventory.
+type agentPermission struct {
+	Code        string  `json:"code"`
+	Description string  `json:"description"`
+	EntityID    *string `json:"entity_id"`
+	ID          string  `json:"id"`
+	State       string  `json:"state"`
+	VersionID   *string `json:"version_id"`
+}
+
+func (v *agentPermission) fields() []any {
+	return []any{&v.Code, &v.Description, &v.EntityID, &v.ID, &v.State, &v.VersionID}
+}
+
+func (v agentPermission) searchText() string {
+	return searchFields(v.ID, "", "", "", "", v.Code, v.Description)
+}
+
+func agentCollection[T searchable](items []T, in agentReadInput) (Row, error) {
 	items, info, err := pageItems(items, in.pageRequest())
 	if err != nil {
 		return nil, err
@@ -207,27 +250,24 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		if _, e = s.authoring.authoringSpace(ctx, agentActor(ctx, p), target.ID); e != nil {
 			return nil, e
 		}
-		values, e := rows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, target.ID, res.Tenant)
+		values, e := scanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, target.ID, res.Tenant)
 		if e != nil {
 			return nil, e
 		}
-		for _, v := range values {
-			d, e := defOf(v["draft_json"])
+		for i := range values {
+			v := &values[i]
+			d, e := defOf(v.draft.value())
 			if e != nil {
 				return nil, e
 			}
-			fields := []Row{}
-			relationships := []Row{}
+			v.Fields, v.Relationships = []Row{}, []Row{}
 			for _, f := range d.Fields {
-				fields = append(fields, Row{"key": f.Key, "label": f.Label, "type": f.Type})
+				v.Fields = append(v.Fields, Row{"key": f.Key, "label": f.Label, "type": f.Type})
 				if f.Target != "" {
-					relationships = append(relationships, Row{"field": f.Key, "target_entity_id": f.Target})
+					v.Relationships = append(v.Relationships, Row{"field": f.Key, "target_entity_id": f.Target})
 				}
 			}
-			v["description"] = d.Description
-			v["draft_fields"] = fields
-			v["draft_relationships"] = relationships
-			delete(v, "draft_json")
+			v.Description = d.Description
 		}
 		return agentCollection(values, in)
 	case "permission":
@@ -237,7 +277,7 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		if _, e = s.authoring.authoringSpace(ctx, agentActor(ctx, p), target.ID); e != nil {
 			return nil, e
 		}
-		values, e := rows(ctx, s.DB, "SELECT id,entity_id,version_id,code,description,state FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", res.Tenant, target.ID)
+		values, e := scanAll[agentPermission](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", res.Tenant, target.ID)
 		if e != nil {
 			return nil, e
 		}

@@ -183,18 +183,28 @@ func sendPage(w http.ResponseWriter, r *http.Request, v []Row) {
 	send(w, 200, Row{"items": v, "pagination": info})
 }
 
+// searchable is a metadata item that an inventory search matches against.
+type searchable interface{ searchText() string }
+
+// searchFields is the lower-cased text an inventory search matches: an item's
+// id, label, display name, key, entity key, code and description.
+func searchFields(fields ...string) string { return strings.ToLower(strings.Join(fields, " ")) }
+
+func (v Row) searchText() string {
+	return searchFields(str(v["id"]), str(v["label"]), str(v["display_name"]), str(v["key"]), str(v["entity_key"]), str(v["code"]), str(v["description"]))
+}
+
 // Only pass already-authorized metadata here. Filtering must precede paging;
 // serialize the resulting page rather than an oversized complete inventory.
-func pageItems(items []Row, req PageRequest) ([]Row, pageInfo, error) {
+func pageItems[T searchable](items []T, req PageRequest) ([]T, pageInfo, error) {
 	info, search, err := req.info()
 	if err != nil {
 		return nil, info, err
 	}
-	filtered := []Row{}
+	filtered := []T{}
 	for _, v := range items {
 		if search != "" {
-			text := strings.ToLower(str(v["id"]) + " " + str(v["label"]) + " " + str(v["display_name"]) + " " + str(v["key"]) + " " + str(v["entity_key"]) + " " + str(v["code"]) + " " + str(v["description"]))
-			if !strings.Contains(text, strings.ToLower(search)) {
+			if !strings.Contains(v.searchText(), strings.ToLower(search)) {
 				continue
 			}
 		}

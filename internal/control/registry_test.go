@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 // sameJSON requires that got, an operation's typed registry result, marshals
@@ -72,7 +73,7 @@ type rawJSON json.RawMessage
 func (r rawJSON) MarshalJSON() ([]byte, error) { return r, nil }
 
 func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
-	s, c, p, tenant, _, app := agentSpaceFixture(t)
+	s, c, p, tenant, reviewSpace, app := agentSpaceFixture(t)
 	ctx := context.Background()
 	admin := Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}
 	limited := Row{"id": newID(), "code": "limited-" + newID()[:8], "display_name": "Limited", "allow_shared_database": true, "allow_managed_database": true, "default_layout": "shared", "max_spaces": 2, "max_apps": 0}
@@ -362,6 +363,84 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		}
 		sameJSON(t, s.DB, one, databaseSQL+" AND id=?", tenant, d.ID)
 	}
+
+	// Entity definitions, publications and inventories.
+	customer := agentPublishedFixture(t, s, p, tenant, reviewSpace, entity.Definition{Format: 1, Key: "customer", Label: "Customer", Fields: []entity.Field{{Key: "name", Label: "Name", Type: "text", MaxLength: 80}}, Projection: []string{"name"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}})
+	entityID := agentPublishedFixture(t, s, p, tenant, reviewSpace, entity.Definition{Format: 1, Key: "order", Label: "Order", Description: "Orders", Fields: []entity.Field{{Key: "title", Label: "Title", Type: "text", MaxLength: 80}, {Key: "customer", Label: "Customer", Type: "reference", Target: customer}}, Projection: []string{"title"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}})
+	draft, e := s.authoring.CreateEntity(ctx, admin, reviewSpace, entityCreateInput{Definition: entity.Definition{Format: 1, Key: "note", Label: "Note", Fields: []entity.Field{{Key: "body", Label: "Body", Type: "text", MaxLength: 80}}, Projection: []string{"body"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	entities, e := s.authoring.Entities(ctx, admin, reviewSpace)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, entities["items"], "SELECT id,entity_key,label,state,revision,active_version_id,pending_version_id FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", reviewSpace, tenant)
+	for _, key := range []string{entityID, draft.ID} {
+		detail, e := s.authoring.detailOf(ctx, admin, key)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if detail.Diagnostics == nil || detail.DraftContract == nil || detail.Publications == nil || (detail.ActiveVersion != nil) != (detail.PublishedContract != nil) {
+			t.Fatal("entity view sections", mustJSON(t, detail))
+		}
+		if len(*detail.Publications) == 0 {
+			if old, _ := rows(ctx, s.DB, "SELECT id FROM entity_versions WHERE entity_id=?", key); mustJSON(t, *detail.Publications) != mustJSON(t, old) {
+				t.Fatal("empty publications", mustJSON(t, old))
+			}
+		} else {
+			sameJSON(t, s.DB, *detail.Publications, "SELECT id,state,error_message,definition_hash,base_version_id,created_at FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", key)
+		}
+		if detail.ActiveDefinition != nil {
+			stored, e := rows(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", *detail.ActiveVersion)
+			if e != nil || mustJSON(t, detail.ActiveDefinition) != mustJSON(t, stored[0]["definition_json"]) {
+				t.Fatal("active definition", e)
+			}
+			publication, e := s.authoring.Publication(ctx, admin, key, *detail.ActiveVersion)
+			if e != nil {
+				t.Fatal(e)
+			}
+			sameJSON(t, s.DB, publication, "SELECT id,base_version_id,state,error_message,definition_hash,created_at,finished_at FROM entity_versions WHERE id=?", *detail.ActiveVersion)
+		}
+		detail.ActiveDefinition, detail.Diagnostics, detail.DraftContract, detail.Publications, detail.PublishedContract = nil, nil, nil, nil, nil
+		sameJSON(t, s.DB, detail, "SELECT * FROM entity_definitions WHERE id=?", key)
+	}
+	// The agent inventory summarizes each draft as the untyped read did.
+	inventory, e := scanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	if e != nil {
+		t.Fatal(e)
+	}
+	untyped, e := rows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	if e != nil || len(untyped) != len(inventory) {
+		t.Fatal("entity inventory", e)
+	}
+	for i, v := range untyped {
+		d, e := defOf(v["draft_json"])
+		if e != nil {
+			t.Fatal(e)
+		}
+		fields, relationships := []Row{}, []Row{}
+		for _, f := range d.Fields {
+			fields = append(fields, Row{"key": f.Key, "label": f.Label, "type": f.Type})
+			if f.Target != "" {
+				relationships = append(relationships, Row{"field": f.Key, "target_entity_id": f.Target})
+			}
+		}
+		v["description"], v["draft_fields"], v["draft_relationships"] = d.Description, fields, relationships
+		delete(v, "draft_json")
+		inventory[i].Fields, inventory[i].Relationships, inventory[i].Description = fields, relationships, d.Description
+		if mustJSON(t, v) != mustJSON(t, inventory[i]) || inventory[i].searchText() != v.searchText() {
+			t.Fatalf("entity inventory differs\nwant: %s\ngot:  %s", mustJSON(t, v), mustJSON(t, inventory[i]))
+		}
+	}
+	if _, e = s.DB.Exec("INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id) SELECT ?,'order.read','data','Read orders',CONCAT('e:',id),tenant_id,space_id,id,active_version_id FROM entity_definitions WHERE id=?", newID(), entityID); e != nil {
+		t.Fatal(e)
+	}
+	permissions, e := scanAll[agentPermission](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, permissions, "SELECT id,entity_id,version_id,code,description,state FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
 }
 
 func mustJSON(t *testing.T, v any) string {

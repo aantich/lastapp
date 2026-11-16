@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -86,6 +87,34 @@ func scanStrings(ctx context.Context, q Queryer, query string, args ...any) ([]s
 	}
 	return out, r.Err()
 }
+
+// jsonValue is a *_json column. It marshals as the untyped reads returned it:
+// the decoded document, the raw text when it does not parse, or null.
+type jsonValue struct{ v any }
+
+func (j *jsonValue) Scan(src any) error {
+	*j = jsonValue{}
+	var raw []byte
+	switch t := src.(type) {
+	case nil:
+		return nil
+	case []byte:
+		raw = t
+	case string:
+		raw = []byte(t)
+	default:
+		return errors.New("unsupported JSON column type")
+	}
+	if json.Unmarshal(raw, &j.v) != nil {
+		j.v = string(raw)
+	}
+	return nil
+}
+
+func (j jsonValue) MarshalJSON() ([]byte, error) { return json.Marshal(j.v) }
+
+// value is the decoded document, as the untyped reads returned it.
+func (j jsonValue) value() any { return j.v }
 
 // lookup scans one row of query into dest; no row is missing() (404).
 func lookup(ctx context.Context, q Queryer, query string, args []any, dest ...any) error {

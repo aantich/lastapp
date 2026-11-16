@@ -141,27 +141,27 @@ func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnap
 // The single publication capture routine is shared by the authoring endpoint and
 // bounded snapshot jobs. Candidate references are accepted only for a captured
 // batch whose tables are prepared before any version can activate.
-func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v Row, version string, candidates map[string]bool) error {
-	d, e := defOf(v["draft_json"])
+func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v EntityDefinition, version string, candidates map[string]bool) error {
+	d, e := v.draft()
 	if e != nil {
 		return e
 	}
 	if ds := d.Validate(); len(ds) > 0 {
 		return bad(ds[0].Path + ": " + ds[0].Message)
 	}
-	if e = validateEntityRefsCandidates(ctx, tx, d, v, candidates); e != nil {
+	if e = validateEntityRefsCandidates(ctx, tx, d, v.TenantID, v.SpaceID, v.ID, candidates); e != nil {
 		return e
 	}
-	if v["pending_version_id"] != nil {
+	if v.PendingVersion != nil {
 		return conflict("A publication is already pending.")
 	}
 	b, _ := json.Marshal(d)
-	plan := data.Plan(str(v["id"]), "lastapp:"+entity.Hash(s.registryName)[:16]+":"+str(v["id"]), d)
+	plan := data.Plan(v.ID, "lastapp:"+entity.Hash(s.registryName)[:16]+":"+v.ID, d)
 	pb, _ := json.Marshal(plan)
-	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", version, v["tenant_id"], v["space_id"], v["id"], v["active_version_id"], b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", version, v.TenantID, v.SpaceID, v.ID, v.ActiveVersion, b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
 		return e
 	}
-	_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v["id"])
+	_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v.ID)
 	return e
 }
 
@@ -174,26 +174,26 @@ func agentID(p Principal) any {
 
 // Empty tables are prepared without foreign keys, then the ordinary publisher
 // verifies/adds those keys before activation. This also supports cyclic references.
-func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []Row) error {
+func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []EntityDefinition) error {
 	db, e := s.businessDB(ctx, resource, true)
 	if e != nil {
 		return e
 	}
 	defer db.Close()
 	for _, v := range entities {
-		if v["active_version_id"] != nil {
+		if v.ActiveVersion != nil {
 			continue
 		}
-		d, e := defOf(v["draft_json"])
+		d, e := v.draft()
 		if e != nil {
 			return e
 		}
 		if ds := d.Validate(); len(ds) > 0 {
 			return bad(ds[0].Message)
 		}
-		marker := "lastapp:" + entity.Hash(s.registryName)[:16] + ":" + str(v["id"])
+		marker := "lastapp:" + entity.Hash(s.registryName)[:16] + ":" + v.ID
 		var comment string
-		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(str(v["id"])), "`")).Scan(&comment)
+		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(v.ID), "`")).Scan(&comment)
 		if e == nil {
 			if comment != marker {
 				return ownershipConflict()
@@ -203,7 +203,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 		if !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
-		if _, e = db.ExecContext(ctx, data.SkeletonSQL(str(v["id"]), marker, d)); e != nil {
+		if _, e = db.ExecContext(ctx, data.SkeletonSQL(v.ID, marker, d)); e != nil {
 			return e
 		}
 	}
@@ -242,7 +242,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 		if v["database_state"] != "ready" {
 			return conflict("Workspace storage failed. Inspect database setup and retry workspace preparation.")
 		}
-		defs, e := rows(ctx, q, "SELECT * FROM entity_definitions WHERE space_id=? ORDER BY id", v["backing_space_id"])
+		defs, e := scanAll[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v["backing_space_id"])
 		if e != nil {
 			return e
 		}
@@ -251,7 +251,7 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 		}
 		candidates := map[string]bool{}
 		for _, d := range defs {
-			candidates[str(d["id"])] = true
+			candidates[d.ID] = true
 		}
 		tx, e := s.DB.BeginTx(ctx, nil)
 		if e != nil {
@@ -266,16 +266,16 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 		}
 		ready := true
 		for _, d := range defs {
-			if d["active_version_id"] != nil {
+			if d.ActiveVersion != nil {
 				continue
 			}
 			ready = false
-			if d["pending_version_id"] != nil {
+			if d.PendingVersion != nil {
 				continue
 			}
 			// A previous failure is surfaced rather than silently retried forever.
 			var failures int
-			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_versions WHERE entity_id=? AND state='failed'", d["id"]).Scan(&failures); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_versions WHERE entity_id=? AND state='failed'", d.ID).Scan(&failures); e != nil {
 				return e
 			}
 			if failures > 0 {

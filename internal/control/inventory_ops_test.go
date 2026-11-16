@@ -409,19 +409,19 @@ func TestAuthoringOperations(t *testing.T) {
 	// Console actor: draft lifecycle, revisions and generated views.
 	d := entity.Definition{Format: 1, Key: "ticket", Label: "Ticket", Fields: []entity.Field{{Key: "title", Label: "Title", Type: "text", MaxLength: 100}}, Projection: []string{"title"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}}
 	created, e := s.authoring.CreateEntity(ctx, human, space, entityCreateInput{Definition: d})
-	if e != nil || created["draft_contract"] == nil || integer(created["revision"]) != 1 {
+	if e != nil || created.DraftContract == nil || created.Revision != 1 {
 		t.Fatal("console entity", created, e)
 	}
-	key := str(created["id"])
+	key := created.ID
 	d.Label = "Support ticket"
 	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 0)
 	wantProblem(t, e, 428, "revision_required")
 	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 2)
 	wantProblem(t, e, 412, "stale_revision")
-	if saved, e := s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 1); e != nil || str(saved["label"]) != d.Label {
+	if saved, e := s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 1); e != nil || saved.Label != d.Label {
 		t.Fatal("console save", saved, e)
 	}
-	if v, e := s.authoring.Entity(ctx, human, key, entityView{Section: "definition"}); e != nil || v["section"] != "definition" {
+	if v, e := s.authoring.Entity(ctx, human, key, entityView{Section: "definition"}); e != nil || v.(Row)["section"] != "definition" {
 		t.Fatal("entity section", v, e)
 	}
 	_, e = s.authoring.Entity(ctx, human, key, entityView{Field: "x"})
@@ -429,7 +429,7 @@ func TestAuthoringOperations(t *testing.T) {
 	if v, e := s.authoring.ValidateEntity(ctx, human, key, d, "diagnostics"); e != nil || v["schema"] != nil {
 		t.Fatal("validate", v, e)
 	}
-	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]Row)) != 1 {
+	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]entityItem)) != 1 {
 		t.Fatal("entities", page, e)
 	}
 	_, e = s.authoring.PublishEntity(ctx, human, key, 0)
@@ -438,7 +438,7 @@ func TestAuthoringOperations(t *testing.T) {
 	if e != nil || queued["state"] != "queued" {
 		t.Fatal("publish", queued, e)
 	}
-	if v, e := s.authoring.Publication(ctx, human, key, str(queued["id"])); e != nil || str(v["id"]) != str(queued["id"]) {
+	if v, e := s.authoring.Publication(ctx, human, key, str(queued["id"])); e != nil || v.ID != str(queued["id"]) {
 		t.Fatal("publication", v, e)
 	}
 	var n int
