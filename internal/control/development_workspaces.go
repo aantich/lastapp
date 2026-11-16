@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -392,7 +393,7 @@ func (s *Server) productionMutationGuard(ctx context.Context, q Queryer, p Princ
 	if res.Space != "" && action != "workspace.manage" {
 		var job string
 		err := q.QueryRowContext(ctx, "SELECT id FROM release_deployments WHERE space_id=? AND state IN ('queued','preparing','publishing') LIMIT 1", res.Space).Scan(&job)
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if err == nil && ctx.Value(deploymentOperationKey{}) != job {

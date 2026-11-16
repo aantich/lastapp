@@ -222,7 +222,7 @@ func strictAgentInput(raw json.RawMessage, dst any) error {
 		return bad("Invalid or unsupported tool arguments. Read the tool schema.")
 	}
 	var more any
-	if d.Decode(&more) != io.EOF {
+	if !errors.Is(d.Decode(&more), io.EOF) {
 		return bad("Exactly one argument object is required.")
 	}
 	return nil
@@ -543,7 +543,7 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 		}
 		return context.WithValue(ctx, agentContextKey{}, a), nil
 	}
-	if e != sql.ErrNoRows {
+	if !errors.Is(e, sql.ErrNoRows) {
 		return ctx, e
 	}
 	return context.WithValue(ctx, agentContextKey{}, a), nil

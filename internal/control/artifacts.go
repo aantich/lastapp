@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net"
@@ -197,7 +198,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			return bad("Invalid or oversized static build upload.")
 		}
 		var more any
-		if d.Decode(&more) != io.EOF {
+		if !errors.Is(d.Decode(&more), io.EOF) {
 			return bad("One upload object required.")
 		}
 		b, e := artifact.Inspect(in.Files, in.Entry)

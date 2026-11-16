@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -377,7 +378,7 @@ func (s *Server) appDeployment(w http.ResponseWriter, r *http.Request, p Princip
 	space := str(a["space_id"])
 	var production string
 	e = s.DB.QueryRowContext(r.Context(), "SELECT production_space_id FROM development_workspaces WHERE backing_space_id=?", space).Scan(&production)
-	if e != nil && e != sql.ErrNoRows {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	if production != "" {

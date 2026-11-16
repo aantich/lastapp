@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"time"
 
@@ -301,7 +302,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 		var parent string
 		query := "SELECT space_id FROM " + table + " WHERE id=?"
 		e := tx.QueryRowContext(ctx, query, id).Scan(&parent)
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			return false, nil
 		}
 		if e != nil {
@@ -377,7 +378,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 				return missing()
 			}
 			_, e = tx.ExecContext(ctx, "UPDATE microapp_installations SET display_name=?,artifact_ref=?,navigation_order=?,state=?,revision=revision+1 WHERE id=?", v.Name, nullable(v.Artifact), v.Order, v.State, v.ID)
-		} else if e == sql.ErrNoRows {
+		} else if errors.Is(e, sql.ErrNoRows) {
 			if e = metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 				return e
 			}

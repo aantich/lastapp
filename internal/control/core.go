@@ -148,7 +148,7 @@ func Open(c Config) (*Server, error) {
 	}
 	host, _, e := net.SplitHostPort(c.Address)
 	if e != nil {
-		return nil, fmt.Errorf("address must include a port")
+		return nil, fmt.Errorf("address must include a port: %w", e)
 	}
 	if c.Development {
 		ip := net.ParseIP(host)
@@ -159,13 +159,24 @@ func Open(c Config) (*Server, error) {
 		return nil, fmt.Errorf("production public_url requires HTTPS")
 	}
 	raw, e := base64.StdEncoding.DecodeString(c.EncryptionKey)
-	if e != nil || len(raw) != 32 {
+	if e != nil {
+		// base64 errors report only an input offset, never key material.
+		return nil, fmt.Errorf("encryption_key must encode 32 bytes: %w", e)
+	}
+	if len(raw) != 32 {
 		return nil, fmt.Errorf("encryption_key must encode 32 bytes")
 	}
-	block, _ := aes.NewCipher(raw)
-	key, _ := cipher.NewGCM(block)
+	block, e := aes.NewCipher(raw)
+	if e != nil {
+		return nil, fmt.Errorf("encryption_key cipher setup failed: %w", e)
+	}
+	key, e := cipher.NewGCM(block)
+	if e != nil {
+		return nil, fmt.Errorf("encryption_key cipher setup failed: %w", e)
+	}
 	cfg, e := mariadb.ParseDSN(c.RegistryDSN)
 	if e != nil {
+		// Deliberately not wrapped: DSN parser messages can echo DSN fragments.
 		return nil, fmt.Errorf("invalid registry DSN")
 	}
 	if cfg.DBName == "" {
@@ -198,7 +209,7 @@ func Open(c Config) (*Server, error) {
 	defer cancel()
 	if e = db.PingContext(ctx); e != nil {
 		db.Close()
-		return nil, fmt.Errorf("registry connection failed")
+		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	return s, nil
@@ -217,11 +228,14 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
-	if e != nil || v != 12 {
+	if e != nil {
+		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate: %w", e)
+	}
+	if v != 12 {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
-		return fmt.Errorf("registry uses an earlier development schema; initialize a fresh registry")
+		return fmt.Errorf("registry uses an earlier development schema; initialize a fresh registry: %w", e)
 	}
 	return nil
 }
@@ -290,14 +304,14 @@ func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) er
 		Nonce, Data []byte
 	}
 	if e := json.Unmarshal(data, &env); e != nil {
-		return fmt.Errorf("invalid encrypted envelope")
+		return fmt.Errorf("invalid encrypted envelope: %w", e)
 	}
 	if (env.KeyID != "" && env.KeyID != s.encryptionKeyID()) || env.Version != 1 || len(env.Nonce) != s.key.NonceSize() {
 		return fmt.Errorf("invalid encrypted envelope")
 	}
 	b, e := s.key.Open(nil, env.Nonce, env.Data, []byte(purpose+"|"+record+"|"+tenant))
 	if e != nil {
-		return fmt.Errorf("credential decryption failed")
+		return fmt.Errorf("credential decryption failed: %w", e)
 	}
 	return json.Unmarshal(b, out)
 }
@@ -393,7 +407,7 @@ func decode(w http.ResponseWriter, r *http.Request, out any) error {
 		return bad("Invalid or unsupported JSON request fields.")
 	}
 	var extra any
-	if e := d.Decode(&extra); e != io.EOF {
+	if e := d.Decode(&extra); !errors.Is(e, io.EOF) {
 		return bad("Request must contain one JSON object.")
 	}
 	return nil

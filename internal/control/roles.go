@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -44,7 +45,7 @@ func requestScope(r *http.Request) (authz.Scope, Resource, error) {
 func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT u.state FROM users u JOIN tenant_memberships m ON m.user_id=u.id AND m.tenant_id=? AND m.state='active' WHERE u.id=? FOR UPDATE", t, user).Scan(&state)
-	if e == sql.ErrNoRows {
+	if errors.Is(e, sql.ErrNoRows) {
 		return bad("An active Tenant member is required.")
 	}
 	if e != nil {

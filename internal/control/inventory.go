@@ -2,6 +2,7 @@ package control
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -130,7 +131,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 			} else {
 				if in.Database.Target == "" {
 					e := tx.QueryRowContext(r.Context(), "SELECT id FROM database_targets WHERE state='active' AND managed_enabled=1 ORDER BY created_at,id LIMIT 1").Scan(&in.Database.Target)
-					if e == sql.ErrNoRows {
+					if errors.Is(e, sql.ErrNoRows) {
 						return conflict("Managed database creation is not configured. Ask a platform administrator to add a database server.")
 					}
 					if e != nil {

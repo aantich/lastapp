@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -100,7 +101,7 @@ func main() {
 		}()
 		log.Printf("Lastapp listening at %s/console/", c.PublicURL)
 		e = server.ListenAndServe()
-		if e == http.ErrServerClosed {
+		if errors.Is(e, http.ErrServerClosed) {
 			<-stopped
 			e = nil
 		}

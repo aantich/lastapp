@@ -214,7 +214,7 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	var comment string
 	e = conn.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", table).Scan(&comment)
 	exists := e == nil
-	if e != nil && e != sql.ErrNoRows {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	if exists && comment != tableMarker {
@@ -448,7 +448,7 @@ func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) er
 	for i, name := range names {
 		var c string
 		e := q.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", name).Scan(&c)
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			if _, e = q.ExecContext(ctx, data.SupportDDL[i]+" COMMENT='"+marker+"'"); e != nil {
 				return e
 			}

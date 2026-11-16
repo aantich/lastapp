@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -102,7 +103,7 @@ func Decode(b []byte) (Definition, error) {
 		return d, e
 	}
 	var more any
-	if dec.Decode(&more) != io.EOF {
+	if !errors.Is(dec.Decode(&more), io.EOF) {
 		return d, fmt.Errorf("one definition required")
 	}
 	return d, nil

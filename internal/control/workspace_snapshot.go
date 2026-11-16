@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -199,7 +200,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 			}
 			continue
 		}
-		if e != sql.ErrNoRows {
+		if !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
 		if _, e = db.ExecContext(ctx, data.SkeletonSQL(str(v["id"]), marker, d)); e != nil {

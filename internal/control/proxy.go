@@ -17,7 +17,10 @@ func parseTrustedProxies(values []string) ([]netip.Prefix, error) {
 		prefix, e := netip.ParsePrefix(value)
 		if e != nil {
 			ip, err := netip.ParseAddr(value)
-			if err != nil || ip.Zone() != "" {
+			if err != nil {
+				return nil, fmt.Errorf("trusted_proxies requires IP addresses or CIDRs: %w", err)
+			}
+			if ip.Zone() != "" {
 				return nil, fmt.Errorf("trusted_proxies requires IP addresses or CIDRs")
 			}
 			ip = ip.Unmap()

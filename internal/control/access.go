@@ -2,6 +2,7 @@ package control
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -66,7 +67,7 @@ func (s *Server) addMembership(w http.ResponseWriter, r *http.Request, p Princip
 		}
 		var state string
 		if e := tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
-			if e == sql.ErrNoRows {
+			if errors.Is(e, sql.ErrNoRows) {
 				return bad("An active existing user is required.")
 			}
 			return e

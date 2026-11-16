@@ -163,7 +163,7 @@ func (s *Server) checkAgent(ctx context.Context, q Queryer, p Principal, res Res
 	e := q.QueryRowContext(ctx, `SELECT g.revision FROM agent_grants g JOIN users u ON u.id=g.user_id AND u.state='active'
  LEFT JOIN local_accounts l ON l.user_id=u.id WHERE g.id=? AND g.user_id=? AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)
  AND COALESCE(l.must_change_password,0)=0 AND g.audience_uri=? LOCK IN SHARE MODE`, g.ID, p.ID, s.mcpURL()).Scan(&revision)
-	if e != nil && e != sql.ErrNoRows {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	if e != nil || revision != g.Revision {
@@ -256,7 +256,7 @@ func (s *Server) agentMutationBegin(ctx context.Context, tx *sql.Tx) error {
 		}
 		return errAgentReplay
 	}
-	if e != sql.ErrNoRows {
+	if !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	var n int

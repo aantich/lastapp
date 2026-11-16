@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -659,7 +660,7 @@ func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		_, e = s.DB.ExecContext(r.Context(), "UPDATE agent_token_sessions SET state='revoked' WHERE family_id=?", family)
 	}
-	if e != nil && e != sql.ErrNoRows {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		writeError(w, r, e)
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
@@ -111,7 +112,7 @@ func localAccount(ctx context.Context, tx *sql.Tx, in preparedAccount, canCreate
 		}
 		return user, nil
 	}
-	if e != sql.ErrNoRows {
+	if !errors.Is(e, sql.ErrNoRows) {
 		return "", e
 	}
 	if len(in.Hash) == 0 {
@@ -251,10 +252,10 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		var iterations int
 		var revision int64
 		e = s.DB.QueryRowContext(ctx, "SELECT a.user_id,a.password_hash,a.password_salt,a.password_iterations,a.revision,u.state FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.login_email=?", email).Scan(&user, &expected, &salt, &iterations, &revision, &state)
-		if e != nil && e != sql.ErrNoRows {
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			salt, expected, iterations = make([]byte, 16), make([]byte, 32), passwordIterations
 		}
 		got := passwordKey(in.Password, salt, iterations)

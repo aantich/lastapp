@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -61,7 +62,10 @@ func (s *Server) InitAuth(ctx context.Context) error {
 			Token string `json:"token_endpoint"`
 			JWKS  string `json:"jwks_uri"`
 		}
-		if e = provider.Claims(&metadata); e != nil || !secureEndpoint(metadata.Auth) || !secureEndpoint(metadata.Token) || !secureEndpoint(metadata.JWKS) {
+		if e = provider.Claims(&metadata); e != nil {
+			return fmt.Errorf("OIDC provider metadata is invalid: %w", e)
+		}
+		if !secureEndpoint(metadata.Auth) || !secureEndpoint(metadata.Token) || !secureEndpoint(metadata.JWKS) {
 			return fmt.Errorf("OIDC endpoints must all use HTTPS")
 		}
 	}
@@ -187,7 +191,7 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (Principal, err
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
 	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,''),se.auth_method,COALESCE(la.must_change_password,0) FROM sessions se JOIN users u ON u.id=se.user_id LEFT JOIN local_accounts la ON la.user_id=u.id AND se.auth_method='password' WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active' AND (se.auth_method='oidc' OR la.user_id IS NOT NULL)", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email, &p.AuthMethod, &p.PasswordChangeRequired)
-	if e == sql.ErrNoRows {
+	if errors.Is(e, sql.ErrNoRows) {
 		return p, problem(401, "unauthenticated", "Sign in to continue.")
 	}
 	if e != nil {
@@ -226,7 +230,7 @@ func isPlatform(ctx context.Context, q Queryer, user string) (bool, error) {
 func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant string, mutating bool) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT t.state FROM tenants t JOIN tenant_memberships m ON m.tenant_id=t.id JOIN users u ON u.id=m.user_id WHERE t.id=? AND m.user_id=? AND m.state='active' AND u.state='active'", tenant, p.ID).Scan(&state)
-	if e == sql.ErrNoRows {
+	if errors.Is(e, sql.ErrNoRows) {
 		return missing()
 	}
 	if e != nil {
