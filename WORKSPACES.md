@@ -58,7 +58,9 @@ Space manager. An App-only manager cannot promote shared Space configuration.
    this status on reload and retries transient status errors.
 
 A console author uses **Space → Development → Create workspace**, then opens its
-Apps and Releases. Human-created workspaces belong to that human; a connected
+Apps and Releases. The Development tab appears on ordinary (non-workspace) Spaces
+for authors with `workspace.manage`; an App's Releases tab requires
+`release.manage`. Human-created workspaces belong to that human; a connected
 agent creates its own workspace. The human owner can inspect that agent's copy.
 
 ## Isolation and ownership

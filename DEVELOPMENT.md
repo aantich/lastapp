@@ -148,16 +148,21 @@ rather than replacing the global toolchain.
 ```sh
 make test                       # unit/build checks; DB tests may skip
 GOCACHE="$PWD/.local/go-cache" go vet ./...
-make mcp-test                   # MCP/OAuth/security + live worker regressions
+make mcp-test                   # TestAgent* only: MCP/OAuth/agent security + agent worker
 make integration                # full backend race/security + browser suite
-make client                     # SDK and isolated example's generated client.js
-python3 design/validate_schema.py --check  # offline DDL parity
+make client                     # SDK + example client.js; needs web/admin npm ci
+python3 design/validate_schema.py --check  # offline DDL parity only
 python3 scripts/verify_driver.py           # pinned driver integrity
 git diff --check
 ```
 
 `make mcp-test` and `make integration` require the existing local development
-config/server. Database fixtures use disposable registries; worker tests clean
+config/server. `make mcp-test` runs only the `TestAgent*` control tests with race
+detection; the general security suite (`LASTAPP_SECURITY_CONFIG`) and the browser
+suite run under `make integration`. `make client` compiles with the console's
+TypeScript, so run `make web` (or `make dev`) once first; `npm run test:e2e` and
+therefore `make integration` run `make client` automatically through the
+`pretest:e2e` hook. Database fixtures use disposable registries; worker tests clean
 their owned generated resources. Do not point them at production. Plain Go tests
 without explicit fixture config are not integration evidence. The browser suite
 uses installed Chrome locally and a Vite server on 5173; CI uses Chromium.
@@ -166,8 +171,10 @@ Rebuild with `make dev` after Go or embedded-console changes before browser test
 For registry changes, add a forward Goose migration (the startup schema check
 derives its required version from the newest embedded migration), update runtime
 grants as needed, then regenerate the SQL document with
-`python3 design/validate_schema.py --write`. The default validator invocation also
-runs the foundation SQL/API test on the existing local server. It does not test
+`python3 design/validate_schema.py --write`. `--check` compares the document with
+the migrations without database access. Without a flag the validator does the same
+comparison and then runs `TestAuthorizationFoundation` on a disposable registry on
+the existing local server (`LASTAPP_TEST_CONFIG`, default `.local/config.json`). It does not test
 every later feature; use the relevant entity/MCP/security suites too. Never edit
 the generated SQL independently of migrations.
 
