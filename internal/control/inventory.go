@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type namedInput struct {
@@ -47,25 +48,65 @@ type inventory struct {
 	db  *sql.DB
 	run *runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Row, workspace *Resource) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
-func (v *inventory) Spaces(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Row], error) {
+// Space is a Space read with its Tenant's name and its database binding.
+type Space struct {
+	DatabaseLayout   string  `json:"database_layout"`
+	DatabaseName     string  `json:"database_name"`
+	DatabaseResource string  `json:"database_resource_id"`
+	DatabaseState    string  `json:"database_state"`
+	Name             string  `json:"display_name"`
+	ID               string  `json:"id"`
+	Revision         int64   `json:"revision"`
+	Slug             string  `json:"slug"`
+	State            string  `json:"state"`
+	TenantID         string  `json:"tenant_id"`
+	TenantName       string  `json:"tenant_name"`
+	WorkspaceID      *string `json:"workspace_id"`
+}
+
+func (v *Space) fields() []any {
+	return []any{&v.DatabaseLayout, &v.DatabaseName, &v.DatabaseResource, &v.DatabaseState, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.State, &v.TenantID, &v.TenantName, &v.WorkspaceID}
+}
+
+// SpaceItem is a production Space collection row with its active App count.
+type SpaceItem struct {
+	AppCount         int64     `json:"app_count"`
+	CreatedAt        time.Time `json:"created_at"`
+	DatabaseLayout   string    `json:"database_layout"`
+	DatabaseName     string    `json:"database_name"`
+	DatabaseResource string    `json:"database_resource_id"`
+	DatabaseState    string    `json:"database_state"`
+	Name             string    `json:"display_name"`
+	ID               string    `json:"id"`
+	Revision         int64     `json:"revision"`
+	Slug             string    `json:"slug"`
+	State            string    `json:"state"`
+	TenantID         string    `json:"tenant_id"`
+}
+
+func (v *SpaceItem) fields() []any {
+	return []any{&v.AppCount, &v.CreatedAt, &v.DatabaseLayout, &v.DatabaseName, &v.DatabaseResource, &v.DatabaseState, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.State, &v.TenantID}
+}
+
+func (v *inventory) Spaces(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[SpaceItem], error) {
 	sc, e := v.run.scopes(ctx, a, tenant, "space.read")
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[SpaceItem]{}, e
 	}
 	filter, args := scopeSQL(sc, "sp.id", "")
 	args = append([]any{tenant}, args...)
-	return pageQuery(ctx, v.db, page, collectionFor("spaces"), "SELECT sp.id,sp.tenant_id,sp.slug,sp.display_name,sp.database_resource_id,sp.database_layout,sp.state,sp.revision,sp.created_at,d.database_name,d.state AS database_state,(SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
+	return pageScan[SpaceItem](ctx, v.db, page, collectionFor("spaces"), "SELECT (SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count,sp.created_at,sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
 }
 
-func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (Row, error) {
+func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (Space, error) {
 	if e := v.run.authorize(ctx, a, "space.read", Resource{Tenant: tenant, Space: space}); e != nil {
-		return nil, e
+		return Space{}, e
 	}
-	return row(ctx, v.db, "SELECT sp.id,sp.workspace_id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
+	return scanOne[Space](ctx, v.db, "SELECT sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
 }
 
 // CreateSpace binds a new Space to an existing database or allocates managed
@@ -91,7 +132,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 		if e != nil {
 			return e
 		}
-		if e = quota(ctx, tx, tenant, "spaces", "max_spaces", policy); e != nil {
+		if e = quota(ctx, tx, tenant, "spaces", policy.MaxSpaces); e != nil {
 			return e
 		}
 		resource, layout := in.Database.Resource, in.Database.Layout
@@ -103,15 +144,14 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 			if private > 0 {
 				return bad("Development storage cannot be bound to a production Space.")
 			}
-			db, e := row(ctx, tx, "SELECT id,layout,state FROM database_resources WHERE tenant_id=? AND id=?", tenant, resource)
-			if e != nil {
+			var state string
+			if e := lookup(ctx, tx, "SELECT layout,state FROM database_resources WHERE tenant_id=? AND id=?", []any{tenant, resource}, &layout, &state); e != nil {
 				return e
 			}
-			if str(db["state"]) == stateRetired {
+			if state == stateRetired {
 				return conflict("A retired database cannot be bound.")
 			}
-			layout = str(db["layout"])
-			if e = layoutAllowed(policy, layout); e != nil {
+			if e = layoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
 		} else {
@@ -119,24 +159,24 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 				return bad("Select an existing database or request managed creation.")
 			}
 			if layout == "" {
-				layout = str(policy["tenant_default_layout"])
-				if layout == "" || layoutAllowed(policy, layout) != nil {
-					layout = str(policy["default_layout"])
+				layout = policy.TenantLayout
+				if layout == "" || layoutAllowed(policy.Plan, layout) != nil {
+					layout = policy.DefaultLayout
 				}
 			}
-			if e = layoutAllowed(policy, layout); e != nil {
+			if e = layoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
-			if layout == "shared" && str(policy["default_shared_database_id"]) != "" {
-				resource = str(policy["default_shared_database_id"])
-				db, e := row(ctx, tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", resource, tenant)
-				if e != nil {
+			if layout == "shared" && policy.DefaultSharedDatabase != "" {
+				resource = policy.DefaultSharedDatabase
+				var target, state string
+				if e := lookup(ctx, tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", []any{resource, tenant}, &target, &state); e != nil {
 					return e
 				}
-				if str(db["state"]) == stateRetired {
+				if state == stateRetired {
 					return conflict("The default database is retired.")
 				}
-				if in.Database.Target != "" && in.Database.Target != str(db["target_id"]) {
+				if in.Database.Target != "" && in.Database.Target != target {
 					return conflict("The selected target differs from the existing default shared database.")
 				}
 			} else {
@@ -176,33 +216,73 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 	return v.run.ref(ctx, "spaces", tenant, in.ID)
 }
 
+// App is an App read with its Tenant and Space names.
+type App struct {
+	ActiveRelease *string `json:"active_release_id"`
+	Compute       string  `json:"compute_mode"`
+	Name          string  `json:"display_name"`
+	ID            string  `json:"id"`
+	Revision      int64   `json:"revision"`
+	Slug          string  `json:"slug"`
+	SpaceID       string  `json:"space_id"`
+	SpaceName     string  `json:"space_name"`
+	State         string  `json:"state"`
+	TenantID      string  `json:"tenant_id"`
+	TenantName    string  `json:"tenant_name"`
+	WorkspaceID   *string `json:"workspace_id"`
+}
+
+func (v *App) fields() []any {
+	return []any{&v.ActiveRelease, &v.Compute, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.TenantName, &v.WorkspaceID}
+}
+
+// AppItem is an App collection row with its active micro-app count.
+type AppItem struct {
+	Compute       string    `json:"compute_mode"`
+	CreatedAt     time.Time `json:"created_at"`
+	Name          string    `json:"display_name"`
+	ID            string    `json:"id"`
+	MicroappCount int64     `json:"microapp_count"`
+	Revision      int64     `json:"revision"`
+	Slug          string    `json:"slug"`
+	SpaceID       string    `json:"space_id"`
+	SpaceName     string    `json:"space_name"`
+	State         string    `json:"state"`
+	TenantID      string    `json:"tenant_id"`
+	WorkspaceID   *string   `json:"workspace_id"`
+}
+
+func (v *AppItem) fields() []any {
+	return []any{&v.Compute, &v.CreatedAt, &v.Name, &v.ID, &v.MicroappCount, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.WorkspaceID}
+}
+
 // Apps pages the Apps a may read in tenant, optionally of one Space. Without a
 // Space filter, development workspace Apps are excluded.
-func (v *inventory) Apps(ctx context.Context, a Actor, tenant, space string, page PageRequest) (Page[Row], error) {
+func (v *inventory) Apps(ctx context.Context, a Actor, tenant, space string, page PageRequest) (Page[AppItem], error) {
 	sc, e := v.run.scopes(ctx, a, tenant, "app.read")
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[AppItem]{}, e
 	}
 	filter, args := scopeSQL(sc, "a.space_id", "a.id")
 	args = append([]any{tenant}, args...)
-	query := "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
+	query := "SELECT a.compute_mode,a.created_at,a.display_name,a.id,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,sp.workspace_id FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
 	if space != "" {
 		if e = v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, Space: space}); e != nil {
-			return Page[Row]{}, e
+			return Page[AppItem]{}, e
 		}
 		query += " AND a.space_id=?"
 		args = append(args, space)
 	} else {
 		query += " AND sp.workspace_id IS NULL"
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
+	return pageScan[AppItem](ctx, v.db, page, collectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
 }
 
-func (v *inventory) App(ctx context.Context, a Actor, tenant, app string) (Row, error) {
+func (v *inventory) App(ctx context.Context, a Actor, tenant, app string) (App, error) {
 	if e := v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, App: app}); e != nil {
-		return nil, e
+		return App{}, e
 	}
-	return row(ctx, v.db, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	return scanOne[App](ctx, v.db, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
 }
 
 func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string, in appCreateInput) (Ref, error) {
@@ -219,11 +299,11 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 		return Ref{}, bad("Invalid compute mode.")
 	}
 	e := v.run.mutate(ctx, a, "app.manage", Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
-		parent, e := row(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", space, tenant)
-		if e != nil {
+		var parent string
+		if e := lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{space, tenant}, &parent); e != nil {
 			return e
 		}
-		if str(parent["state"]) != stateActive {
+		if parent != stateActive {
 			return conflict("The parent Space must be active.")
 		}
 		policy, e := policyFor(ctx, tx, tenant)
@@ -233,7 +313,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 		if e = appQuota(ctx, tx, tenant, space, policy, true); e != nil {
 			return e
 		}
-		if in.Compute == "dedicated" && integer(policy["allow_dedicated_compute"]) != 1 {
+		if in.Compute == "dedicated" && !policy.AllowDedicatedCompute {
 			return problem(403, "plan_restriction", "Dedicated compute is not permitted by this plan.")
 		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO apps (id,tenant_id,space_id,slug,display_name,compute_mode) VALUES (?,?,?,?,?,?)", in.ID, tenant, space, in.Slug, in.Name, in.Compute)
@@ -307,35 +387,65 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 	return e
 }
 
+// Microapp is an installed micro-app. AppName, CreatedAt and SpaceID are read
+// only in collections (microappItem).
+type Microapp struct {
+	AppID     string     `json:"app_id"`
+	AppName   *string    `json:"app_name,omitempty"`
+	Artifact  *string    `json:"artifact_ref"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Name      string     `json:"display_name"`
+	ID        string     `json:"id"`
+	Order     int64      `json:"navigation_order"`
+	Revision  int64      `json:"revision"`
+	Slug      string     `json:"slug"`
+	SpaceID   *string    `json:"space_id,omitempty"`
+	State     string     `json:"state"`
+	TenantID  string     `json:"tenant_id"`
+}
+
+const microappColumns = "m.app_id,m.artifact_ref,m.display_name,m.id,m.navigation_order,m.revision,m.slug,m.state,m.tenant_id"
+
+func (m *Microapp) fields() []any {
+	return []any{&m.AppID, &m.Artifact, &m.Name, &m.ID, &m.Order, &m.Revision, &m.Slug, &m.State, &m.TenantID}
+}
+
+// microappItem is a micro-app collection row: with its App's name and Space.
+type microappItem struct{ Microapp }
+
+func (m *microappItem) fields() []any {
+	return append(m.Microapp.fields(), &m.AppName, &m.CreatedAt, &m.SpaceID)
+}
+
 // Microapps pages the micro-apps a may read in tenant, optionally of one App.
 // Without an App filter, development workspace Apps are excluded.
-func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, page PageRequest) (Page[Row], error) {
+func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, page PageRequest) (Page[microappItem], error) {
 	sc, e := v.run.scopes(ctx, a, tenant, "microapp.read")
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[microappItem]{}, e
 	}
 	filter, args := scopeSQL(sc, "a.space_id", "m.app_id")
 	args = append([]any{tenant}, args...)
-	query := "SELECT m.id,m.tenant_id,m.app_id,m.slug,m.display_name,m.artifact_ref,m.navigation_order,m.state,m.revision,m.created_at,a.display_name AS app_name,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
+	query := "SELECT " + microappColumns + ",a.display_name AS app_name,m.created_at,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
 	if app != "" {
 		if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: app}); e != nil {
-			return Page[Row]{}, e
+			return Page[microappItem]{}, e
 		}
 		query += " AND m.app_id=?"
 		args = append(args, app)
 	} else {
 		query += " AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)"
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
+	return pageScan[microappItem](ctx, v.db, page, collectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
 }
 
-func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Row, error) {
-	m, e := row(ctx, v.db, "SELECT id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state,revision FROM microapp_installations WHERE tenant_id=? AND id=?", tenant, record)
+func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Microapp, error) {
+	m, e := scanOne[Microapp](ctx, v.db, "SELECT "+microappColumns+" FROM microapp_installations m WHERE m.tenant_id=? AND m.id=?", tenant, record)
 	if e != nil {
-		return nil, e
+		return Microapp{}, e
 	}
-	if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: str(m["app_id"])}); e != nil {
-		return nil, e
+	if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: m.AppID}); e != nil {
+		return Microapp{}, e
 	}
 	return m, nil
 }
@@ -350,23 +460,23 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app str
 	if len(in.Artifact) > 1024 {
 		return Ref{}, bad("Artifact reference is too long.")
 	}
-	parent, e := row(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", app, tenant)
-	if e != nil {
+	res := Resource{Tenant: tenant, App: app}
+	if e := lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{app, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
-	res := Resource{Tenant: tenant, Space: str(parent["space_id"]), App: app}
-	e = v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
 		if _, e := policyFor(ctx, tx, tenant); e != nil {
 			return e
 		}
 		if e := metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 			return e
 		}
-		parent, e := row(ctx, tx, "SELECT a.state,sp.state AS space_state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", app, tenant)
+		var appState, spaceState string
+		e := lookup(ctx, tx, "SELECT a.state,sp.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", []any{app, tenant}, &appState, &spaceState)
 		if e != nil {
 			return e
 		}
-		if str(parent["state"]) != stateActive || str(parent["space_state"]) != stateActive {
+		if appState != stateActive || spaceState != stateActive {
 			return conflict("The parent App and Space must be active.")
 		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, nullable(in.Artifact), in.Order)
@@ -386,19 +496,19 @@ func (v *inventory) UpdateSpace(ctx context.Context, a Actor, tenant, record str
 }
 
 func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
-	parent, e := row(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", record, tenant)
-	if e != nil {
+	res := Resource{Tenant: tenant, App: record}
+	if e := lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{record, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
-	return v.patch(ctx, a, "apps", "app.manage", Resource{Tenant: tenant, Space: str(parent["space_id"]), App: record}, record, in, revision)
+	return v.patch(ctx, a, "apps", "app.manage", res, record, in, revision)
 }
 
 func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
-	parent, e := row(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", record, tenant)
-	if e != nil {
+	res := Resource{Tenant: tenant}
+	if e := lookup(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", []any{record, tenant}, &res.Space, &res.App); e != nil {
 		return Ref{}, e
 	}
-	return v.patch(ctx, a, "microapp_installations", "microapp.manage", Resource{Tenant: tenant, Space: str(parent["space_id"]), App: str(parent["app_id"])}, record, in, revision)
+	return v.patch(ctx, a, "microapp_installations", "microapp.manage", res, record, in, revision)
 }
 
 // patch changes Space, App or micro-app metadata and lifecycle state under the
@@ -412,24 +522,24 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		if table != "spaces" {
-			parent, e := row(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", res.Space, res.Tenant)
-			if e != nil {
+			var parent string
+			if e := lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{res.Space, res.Tenant}, &parent); e != nil {
 				return e
 			}
-			if str(parent["state"]) != stateActive {
+			if parent != stateActive {
 				return conflict("The parent Space must be active.")
 			}
 		}
 		if table == "microapp_installations" {
-			app, e := row(ctx, tx, "SELECT state FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant)
-			if e != nil {
+			var app string
+			if e := lookup(ctx, tx, "SELECT state FROM apps WHERE id=? AND tenant_id=?", []any{res.App, res.Tenant}, &app); e != nil {
 				return e
 			}
-			if str(app["state"]) != stateActive {
+			if app != stateActive {
 				return conflict("The parent App must be active.")
 			}
 		}
@@ -446,7 +556,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 			if !validState(*in.State) {
 				return bad("Invalid state.")
 			}
-			if str(old["state"]) == stateArchived && *in.State != stateArchived && (table == "apps" || table == "spaces") {
+			if old.State == stateArchived && *in.State != stateArchived && (table == "apps" || table == "spaces") {
 				policy, e := policyFor(ctx, tx, res.Tenant)
 				if e != nil {
 					return e
@@ -454,7 +564,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 				if table == "apps" {
 					e = appQuota(ctx, tx, res.Tenant, res.Space, policy, false)
 				} else {
-					e = quota(ctx, tx, res.Tenant, table, "max_"+table, policy)
+					e = quota(ctx, tx, res.Tenant, table, policy.MaxSpaces)
 				}
 				if e != nil {
 					return e
@@ -479,7 +589,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 				if e != nil {
 					return e
 				}
-				if integer(policy["allow_dedicated_compute"]) != 1 {
+				if !policy.AllowDedicatedCompute {
 					return problem(403, "plan_restriction", "Dedicated compute is not permitted.")
 				}
 			}

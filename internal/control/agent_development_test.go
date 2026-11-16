@@ -41,7 +41,10 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		ws := result.(Row)
+		ws := Row{}
+		if b, e := json.Marshal(result); e != nil || json.Unmarshal(b, &ws) != nil {
+			t.Fatal("workspace result", e)
+		}
 		if _, e = s.toolAgentWorkspace(ctx, actor, raw); e != nil {
 			t.Fatal("workspace replay", e)
 		}

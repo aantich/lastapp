@@ -90,8 +90,8 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			}
 			continue
 		}
-		record, tenant := str(job["id"]), str(job["tenant_id"])
-		jobCtx := agentAuditContext(ctx, str(job["agent_grant_id"]), str(job["agent_client_id"]))
+		record, tenant := job.ID, job.TenantID
+		jobCtx := agentAuditContext(ctx, job.AgentGrant, job.AgentClient)
 		lastTenant = tenant
 		tx, e := conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if e != nil {
@@ -99,14 +99,14 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		}
 		var active string
 		e = tx.QueryRowContext(ctx, "SELECT state FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&active)
-		if e == nil && str(job["agent_grant_id"]) != "" {
+		if e == nil && job.AgentGrant != "" {
 			res, permission := Resource{Tenant: tenant}, "databases.provision"
-			ws, _ := row(ctx, tx, "SELECT w.production_space_id FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id WHERE sp.database_resource_id=? AND w.state='preparing'", record)
-			if ws != nil {
-				res.Space = str(ws["production_space_id"])
+			var production string
+			if lookup(ctx, tx, "SELECT w.production_space_id FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id WHERE sp.database_resource_id=? AND w.state='preparing'", []any{record}, &production) == nil {
+				res.Space = production
 				permission = "workspaces.write"
 			}
-			if denied := s.agentJobAllowed(ctx, tx, str(job["agent_grant_id"]), str(job["agent_user_id"]), res, permission, str(job["target_id"])); denied != nil {
+			if denied := s.agentJobAllowed(ctx, tx, job.AgentGrant, job.AgentUser, res, permission, job.TargetID); denied != nil {
 				var ae *APIError
 				if !errors.As(denied, &ae) {
 					tx.Rollback()
@@ -117,7 +117,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 					tx.Rollback()
 					return e
 				}
-				if e = audit(jobCtx, tx, tenant, str(job["agent_user_id"]), "database.failed", "database", record, newID(), Row{"error_code": "agent_access_revoked"}); e != nil {
+				if e = audit(jobCtx, tx, tenant, job.AgentUser, "database.failed", "database", record, newID(), Row{"error_code": "agent_access_revoked"}); e != nil {
 					tx.Rollback()
 					return e
 				}
@@ -154,7 +154,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state=?,last_error_code=?,last_error_message=?,last_verified_at=IF(?='ready',UTC_TIMESTAMP(6),last_verified_at),revision=revision+1 WHERE id=? AND state='provisioning'", state, nullable(code), nullable(message), state, record); e == nil {
-			e = audit(jobCtx, tx, tenant, str(job["agent_user_id"]), "database."+state, "database", record, newID(), Row{"error_code": code})
+			e = audit(jobCtx, tx, tenant, job.AgentUser, "database."+state, "database", record, newID(), Row{"error_code": code})
 		}
 		if e != nil {
 			tx.Rollback()
@@ -198,17 +198,17 @@ var (
 )
 
 func (s *Server) provision(ctx context.Context, record string) error {
-	job, e := row(ctx, s.DB, "SELECT d.*,t.canonical_host,t.port,t.tls_mode,t.provisioning_credentials_enc FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
+	job, e := scanOne[resourceAccess](ctx, s.DB, "SELECT "+resourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
 	if e != nil {
 		return e
 	}
-	tenant, name := str(job["tenant_id"]), str(job["database_name"])
+	tenant, name := job.TenantID, job.Name
 	var runtime credentials
-	if e = s.unseal("database", record, tenant, []byte(str(job["runtime_credentials_enc"])), &runtime); e != nil {
+	if e = s.unseal("database", record, tenant, job.Runtime, &runtime); e != nil {
 		return e
 	}
-	if str(job["management_mode"]) == "registered" {
-		db, e := s.targetDB(ctx, job, runtime, name)
+	if job.Mode == "registered" {
+		db, e := s.targetDB(ctx, job.databaseEndpoint, runtime, name)
 		if e != nil {
 			return e
 		}
@@ -216,10 +216,10 @@ func (s *Server) provision(ctx context.Context, record string) error {
 		return validateRuntime(ctx, db, name, false)
 	}
 	var admin credentials
-	if e = s.unseal("target", str(job["target_id"]), "", []byte(str(job["provisioning_credentials_enc"])), &admin); e != nil {
+	if e = s.unseal("target", job.TargetID, "", job.Provisioning, &admin); e != nil {
 		return e
 	}
-	db, e := s.targetDB(ctx, job, admin, "")
+	db, e := s.targetDB(ctx, job.databaseEndpoint, admin, "")
 	if e != nil {
 		return e
 	}
@@ -240,7 +240,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	if !generatedRE.MatchString(name) || runtime.Username != name || !accountHostRE.MatchString(runtime.AccountHost) {
 		return ownershipConflict()
 	}
-	marker := "lastapp:" + record + ":" + hex.EncodeToString([]byte(str(job["ownership_token"])))
+	marker := "lastapp:" + record + ":" + hex.EncodeToString(job.Ownership)
 	var comment string
 	e = conn.QueryRowContext(ctx, "SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -262,7 +262,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	if e != nil && (!errors.As(e, &me) || me.Number != 1396) {
 		return e
 	}
-	verify, e := s.targetDB(ctx, job, runtime, "")
+	verify, e := s.targetDB(ctx, job.databaseEndpoint, runtime, "")
 	if e != nil {
 		return ownershipConflict()
 	}
@@ -275,7 +275,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	if _, e = conn.ExecContext(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON `"+pattern+"`.* TO "+principal); e != nil {
 		return e
 	}
-	verify, e = s.targetDB(ctx, job, runtime, name)
+	verify, e = s.targetDB(ctx, job.databaseEndpoint, runtime, name)
 	if e != nil {
 		return e
 	}
@@ -379,8 +379,19 @@ func releasePinnedLock(conn *sql.Conn, name string) {
 
 // Round-robin Tenants, oldest job within each Tenant. A slow Tenant can consume
 // at most one 45-second attempt before another waiting Tenant gets a turn.
-func nextJob(ctx context.Context, q Queryer, lastTenant string) (Row, error) {
-	return row(ctx, q, "SELECT d.id,d.tenant_id,d.target_id,d.agent_grant_id,d.agent_user_id,ag.client_id AS agent_client_id FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id LEFT JOIN agent_grants ag ON ag.id=d.agent_grant_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
+// databaseJob is a pending database resource and the delegation, if any,
+// that requested it.
+type databaseJob struct {
+	ID, TenantID, TargetID             string
+	AgentGrant, AgentUser, AgentClient string // empty for a console request
+}
+
+func (v *databaseJob) fields() []any {
+	return []any{&v.ID, &v.TenantID, &v.TargetID, &v.AgentGrant, &v.AgentUser, &v.AgentClient}
+}
+
+func nextJob(ctx context.Context, q Queryer, lastTenant string) (databaseJob, error) {
+	return scanOne[databaseJob](ctx, q, "SELECT d.id,d.tenant_id,d.target_id,COALESCE(d.agent_grant_id,''),COALESCE(d.agent_user_id,''),COALESCE(ag.client_id,'') FROM database_resources d JOIN tenants t ON t.id=d.tenant_id JOIN database_targets dt ON dt.id=d.target_id LEFT JOIN agent_grants ag ON ag.id=d.agent_grant_id WHERE d.state='pending' AND t.state='active' AND dt.state='active' ORDER BY (d.tenant_id>?) DESC,d.tenant_id,d.created_at,d.id LIMIT 1", lastTenant)
 }
 
 func cleanupSessions(ctx context.Context, q Queryer) (sql.Result, error) {

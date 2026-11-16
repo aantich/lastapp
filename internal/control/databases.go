@@ -31,10 +31,82 @@ type databaseInput struct {
 	Credentials credentials `json:"credentials"`
 }
 
-const (
-	targetColumns = "id,display_name,canonical_host,port,tls_mode,state,managed_enabled,revision,created_at"
-	dbColumns     = "id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at"
-)
+// Target is a database server registered by the platform.
+type Target struct {
+	Host      string    `json:"canonical_host"`
+	CreatedAt time.Time `json:"created_at"`
+	Name      string    `json:"display_name"`
+	ID        string    `json:"id"`
+	Managed   bit       `json:"managed_enabled"`
+	Port      int64     `json:"port"`
+	Revision  int64     `json:"revision"`
+	State     string    `json:"state"`
+	TLS       string    `json:"tls_mode"`
+}
+
+func (v *Target) fields() []any {
+	return []any{&v.Host, &v.CreatedAt, &v.Name, &v.ID, &v.Managed, &v.Port, &v.Revision, &v.State, &v.TLS}
+}
+
+// AvailableTarget is an active target a Tenant may allocate on.
+type AvailableTarget struct {
+	Name    string `json:"display_name"`
+	ID      string `json:"id"`
+	Managed bit    `json:"managed_enabled"`
+}
+
+func (v *AvailableTarget) fields() []any { return []any{&v.Name, &v.ID, &v.Managed} }
+
+// Database is a Tenant database resource and its provisioning status.
+type Database struct {
+	Attempts     int64      `json:"attempts"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Name         string     `json:"database_name"`
+	ID           string     `json:"id"`
+	LastError    *string    `json:"last_error_code"`
+	LastMessage  *string    `json:"last_error_message"`
+	LastVerified *time.Time `json:"last_verified_at"`
+	Layout       string     `json:"layout"`
+	Mode         string     `json:"management_mode"`
+	Revision     int64      `json:"revision"`
+	State        string     `json:"state"`
+	TargetID     string     `json:"target_id"`
+	TenantID     string     `json:"tenant_id"`
+}
+
+const databaseColumns = "attempts,created_at,database_name,id,last_error_code,last_error_message,last_verified_at,layout,management_mode,revision,state,target_id,tenant_id"
+
+func (v *Database) fields() []any {
+	return []any{&v.Attempts, &v.CreatedAt, &v.Name, &v.ID, &v.LastError, &v.LastMessage, &v.LastVerified, &v.Layout, &v.Mode, &v.Revision, &v.State, &v.TargetID, &v.TenantID}
+}
+
+// databaseEndpoint is where a target is reached and how its TLS is checked.
+type databaseEndpoint struct {
+	Host string
+	Port int
+	TLS  string
+}
+
+// resourceAccess is a database resource with its target's endpoint and the
+// sealed credentials needed to connect to it.
+type resourceAccess struct {
+	databaseEndpoint
+	TenantID, TargetID, Name, Mode string
+	Runtime, Schema, Ownership     []byte
+	Provisioning                   []byte // the target's, for managed resources
+}
+
+const resourceAccessColumns = "d.tenant_id,d.target_id,d.database_name,d.management_mode,d.runtime_credentials_enc,d.schema_credentials_enc,d.ownership_token,t.canonical_host,t.port,t.tls_mode,t.provisioning_credentials_enc"
+
+func (v *resourceAccess) fields() []any {
+	return []any{&v.TenantID, &v.TargetID, &v.Name, &v.Mode, &v.Runtime, &v.Schema, &v.Ownership, &v.Host, &v.Port, &v.TLS, &v.Provisioning}
+}
+
+// targetEndpoint reads a target's endpoint.
+func targetEndpoint(ctx context.Context, q Queryer, target string) (databaseEndpoint, error) {
+	var v databaseEndpoint
+	return v, lookup(ctx, q, "SELECT canonical_host,port,tls_mode FROM database_targets WHERE id=?", []any{target}, &v.Host, &v.Port, &v.TLS)
+}
 
 // storage owns database targets and Tenant database resources. Console
 // handlers and MCP tools both call these methods; the worker applies the
@@ -61,23 +133,23 @@ type databaseChange struct {
 	Credentials *credentials `json:"credentials"`
 }
 
-func (v *storage) Targets(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+func (v *storage) Targets(ctx context.Context, a Actor, page PageRequest) (Page[Target], error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return Page[Row]{}, e
+		return Page[Target]{}, e
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("database-targets"), "SELECT "+targetColumns+" FROM database_targets ORDER BY display_name")
+	return pageScan[Target](ctx, v.db, page, collectionFor("database-targets"), "SELECT canonical_host,created_at,display_name,id,managed_enabled,port,revision,state,tls_mode FROM database_targets ORDER BY display_name")
 }
 
 // AvailableTargets lists the active targets a Tenant may allocate on.
-func (v *storage) AvailableTargets(ctx context.Context, a Actor, tenant string, managed bool, page PageRequest) (Page[Row], error) {
+func (v *storage) AvailableTargets(ctx context.Context, a Actor, tenant string, managed bool, page PageRequest) (Page[AvailableTarget], error) {
 	if e := v.run.authorize(ctx, a, "database.manage", Resource{Tenant: tenant}); e != nil {
-		return Page[Row]{}, e
+		return Page[AvailableTarget]{}, e
 	}
 	filter := ""
 	if managed {
 		filter = " AND managed_enabled=1"
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("database-targets"), "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
+	return pageScan[AvailableTarget](ctx, v.db, page, collectionFor("database-targets"), "SELECT display_name,id,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
 }
 
 type targetInput struct {
@@ -153,7 +225,7 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		sets := []string{"revision=revision+1"}
@@ -199,18 +271,18 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 	return v.run.ref(ctx, "database_targets", "", record)
 }
 
-func (v *storage) Databases(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Row], error) {
+func (v *storage) Databases(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Database], error) {
 	if e := v.run.authorize(ctx, a, "database.read", Resource{Tenant: tenant}); e != nil {
-		return Page[Row]{}, e
+		return Page[Database]{}, e
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("database-resources"), "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
+	return pageScan[Database](ctx, v.db, page, collectionFor("database-resources"), "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
 }
 
-func (v *storage) Database(ctx context.Context, a Actor, tenant, record string) (Row, error) {
+func (v *storage) Database(ctx context.Context, a Actor, tenant, record string) (Database, error) {
 	if e := v.run.authorize(ctx, a, "database.read", Resource{Tenant: tenant}); e != nil {
-		return nil, e
+		return Database{}, e
 	}
-	return row(ctx, v.db, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, record)
+	return scanOne[Database](ctx, v.db, "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, record)
 }
 
 // The Tenant mutation lock serializes allocation counts, including retries that
@@ -236,7 +308,7 @@ func agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Principal, resour
 // allocate requests a database resource inside the caller's transaction. A
 // workspace allocation is authorized by workspace.manage on its scope and is
 // not counted against an agent's database allocation.
-func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Row, workspace *Resource) error {
+func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *Resource) error {
 	action, res := "database.manage", Resource{Tenant: tenant}
 	if workspace != nil {
 		action, res = "workspace.manage", *workspace
@@ -256,32 +328,34 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 			return e
 		}
 	}
-	if e := layoutAllowed(policy, in.Layout); e != nil {
+	if e := layoutAllowed(policy.Plan, in.Layout); e != nil {
 		return e
 	}
 	if in.Mode != "managed" && in.Mode != "registered" {
 		return bad("Select managed or registered database mode.")
 	}
-	if integer(policy["allow_"+in.Mode+"_database"]) != 1 {
+	if !policy.allowsMethod(in.Mode) {
 		return problem(403, "plan_restriction", "This database method is not included in the plan.")
 	}
-	if e := quota(ctx, tx, tenant, "database_resources", "max_databases", policy); e != nil {
+	if e := quota(ctx, tx, tenant, "database_resources", policy.MaxDatabases); e != nil {
 		return e
 	}
 	if e := pendingDatabaseQuota(ctx, tx, tenant); e != nil {
 		return e
 	}
-	target, e := row(ctx, tx, "SELECT state,managed_enabled FROM database_targets WHERE id=?", in.Target)
+	var targetState string
+	var managed bit
+	e := lookup(ctx, tx, "SELECT state,managed_enabled FROM database_targets WHERE id=?", []any{in.Target}, &targetState, &managed)
 	if e != nil {
 		return e
 	}
-	if str(target["state"]) != stateActive {
+	if targetState != stateActive {
 		return conflict("The database target is disabled.")
 	}
 	var ownership any
 	cred := in.Credentials
 	if in.Mode == "managed" {
-		if integer(target["managed_enabled"]) != 1 {
+		if !managed {
 			return bad("Target does not support managed creation.")
 		}
 		in.Database = "la_" + strings.ReplaceAll(in.ID, "-", "")
@@ -349,14 +423,15 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 	}
 	p := a.Principal
 	e := v.run.mutate(ctx, a, "database.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
-		old, e := row(ctx, tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
+		var current int64
+		var state, mode, target string
+		e := lookup(ctx, tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &state, &mode, &target)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		state := str(old["state"])
 		if state == "provisioning" || state == "pending" || state == stateRetired {
 			return conflict("Wait for provisioning to finish; retired resources cannot be changed.")
 		}
@@ -375,7 +450,7 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 			next = stateRetired
 		}
 		if next == "pending" {
-			if e := agentDatabaseProvision(ctx, tx, p, record, str(old["management_mode"]), str(old["target_id"])); e != nil {
+			if e := agentDatabaseProvision(ctx, tx, p, record, mode, target); e != nil {
 				return e
 			}
 			if e := pendingDatabaseQuota(ctx, tx, tenant); e != nil {
@@ -383,7 +458,7 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 			}
 		}
 		if in.Credentials != nil {
-			if str(old["management_mode"]) != "registered" || in.Credentials.Username == "" || in.Credentials.Password == "" {
+			if mode != "registered" || in.Credentials.Username == "" || in.Credentials.Password == "" {
 				return bad("Only registered database credentials can be replaced.")
 			}
 			enc, e := v.seal("database", record, tenant, in.Credentials)
@@ -505,9 +580,9 @@ func (s *Server) updateDatabase(w http.ResponseWriter, r *http.Request, p Princi
 	return e
 }
 
-func (s *Server) targetDB(ctx context.Context, target Row, cred credentials, name string) (*sql.DB, error) {
-	host := str(target["canonical_host"])
-	port := strconv.Itoa(int(integer(target["port"])))
+func (s *Server) targetDB(ctx context.Context, target databaseEndpoint, cred credentials, name string) (*sql.DB, error) {
+	host := target.Host
+	port := strconv.Itoa(target.Port)
 	cfg := mariadb.NewConfig()
 	cfg.User = cred.Username
 	cfg.Passwd = cred.Password
@@ -518,7 +593,7 @@ func (s *Server) targetDB(ctx context.Context, target Row, cred credentials, nam
 	cfg.Timeout = 5 * time.Second
 	cfg.ReadTimeout = 15 * time.Second
 	cfg.WriteTimeout = 15 * time.Second
-	if str(target["tls_mode"]) == "verify_identity" {
+	if target.TLS == "verify_identity" {
 		cfg.TLS = &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 	} else if !s.Config.Development {
 		return nil, fmt.Errorf("TLS is required")

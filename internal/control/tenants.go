@@ -5,9 +5,55 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+	"time"
 )
 
-const planColumns = "id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at"
+// Plan is a subscription plan: allowed database layouts and methods, compute
+// and the Tenant quotas (nil is unlimited).
+type Plan struct {
+	AllowDedicatedCompute  bit       `json:"allow_dedicated_compute"`
+	AllowDedicatedDatabase bit       `json:"allow_dedicated_database"`
+	AllowManaged           bit       `json:"allow_managed_database"`
+	AllowRegistered        bit       `json:"allow_registered_database"`
+	AllowSharedDatabase    bit       `json:"allow_shared_database"`
+	Code                   string    `json:"code"`
+	CreatedAt              time.Time `json:"created_at"`
+	DefaultLayout          string    `json:"default_layout"`
+	Name                   string    `json:"display_name"`
+	ID                     string    `json:"id"`
+	MaxApps                *int64    `json:"max_apps"`
+	MaxDatabases           *int64    `json:"max_databases"`
+	MaxSpaces              *int64    `json:"max_spaces"`
+	Revision               int64     `json:"revision"`
+}
+
+const planColumns = "allow_dedicated_compute,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_shared_database,code,created_at,default_layout,display_name,id,max_apps,max_databases,max_spaces,revision"
+
+func (p *Plan) fields() []any {
+	return []any{&p.AllowDedicatedCompute, &p.AllowDedicatedDatabase, &p.AllowManaged, &p.AllowRegistered, &p.AllowSharedDatabase, &p.Code, &p.CreatedAt, &p.DefaultLayout, &p.Name, &p.ID, &p.MaxApps, &p.MaxDatabases, &p.MaxSpaces, &p.Revision}
+}
+
+// Policy is the plan of an active Tenant with the Tenant's own defaults.
+type Policy struct {
+	Plan
+	TenantState           string
+	TenantLayout          string // empty when the Tenant uses the plan default
+	DefaultSharedDatabase string // empty until the first shared database exists
+}
+
+func (p *Policy) fields() []any {
+	return append(p.Plan.fields(), &p.TenantState, &p.TenantLayout, &p.DefaultSharedDatabase)
+}
+
+// allowsLayout reports whether the plan permits a database layout.
+func (p Plan) allowsLayout(layout string) bool {
+	return layout == "shared" && bool(p.AllowSharedDatabase) || layout == "dedicated" && bool(p.AllowDedicatedDatabase)
+}
+
+// allowsMethod reports whether the plan permits a database provisioning mode.
+func (p Plan) allowsMethod(mode string) bool {
+	return mode == "managed" && bool(p.AllowManaged) || mode == "registered" && bool(p.AllowRegistered)
+}
 
 type planInput struct {
 	ID         string  `json:"id"`
@@ -37,18 +83,18 @@ func (in planInput) validate() error {
 	return bad("The default layout must be allowed by this plan.")
 }
 
-func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Plan], error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return Page[Row]{}, e
+		return Page[Plan]{}, e
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+	return pageScan[Plan](ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
 }
 
-func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Row, error) {
+func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Plan, error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return nil, e
+		return Plan{}, e
 	}
-	return row(ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
+	return scanOne[Plan](ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
 }
 
 func (v *inventory) CreatePlan(ctx context.Context, a Actor, in planInput) (Ref, error) {
@@ -79,14 +125,16 @@ func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in p
 		return Ref{}, revisionRequired()
 	}
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
-		old, e := row(ctx, tx, "SELECT id,revision,code FROM plans WHERE id=? FOR UPDATE", record)
+		var current int64
+		var code string
+		e := lookup(ctx, tx, "SELECT revision,code FROM plans WHERE id=? FOR UPDATE", []any{record}, &current, &code)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		if str(old["code"]) != in.Code {
+		if code != in.Code {
 			return bad("Plan codes are immutable.")
 		}
 		_, e = tx.ExecContext(ctx, "UPDATE plans SET display_name=?,allow_shared_database=?,allow_dedicated_database=?,allow_managed_database=?,allow_registered_database=?,allow_dedicated_compute=?,default_layout=?,max_spaces=?,max_apps=?,max_databases=?,revision=revision+1 WHERE id=?", in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases, record)
@@ -133,13 +181,31 @@ func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[Row], error) {
+// User is a global account with its platform administrator assignment.
+type User struct {
+	CreatedAt                  time.Time `json:"created_at"`
+	Name                       string    `json:"display_name"`
+	Email                      *string   `json:"email"`
+	ID                         string    `json:"id"`
+	OIDCIssuer                 string    `json:"oidc_issuer"`
+	OIDCSubject                string    `json:"oidc_subject"`
+	PlatformAdmin              bit       `json:"platform_admin"`
+	PlatformAssignmentID       *string   `json:"platform_assignment_id"`
+	PlatformAssignmentRevision *int64    `json:"platform_assignment_revision"`
+	Revision                   int64     `json:"revision"`
+	State                      string    `json:"state"`
+}
+
+func (v *User) fields() []any {
+	return []any{&v.CreatedAt, &v.Name, &v.Email, &v.ID, &v.OIDCIssuer, &v.OIDCSubject, &v.PlatformAdmin, &v.PlatformAssignmentID, &v.PlatformAssignmentRevision, &v.Revision, &v.State}
+}
+
+func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[User], error) {
 	p := actor.Principal
 	if e := s.authorize(ctx, s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return Page[Row]{}, e
+		return Page[User]{}, e
 	}
-	v, e := pageQuery(ctx, s.DB, page, collectionFor("users"), "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
-	return v, e
+	return pageScan[User](ctx, s.DB, page, collectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -162,17 +228,17 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 		if e != nil {
 			return e
 		}
-		ts, e := rows(r.Context(), tx, "SELECT tenant_id FROM tenant_memberships WHERE user_id=? ORDER BY tenant_id", record)
+		ts, e := scanStrings(r.Context(), tx, "SELECT tenant_id FROM tenant_memberships WHERE user_id=? ORDER BY tenant_id", record)
 		if e != nil {
 			return e
 		}
 		for _, t := range ts {
 			var v string
-			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t["tenant_id"]).Scan(&v); e != nil {
+			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t).Scan(&v); e != nil {
 				return e
 			}
 		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+		if e = checkRevision(old.Revision, rev); e != nil {
 			return e
 		}
 		_, e = tx.ExecContext(r.Context(), "UPDATE users SET state=?,revision=revision+1 WHERE id=?", in.State, record)
@@ -183,7 +249,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 			return e
 		}
 		for _, t := range ts {
-			if e = ensureTenantAdmin(r.Context(), tx, str(t["tenant_id"])); e != nil {
+			if e = ensureTenantAdmin(r.Context(), tx, t); e != nil {
 				return e
 			}
 		}
@@ -195,7 +261,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 				return e
 			}
 		}
-		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": old["state"]}, "after": Row{"state": in.State}})
+		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": old.State}, "after": Row{"state": in.State}})
 	})
 	if e != nil {
 		return e
@@ -203,7 +269,33 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 	return result(w, r, s, "users", "", record, 200)
 }
 
-const tenantColumns = "t.id,t.slug,t.display_name,t.state,t.plan_id,t.default_layout,t.default_shared_database_id,t.revision,t.created_at,p.display_name AS plan_name"
+// Tenant is a Tenant with its plan's name. The counts are read only in the
+// collection (tenantItem).
+type Tenant struct {
+	AppCount              *int64    `json:"app_count,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+	DefaultLayout         *string   `json:"default_layout"`
+	DefaultSharedDatabase *string   `json:"default_shared_database_id"`
+	Name                  string    `json:"display_name"`
+	ID                    string    `json:"id"`
+	PlanID                string    `json:"plan_id"`
+	PlanName              string    `json:"plan_name"`
+	Revision              int64     `json:"revision"`
+	Slug                  string    `json:"slug"`
+	SpaceCount            *int64    `json:"space_count,omitempty"`
+	State                 string    `json:"state"`
+}
+
+const tenantColumns = "t.created_at,t.default_layout,t.default_shared_database_id,t.display_name,t.id,t.plan_id,p.display_name AS plan_name,t.revision,t.slug,t.state"
+
+func (t *Tenant) fields() []any {
+	return []any{&t.CreatedAt, &t.DefaultLayout, &t.DefaultSharedDatabase, &t.Name, &t.ID, &t.PlanID, &t.PlanName, &t.Revision, &t.Slug, &t.State}
+}
+
+// tenantItem is a Tenant collection row with its active Space and App counts.
+type tenantItem struct{ Tenant }
+
+func (t *tenantItem) fields() []any { return append(t.Tenant.fields(), &t.SpaceCount, &t.AppCount) }
 
 type tenantCreateInput struct {
 	ID      string        `json:"id"`
@@ -222,18 +314,18 @@ type tenantPatch struct {
 	Layout *string `json:"default_layout"`
 }
 
-func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[tenantItem], error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return Page[Row]{}, e
+		return Page[tenantItem]{}, e
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
+	return pageScan[tenantItem](ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
 }
 
-func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Row, error) {
+func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Tenant, error) {
 	if e := v.run.authorize(ctx, a, "tenant.read", Resource{Tenant: tenant}); e != nil {
-		return nil, e
+		return Tenant{}, e
 	}
-	return row(ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
+	return scanOne[Tenant](ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
 }
 
 // CreateTenant creates a Tenant with its first administrator: an existing
@@ -263,6 +355,8 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 	} else if e := id(in.Admin); e != nil {
 		return Ref{}, e
 	}
+	ctx, cancel := account.deadline(ctx)
+	defer cancel()
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
 		if in.Account != nil {
 			var e error
@@ -271,7 +365,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 				return e
 			}
 		}
-		policy, e := row(ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
+		policy, e := scanOne[Plan](ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
 		if e != nil {
 			return e
 		}
@@ -314,14 +408,15 @@ func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in
 		return Ref{}, revisionRequired()
 	}
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{Tenant: record}, func(tx *sql.Tx) error {
-		old, e := row(ctx, tx, "SELECT id,display_name,state,plan_id,default_layout,revision FROM tenants WHERE id=?", record)
+		var name, state, plan, layout string
+		var current int64
+		e := lookup(ctx, tx, "SELECT display_name,state,plan_id,COALESCE(default_layout,''),revision FROM tenants WHERE id=?", []any{record}, &name, &state, &plan, &layout, &current)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		name, state, plan, layout := str(old["display_name"]), str(old["state"]), str(old["plan_id"]), str(old["default_layout"])
 		if in.Name != nil {
 			name = *in.Name
 			if strings.TrimSpace(name) == "" || len(name) > 160 {
@@ -337,7 +432,7 @@ func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in
 		if in.Plan != nil {
 			plan = *in.Plan
 		}
-		policy, e := row(ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
+		policy, e := scanOne[Plan](ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
 		if e != nil {
 			return e
 		}
@@ -372,7 +467,7 @@ func (v *inventory) UpdateTenantProfile(ctx context.Context, a Actor, tenant, na
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(before["revision"]), revision); e != nil {
+		if e = checkRevision(before.Revision, revision); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET display_name=?,revision=revision+1 WHERE id=?", name, tenant); e != nil {
@@ -440,29 +535,33 @@ func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p P
 	return e
 }
 
-func layoutAllowed(policy Row, layout string) error {
-	if layout == "" {
-		return nil
-	}
-	if (layout == "shared" && integer(policy["allow_shared_database"]) == 1) || (layout == "dedicated" && integer(policy["allow_dedicated_database"]) == 1) {
+func layoutAllowed(policy Plan, layout string) error {
+	if layout == "" || policy.allowsLayout(layout) {
 		return nil
 	}
 	return problem(403, "plan_restriction", "This database layout is not permitted by the selected plan.")
 }
 
-func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
-	v, e := row(ctx, q, "SELECT p.*,t.state AS tenant_state,t.default_layout AS tenant_default_layout,t.default_shared_database_id FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
+// policyFor reads the plan of an active Tenant; resources are allocated only
+// in an active Tenant.
+func policyFor(ctx context.Context, q Queryer, tenant string) (Policy, error) {
+	v, e := scanOne[Policy](ctx, q, "SELECT "+prefixed("p", planColumns)+",t.state,COALESCE(t.default_layout,''),COALESCE(t.default_shared_database_id,'') FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
 	if e != nil {
-		return nil, e
+		return Policy{}, e
 	}
-	if str(v["tenant_state"]) != stateActive {
-		return nil, conflict("The Tenant must be active to allocate resources.")
+	if v.TenantState != stateActive {
+		return Policy{}, conflict("The Tenant must be active to allocate resources.")
 	}
 	return v, nil
 }
 
-func quota(ctx context.Context, q Queryer, tenant, table, column string, policy Row) error {
-	if policy[column] == nil {
+// quotaNames names each quota-limited table in the quota_exceeded message.
+var quotaNames = map[string]string{"spaces": "spaces", "apps": "apps", "database_resources": "databases"}
+
+// quota rejects one more production record of table when limit (nil is
+// unlimited) is reached.
+func quota(ctx context.Context, q Queryer, tenant, table string, limit *int64) error {
+	if limit == nil {
 		return nil
 	}
 	var n int
@@ -479,8 +578,8 @@ func quota(ctx context.Context, q Queryer, tenant, table, column string, policy 
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE tenant_id=? AND "+state, tenant).Scan(&n); e != nil {
 		return e
 	}
-	if int64(n) >= integer(policy[column]) {
-		return problem(409, "quota_exceeded", "The Tenant's "+strings.TrimPrefix(column, "max_")+" limit has been reached.")
+	if int64(n) >= *limit {
+		return problem(409, "quota_exceeded", "The Tenant's "+quotaNames[table]+" limit has been reached.")
 	}
 	return nil
 }

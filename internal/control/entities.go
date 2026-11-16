@@ -36,12 +36,106 @@ func (s *Server) entityRoutes() {
 	s.mux.HandleFunc("/data/v1/", s.dataHandler)
 }
 
-func validateEntityRefs(ctx context.Context, q Queryer, d entity.Definition, v Row) error {
-	return validateEntityRefsCandidates(ctx, q, d, v, nil)
+// EntityDefinition is a Space entity: its draft, lifecycle and active and
+// pending publications. The authoring view (Entity) adds the optional keys.
+type EntityDefinition struct {
+	ActiveDefinition  *jsonValue           `json:"active_definition,omitempty"`
+	ActiveVersion     *string              `json:"active_version_id"`
+	CreatedAt         time.Time            `json:"created_at"`
+	Diagnostics       *[]entity.Diagnostic `json:"diagnostics,omitempty"`
+	DraftContract     Row                  `json:"draft_contract,omitempty"`
+	Draft             jsonValue            `json:"draft_json"`
+	Key               string               `json:"entity_key"`
+	ID                string               `json:"id"`
+	Label             string               `json:"label"`
+	PendingVersion    *string              `json:"pending_version_id"`
+	Publications      *[]publicationItem   `json:"publications,omitempty"`
+	PublishedContract Row                  `json:"published_contract,omitempty"`
+	Revision          int64                `json:"revision"`
+	SpaceID           string               `json:"space_id"`
+	State             string               `json:"state"`
+	TenantID          string               `json:"tenant_id"`
 }
 
-func validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Definition, v Row, candidates map[string]bool) error {
-	tenant, space, entityID := str(v["tenant_id"]), str(v["space_id"]), str(v["id"])
+const entityColumns = "active_version_id,created_at,draft_json,entity_key,id,label,pending_version_id,revision,space_id,state,tenant_id"
+
+func (v *EntityDefinition) fields() []any {
+	return []any{&v.ActiveVersion, &v.CreatedAt, &v.Draft, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.SpaceID, &v.State, &v.TenantID}
+}
+
+// draft decodes the saved draft definition.
+func (v EntityDefinition) draft() (entity.Definition, error) { return defOf(v.Draft.value()) }
+
+// entityItem is an entity in a Space's entity collection.
+type entityItem struct {
+	ActiveVersion  *string `json:"active_version_id"`
+	Key            string  `json:"entity_key"`
+	ID             string  `json:"id"`
+	Label          string  `json:"label"`
+	PendingVersion *string `json:"pending_version_id"`
+	Revision       int64   `json:"revision"`
+	State          string  `json:"state"`
+}
+
+func (v *entityItem) fields() []any {
+	return []any{&v.ActiveVersion, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
+}
+
+// publicationItem is one of an entity's recent publications.
+type publicationItem struct {
+	BaseVersion *string   `json:"base_version_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	Hash        string    `json:"definition_hash"`
+	Error       *string   `json:"error_message"`
+	ID          string    `json:"id"`
+	State       string    `json:"state"`
+}
+
+func (v *publicationItem) fields() []any {
+	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.ID, &v.State}
+}
+
+// Publication is an entity publication with its completion time.
+type Publication struct {
+	BaseVersion *string    `json:"base_version_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	Hash        string     `json:"definition_hash"`
+	Error       *string    `json:"error_message"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	ID          string     `json:"id"`
+	State       string     `json:"state"`
+}
+
+func (v *Publication) fields() []any {
+	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.FinishedAt, &v.ID, &v.State}
+}
+
+// storedDefinition is a stored definition document.
+type storedDefinition struct{ Definition jsonValue }
+
+func (v *storedDefinition) fields() []any { return []any{&v.Definition} }
+
+// publishedEntity is an active entity with its published definition.
+type publishedEntity struct {
+	ID, ActiveVersion, Hash string
+	Definition              jsonValue
+}
+
+func (v *publishedEntity) fields() []any {
+	return []any{&v.ID, &v.ActiveVersion, &v.Hash, &v.Definition}
+}
+
+// versionDefinition reads a stored entity version's definition document.
+func versionDefinition(ctx context.Context, q Queryer, version string) (jsonValue, error) {
+	var v storedDefinition
+	return v.Definition, lookup(ctx, q, "SELECT definition_json FROM entity_versions WHERE id=?", []any{version}, &v.Definition)
+}
+
+func validateEntityRefs(ctx context.Context, q Queryer, d entity.Definition, v EntityDefinition) error {
+	return validateEntityRefsCandidates(ctx, q, d, v.TenantID, v.SpaceID, v.ID, nil)
+}
+
+func validateEntityRefsCandidates(ctx context.Context, q Queryer, d entity.Definition, tenant, space, entityID string, candidates map[string]bool) error {
 	for _, p := range d.Permissions {
 		for _, rid := range p.Roles {
 			if e := id(rid); e != nil {
@@ -101,24 +195,24 @@ func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, spac
 		return c, a, e
 	}
 	query := strings.Replace(effectiveAssignmentSQL, " ORDER BY g.scope_kind,g.id", " AND (g.scope_kind='team' OR (g.scope_kind='space' AND g.space_id=?) OR (g.scope_kind='app' AND g.app_id=?)) ORDER BY g.scope_kind,g.id", 1)
-	assignments, e := rows(ctx, q, query, user, tenant, space, app)
+	assignments, e := scanAll[EffectiveAssignment](ctx, q, query, user, tenant, space, app)
 	if e != nil {
 		return c, a, e
 	}
 	for _, g := range assignments {
-		if (g["scope_kind"] == "space" && str(g["space_id"]) == space) || (g["scope_kind"] == "app" && str(g["app_id"]) == app) {
-			c.Roles[str(g["role_id"])] = true
+		if (g.ScopeKind == "space" && deref(g.SpaceID) == space) || (g.ScopeKind == "app" && deref(g.AppID) == app) {
+			c.Roles[g.RoleID] = true
 		}
-		if g["scope_kind"] == "team" {
-			if g["code"] == "team.reviewer" {
-				c.ReviewTeams[str(g["scope_team_id"])] = true
+		if g.ScopeKind == "team" {
+			if g.Code == "team.reviewer" {
+				c.ReviewTeams[deref(g.ScopeTeamID)] = true
 			}
-			if g["code"] == "team.admin" {
-				c.AdminTeams[str(g["scope_team_id"])] = true
+			if g.Code == "team.admin" {
+				c.AdminTeams[deref(g.ScopeTeamID)] = true
 			}
 		}
 	}
-	teams, e := rows(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
+	teams, e := scanStrings(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
 	if e != nil {
 		return c, a, e
 	}
@@ -126,14 +220,14 @@ func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, spac
 		return c, a, conflict("Membership expansion limit exceeded.")
 	}
 	for _, g := range teams {
-		c.Teams[str(g["group_id"])] = true
+		c.Teams[g] = true
 	}
 	if app != "" {
-		v, e := row(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", app, tenant, space)
-		if e != nil {
+		var access jsonValue
+		if e := lookup(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", []any{app, tenant, space}, &access); e != nil {
 			return c, a, e
 		}
-		b, _ := json.Marshal(v["data_access_json"])
+		b, _ := json.Marshal(access)
 		if e = json.Unmarshal(b, &a); e != nil {
 			return c, a, e
 		}
@@ -155,14 +249,16 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	tenant, record := r.PathValue("tenant"), r.PathValue("id")
 	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		v, e := row(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
+		var current int64
+		var mode string
+		e := lookup(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &mode)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(v["revision"]), rev); e != nil {
+		if e = checkRevision(current, rev); e != nil {
 			return e
 		}
-		if v["management_mode"] != "registered" {
+		if mode != "registered" {
 			return bad("Managed storage uses its target's schema authority.")
 		}
 		enc, e := s.seal("schema", record, tenant, in)
@@ -233,7 +329,7 @@ type authoring struct {
 	db           *sql.DB
 	run          *runner
 	config       *Config
-	queue        func(ctx context.Context, tx *sql.Tx, p Principal, v Row, version string, candidates map[string]bool) error
+	queue        func(ctx context.Context, tx *sql.Tx, p Principal, v EntityDefinition, version string, candidates map[string]bool) error
 	actorContext func(ctx context.Context, q Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error)
 }
 
@@ -269,23 +365,22 @@ type (
 
 // entityRow reads an entity and checks action on its Space with the
 // stricter mutating rules, as every entity operation does.
-func (v *authoring) entityRow(ctx context.Context, q Queryer, a Actor, key, action string) (Row, error) {
-	out, e := row(ctx, q, "SELECT * FROM entity_definitions WHERE id=?", key)
+func (v *authoring) entityRow(ctx context.Context, q Queryer, a Actor, key, action string) (EntityDefinition, error) {
+	out, e := scanOne[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=?", key)
 	if e != nil {
-		return nil, e
+		return out, e
 	}
-	e = v.run.check(ctx, q, a, action, Resource{Tenant: str(out["tenant_id"]), Space: str(out["space_id"])}, true)
+	e = v.run.check(ctx, q, a, action, Resource{Tenant: out.TenantID, Space: out.SpaceID}, true)
 	return out, e
 }
 
 // authoringSpace reads an active Space whose entities a may manage.
-func (v *authoring) authoringSpace(ctx context.Context, a Actor, space string) (Row, error) {
-	out, e := row(ctx, v.db, "SELECT * FROM spaces WHERE id=? AND state='active'", space)
-	if e != nil {
-		return nil, e
+func (v *authoring) authoringSpace(ctx context.Context, a Actor, space string) (Resource, error) {
+	res := Resource{Space: space}
+	if e := lookup(ctx, v.db, "SELECT tenant_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant); e != nil {
+		return res, e
 	}
-	e = v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: str(out["tenant_id"]), Space: space}, true)
-	return out, e
+	return res, v.run.check(ctx, v.db, a, "entity.manage", res, true)
 }
 
 func defOf(v any) (entity.Definition, error) {
@@ -301,7 +396,7 @@ func (v *authoring) Entities(ctx context.Context, a Actor, space string) (Row, e
 	if e != nil {
 		return nil, e
 	}
-	items, e := rows(ctx, v.db, "SELECT id,entity_key,label,state,revision,active_version_id,pending_version_id FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", sp["id"], sp["tenant_id"])
+	items, e := scanAll[entityItem](ctx, v.db, "SELECT active_version_id,entity_key,id,label,pending_version_id,revision,state FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", sp.Space, sp.Tenant)
 	if e != nil {
 		return nil, e
 	}
@@ -309,48 +404,48 @@ func (v *authoring) Entities(ctx context.Context, a Actor, space string) (Row, e
 }
 
 // CreateEntity adds a draft to a Space and returns its authoring view.
-func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in entityCreateInput) (Row, error) {
+func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in entityCreateInput) (EntityDefinition, error) {
 	if in.ID == "" {
 		in.ID = newID()
 	}
 	if e := id(in.ID); e != nil {
-		return nil, e
+		return EntityDefinition{}, e
 	}
 	sp, e := v.authoringSpace(ctx, a, space)
 	if e != nil {
-		return nil, e
+		return EntityDefinition{}, e
 	}
 	if in.Definition.Format != 1 || len(in.Definition.Key) > 48 || !entity.ValidKey(in.Definition.Key) || len(in.Definition.Label) > 160 || in.Definition.Label == "" {
-		return nil, bad("Provide an entity key and name.")
+		return EntityDefinition{}, bad("Provide an entity key and name.")
 	}
 	b, _ := json.Marshal(in.Definition)
 	if len(b) > entity.MaxDefinitionBytes {
-		return nil, bad("Definition exceeds its encoded-size limit.")
+		return EntityDefinition{}, bad("Definition exceeds its encoded-size limit.")
 	}
-	tenant := str(sp["tenant_id"])
-	e = v.run.mutate(ctx, a, "entity.manage", Resource{Tenant: tenant, Space: str(sp["id"])}, func(tx *sql.Tx) error {
+	tenant := sp.Tenant
+	e = v.run.mutate(ctx, a, "entity.manage", sp, func(tx *sql.Tx) error {
 		var n int
-		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_definitions WHERE space_id=?", sp["id"]).Scan(&n); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_definitions WHERE space_id=?", sp.Space).Scan(&n); e != nil {
 			return e
 		}
 		if n >= 100 {
 			return conflict("Space entity limit reached.")
 		}
-		_, e := tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,draft_json) VALUES(?,?,?,?,?,?)", in.ID, sp["tenant_id"], sp["id"], in.Definition.Key, in.Definition.Label, b)
+		_, e := tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,draft_json) VALUES(?,?,?,?,?,?)", in.ID, sp.Tenant, sp.Space, in.Definition.Key, in.Definition.Label, b)
 		if e != nil {
 			return e
 		}
 		return auditAs(ctx, tx, a, tenant, "entity.created", "entity", in.ID, Row{})
 	})
 	if e != nil {
-		return nil, e
+		return EntityDefinition{}, e
 	}
-	return v.Entity(ctx, a, in.ID, entityView{})
+	return v.detailOf(ctx, a, in.ID)
 }
 
 // Entity is the authoring view of a draft with its generated contracts and
 // recent publications, or one selected section of it.
-func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entityView) (Row, error) {
+func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entityView) (any, error) {
 	out, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return nil, e
@@ -360,20 +455,20 @@ func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entity
 		if version == "" {
 			version = "draft"
 		}
-		definition := out["draft_json"]
+		definition := out.Draft
 		if version == "published" {
-			if out["active_version_id"] == nil {
+			if out.ActiveVersion == nil {
 				return nil, missing()
 			}
-			active, err := row(ctx, v.db, "SELECT definition_json FROM entity_versions WHERE id=?", out["active_version_id"])
+			active, err := versionDefinition(ctx, v.db, *out.ActiveVersion)
 			if err != nil {
 				return nil, err
 			}
-			definition = active["definition_json"]
+			definition = active
 		} else if version != "draft" {
 			return nil, bad("version must be draft or published.")
 		}
-		d, err := defOf(definition)
+		d, err := defOf(definition.value())
 		if err != nil {
 			return nil, err
 		}
@@ -381,83 +476,101 @@ func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entity
 		if err != nil {
 			return nil, err
 		}
-		return Row{"id": out["id"], "space_id": out["space_id"], "revision": out["revision"], "version": version, "active_version_id": out["active_version_id"], "definition_hash": entity.Hash(d), "section": view.Section, "field": view.Field, "partial": view.Field != "", "value": value}, nil
+		return Row{"id": out.ID, "space_id": out.SpaceID, "revision": out.Revision, "version": version, "active_version_id": out.ActiveVersion, "definition_hash": entity.Hash(d), "section": view.Section, "field": view.Field, "partial": view.Field != "", "value": value}, nil
 	}
 	if view.Field != "" || view.Version != "" {
 		return nil, bad("field/version require a section.")
 	}
-	d, e := defOf(out["draft_json"])
+	return v.entityDetail(ctx, out)
+}
+
+// detailOf reads the full authoring view of an entity.
+func (v *authoring) detailOf(ctx context.Context, a Actor, key string) (EntityDefinition, error) {
+	out, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
-		return nil, e
+		return out, e
 	}
-	out["diagnostics"] = d.Validate()
-	out["draft_contract"] = Row{"definition_hash": entity.Hash(d), "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()}
-	versions, e := rows(ctx, v.db, "SELECT id,state,error_message,definition_hash,base_version_id,created_at FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", out["id"])
+	return v.entityDetail(ctx, out)
+}
+
+// entityDetail adds an entity's diagnostics, generated contracts and recent
+// publications: the full authoring view.
+func (v *authoring) entityDetail(ctx context.Context, out EntityDefinition) (EntityDefinition, error) {
+	d, e := out.draft()
 	if e != nil {
-		return nil, e
+		return out, e
 	}
-	out["publications"] = versions
-	if out["active_version_id"] != nil {
-		active, e := row(ctx, v.db, "SELECT definition_json FROM entity_versions WHERE id=?", out["active_version_id"])
+	diagnostics := d.Validate()
+	out.Diagnostics = &diagnostics
+	out.DraftContract = Row{"definition_hash": entity.Hash(d), "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()}
+	versions, e := scanAll[publicationItem](ctx, v.db, "SELECT base_version_id,created_at,definition_hash,error_message,id,state FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", out.ID)
+	if e != nil {
+		return out, e
+	}
+	out.Publications = &versions
+	if out.ActiveVersion != nil {
+		active, e := versionDefinition(ctx, v.db, *out.ActiveVersion)
 		if e != nil {
-			return nil, e
+			return out, e
 		}
-		out["active_definition"] = active["definition_json"]
-		published, e := defOf(active["definition_json"])
+		out.ActiveDefinition = &active
+		published, e := defOf(active.value())
 		if e != nil {
-			return nil, e
+			return out, e
 		}
-		out["published_contract"] = Row{"version_id": out["active_version_id"], "definition_hash": entity.Hash(published), "json_schema": published.JSONSchema(), "create_schema": published.Schema("create"), "update_schema": published.Schema("update"), "typescript": published.TypeScript()}
+		out.PublishedContract = Row{"version_id": out.ActiveVersion, "definition_hash": entity.Hash(published), "json_schema": published.JSONSchema(), "create_schema": published.Schema("create"), "update_schema": published.Schema("update"), "typescript": published.TypeScript()}
 	}
 	return out, nil
 }
 
 // SaveEntity replaces a draft, optionally archiving or reactivating it, and
 // returns its authoring view.
-func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in entitySaveInput, revision int64) (Row, error) {
+func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in entitySaveInput, revision int64) (EntityDefinition, error) {
 	if revision < 1 {
-		return nil, revisionRequired()
+		return EntityDefinition{}, revisionRequired()
 	}
 	old, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
-		return nil, e
+		return EntityDefinition{}, e
 	}
-	if in.Definition.Key != str(old["entity_key"]) || in.Definition.Format != 1 || in.Definition.Label == "" || len(in.Definition.Label) > 160 {
-		return nil, bad("Entity key/format are immutable and a name is required.")
+	if in.Definition.Key != old.Key || in.Definition.Format != 1 || in.Definition.Label == "" || len(in.Definition.Label) > 160 {
+		return EntityDefinition{}, bad("Entity key/format are immutable and a name is required.")
 	}
 	b, _ := json.Marshal(in.Definition)
 	if len(b) > entity.MaxDefinitionBytes {
-		return nil, bad("Definition exceeds its encoded-size limit.")
+		return EntityDefinition{}, bad("Definition exceeds its encoded-size limit.")
 	}
-	tenant := str(old["tenant_id"])
-	e = v.run.mutate(ctx, a, "entity.manage", Resource{Tenant: tenant, Space: str(old["space_id"])}, func(tx *sql.Tx) error {
-		current, e := row(ctx, tx, "SELECT revision,pending_version_id FROM entity_definitions WHERE id=? FOR UPDATE", old["id"])
+	tenant := old.TenantID
+	e = v.run.mutate(ctx, a, "entity.manage", Resource{Tenant: tenant, Space: old.SpaceID}, func(tx *sql.Tx) error {
+		var current int64
+		var pending *string
+		e := lookup(ctx, tx, "SELECT revision,pending_version_id FROM entity_definitions WHERE id=? FOR UPDATE", []any{old.ID}, &current, &pending)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(current["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		state := str(old["state"])
+		state := old.State
 		if in.State != "" {
 			if !slices.Contains([]string{stateActive, stateArchived}, in.State) {
 				return bad("Invalid lifecycle state.")
 			}
-			if current["pending_version_id"] != nil {
+			if pending != nil {
 				return conflict("Wait for publishing before archiving.")
 			}
 			if in.State == stateArchived {
-				refs, e := rows(ctx, tx, "SELECT v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' AND e.id<>?", old["space_id"], old["id"])
+				refs, e := scanAll[storedDefinition](ctx, tx, "SELECT v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' AND e.id<>?", old.SpaceID, old.ID)
 				if e != nil {
 					return e
 				}
 				for _, ref := range refs {
-					d, e := defOf(ref["definition_json"])
+					d, e := defOf(ref.Definition.value())
 					if e != nil {
 						return e
 					}
 					for _, f := range d.Fields {
-						if f.Target == old["id"] {
+						if f.Target == old.ID {
 							return conflict("An active entity references this entity.")
 						}
 					}
@@ -465,16 +578,16 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 			}
 			state = in.State
 		}
-		_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET label=?,draft_json=?,state=?,revision=revision+1 WHERE id=?", in.Definition.Label, b, state, old["id"])
+		_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET label=?,draft_json=?,state=?,revision=revision+1 WHERE id=?", in.Definition.Label, b, state, old.ID)
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "entity.saved", "entity", str(old["id"]), Row{"state": state})
+		return auditAs(ctx, tx, a, tenant, "entity.saved", "entity", old.ID, Row{"state": state})
 	})
 	if e != nil {
-		return nil, e
+		return EntityDefinition{}, e
 	}
-	return v.Entity(ctx, a, key, entityView{})
+	return v.detailOf(ctx, a, key)
 }
 
 // ValidateEntity checks a candidate definition without saving it. The
@@ -508,25 +621,25 @@ func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revi
 		return nil, e
 	}
 	version := a.operationID()
-	e = v.run.mutate(ctx, a, "entity.publish", Resource{Tenant: str(current["tenant_id"]), Space: str(current["space_id"])}, func(tx *sql.Tx) error {
-		current, e = row(ctx, tx, "SELECT * FROM entity_definitions WHERE id=? FOR UPDATE", current["id"])
+	e = v.run.mutate(ctx, a, "entity.publish", Resource{Tenant: current.TenantID, Space: current.SpaceID}, func(tx *sql.Tx) error {
+		current, e = scanOne[EntityDefinition](ctx, tx, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=? FOR UPDATE", current.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(current["revision"]), revision); e != nil {
+		if e = checkRevision(current.Revision, revision); e != nil {
 			return e
 		}
-		if current["pending_version_id"] != nil {
+		if current.PendingVersion != nil {
 			return conflict("A publication is already pending.")
 		}
 		var queued int
-		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_versions WHERE tenant_id=? AND state IN ('queued','publishing','prepared')", current["tenant_id"]).Scan(&queued); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_versions WHERE tenant_id=? AND state IN ('queued','publishing','prepared')", current.TenantID).Scan(&queued); e != nil {
 			return e
 		}
 		if queued >= 16 {
 			return conflict("Publication queue limit reached. Wait for queued changes to finish.")
 		}
-		if current["state"] != stateActive {
+		if current.State != stateActive {
 			return conflict("Archived entities cannot publish.")
 		}
 		return v.queue(ctx, tx, a.Principal, current, version, nil)
@@ -537,12 +650,12 @@ func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revi
 	return Row{"id": version, "state": "queued"}, nil
 }
 
-func (v *authoring) Publication(ctx context.Context, a Actor, key, version string) (Row, error) {
+func (v *authoring) Publication(ctx context.Context, a Actor, key, version string) (Publication, error) {
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
-		return nil, e
+		return Publication{}, e
 	}
-	return row(ctx, v.db, "SELECT id,base_version_id,state,error_message,definition_hash,created_at,finished_at FROM entity_versions WHERE id=? AND entity_id=?", version, current["id"])
+	return scanOne[Publication](ctx, v.db, "SELECT base_version_id,created_at,definition_hash,error_message,finished_at,id,state FROM entity_versions WHERE id=? AND entity_id=?", version, current.ID)
 }
 
 // TestEntity evaluates one synthetic case against a candidate definition
@@ -558,7 +671,7 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 	if in.User == "" {
 		in.User = a.Principal.ID
 	}
-	c, access, e := v.actorContext(ctx, v.db, in.User, str(current["tenant_id"]), str(current["space_id"]), in.App)
+	c, access, e := v.actorContext(ctx, v.db, in.User, current.TenantID, current.SpaceID, in.App)
 	if e != nil {
 		return nil, e
 	}
@@ -591,7 +704,7 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 			fields = append(fields, k)
 		}
 	}
-	entityID := str(current["id"])
+	entityID := current.ID
 	allowed := in.Definition.Allowed(entityID, in.Operation, fields, c, access, nil)
 	if in.Operation == "read" {
 		allowed = true
@@ -621,35 +734,35 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 // AppContracts are the published entity contracts an App may use: its
 // access ceiling narrows fields and permissions unless a is a Space manager.
 func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view contractView) (Row, error) {
-	current, e := row(ctx, v.db, "SELECT * FROM apps WHERE id=?", app)
+	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: str(current["tenant_id"]), App: str(current["id"])}, true); e != nil {
+	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	access, e := accessOf(current)
+	access, e := accessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
-	manager := v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: str(current["tenant_id"]), Space: str(current["space_id"])}, true) == nil
-	vs, e := rows(ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current["space_id"])
+	manager := v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
+	vs, e := scanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
 	if e != nil {
 		return nil, e
 	}
 	out := []Row{}
 	for _, value := range vs {
-		if view.Entity != "" && view.Entity != str(value["id"]) {
+		if view.Entity != "" && view.Entity != value.ID {
 			continue
 		}
-		d, e := defOf(value["definition_json"])
+		d, e := defOf(value.Definition.value())
 		if e != nil {
 			return nil, e
 		}
 		perms := []Row{}
 		allowedFields := []string{}
 		for _, permission := range d.Permissions {
-			pid := entity.PermissionID(str(value["id"]), permission.Key)
+			pid := entity.PermissionID(value.ID, permission.Key)
 			if !manager && !access.Inherit && !slices.ContainsFunc(access.Ceiling, func(g entity.Gate) bool { return g.Permission == pid }) {
 				continue
 			}
@@ -685,7 +798,7 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 			if field != "" {
 				return nil, bad("field requires a generated contract section.")
 			}
-			out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
+			out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
 			continue
 		}
 		if section != "" {
@@ -705,7 +818,7 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 					return nil, e
 				}
 			}
-			out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "section": section, "field": field, "partial": field != "", "value": part})
+			out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "section": section, "field": field, "partial": field != "", "value": part})
 			continue
 		}
 		if field != "" {
@@ -715,13 +828,13 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 		if e != nil {
 			return nil, e
 		}
-		out = append(out, Row{"id": value["id"], "published_version_id": value["active_version_id"], "definition_hash": value["definition_hash"], "definition": Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
+		out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
-	roles, e := rows(ctx, v.db, "SELECT id,display_name FROM roles WHERE app_id=? AND domain='data' AND state='active'", current["id"])
+	roles, e := scanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
 	if e != nil {
 		return nil, e
 	}
-	response := Row{"app_id": current["id"], "space_id": current["space_id"], "app_revision": current["revision"], "entities": out, "roles": roles}
+	response := Row{"app_id": current.ID, "space_id": current.SpaceID, "app_revision": current.Revision, "entities": out, "roles": roles}
 	if view.Section == "inventory" {
 		var page pageInfo
 		out, page, e = pageItems(out, view.Page)
@@ -735,18 +848,18 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 
 // AppAccess is an App's data-access policy with its revision.
 func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (Row, error) {
-	current, e := row(ctx, v.db, "SELECT * FROM apps WHERE id=?", app)
+	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: str(current["tenant_id"]), App: str(current["id"])}, true); e != nil {
+	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	access, e := accessOf(current)
+	access, e := accessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
-	return Row{"revision": current["revision"], "access": access}, nil
+	return Row{"revision": current.Revision, "access": access}, nil
 }
 
 // SaveAppAccess replaces an App's origin, ceiling and restrictions. Only a
@@ -755,29 +868,29 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 	if revision < 1 {
 		return nil, revisionRequired()
 	}
-	current, e := row(ctx, v.db, "SELECT * FROM apps WHERE id=?", app)
+	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	res := Resource{Tenant: str(current["tenant_id"]), App: str(current["id"])}
+	res := Resource{Tenant: current.TenantID, App: current.ID}
 	e = v.run.mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
-		current, e = row(ctx, tx, "SELECT * FROM apps WHERE id=?", str(current["id"]))
+		current, e = scanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(current["revision"]), revision); e != nil {
+		if e = checkRevision(current.Revision, revision); e != nil {
 			return e
 		}
 		var wid sql.NullString
-		if e = tx.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE id=?", current["space_id"]).Scan(&wid); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE id=?", current.SpaceID).Scan(&wid); e != nil {
 			return e
 		}
 		workspace := wid.Valid
-		old, e := accessOf(current)
+		old, e := accessOf(current.Access)
 		if e != nil {
 			return e
 		}
-		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", Resource{Tenant: res.Tenant, Space: str(current["space_id"])}) == nil
+		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
 		if !spaceManager && (old.Origin != in.Origin || old.Inherit != in.Inherit || entity.Hash(old.Ceiling) != entity.Hash(in.Ceiling)) {
 			return problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
 		}
@@ -797,11 +910,11 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 				if e := id(g.Permission); e != nil {
 					return e
 				}
-				pv, e := row(ctx, tx, "SELECT p.entity_id,v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, current["space_id"])
+				pv, e := scanOne[storedDefinition](ctx, tx, "SELECT v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, current.SpaceID)
 				if e != nil {
 					return bad("Choose an active permission from this Space.")
 				}
-				d, e := defOf(pv["definition_json"])
+				d, e := defOf(pv.Definition.value())
 				if e != nil {
 					return e
 				}
@@ -817,7 +930,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 				}
 				for _, role := range g.Roles {
 					var n int
-					if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND app_id=? AND domain='data' AND state='active'", role, res.Tenant, current["id"]).Scan(&n); e != nil {
+					if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND app_id=? AND domain='data' AND state='active'", role, res.Tenant, current.ID).Scan(&n); e != nil {
 						return e
 					}
 					if n != 1 {
@@ -831,7 +944,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 			parsed, _ := url.Parse(in.Origin)
 			host = strings.ToLower(parsed.Hostname())
 			var occupied int
-			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE origin_host=? AND id<>?", host, current["id"]).Scan(&occupied); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE origin_host=? AND id<>?", host, current.ID).Scan(&occupied); e != nil {
 				return e
 			}
 			if occupied > 0 {
@@ -839,14 +952,14 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 			}
 		}
 		b, _ := json.Marshal(in)
-		_, e = tx.ExecContext(ctx, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, nullable(in.Origin), nullable(host), old.Origin, in.Origin, current["id"])
+		_, e = tx.ExecContext(ctx, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, nullable(in.Origin), nullable(host), old.Origin, in.Origin, current.ID)
 		if e != nil {
 			return e
 		}
-		if e = projectAppPermissions(ctx, tx, str(current["id"]), in); e != nil {
+		if e = projectAppPermissions(ctx, tx, current.ID, in); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", str(current["id"]), Row{})
+		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", current.ID, Row{})
 	})
 	if e != nil {
 		return nil, e
@@ -873,9 +986,10 @@ func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p Principa
 		return e
 	}
 	a := httpActor(r, p)
-	v, e := s.authoring.CreateEntity(r.Context(), a, r.PathValue("space"), in)
+	created, e := s.authoring.CreateEntity(r.Context(), a, r.PathValue("space"), in)
+	var v any = created
 	if e == nil && entityViewOf(r) != (entityView{}) {
-		v, e = s.authoring.Entity(r.Context(), a, str(v["id"]), entityViewOf(r))
+		v, e = s.authoring.Entity(r.Context(), a, created.ID, entityViewOf(r))
 	}
 	if e == nil {
 		send(w, 200, v)
@@ -897,7 +1011,8 @@ func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal)
 		return e
 	}
 	a := httpActor(r, p)
-	v, e := s.authoring.SaveEntity(r.Context(), a, r.PathValue("entity"), in, ifMatch(r))
+	saved, e := s.authoring.SaveEntity(r.Context(), a, r.PathValue("entity"), in, ifMatch(r))
+	var v any = saved
 	if e == nil && entityViewOf(r) != (entityView{}) {
 		v, e = s.authoring.Entity(r.Context(), a, r.PathValue("entity"), entityViewOf(r))
 	}

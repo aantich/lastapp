@@ -138,7 +138,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	// A new grant to an inactive recipient remains invalid outside a published copy.
 	inactiveDefinition := definition
 	inactiveDefinition.Permissions = definition.Permissions[3:]
-	if validateEntityRefs(ctx, s.DB, inactiveDefinition, Row{"id": eid, "tenant_id": tenant, "space_id": space}) == nil {
+	if validateEntityRefs(ctx, s.DB, inactiveDefinition, EntityDefinition{ID: eid, TenantID: tenant, SpaceID: space}) == nil {
 		t.Fatal("ordinary publication accepted inactive recipients")
 	}
 	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: newID(), Name: "Private author workspace"}, 0, 200)
@@ -296,7 +296,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	interrupted := false
 	for i := 0; i < 8; i++ {
 		if failure == "" && !interrupted {
-			prepared, err := rows(ctx, s.DB, "SELECT v.* FROM entity_versions v WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
+			prepared, err := scanAll[entityVersion](ctx, s.DB, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -309,7 +309,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 				}
 				for _, version := range prepared {
 					var plan data.StoragePlan
-					encoded, _ := json.Marshal(version["storage_plan_json"])
+					encoded, _ := json.Marshal(version.StoragePlan)
 					if err = json.Unmarshal(encoded, &plan); err != nil {
 						t.Fatal(err)
 					}

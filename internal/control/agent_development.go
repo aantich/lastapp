@@ -29,7 +29,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (Row, error)
+	var call func(context.Context, Actor) (any, error)
 	permission := "workspaces.write"
 	switch in.Action {
 	case "create":
@@ -37,12 +37,12 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 			return nil, bad("create needs production space_id.")
 		}
 		create := workspaceCreateInput{ID: stableAgentID(p, in.RequestKey), Name: in.Name}
-		call = func(ctx context.Context, a Actor) (Row, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
+		call = func(ctx context.Context, a Actor) (any, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
 	case "archive", "retry":
 		if id(in.Workspace) != nil || in.Revision < 1 {
 			return nil, bad("workspace_id and expected_revision are required.")
 		}
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.changeWorkspace(ctx, a, in.Workspace, in.Action == "retry", in.Revision)
 		}
 	case "launch":
@@ -50,7 +50,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 			return nil, bad("launch needs a workspace app_id and launch parameters.")
 		}
 		permission = "workspaces.test"
-		call = func(ctx context.Context, a Actor) (Row, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
+		call = func(ctx context.Context, a Actor) (any, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
 	default:
 		return nil, bad("action is create, archive, retry or launch.")
 	}
@@ -67,24 +67,24 @@ func (s *Server) toolAgentRelease(ctx context.Context, p Principal, raw json.Raw
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (Row, error)
+	var call func(context.Context, Actor) (any, error)
 	permission := "releases.write"
 	switch in.Action {
 	case "upload_ticket":
-		call = func(ctx context.Context, a Actor) (Row, error) { return s.UploadTicket(ctx, a, in.App) }
+		call = func(ctx context.Context, a Actor) (any, error) { return s.UploadTicket(ctx, a, in.App) }
 	case "capture":
 		if in.Capture == nil {
 			return nil, bad("capture parameters required.")
 		}
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.CreateRelease(ctx, a, in.App, *in.Capture, in.Revision)
 		}
 	case "preview":
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.PreviewRelease(ctx, a, in.Release, in.Revision)
 		}
 	case "deploy":
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.DeployRelease(ctx, a, in.Release, in.Revision)
 		}
 		permission = "production.deploy"

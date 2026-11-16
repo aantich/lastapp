@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aantich/lastapp/internal/authz"
 )
@@ -74,6 +75,112 @@ type (
 	}
 )
 
+// Role is a role visible at a scope. The collection (roleItem) adds whether
+// it is platform-defined and its permissions: control permission codes for a
+// fixed role, active data permissions for a custom role. An audit snapshot
+// adds its permission codes.
+type Role struct {
+	AppID           *string           `json:"app_id"`
+	Code            string            `json:"code"`
+	DataPermissions *[]rolePermission `json:"data_permissions,omitempty"`
+	Name            string            `json:"display_name"`
+	Domain          string            `json:"domain"`
+	ID              string            `json:"id"`
+	Permissions     *[]string         `json:"permissions,omitempty"`
+	Protected       *bit              `json:"protected,omitempty"`
+	Revision        int64             `json:"revision"`
+	ScopeKind       string            `json:"scope_kind"`
+	SpaceID         *string           `json:"space_id"`
+	State           string            `json:"state"`
+	TenantID        *string           `json:"tenant_id"`
+}
+
+const roleColumns = "app_id,code,display_name,domain,id,revision,scope_kind,space_id,state,tenant_id"
+
+func (v *Role) fields() []any {
+	return []any{&v.AppID, &v.Code, &v.Name, &v.Domain, &v.ID, &v.Revision, &v.ScopeKind, &v.SpaceID, &v.State, &v.TenantID}
+}
+
+type roleItem struct{ Role }
+
+func (v *roleItem) fields() []any {
+	v.Protected = new(bit)
+	return append(v.Role.fields(), v.Protected)
+}
+
+// rolePermission is a data permission linked to a custom role.
+type rolePermission struct {
+	Code        string  `json:"code"`
+	Description string  `json:"description"`
+	EntityID    *string `json:"entity_id"`
+	ID          string  `json:"id"`
+}
+
+func (v *rolePermission) fields() []any { return []any{&v.Code, &v.Description, &v.EntityID, &v.ID} }
+
+// Assignment is a role assignment at its scope; also its audit snapshot.
+type Assignment struct {
+	AppID       *string `json:"app_id"`
+	Domain      string  `json:"domain"`
+	GroupID     *string `json:"group_id"`
+	ID          string  `json:"id"`
+	Revision    int64   `json:"revision"`
+	RoleID      string  `json:"role_id"`
+	ScopeKind   string  `json:"scope_kind"`
+	ScopeTeamID *string `json:"scope_team_id"`
+	SpaceID     *string `json:"space_id"`
+	TenantID    *string `json:"tenant_id"`
+	UserID      *string `json:"user_id"`
+}
+
+const assignmentColumns = "app_id,domain,group_id,id,revision,role_id,scope_kind,scope_team_id,space_id,tenant_id,user_id"
+
+func (v *Assignment) fields() []any {
+	return []any{&v.AppID, &v.Domain, &v.GroupID, &v.ID, &v.Revision, &v.RoleID, &v.ScopeKind, &v.ScopeTeamID, &v.SpaceID, &v.TenantID, &v.UserID}
+}
+
+// AssignmentItem is an assignment collection row with display names.
+type AssignmentItem struct {
+	AccessName    string    `json:"access_name"`
+	AppID         *string   `json:"app_id"`
+	CreatedAt     time.Time `json:"created_at"`
+	Domain        string    `json:"domain"`
+	GroupID       *string   `json:"group_id"`
+	ID            string    `json:"id"`
+	PrincipalName *string   `json:"principal_name"`
+	Revision      int64     `json:"revision"`
+	RoleID        string    `json:"role_id"`
+	RoleState     string    `json:"role_state"`
+	ScopeKind     string    `json:"scope_kind"`
+	ScopeName     string    `json:"scope_name"`
+	ScopeTeamID   *string   `json:"scope_team_id"`
+	SpaceID       *string   `json:"space_id"`
+	UserID        *string   `json:"user_id"`
+}
+
+func (v *AssignmentItem) fields() []any {
+	return []any{&v.AccessName, &v.AppID, &v.CreatedAt, &v.Domain, &v.GroupID, &v.ID, &v.PrincipalName, &v.Revision, &v.RoleID, &v.RoleState, &v.ScopeKind, &v.ScopeName, &v.ScopeTeamID, &v.SpaceID, &v.UserID}
+}
+
+// Recipient is an active Tenant member who can receive a role.
+type Recipient struct {
+	Name   string  `json:"display_name"`
+	Email  *string `json:"email"`
+	ID     string  `json:"id"`
+	UserID string  `json:"user_id"`
+}
+
+func (v *Recipient) fields() []any { return []any{&v.Name, &v.Email, &v.ID, &v.UserID} }
+
+// Named is an id with its display name: a team that can receive a role, or
+// a user or team a business record can name or share with.
+type Named struct {
+	Name string `json:"display_name"`
+	ID   string `json:"id"`
+}
+
+func (v *Named) fields() []any { return []any{&v.Name, &v.ID} }
+
 func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT u.state FROM users u JOIN tenant_memberships m ON m.user_id=u.id AND m.tenant_id=? AND m.state='active' WHERE u.id=? FOR UPDATE", t, user).Scan(&state)
@@ -91,35 +198,37 @@ func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 
 // Roles pages the roles defined at scope: fixed platform-defined roles with
 // their control permissions, and custom roles with their data permissions.
-func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Row], error) {
+func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[roleItem], error) {
 	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
-		return Page[Row]{}, e
+		return Page[roleItem]{}, e
 	}
-	out, e := pageQuery(ctx, v.db, page, collectionFor("roles"), "SELECT id,tenant_id,space_id,app_id,code,display_name,state,revision,scope_kind,domain,(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
+	out, e := pageScan[roleItem](ctx, v.db, page, collectionFor("roles"), "SELECT "+roleColumns+",(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
 	if e != nil {
 		return out, e
 	}
-	for _, role := range out.Items {
-		role["permissions"] = []string{}
-		if def, ok := authz.Builtin(str(role["id"])); ok {
-			role["permissions"] = def.Permissions
+	for i := range out.Items {
+		role := &out.Items[i]
+		permissions := []string{}
+		if def, ok := authz.Builtin(role.ID); ok {
+			permissions = def.Permissions
 		} else {
-			links, err := rows(ctx, v.db, "SELECT p.id,p.entity_id,p.code,p.description FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? AND p.domain='data' AND p.state='active'", role["id"])
+			links, err := scanAll[rolePermission](ctx, v.db, "SELECT p.code,p.description,p.entity_id,p.id FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? AND p.domain='data' AND p.state='active'", role.ID)
 			if err != nil {
-				return Page[Row]{}, err
+				return Page[roleItem]{}, err
 			}
-			role["data_permissions"] = links
+			role.DataPermissions = &links
 		}
+		role.Permissions = &permissions
 	}
 	return out, nil
 }
 
 // Role reads one role visible at scope; res carries the trusted ancestry.
-func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string) (Row, error) {
+func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string) (Role, error) {
 	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
-		return nil, e
+		return Role{}, e
 	}
-	return row(ctx, v.db, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", record, scope.Kind, scope.OwnerKey())
+	return scanOne[Role](ctx, v.db, "SELECT "+roleColumns+" FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", record, scope.Kind, scope.OwnerKey())
 }
 
 // CreateRole adds a custom business role to a Space or App; Tenant and team
@@ -184,17 +293,19 @@ func (v *authority) UpdateRole(ctx context.Context, a Actor, scope authz.Scope, 
 		return Ref{}, bad("Invalid state.")
 	}
 	e := v.run.mutate(ctx, a, "authorization.manage", res, func(tx *sql.Tx) error {
-		before, e := row(ctx, tx, "SELECT id,domain,owner_key,revision FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?) FOR UPDATE", record, scope.Kind, scope.OwnerKey())
+		var domain string
+		var current int64
+		e := lookup(ctx, tx, "SELECT domain,revision FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?) FOR UPDATE", []any{record, scope.Kind, scope.OwnerKey()}, &domain, &current)
 		if e != nil {
 			return e
 		}
-		if str(before["domain"]) == authz.Control {
+		if domain == authz.Control {
 			return problem(403, "protected_role", "Platform-defined roles cannot be edited.")
 		}
-		if e = checkRevision(integer(before["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		before, e = securitySnapshot(ctx, tx, "roles", scope.Tenant, record)
+		before, e := roleSnapshot(ctx, tx, scope.Tenant, record)
 		if e != nil {
 			return e
 		}
@@ -237,29 +348,29 @@ func assignmentAction(scope authz.Scope, manage bool) string {
 	return "authorization.read"
 }
 
-func (v *authority) Assignments(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Row], error) {
+func (v *authority) Assignments(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[AssignmentItem], error) {
 	if e := v.run.authorize(ctx, a, assignmentAction(scope, false), res); e != nil {
-		return Page[Row]{}, e
+		return Page[AssignmentItem]{}, e
 	}
 	where, args := assignmentFilter(scope)
-	return pageQuery(ctx, v.db, page, collectionFor("role-assignments"), `SELECT g.id,g.scope_kind,g.domain,g.user_id,g.group_id,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.revision,g.created_at,COALESCE(u.display_name,gr.display_name) AS principal_name,ro.display_name AS access_name,ro.state AS role_state,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
+	return pageScan[AssignmentItem](ctx, v.db, page, collectionFor("role-assignments"), `SELECT ro.display_name AS access_name,g.app_id,g.created_at,g.domain,g.group_id,g.id,COALESCE(u.display_name,gr.display_name) AS principal_name,g.revision,g.role_id,ro.state AS role_state,g.scope_kind,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name,g.scope_team_id,g.space_id,g.user_id FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
 }
 
 // Assignment reads one assignment at scope after an authorization.read check
 // on res, the trusted ancestry of the requested target.
-func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string) (Row, error) {
+func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string) (Assignment, error) {
 	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
-		return nil, e
+		return Assignment{}, e
 	}
 	filter, args := assignmentFilter(scope)
 	args = append(args, record)
-	return row(ctx, v.db, "SELECT id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,revision FROM access_grants g WHERE "+filter+" AND g.id=?", args...)
+	return scanOne[Assignment](ctx, v.db, "SELECT "+prefixed("g", assignmentColumns)+" FROM access_grants g WHERE "+filter+" AND g.id=?", args...)
 }
 
 // assignmentAuthority is the role-specific authority to grant or revoke: fixed
 // administrative roles need authority above the scope they confer.
-func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor, scope authz.Scope, res Resource, role Row) error {
-	switch str(role["id"]) {
+func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor, scope authz.Scope, res Resource, role string) error {
+	switch role {
 	case authz.SuperRole:
 		return v.run.authorizeTx(ctx, tx, a, "platform.admin", Resource{})
 	case authz.TenantAdminRole, authz.SpaceManagerRole:
@@ -295,17 +406,18 @@ func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res R
 		}
 	}
 	e := v.run.mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
-		role, e := row(ctx, tx, "SELECT id,domain,owner_key,state FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", in.Role, scope.Kind, scope.OwnerKey())
+		var domain, owner, state string
+		e := lookup(ctx, tx, "SELECT domain,owner_key,state FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", []any{in.Role, scope.Kind, scope.OwnerKey()}, &domain, &owner, &state)
 		if e != nil {
 			return e
 		}
-		if e = v.assignmentAuthority(ctx, tx, a, scope, res, role); e != nil {
+		if e = v.assignmentAuthority(ctx, tx, a, scope, res, in.Role); e != nil {
 			return e
 		}
-		if str(role["state"]) != stateActive {
+		if state != stateActive {
 			return bad("An active role is required.")
 		}
-		if str(role["domain"]) == authz.Control && in.Group != "" {
+		if domain == authz.Control && in.Group != "" {
 			return bad("Administrative roles require individual users.")
 		}
 
@@ -318,16 +430,18 @@ func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res R
 					return e
 				}
 			} else {
-				if _, e = row(ctx, tx, "SELECT id FROM groups WHERE tenant_id=? AND id=? AND state='active'", scope.Tenant, in.Group); e != nil {
+				var found string
+				if e = lookup(ctx, tx, "SELECT id FROM groups WHERE tenant_id=? AND id=? AND state='active'", []any{scope.Tenant, in.Group}, &found); e != nil {
 					return e
 				}
 			}
 		} else {
-			if _, e = row(ctx, tx, "SELECT id FROM users WHERE id=? AND state='active' FOR UPDATE", in.User); e != nil {
+			var found string
+			if e = lookup(ctx, tx, "SELECT id FROM users WHERE id=? AND state='active' FOR UPDATE", []any{in.User}, &found); e != nil {
 				return e
 			}
 		}
-		if str(role["domain"]) == authz.Control {
+		if domain == authz.Control {
 			if scope.Kind != authz.Platform {
 				platform, e := isPlatform(ctx, tx, in.User)
 				if e != nil {
@@ -343,11 +457,12 @@ func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res R
 			}
 		}
 		if scope.Kind == authz.Team {
-			if _, e = row(ctx, tx, "SELECT gm.user_id FROM group_memberships gm JOIN groups team ON team.id=gm.group_id AND team.state='active' WHERE gm.tenant_id=? AND gm.group_id=? AND gm.user_id=? AND gm.state='active'", scope.Tenant, scope.Team, in.User); e != nil {
+			var found string
+			if e = lookup(ctx, tx, "SELECT gm.user_id FROM group_memberships gm JOIN groups team ON team.id=gm.group_id AND team.state='active' WHERE gm.tenant_id=? AND gm.group_id=? AND gm.user_id=? AND gm.state='active'", []any{scope.Tenant, scope.Team, in.User}, &found); e != nil {
 				return bad("An active member of this team is required.")
 			}
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,role_owner_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)", in.ID, nullable(scope.Tenant), scope.Kind, role["domain"], nullable(in.User), nullable(in.Group), nullable(scope.Team), nullable(scope.Space), nullable(scope.App), in.Role, role["owner_key"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,role_owner_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)", in.ID, nullable(scope.Tenant), scope.Kind, domain, nullable(in.User), nullable(in.Group), nullable(scope.Team), nullable(scope.Space), nullable(scope.App), in.Role, owner); e != nil {
 			return e
 		}
 		return auditChangeAs(ctx, tx, a, scope.Tenant, "grant.created", "access_grants", "access_grant", in.ID, nil)
@@ -379,33 +494,35 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 	e := v.run.mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
 		where, args := assignmentFilter(scope)
 		args = append(args, record)
-		grant, e := row(ctx, tx, "SELECT g.id,g.role_id,g.revision FROM access_grants g WHERE "+where+" AND g.id=? FOR UPDATE", args...)
+		var role string
+		var current int64
+		e := lookup(ctx, tx, "SELECT g.role_id,g.revision FROM access_grants g WHERE "+where+" AND g.id=? FOR UPDATE", args, &role, &current)
 		if e != nil {
 			return e
 		}
-		role, e := row(ctx, tx, "SELECT id FROM roles WHERE id=?", grant["role_id"])
-		if e != nil {
+		var found string
+		if e = lookup(ctx, tx, "SELECT id FROM roles WHERE id=?", []any{role}, &found); e != nil {
 			return e
 		}
 		if e = v.assignmentAuthority(ctx, tx, a, scope, res, role); e != nil {
 			return e
 		}
-		if e = checkRevision(integer(grant["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		before, e := securitySnapshot(ctx, tx, "access_grants", scope.Tenant, record)
+		before, e := assignmentSnapshot(ctx, tx, scope.Tenant, record)
 		if e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "DELETE FROM access_grants WHERE id=?", record); e != nil {
 			return e
 		}
-		if str(grant["role_id"]) == SuperRole {
+		if role == SuperRole {
 			if e = ensurePlatformAdmin(ctx, tx); e != nil {
 				return e
 			}
 		}
-		if str(grant["role_id"]) == TenantAdminRole {
+		if role == TenantAdminRole {
 			if e = ensureTenantAdmin(ctx, tx, scope.Tenant); e != nil {
 				return e
 			}
@@ -420,17 +537,26 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 
 // Recipients lets scope managers search eligible users or active teams without
 // reading the global user directory or gaining membership authority.
-func (v *authority) Recipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, teams bool, page PageRequest) (Page[Row], error) {
+func (v *authority) Recipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Recipient], error) {
+	if e := v.recipientScope(ctx, a, scope, res); e != nil {
+		return Page[Recipient]{}, e
+	}
+	return pageScan[Recipient](ctx, v.db, page, collectionFor("recipients"), "SELECT u.display_name,u.email,u.id,u.id AS user_id FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, SuperRole)
+}
+
+// TeamRecipients is Recipients for active teams.
+func (v *authority) TeamRecipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Named], error) {
+	if e := v.recipientScope(ctx, a, scope, res); e != nil {
+		return Page[Named]{}, e
+	}
+	return pageScan[Named](ctx, v.db, page, collectionFor("team-recipients"), "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
+}
+
+func (v *authority) recipientScope(ctx context.Context, a Actor, scope authz.Scope, res Resource) error {
 	if scope.Kind == authz.Platform {
-		return Page[Row]{}, bad("A Tenant scope is required.")
+		return bad("A Tenant scope is required.")
 	}
-	if e := v.run.authorize(ctx, a, "authorization.manage", res); e != nil {
-		return Page[Row]{}, e
-	}
-	if teams {
-		return pageQuery(ctx, v.db, page, collectionFor("team-recipients"), "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
-	}
-	return pageQuery(ctx, v.db, page, collectionFor("recipients"), "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, SuperRole)
+	return v.run.authorize(ctx, a, "authorization.manage", res)
 }
 
 // assignInitialManager gives a new Space or App its manager inside the
@@ -556,9 +682,10 @@ func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p Prin
 	if e != nil {
 		return e
 	}
-	v, e := s.authority.Recipients(r.Context(), httpActor(r, p), scope, res, r.URL.Query().Get("type") == "team", pageRequest(r.URL.Query()))
-	if e == nil {
-		send(w, 200, v)
+	if r.URL.Query().Get("type") == "team" {
+		v, e := s.authority.TeamRecipients(r.Context(), httpActor(r, p), scope, res, pageRequest(r.URL.Query()))
+		return reply(w, 200, v, e)
 	}
-	return e
+	v, e := s.authority.Recipients(r.Context(), httpActor(r, p), scope, res, pageRequest(r.URL.Query()))
+	return reply(w, 200, v, e)
 }

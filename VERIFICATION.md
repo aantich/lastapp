@@ -1,5 +1,27 @@
 # Lastapp verification
 
+## Typed registry reads — 16 November 2026
+
+- The PBKDF2 key derivation honours the request deadline (separate commit).
+- Registry reads scan into typed structs domain by domain (plans/policy,
+  micro-apps, inventory, memberships/teams/users, roles/assignments, database
+  targets/resources, entities and publications, runtime metadata, App records,
+  workspaces, releases/deployments/builds, agent grants/OAuth, App sessions,
+  audit trail/overview). Untyped `row()` calls 107 → 4, `rows()` 51 → 7,
+  `pageQuery` 23 → 0 (kept only as the test reference); the remaining calls read
+  dynamic business records and record ACLs.
+- Both golden files stay byte-identical. `TestRegistryRecordsMatchUntypedRows`
+  compares every converted read with the former `SELECT` scanned as `Row`;
+  `TestRegistryRecordKeysAreSorted` checks that struct JSON keys stay in map
+  order.
+
+Executed checks after each commit: `go build ./...`, `go vet ./...` **PASS**;
+golangci-lint **0 issues**; schema `--check` and driver verification (42 files)
+**PASS**; `git diff --check` clean; `go test -race -count=1 ./internal/...`
+with the local config **PASS** (only `TestPrepareFixture` skipped); `make
+mcp-test` **PASS**. Browser e2e was not run: the shared dev stack on 8787 serves
+another branch from the main checkout.
+
 ## Operation extraction, steps 4–5 (loopback removed) — 16 November 2026
 
 - Rebased onto `fix/go-minor` (runtime-grants subcommand); full race suite
@@ -890,3 +912,19 @@ exercised by these local checks. No commit, push or remote deployment was made.
   `go test -race -count=1 ./internal/...` on the development MariaDB: 5
   packages, 78 top-level tests passed, 1 skipped (`TestPrepareFixture`, e2e
   only); golden snapshots unchanged.
+
+## Typed registry review follow-ups — 16 November 2026
+
+- `TestAccountDeadlineRenewsOnlyAfterDerivation`: choosing an existing account
+  keeps the request deadline; only a derived password renews it
+  (`preparedAccount.deadline`, used by membership, administrator and Tenant
+  creation).
+- `TestEntityRuntime` now makes the publisher's workspace read fail with a
+  database error: the job returns the error and the version stays `queued`.
+  With the previous "any error means no workspace" code it fails.
+- Rebased on the updated `refactor/operations`. `go build`, `go vet`,
+  golangci-lint v2.15.0 (0 issues), `validate_schema.py --check`,
+  `verify_driver.py` passed; `go test -race -count=1 ./internal/...` on the
+  development MariaDB: 5 packages, 82 top-level tests passed, 1 skipped
+  (`TestPrepareFixture`); golden snapshots unchanged. `make e2e`: **34 of 34**
+  Playwright scenarios passed in 2.6 minutes; no e2e listener remained.

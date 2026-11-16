@@ -107,12 +107,26 @@ func collectionFor(key string) collection {
 	return defaultCollection
 }
 
-// pageQuery runs one bounded page of query, an already permission-filtered
-// statement, searching and ordering by the collection's static columns.
-func pageQuery(ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[Row], error) {
+// pageScan runs one bounded page of query, an already permission-filtered
+// statement, searching and ordering by the collection's static columns, and
+// scans it into typed registry records.
+func pageScan[T any, P record[T]](ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[T], error) {
+	info, query, args, e := pageSQL(req, c, query, args)
+	if e != nil {
+		return Page[T]{}, e
+	}
+	v, e := scanAll[T, P](ctx, q, query, args...)
+	if e != nil {
+		return Page[T]{}, e
+	}
+	return pageOf(info, v), nil
+}
+
+// pageSQL wraps query in the collection's search, order and one-extra LIMIT.
+func pageSQL(req PageRequest, c collection, query string, args []any) (pageInfo, string, []any, error) {
 	info, search, e := req.info()
 	if e != nil {
-		return Page[Row]{}, e
+		return info, "", nil, e
 	}
 	query = "SELECT * FROM (" + query + ") AS collection"
 	if search != "" {
@@ -122,26 +136,27 @@ func pageQuery(ctx context.Context, q Queryer, req PageRequest, c collection, qu
 	}
 	query += " ORDER BY " + c.order + " LIMIT ? OFFSET ?"
 	args = append(args, info.Limit+1, (info.Page-1)*info.Limit)
-	v, e := rows(ctx, q, query, args...)
-	if e != nil {
-		return Page[Row]{}, e
-	}
+	return info, query, args, nil
+}
+
+// pageOf cuts the one-extra row that reports has_more.
+func pageOf[T any](info pageInfo, v []T) Page[T] {
 	info.HasMore = len(v) > info.Limit
 	if info.HasMore {
 		v = v[:info.Limit]
 	}
-	return Page[Row]{Items: v, Pagination: info}, nil
+	return Page[T]{Items: v, Pagination: info}
 }
 
 // pageRows is the shim for handlers not yet migrated to operations: it takes
 // the collection key from the request path and reports paging through ctx.
-func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]Row, error) {
+func pageRows[T any, P record[T]](ctx context.Context, q Queryer, r *http.Request, query string, args ...any) ([]T, error) {
 	values := r.URL.Query()
 	key := path.Base(r.URL.Path)
 	if key == "recipients" && values.Get("type") == "team" {
 		key = "team-recipients"
 	}
-	page, e := pageQuery(ctx, q, pageRequest(values), collectionFor(key), query, args...)
+	page, e := pageScan[T, P](ctx, q, pageRequest(values), collectionFor(key), query, args...)
 	if e != nil {
 		return nil, e
 	}
@@ -151,23 +166,33 @@ func pageRows(ctx context.Context, q Queryer, r *http.Request, query string, arg
 	return page.Items, nil
 }
 
-func sendPage(w http.ResponseWriter, r *http.Request, v []Row) {
+func sendPage[T any](w http.ResponseWriter, r *http.Request, v []T) {
 	info, _ := r.Context().Value(pageContextKey{}).(*pageInfo)
 	send(w, 200, Row{"items": v, "pagination": info})
 }
 
+// searchable is a metadata item that an inventory search matches against.
+type searchable interface{ searchText() string }
+
+// searchFields is the lower-cased text an inventory search matches: an item's
+// id, label, display name, key, entity key, code and description.
+func searchFields(fields ...string) string { return strings.ToLower(strings.Join(fields, " ")) }
+
+func (v Row) searchText() string {
+	return searchFields(str(v["id"]), str(v["label"]), str(v["display_name"]), str(v["key"]), str(v["entity_key"]), str(v["code"]), str(v["description"]))
+}
+
 // Only pass already-authorized metadata here. Filtering must precede paging;
 // serialize the resulting page rather than an oversized complete inventory.
-func pageItems(items []Row, req PageRequest) ([]Row, pageInfo, error) {
+func pageItems[T searchable](items []T, req PageRequest) ([]T, pageInfo, error) {
 	info, search, err := req.info()
 	if err != nil {
 		return nil, info, err
 	}
-	filtered := []Row{}
+	filtered := []T{}
 	for _, v := range items {
 		if search != "" {
-			text := strings.ToLower(str(v["id"]) + " " + str(v["label"]) + " " + str(v["display_name"]) + " " + str(v["key"]) + " " + str(v["entity_key"]) + " " + str(v["code"]) + " " + str(v["description"]))
-			if !strings.Contains(text, strings.ToLower(search)) {
+			if !strings.Contains(v.searchText(), strings.ToLower(search)) {
 				continue
 			}
 		}

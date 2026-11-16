@@ -214,7 +214,7 @@ func TestMembershipOperations(t *testing.T) {
 		t.Fatal("console team member state", e)
 	}
 	page, e := s.members.TeamMembers(ctx, human, tenant, team.ID, PageRequest{})
-	if e != nil || len(page.Items) != 1 || str(page.Items[0]["state"]) != stateDisabled {
+	if e != nil || len(page.Items) != 1 || page.Items[0].State != stateDisabled {
 		t.Fatal("console team members", page, e)
 	}
 	var n int
@@ -299,7 +299,7 @@ func TestAuthorityOperations(t *testing.T) {
 	if e != nil || len(page.Items) != 2 {
 		t.Fatal("console assignments", page, e)
 	}
-	if v, e := s.authority.Assignment(ctx, human, scope, res, grant.ID); e != nil || str(v["role_id"]) != role.ID {
+	if v, e := s.authority.Assignment(ctx, human, scope, res, grant.ID); e != nil || v.RoleID != role.ID {
 		t.Fatal("console assignment", v, e)
 	}
 	_, e = s.authority.Revoke(ctx, human, scope, res, grant.ID, 0)
@@ -331,11 +331,11 @@ func TestAuthorityOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, p.Agent.ID).Scan(&n); e != nil || n != 1 {
 		t.Fatal("agent audit attribution", n, e)
 	}
-	recipients, e := s.authority.Recipients(ctx, agent, scope, res, false, PageRequest{})
+	recipients, e := s.authority.Recipients(ctx, agent, scope, res, PageRequest{})
 	if e != nil || len(recipients.Items) == 0 {
 		t.Fatal("agent recipients", recipients, e)
 	}
-	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, Resource{}, false, PageRequest{})
+	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, Resource{}, PageRequest{})
 	wantProblem(t, e, 400, "invalid_request")
 }
 
@@ -362,7 +362,7 @@ func TestStorageOperations(t *testing.T) {
 		t.Fatal("platform target update", ref, e)
 	}
 	available, e := s.storage.AvailableTargets(ctx, human, tenant, true, PageRequest{})
-	if e != nil || len(available.Items) != 1 || str(available.Items[0]["id"]) != allowed {
+	if e != nil || len(available.Items) != 1 || available.Items[0].ID != allowed {
 		t.Fatal("available targets", available, e)
 	}
 	_, e = s.storage.CreateTarget(ctx, platform, targetInput{ID: newID(), Name: "Bad", Host: "db.example", Port: 3306, TLS: "none"})
@@ -374,7 +374,7 @@ func TestStorageOperations(t *testing.T) {
 	if ref, e := s.storage.CreateDatabase(ctx, human, tenant, in); e != nil || ref.ID != record {
 		t.Fatal("register database", ref, e)
 	}
-	if v, e := s.storage.Database(ctx, human, tenant, record); e != nil || str(v["state"]) != "pending" {
+	if v, e := s.storage.Database(ctx, human, tenant, record); e != nil || v.State != "pending" {
 		t.Fatal("database", v, e)
 	}
 	if page, e := s.storage.Databases(ctx, human, tenant, PageRequest{}); e != nil || len(page.Items) == 0 {
@@ -409,19 +409,19 @@ func TestAuthoringOperations(t *testing.T) {
 	// Console actor: draft lifecycle, revisions and generated views.
 	d := entity.Definition{Format: 1, Key: "ticket", Label: "Ticket", Fields: []entity.Field{{Key: "title", Label: "Title", Type: "text", MaxLength: 100}}, Projection: []string{"title"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}}
 	created, e := s.authoring.CreateEntity(ctx, human, space, entityCreateInput{Definition: d})
-	if e != nil || created["draft_contract"] == nil || integer(created["revision"]) != 1 {
+	if e != nil || created.DraftContract == nil || created.Revision != 1 {
 		t.Fatal("console entity", created, e)
 	}
-	key := str(created["id"])
+	key := created.ID
 	d.Label = "Support ticket"
 	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 0)
 	wantProblem(t, e, 428, "revision_required")
 	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 2)
 	wantProblem(t, e, 412, "stale_revision")
-	if saved, e := s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 1); e != nil || str(saved["label"]) != d.Label {
+	if saved, e := s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 1); e != nil || saved.Label != d.Label {
 		t.Fatal("console save", saved, e)
 	}
-	if v, e := s.authoring.Entity(ctx, human, key, entityView{Section: "definition"}); e != nil || v["section"] != "definition" {
+	if v, e := s.authoring.Entity(ctx, human, key, entityView{Section: "definition"}); e != nil || v.(Row)["section"] != "definition" {
 		t.Fatal("entity section", v, e)
 	}
 	_, e = s.authoring.Entity(ctx, human, key, entityView{Field: "x"})
@@ -429,7 +429,7 @@ func TestAuthoringOperations(t *testing.T) {
 	if v, e := s.authoring.ValidateEntity(ctx, human, key, d, "diagnostics"); e != nil || v["schema"] != nil {
 		t.Fatal("validate", v, e)
 	}
-	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]Row)) != 1 {
+	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]entityItem)) != 1 {
 		t.Fatal("entities", page, e)
 	}
 	_, e = s.authoring.PublishEntity(ctx, human, key, 0)
@@ -438,7 +438,7 @@ func TestAuthoringOperations(t *testing.T) {
 	if e != nil || queued["state"] != "queued" {
 		t.Fatal("publish", queued, e)
 	}
-	if v, e := s.authoring.Publication(ctx, human, key, str(queued["id"])); e != nil || str(v["id"]) != str(queued["id"]) {
+	if v, e := s.authoring.Publication(ctx, human, key, str(queued["id"])); e != nil || v.ID != str(queued["id"]) {
 		t.Fatal("publication", v, e)
 	}
 	var n int

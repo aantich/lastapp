@@ -16,9 +16,37 @@ import (
 
 type endpoint func(http.ResponseWriter, *http.Request, Principal) error
 
+// requestTimeout bounds the database work of one console API or MCP request.
+var requestTimeout = 25 * time.Second
+
+type requestBaseKey struct{}
+
+// withRequestDeadline starts a request's deadline and remembers the request
+// context without it, so renewDeadline can give a later phase a fresh one.
+func withRequestDeadline(base context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(base, requestTimeout)
+	return context.WithValue(ctx, requestBaseKey{}, base), cancel
+}
+
+// renewDeadline gives the database phase after a PBKDF2 derivation its own
+// request deadline. The derivation cannot observe a context; its cost is
+// bounded by passwordSlots and maxPasswordInputBytes. A deadline spanning it
+// only turned a completed derivation into a 500 when the CPU was slow (for
+// example under the race detector on a loaded test machine). The renewed
+// context keeps ctx's values and the request's own cancellation.
+func renewDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	base, ok := ctx.Value(requestBaseKey{}).(context.Context)
+	if !ok {
+		return ctx, func() {}
+	}
+	next, cancel := context.WithTimeout(context.WithoutCancel(ctx), requestTimeout)
+	stop := context.AfterFunc(base, cancel)
+	return next, func() { stop(); cancel() }
+}
+
 func (s *Server) api(pattern string, fn endpoint) {
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		ctx, cancel := withRequestDeadline(r.Context())
 		defer cancel()
 		ctx = context.WithValue(ctx, pageContextKey{}, &pageInfo{})
 		r = r.WithContext(ctx)
@@ -196,10 +224,20 @@ func (s *Server) Handler() http.Handler {
 	}))
 }
 
+// TenantRef is a Tenant the principal belongs to.
+type TenantRef struct {
+	Name  string `json:"display_name"`
+	ID    string `json:"id"`
+	Slug  string `json:"slug"`
+	State string `json:"state"`
+}
+
+func (v *TenantRef) fields() []any { return []any{&v.Name, &v.ID, &v.Slug, &v.State} }
+
 // myTenants pages the Tenants where the principal has an active membership.
 // It is the one query behind both /v1/me and /v1/my-tenants.
-func (s *Server) myTenants(r *http.Request, p Principal) ([]Row, error) {
-	return pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+func (s *Server) myTenants(r *http.Request, p Principal) ([]TenantRef, error) {
+	return pageRows[TenantRef](r.Context(), s.DB, r, "SELECT t.display_name,t.id,t.slug,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
 }
 
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -221,6 +259,46 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principa
 	return nil
 }
 
+// stateCount is how many database resources are in a state.
+type stateCount struct {
+	Count int64  `json:"count"`
+	State string `json:"state"`
+}
+
+func (v *stateCount) fields() []any { return []any{&v.Count, &v.State} }
+
+// recentDatabase is a recently created database resource on the platform
+// overview.
+type recentDatabase struct {
+	Name        string  `json:"database_name"`
+	ID          string  `json:"id"`
+	LastMessage *string `json:"last_error_message"`
+	State       string  `json:"state"`
+	TenantID    string  `json:"tenant_id"`
+	TenantName  string  `json:"tenant_name"`
+}
+
+func (v *recentDatabase) fields() []any {
+	return []any{&v.Name, &v.ID, &v.LastMessage, &v.State, &v.TenantID, &v.TenantName}
+}
+
+// AuditEvent is an audit trail entry with its actor's name.
+type AuditEvent struct {
+	Action       string    `json:"action"`
+	ActorName    string    `json:"actor_name"`
+	CreatedAt    time.Time `json:"created_at"`
+	Details      jsonValue `json:"details_json"`
+	ID           int64     `json:"id"`
+	RequestID    string    `json:"request_id"`
+	ResourceID   *string   `json:"resource_id"`
+	ResourceType string    `json:"resource_type"`
+	TenantID     *string   `json:"tenant_id"`
+}
+
+func (v *AuditEvent) fields() []any {
+	return []any{&v.Action, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
+}
+
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
@@ -233,12 +311,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 		}
 		out[table] = n
 	}
-	status, e := rows(r.Context(), s.DB, "SELECT state,COUNT(*) AS count FROM database_resources GROUP BY state")
+	status, e := scanAll[stateCount](r.Context(), s.DB, "SELECT COUNT(*),state FROM database_resources GROUP BY state")
 	if e != nil {
 		return e
 	}
 	out["database_states"] = status
-	recent, e := rows(r.Context(), s.DB, "SELECT d.id,d.tenant_id,d.database_name,d.state,d.last_error_message,t.display_name AS tenant_name FROM database_resources d JOIN tenants t ON t.id=d.tenant_id ORDER BY d.created_at DESC LIMIT 6")
+	recent, e := scanAll[recentDatabase](r.Context(), s.DB, "SELECT d.database_name,d.id,d.last_error_message,d.state,d.tenant_id,t.display_name FROM database_resources d JOIN tenants t ON t.id=d.tenant_id ORDER BY d.created_at DESC LIMIT 6")
 	if e != nil {
 		return e
 	}
@@ -247,14 +325,14 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 	return e
 }
 
-func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page PageRequest) (Page[Row], error) {
+func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page PageRequest) (Page[AuditEvent], error) {
 	p := actor.Principal
 	action := "audit.read"
 	if tenant == "" {
 		action = "platform.admin"
 	}
 	if e := s.authorize(ctx, s.DB, p, action, Resource{Tenant: tenant}, false); e != nil {
-		return Page[Row]{}, e
+		return Page[AuditEvent]{}, e
 	}
 	args := []any{}
 	where := "1=1"
@@ -262,7 +340,7 @@ func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page Pa
 		where = "a.tenant_id=?"
 		args = append(args, tenant)
 	}
-	v, e := pageQuery(ctx, s.DB, page, collectionFor("audit-events"), "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,COALESCE(u.display_name,'System worker') AS actor_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+	v, e := pageScan[AuditEvent](ctx, s.DB, page, collectionFor("audit-events"), "SELECT a.action,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 	return v, e
 }
 
@@ -284,22 +362,31 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 		query += " AND tenant_id=?"
 		args = append(args, tenant)
 	}
-	v, e := row(r.Context(), s.DB, query, args...)
+	var v Ref
+	e := lookup(r.Context(), s.DB, query, args, &v.ID, &v.Revision)
 	if e == nil {
-		w.Header().Set("ETag", str(v["revision"]))
+		w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
 		send(w, status, v)
 	}
 	return e
 }
 
-func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (Row, error) {
-	query := "SELECT id,revision,state FROM " + table + " WHERE id=?"
+// lockedRecord is the revision and lifecycle state of a record locked for
+// update.
+type lockedRecord struct {
+	Revision int64
+	State    string
+}
+
+func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (lockedRecord, error) {
+	query := "SELECT revision,state FROM " + table + " WHERE id=?"
 	args := []any{record}
 	if tenant != "" {
 		query += " AND tenant_id=?"
 		args = append(args, tenant)
 	}
-	return row(ctx, tx, query+" FOR UPDATE", args...)
+	var v lockedRecord
+	return v, lookup(ctx, tx, query+" FOR UPDATE", args, &v.Revision, &v.State)
 }
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {

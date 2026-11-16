@@ -16,7 +16,7 @@ import (
 )
 
 type dataRuntime struct {
-	session             Row
+	session             appSession
 	d                   entity.Definition
 	entityID, version   string
 	actor               entity.Context
@@ -71,14 +71,14 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		err = s.exchange(w, r)
 	} else {
-		var se Row
+		var se appSession
 		se, err = s.dataSession(ctx, r)
 		if err == nil {
-			r.SetPathValue("tenant", str(se["tenant_id"]))
-			err = s.limitRequest(w, Principal{ID: str(se["user_id"])}, r)
+			r.SetPathValue("tenant", se.TenantID)
+			err = s.limitRequest(w, Principal{ID: se.UserID}, r)
 		}
 		if err == nil {
-			release, ok := s.tenantDataSlots.reserve(str(se["tenant_id"]))
+			release, ok := s.tenantDataSlots.reserve(se.TenantID)
 			if !ok {
 				err = rateLimited(w)
 			} else {
@@ -92,7 +92,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRuntime, error) {
+func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (dataRuntime, error) {
 	rt := dataRuntime{session: se, permissionRevisions: map[string]int64{}}
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if e != nil {
@@ -100,44 +100,45 @@ func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRunti
 	}
 	defer tx.Rollback()
 	var generation int64
-	if e = tx.QueryRowContext(ctx, "SELECT origin_generation FROM apps WHERE id=? AND state='active'", se["app_id"]).Scan(&generation); e != nil || generation != integer(se["origin_generation"]) {
+	if e = tx.QueryRowContext(ctx, "SELECT origin_generation FROM apps WHERE id=? AND state='active'", se.AppID).Scan(&generation); e != nil || generation != se.OriginGeneration {
 		return rt, problem(401, "unauthenticated", "App origin approval changed. Reconnect the App.")
 	}
-	rt.actor, rt.access, e = s.actorContext(ctx, tx, str(se["user_id"]), str(se["tenant_id"]), str(se["space_id"]), str(se["app_id"]))
+	rt.actor, rt.access, e = s.actorContext(ctx, tx, se.UserID, se.TenantID, se.SpaceID, se.AppID)
 	if e != nil {
 		return rt, e
 	}
-	v, e := row(ctx, tx, "SELECT e.id,e.active_version_id,v.definition_hash FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.tenant_id=? AND e.space_id=? AND e.entity_key=? AND e.state='active'", se["tenant_id"], se["space_id"], key)
+	var entityID, version, hash string
+	e = lookup(ctx, tx, "SELECT e.id,e.active_version_id,v.definition_hash FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.tenant_id=? AND e.space_id=? AND e.entity_key=? AND e.state='active'", []any{se.TenantID, se.SpaceID, key}, &entityID, &version, &hash)
 	if e != nil {
 		return rt, e
 	}
-	cacheKey := str(v["active_version_id"]) + ":" + str(v["definition_hash"])
+	cacheKey := version + ":" + hash
 	var found bool
 	rt.d, found = s.definitions.peek(cacheKey)
 	if !found {
 		var source string
-		if e = tx.QueryRowContext(ctx, "SELECT definition_json FROM entity_versions WHERE id=? AND entity_id=?", v["active_version_id"], v["id"]).Scan(&source); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT definition_json FROM entity_versions WHERE id=? AND entity_id=?", version, entityID).Scan(&source); e != nil {
 			return rt, e
 		}
-		rt.d, e = s.definitions.get(cacheKey, str(v["definition_hash"]), source)
+		rt.d, e = s.definitions.get(cacheKey, hash, source)
 		if e != nil {
 			return rt, e
 		}
 	}
-	rt.entityID, rt.version = str(v["id"]), str(v["active_version_id"])
-	ps, e := rows(ctx, tx, "SELECT id,security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
+	rt.entityID, rt.version = entityID, version
+	ps, e := scanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
 	if e != nil {
 		return rt, e
 	}
 	for _, p := range ps {
-		rt.permissionRevisions[str(p["id"])] = integer(p["security_revision"])
+		rt.permissionRevisions[p.ID] = p.Revision
 	}
 	if e = tx.Commit(); e != nil {
 		return rt, e
 	}
 	rt.metadataShares = map[string]bool{}
 	if rt.d.Sharing {
-		db, release, e := s.runtimeDB(ctx, str(se["database_resource_id"]))
+		db, release, e := s.runtimeDB(ctx, se.Resource)
 		if e != nil {
 			return rt, e
 		}
@@ -148,7 +149,7 @@ func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRunti
 		}
 		if len(ids) > 0 {
 			team, args := teamRecipientSQL(rt.actor)
-			prefix := []any{se["tenant_id"], se["space_id"], rt.entityID, rt.actor.Actor}
+			prefix := []any{se.TenantID, se.SpaceID, rt.entityID, rt.actor.Actor}
 			prefix = append(prefix, args...)
 			prefix = append(prefix, ids...)
 			grants, e := rows(ctx, db, "SELECT DISTINCT permission_id,security_revision FROM _lastapp_record_acl acl WHERE tenant_id=? AND space_id=? AND entity_id=? AND ((recipient_kind='user' AND recipient_id=?) OR "+team+") AND permission_id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+")", prefix...)
@@ -166,16 +167,16 @@ func (s *Server) loadRuntime(ctx context.Context, se Row, key string) (dataRunti
 	return rt, nil
 }
 
-func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se Row) error {
+func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSession) error {
 	path := strings.TrimPrefix(r.URL.Path, "/data/v1/")
 	if path == "schema" && r.Method == "GET" {
-		vs, e := rows(r.Context(), s.DB, "SELECT entity_key FROM entity_definitions WHERE tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL ORDER BY entity_key LIMIT 100", se["tenant_id"], se["space_id"])
+		keys, e := scanStrings(r.Context(), s.DB, "SELECT entity_key FROM entity_definitions WHERE tenant_id=? AND space_id=? AND state='active' AND active_version_id IS NOT NULL ORDER BY entity_key LIMIT 100", se.TenantID, se.SpaceID)
 		if e != nil {
 			return e
 		}
 		out := []any{}
-		for _, v := range vs {
-			rt, e := s.loadRuntime(r.Context(), se, str(v["entity_key"]))
+		for _, key := range keys {
+			rt, e := s.loadRuntime(r.Context(), se, key)
 			if e != nil {
 				return e
 			}
@@ -366,7 +367,7 @@ func (rt dataRuntime) shared(ctx context.Context, q Queryer, record string) (map
 		return out, nil
 	}
 	team, args := teamRecipientSQL(rt.actor)
-	args = append([]any{rt.session["tenant_id"], rt.session["space_id"], rt.entityID, record, rt.actor.Actor}, args...)
+	args = append([]any{rt.session.TenantID, rt.session.SpaceID, rt.entityID, record, rt.actor.Actor}, args...)
 	vs, e := rows(ctx, q, "SELECT permission_id,security_revision FROM _lastapp_record_acl acl WHERE tenant_id=? AND space_id=? AND entity_id=? AND record_id=? AND ((recipient_kind='user' AND recipient_id=?) OR "+team+")", args...)
 	if e != nil {
 		return nil, e
@@ -385,11 +386,13 @@ func (rt dataRuntime) checkGate(ctx context.Context, q Queryer, lock bool) error
 	if lock {
 		suffix = " LOCK IN SHARE MODE"
 	}
-	v, e := row(ctx, q, "SELECT version_id,gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=?"+suffix, rt.entityID, rt.session["tenant_id"], rt.session["space_id"])
+	var version string
+	var open bool
+	e := lookup(ctx, q, "SELECT COALESCE(version_id,''),gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=?"+suffix, []any{rt.entityID, rt.session.TenantID, rt.session.SpaceID}, &version, &open)
 	if e != nil {
 		return e
 	}
-	if integer(v["gate_open"]) != 1 || str(v["version_id"]) != rt.version {
+	if !open || version != rt.version {
 		return problem(409, "publication_in_progress", "Entity definition changed or is publishing. Refresh and retry.")
 	}
 	return nil
@@ -499,12 +502,12 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		return bad(e.Error())
 	}
 	where := "r.tenant_id=? AND r.space_id=? AND " + pred + " AND " + user
-	args = append([]any{rt.session["tenant_id"], rt.session["space_id"]}, args...)
+	args = append([]any{rt.session.TenantID, rt.session.SpaceID}, args...)
 	args = append(args, ua...)
 	if len(args) > entity.MaxSQLParameters {
 		return bad("Query exceeds its parameter limit.")
 	}
-	db, release, e := s.runtimeDB(r.Context(), str(rt.session["database_resource_id"]))
+	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -527,14 +530,14 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	}
 	fingerprint := q
 	fingerprint.Cursor = ""
-	hash := entity.Hash([]any{fingerprint, rt.entityID, rt.version, rt.session["app_id"], rt.actor.Actor})
+	hash := entity.Hash([]any{fingerprint, rt.entityID, rt.version, rt.session.AppID, rt.actor.Actor})
 	if q.Cursor != "" {
 		b, e := base64Decode(q.Cursor)
 		if e != nil {
 			return bad("Invalid cursor.")
 		}
 		var cur dataCursor
-		if e = s.unseal("data_cursor", rt.entityID, str(rt.session["tenant_id"]), b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
+		if e = s.unseal("data_cursor", rt.entityID, rt.session.TenantID, b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
 			return bad("Cursor does not match this query or definition.")
 		}
 		cs, ca := cursorSQL(rt.d, q.Sort, cur.Values)
@@ -576,7 +579,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		for _, so := range q.Sort {
 			values = append(values, last[so.Field])
 		}
-		b, e := s.seal("data_cursor", rt.entityID, str(rt.session["tenant_id"]), dataCursor{hash, values})
+		b, e := s.seal("data_cursor", rt.entityID, rt.session.TenantID, dataCursor{hash, values})
 		if e != nil {
 			return e
 		}
@@ -689,7 +692,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	db, release, e := s.runtimeDB(r.Context(), str(rt.session["database_resource_id"]))
+	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -708,11 +711,11 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 	lockIDs = uniqueStrings(lockIDs)
 	slices.Sort(lockIDs)
 	for _, key := range lockIDs {
-		v, e := row(r.Context(), tx, "SELECT gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=? LOCK IN SHARE MODE", key, rt.session["tenant_id"], rt.session["space_id"])
-		if e != nil {
+		var open bool
+		if e := lookup(r.Context(), tx, "SELECT gate_open FROM _lastapp_entity_state WHERE entity_id=? AND tenant_id=? AND space_id=? LOCK IN SHARE MODE", []any{key, rt.session.TenantID, rt.session.SpaceID}, &open); e != nil {
 			return e
 		}
-		if integer(v["gate_open"]) != 1 {
+		if !open {
 			return problem(409, "publication_in_progress", "A referenced entity is publishing. Retry shortly.")
 		}
 	}
@@ -726,7 +729,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		create := in.Operation == "create"
 		shared := map[string]bool{}
 		if !create {
-			raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=? FOR UPDATE", rt.session["tenant_id"], rt.session["space_id"], in.ID)
+			raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=? FOR UPDATE", rt.session.TenantID, rt.session.SpaceID, in.ID)
 			if e != nil {
 				return e
 			}
@@ -807,7 +810,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		}
 		stamp := c.Now.UTC().Format("2006-01-02T15:04:05.000000Z")
 		if in.Operation == "delete" {
-			_, e = tx.ExecContext(r.Context(), "DELETE FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=?", rt.session["tenant_id"], rt.session["space_id"], in.ID)
+			_, e = tx.ExecContext(r.Context(), "DELETE FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=?", rt.session.TenantID, rt.session.SpaceID, in.ID)
 			if e == nil {
 				_, e = tx.ExecContext(r.Context(), "DELETE FROM _lastapp_record_acl WHERE entity_id=? AND record_id=?", rt.entityID, in.ID)
 			}
@@ -825,7 +828,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 			}
 			if create {
 				cols = append(cols, "id", "tenant_id", "space_id", "revision", "created_at", "updated_at", "created_by", "updated_by")
-				args = append(args, in.ID, rt.session["tenant_id"], rt.session["space_id"], revision, stamp, stamp, c.Actor, c.Actor)
+				args = append(args, in.ID, rt.session.TenantID, rt.session.SpaceID, revision, stamp, stamp, c.Actor, c.Actor)
 				_, e = tx.ExecContext(r.Context(), "INSERT INTO "+data.Table(rt.entityID)+" ("+strings.Join(cols, ",")+") VALUES("+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+")", args...)
 			} else {
 				sets := []string{}
@@ -833,7 +836,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 					sets = append(sets, col+"=?")
 				}
 				sets = append(sets, "revision=?", "updated_at=?", "updated_by=?")
-				args = append(args, revision, stamp, c.Actor, rt.session["tenant_id"], rt.session["space_id"], in.ID)
+				args = append(args, revision, stamp, c.Actor, rt.session.TenantID, rt.session.SpaceID, in.ID)
 				_, e = tx.ExecContext(r.Context(), "UPDATE "+data.Table(rt.entityID)+" SET "+strings.Join(sets, ",")+" WHERE tenant_id=? AND space_id=? AND id=?", args...)
 			}
 		}
@@ -875,7 +878,7 @@ func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRun
 				query = "SELECT COUNT(*) FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.user_id=? AND m.state='active'"
 			}
 			var n int
-			if e := s.DB.QueryRowContext(ctx, query, rt.session["tenant_id"], v).Scan(&n); e != nil {
+			if e := s.DB.QueryRowContext(ctx, query, rt.session.TenantID, v).Scan(&n); e != nil {
 				return e
 			}
 			if n != 1 {
@@ -883,11 +886,11 @@ func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRun
 			}
 		}
 		if f.Type == "reference" {
-			vdef, e := row(ctx, s.DB, "SELECT entity_key FROM entity_definitions WHERE id=? AND space_id=? AND state='active'", f.Target, rt.session["space_id"])
-			if e != nil {
+			var targetKey string
+			if e := lookup(ctx, s.DB, "SELECT entity_key FROM entity_definitions WHERE id=? AND space_id=? AND state='active'", []any{f.Target, rt.session.SpaceID}, &targetKey); e != nil {
 				return bad("Unavailable reference.")
 			}
-			target, e := s.loadRuntime(ctx, rt.session, str(vdef["entity_key"]))
+			target, e := s.loadRuntime(ctx, rt.session, targetKey)
 			if e != nil {
 				return e
 			}
@@ -898,7 +901,7 @@ func (s *Server) checkDataReferences(ctx context.Context, tx *sql.Tx, rt dataRun
 			if e != nil {
 				return e
 			}
-			args = append([]any{rt.session["tenant_id"], rt.session["space_id"], v}, args...)
+			args = append([]any{rt.session.TenantID, rt.session.SpaceID, v}, args...)
 			var found string
 			if e = tx.QueryRowContext(ctx, "SELECT r.id FROM "+data.Table(target.entityID)+" r WHERE r.tenant_id=? AND r.space_id=? AND r.id=? AND "+pred+" LOCK IN SHARE MODE", args...).Scan(&found); e != nil {
 				return bad("Unavailable reference.")
@@ -914,7 +917,7 @@ func businessAudit(ctx context.Context, q Queryer, rt dataRuntime, record, actio
 	}
 	slices.Sort(fields)
 	b, _ := json.Marshal(fields)
-	if _, e := q.ExecContext(ctx, "INSERT INTO _lastapp_data_audit(tenant_id,space_id,entity_id,record_id,actor_id,action,revision,fields_json,request_id) VALUES(?,?,?,?,?,?,?,?,?)", rt.session["tenant_id"], rt.session["space_id"], rt.entityID, record, rt.actor.Actor, action, revision, b, request); e != nil {
+	if _, e := q.ExecContext(ctx, "INSERT INTO _lastapp_data_audit(tenant_id,space_id,entity_id,record_id,actor_id,action,revision,fields_json,request_id) VALUES(?,?,?,?,?,?,?,?,?)", rt.session.TenantID, rt.session.SpaceID, rt.entityID, record, rt.actor.Actor, action, revision, b, request); e != nil {
 		return e
 	}
 	_, e := q.ExecContext(ctx, "DELETE FROM _lastapp_data_audit WHERE entity_id=? AND created_at<UTC_TIMESTAMP(6)-INTERVAL 90 DAY LIMIT 100", rt.entityID)

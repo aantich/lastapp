@@ -249,8 +249,8 @@ func TestSecurityRegressions(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		next, e := nextJob(context.Background(), tx, str(first["tenant_id"]))
-		if e != nil || str(next["tenant_id"]) == str(first["tenant_id"]) {
+		next, e := nextJob(context.Background(), tx, first.TenantID)
+		if e != nil || next.TenantID == first.TenantID {
 			t.Fatal("worker did not yield to another Tenant", e)
 		}
 	})
@@ -367,7 +367,7 @@ func TestSecurityRegressions(t *testing.T) {
 		if _, e = admin.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(name, "_", `\_`) + "`.* TO '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
 			t.Fatal(e)
 		}
-		targetRow, _ := row(context.Background(), s.DB, "SELECT * FROM database_targets WHERE id=?", target)
+		targetRow, _ := targetEndpoint(context.Background(), s.DB, target)
 		db, e := s.targetDB(context.Background(), targetRow, credentials{Username: name, Password: password}, name)
 		if e != nil {
 			t.Fatal(e)

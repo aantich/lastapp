@@ -140,7 +140,7 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	direct, e := s.authority.Recipients(context.Background(), actorFrom(context.Background(), p, newID()), scope, res, true, PageRequest{})
+	direct, e := s.authority.TeamRecipients(context.Background(), actorFrom(context.Background(), p, newID()), scope, res, PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}

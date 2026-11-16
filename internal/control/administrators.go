@@ -27,6 +27,8 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 	if e != nil {
 		return memberRef{}, e
 	}
+	ctx, cancel := account.deadline(ctx)
+	defer cancel()
 	e = m.run.mutate(ctx, a, "authorization.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		if e := m.run.authorizeTx(ctx, tx, a, "platform.admin", Resource{}); e != nil {
 			return e
@@ -99,11 +101,27 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 	return memberRef{UserID: in.User}, nil
 }
 
-func (m *membership) Administrators(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Row], error) {
+// Administrator is a Tenant administrator assignment with its account and
+// membership state.
+type Administrator struct {
+	Name      string  `json:"display_name"`
+	Email     *string `json:"email"`
+	ID        string  `json:"id"`
+	Revision  int64   `json:"revision"`
+	State     string  `json:"state"`
+	UserID    string  `json:"user_id"`
+	UserState string  `json:"user_state"`
+}
+
+func (v *Administrator) fields() []any {
+	return []any{&v.Name, &v.Email, &v.ID, &v.Revision, &v.State, &v.UserID, &v.UserState}
+}
+
+func (m *membership) Administrators(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Administrator], error) {
 	if e := m.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return Page[Row]{}, e
+		return Page[Administrator]{}, e
 	}
-	return pageQuery(ctx, m.db, page, collectionFor("administrators"), "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,u.id", tenant, TenantAdminRole)
+	return pageScan[Administrator](ctx, m.db, page, collectionFor("administrators"), "SELECT u.display_name,u.email,g.id,g.revision,m.state,g.user_id,u.state AS user_state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,u.id", tenant, TenantAdminRole)
 }
 
 func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, p Principal) error {

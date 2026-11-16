@@ -25,13 +25,13 @@ func developmentPolicy() Row {
 
 // Workspace Apps consume only the workspace's metadata capacity. Production
 // subscription limits apply to production creation/restoration and deployment.
-func appQuota(ctx context.Context, q Queryer, tenant, space string, policy Row, creating bool) error {
+func appQuota(ctx context.Context, q Queryer, tenant, space string, policy Policy, creating bool) error {
 	var workspace sql.NullString
 	if e := q.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE tenant_id=? AND id=?", tenant, space).Scan(&workspace); e != nil {
 		return e
 	}
 	if !workspace.Valid {
-		return quota(ctx, q, tenant, "apps", "max_apps", policy)
+		return quota(ctx, q, tenant, "apps", policy.MaxApps)
 	}
 	if !creating {
 		return nil // Restoring an existing App does not allocate another slot.
@@ -51,7 +51,7 @@ func (s *Server) snapshotAppQuota(ctx context.Context, q Queryer, tenant string,
 	if e != nil {
 		return e
 	}
-	if policy["max_apps"] == nil {
+	if policy.MaxApps == nil {
 		return nil
 	}
 	var count int
@@ -70,7 +70,7 @@ func (s *Server) snapshotAppQuota(ctx context.Context, q Queryer, tenant string,
 			count--
 		}
 	}
-	if int64(count) > integer(policy["max_apps"]) {
+	if int64(count) > *policy.MaxApps {
 		return conflict("This release exceeds the Tenant's production App quota.")
 	}
 	return nil
