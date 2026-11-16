@@ -13,6 +13,8 @@ import {
 } from "./expression";
 import "./entity.css";
 import { errorMessage } from "../use-action";
+import { confirmAction } from "../confirm";
+import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 const keyOf = (name: string) => {
   const bare = name
     .normalize("NFKD")
@@ -29,6 +31,13 @@ const keyOf = (name: string) => {
   ).slice(0, 48);
 };
 const fieldLabel = (key: string) => key[0].toUpperCase() + key.slice(1);
+const discardChanges = () =>
+  confirmAction({
+    title: "Discard unsaved changes?",
+    message: "Your unsaved entity changes will be lost.",
+    confirmLabel: "Discard changes",
+    danger: true,
+  });
 const emptyDefinition = (name: string, format: number) => ({
   format_version: format,
   key: keyOf(name),
@@ -104,13 +113,16 @@ export function EntityDesigner({
       e.preventDefault();
     };
     const navigate = (e: Event) => {
-      if (!confirm("Discard your unsaved entity changes?")) e.preventDefault();
+      e.preventDefault();
+      void discardChanges().then((discard) => {
+        if (discard) (e as BeforeNavigateEvent).detail.proceed();
+      });
     };
     window.addEventListener("beforeunload", fn);
-    window.addEventListener("lastapp:before-navigate", navigate);
+    window.addEventListener(beforeNavigateEvent, navigate);
     return () => {
       window.removeEventListener("beforeunload", fn);
-      window.removeEventListener("lastapp:before-navigate", navigate);
+      window.removeEventListener(beforeNavigateEvent, navigate);
     };
   }, [dirty]);
   useEffect(() => {
@@ -157,7 +169,7 @@ export function EntityDesigner({
     }
   }
   async function open(id: string) {
-    if (dirty && !confirm("Discard your unsaved changes?")) return;
+    if (dirty && !(await discardChanges())) return;
     await run(async () => {
       const v = await api("/v1/entities/" + id);
       setRecord(v);
@@ -193,13 +205,15 @@ export function EntityDesigner({
         ? d![list].map((x: Item) => (x.key === key ? v : x))
         : [...d![list], v],
     }));
-  const remove = (list: string, key: string) => {
+  const remove = async (list: string, key: string) => {
+    const kind = list === "fields" ? "field" : "definition";
     if (
-      confirm(
-        "Remove this " +
-          (list === "fields" ? "field" : "definition") +
-          " from the draft?",
-      )
+      await confirmAction({
+        title: "Remove " + kind + "?",
+        message: "Remove this " + kind + " from the draft?",
+        confirmLabel: "Remove",
+        danger: true,
+      })
     )
       setDraft((d) => ({
         ...d,
@@ -320,8 +334,8 @@ export function EntityDesigner({
             <div className="entity-title">
               <button
                 className="text-button"
-                onClick={() => {
-                  if (!dirty || confirm("Discard your unsaved changes?")) {
+                onClick={async () => {
+                  if (!dirty || (await discardChanges())) {
                     setDraft(null);
                     setRecord(null);
                     history.replaceState(null, "", location.pathname);
@@ -507,12 +521,23 @@ export function EntityDesigner({
                     <button
                       className="secondary danger"
                       disabled={busy || !!record?.pending_version_id}
-                      onClick={() => {
+                      onClick={async () => {
+                        const archived = record?.state === "archived";
                         if (
-                          confirm(
-                            record?.state === "archived"
-                              ? "Restore this entity?"
-                              : "Archive this entity? Its API will stop serving requests; data is preserved.",
+                          await confirmAction(
+                            archived
+                              ? {
+                                  title: "Restore entity?",
+                                  message: "Restore this entity?",
+                                  confirmLabel: "Restore",
+                                }
+                              : {
+                                  title: "Archive entity?",
+                                  message:
+                                    "Archive this entity? Its API will stop serving requests; data is preserved.",
+                                  confirmLabel: "Archive",
+                                  danger: true,
+                                },
                           )
                         )
                           void run(async () => {

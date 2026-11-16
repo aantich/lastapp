@@ -660,3 +660,22 @@ Evidence stays ignored locally: `.local/workspaces-final-go.log`,
 state and must not be published. Native-client remote SaaS setup, wildcard TLS,
 shared-volume replica operation, production load and object storage were not
 exercised by these local checks. No commit, push or remote deployment was made.
+
+## Console useAction and ConfirmDialog — 16 November 2026
+
+- Screen mutations share `web/admin/src/use-action.ts` (double-submit guard,
+  stale-route/unmounted guard, one `errorMessage()` helper). A browser check
+  double-clicked "Recheck connection" on a Tenant database resource with the
+  request delayed 400 ms and counted exactly **one** POST.
+- `window.confirm()` is replaced by `ConfirmDialog` (`confirm.ts`,
+  `confirm-dialog.tsx`, focus handling in `dialog.ts`). `tests/confirm-dialog.spec.ts`
+  checks at 1280×800 and 390×844 that the dialog fits the viewport, focuses Cancel
+  for destructive actions, traps Tab, cancels on Escape without a request,
+  returns focus to the trigger and proceeds on confirm. A one-off designer check
+  confirmed remove-field, back-to-list and guarded console navigation (URL
+  unchanged while asking, unchanged on Cancel, navigates on confirm).
+- `npm run lint`, `npm run typecheck` and `npm run build` passed. Full Playwright
+  suite: 27 of 29 passed. `workspace-regressions.spec.ts` still used the removed
+  native dev-SSO select; its selector was updated and the test passed on rerun.
+  `app-runtime.spec.ts` still fails as it does on main (popup on port 8789 times
+  out).

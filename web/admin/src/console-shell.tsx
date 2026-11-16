@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Layers3, Menu, X, ChevronDown } from "lucide-react";
-import { AppearancePanel, useAppearance, useDialogFocus } from "./appearance";
+import { AppearancePanel, useAppearance } from "./appearance";
+import { useDialogFocus } from "./dialog";
 type Item = Record<string, any>;
 export function ConsoleShell({
   me,

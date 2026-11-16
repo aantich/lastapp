@@ -20,6 +20,7 @@ import { FormModal, type Field, type Modal } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
 import { errorMessage, useAction } from "./use-action";
+import { confirmAction } from "./confirm";
 import { RemoteSelect } from "./remote-select";
 import { AccessControl } from "./access-control";
 import { TenantPeople } from "./tenant-people";
@@ -1157,11 +1158,15 @@ export function TenantWorkspace({
                           <button
                             className="text-button danger"
                             disabled={busy}
-                            onClick={() => {
+                            onClick={async () => {
                               if (
-                                confirm(
-                                  "Retire this database resource? Physical data is preserved.",
-                                )
+                                await confirmAction({
+                                  title: "Retire database resource?",
+                                  message:
+                                    "Retire this database resource? Physical data is preserved.",
+                                  confirmLabel: "Retire",
+                                  danger: true,
+                                })
                               )
                                 act(() =>
                                   api(

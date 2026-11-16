@@ -179,3 +179,10 @@ export async function fixtureTenant(page: Page, label = "UI workspace") {
   ).toBe(201);
   return { tenant, owner, outsider, base: "/v1/tenants/" + tenant };
 }
+// Answers the console's ConfirmDialog (it replaced window.confirm()).
+export async function confirmDialog(page: Page, button: string) {
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: button, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+}

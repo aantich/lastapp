@@ -11,6 +11,7 @@ import type { Item } from "./console-forms";
 import { ConsoleConfigProvider, useConsoleConfig } from "./console-config";
 import { AppLaunch } from "./entity-designer/launch";
 import { AgentConsent } from "./agent-access";
+import { ConfirmHost } from "./confirm-dialog";
 import "./agent-access.css";
 function App() {
   const { refresh: refreshConfig } = useConsoleConfig();
@@ -122,6 +123,7 @@ createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ConsoleConfigProvider>
       <App />
+      <ConfirmHost />
     </ConsoleConfigProvider>
   </React.StrictMode>,
 );

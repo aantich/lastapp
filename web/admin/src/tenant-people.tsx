@@ -4,6 +4,7 @@ import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
 import { useAction } from "./use-action";
+import { confirmAction } from "./confirm";
 import { nameFields, status, type Item } from "./console-forms";
 export function TenantPeople({
   tenant,
@@ -350,13 +351,17 @@ export function TenantPeople({
                       <button
                         className="text-button danger"
                         disabled={busy}
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            confirm(
-                              "Remove " +
+                            await confirmAction({
+                              title: "Remove from team?",
+                              message:
+                                "Remove " +
                                 r.display_name +
                                 " from this team and revoke their team roles?",
-                            )
+                              confirmLabel: "Remove from team",
+                              danger: true,
+                            })
                           )
                             act(() =>
                               api(

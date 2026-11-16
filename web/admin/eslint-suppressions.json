@@ -26,11 +26,8 @@
     }
   },
   "src/appearance.tsx": {
-    "react-hooks/refs": {
-      "count": 1
-    },
     "react-refresh/only-export-components": {
-      "count": 3
+      "count": 2
     }
   },
   "src/collection.tsx": {

@@ -3,7 +3,7 @@ import { Check, LoaderCircle, X } from "lucide-react";
 import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
 import { NumberInput } from "./number-input";
-import { useDialogFocus } from "./appearance";
+import { useDialogFocus } from "./dialog";
 import {
   NewPasswordInput,
   usePasswordPolicy,

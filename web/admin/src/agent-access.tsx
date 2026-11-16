@@ -4,7 +4,7 @@ import { api } from "./api";
 import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
 import { NumberInput } from "./number-input";
-import { useDialogFocus } from "./appearance";
+import { useDialogFocus } from "./dialog";
 import { errorMessage } from "./use-action";
 
 type Item = Record<string, any>;

@@ -1554,6 +1554,12 @@ td {
     monospace;
   color: var(--ui-muted);
 }
+.confirm-modal {
+  width: 440px;
+}
+.confirm-modal > header p {
+  font-size: 12px;
+}
 .modal form > .error {
   margin: 0 var(--ui-panel-padding) 20px;
 }

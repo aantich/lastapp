@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Monitor, Moon, Palette, RotateCcw, Sun, X } from "lucide-react";
 import { savePreference } from "./preferences";
+import { useDialogFocus } from "./dialog";
 
 export const themes = [
   { id: "neo", name: "Neo", description: "Quiet blue · fine dashed borders" },
@@ -84,66 +85,6 @@ export function useAppearance() {
       (appearance.mode === "system" && systemDark),
     reset: () => setAppearance({ ...defaults }),
   };
-}
-
-// Shared by the appearance drawer, navigation search and existing edit forms.
-export function useDialogFocus(close: () => void, active = true) {
-  const ref = useRef<HTMLElement>(null);
-  const onClose = useRef(close);
-  onClose.current = close;
-  useEffect(() => {
-    if (!active) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const focusable = () =>
-      Array.from(
-        ref.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [tabindex="0"]',
-        ) || [],
-      ).filter((el) => el.getClientRects().length);
-    (
-      ref.current?.querySelector<HTMLElement>("[data-autofocus]") ||
-      focusable()[0] ||
-      ref.current
-    )?.focus();
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose.current();
-      }
-      if (event.key !== "Tab") return;
-      const elements = focusable();
-      const first = elements[0],
-        last = elements.at(-1);
-      if (!first) {
-        event.preventDefault();
-        return;
-      }
-      if (
-        event.shiftKey &&
-        (document.activeElement === first ||
-          !ref.current?.contains(document.activeElement))
-      ) {
-        event.preventDefault();
-        last?.focus();
-      } else if (
-        !event.shiftKey &&
-        (document.activeElement === last ||
-          !ref.current?.contains(document.activeElement))
-      ) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.body.style.overflow = overflow;
-      if (previous?.isConnected) previous.focus();
-    };
-  }, [active]);
-  return ref;
 }
 
 export function AppearancePanel({
