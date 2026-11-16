@@ -4,9 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"net/url"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/aantich/lastapp/internal/authz"
@@ -71,17 +69,6 @@ func (s *Server) toolAgentDescribe(ctx context.Context, p Principal, raw json.Ra
 	}
 }
 
-func (in agentReadInput) collectionQuery() url.Values {
-	values := url.Values{"q": {in.Q}}
-	if in.Page != 0 {
-		values.Set("page", strconv.Itoa(in.Page))
-	}
-	if in.Limit != 0 {
-		values.Set("limit", strconv.Itoa(in.Limit))
-	}
-	return values
-}
-
 func agentCollection(items []Row, in agentReadInput) (Row, error) {
 	items, info, err := pageItems(items, in.pageRequest())
 	if err != nil {
@@ -106,13 +93,6 @@ func agentPage(v Page[Row], e error) (Row, error) {
 	return Row{"items": v.Items, "pagination": v.Pagination, "complete": v.Pagination.Page == 1 && !v.Pagination.HasMore}, nil
 }
 
-func addAgentComplete(v Row) Row {
-	if page, ok := v["pagination"].(map[string]any); ok {
-		v["complete"] = integer(page["page"]) == 1 && page["has_more"] == false
-	}
-	return v
-}
-
 func (s *Server) toolAgentList(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentReadInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -133,28 +113,20 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 	if e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	base := "/v1/tenants/" + res.Tenant
-	path := base
-	var fn endpoint
 	switch in.Resource {
 	case "workspace":
 		if target.Kind != "space" {
 			return nil, bad("workspace list requires a production Space target.")
 		}
-		fn = s.workspaceList
-		paths["space"] = target.ID
-		path = "/v1/spaces/" + target.ID + "/workspaces"
+		return agentPage(s.Workspaces(ctx, agentActor(ctx, p), target.ID, in.pageRequest()))
 	case "build", "release":
 		if target.Kind != "app" {
 			return nil, bad("build/release list requires an App target.")
 		}
-		paths["app"] = target.ID
-		path = "/v1/apps/" + target.ID + "/" + in.Resource + "s"
-		fn = s.buildList
 		if in.Resource == "release" {
-			fn = s.releaseList
+			return agentPage(s.Releases(ctx, agentActor(ctx, p), target.ID, in.pageRequest()))
 		}
+		return agentPage(s.Builds(ctx, agentActor(ctx, p), target.ID, in.pageRequest()))
 	case "space":
 		return agentPage(s.inv.Spaces(ctx, agentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "app":
@@ -198,11 +170,7 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		}
 		return agentPage(s.storage.AvailableTargets(ctx, agentActor(ctx, p), res.Tenant, false, in.pageRequest()))
 	case "audit_event":
-		fn = s.audits
-		path += "/audit-events"
-		if target.Kind == "platform" {
-			path = "/admin/v1/audit-events"
-		}
+		return agentPage(s.Audits(ctx, agentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "tenant":
 		if target.Kind != "platform" {
 			return nil, bad("Tenant inventory requires a platform connection.")
@@ -217,8 +185,7 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		if target.Kind != "platform" {
 			return nil, missing()
 		}
-		fn = s.users
-		path = "/admin/v1/users"
+		return agentPage(s.Users(ctx, agentActor(ctx, p), in.pageRequest()))
 	case "entity":
 		if target.Kind == "app" {
 			v, e := s.authoring.AppContracts(ctx, agentActor(ctx, p), target.ID, contractView{Section: "inventory", Page: in.pageRequest()})
@@ -275,17 +242,6 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 	default:
 		return nil, bad("Unsupported collection. Read lastapp_list's resource categories.")
 	}
-	u, _ := url.Parse(path)
-	query := u.Query()
-	for key, values := range in.collectionQuery() {
-		query[key] = values
-	}
-	u.RawQuery = query.Encode()
-	v, e := s.executeManagement(ctx, p, fn, "GET", u.String(), paths, nil, 0)
-	if e != nil {
-		return nil, e
-	}
-	return addAgentComplete(v), nil
 }
 
 func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
@@ -297,23 +253,18 @@ func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMess
 		if e := id(in.ID); e != nil {
 			return nil, e
 		}
-		var fn endpoint
-		key := in.Resource
+		a := agentActor(ctx, p)
 		switch in.Resource {
 		case "workspace":
-			fn = s.workspaceGet
+			return agentSized(s.Workspace(ctx, a, in.ID))
 		case "release":
-			fn = s.releaseGet
+			return agentSized(s.Release(ctx, a, in.ID))
 		case "deployment":
-			fn = s.deploymentGet
+			return agentSized(s.Deployment(ctx, a, in.ID))
 		case "app_deployment":
-			fn = s.appDeployment
-			key = "app"
-		case "starter":
-			fn = s.appStarter
-			key = "app"
+			return agentSized(s.AppDeployment(ctx, a, in.ID))
 		}
-		return s.executeManagement(ctx, p, fn, "GET", "/v1/development/"+in.Resource, map[string]string{key: in.ID}, nil, 0)
+		return agentSized(s.Starter(ctx, a, in.ID))
 	}
 
 	res, target, e := s.agentRoot(p, in.Target)
@@ -520,7 +471,10 @@ func (s *Server) toolAgentContext(ctx context.Context, p Principal, raw json.Raw
 		} else if ae, ok := err.(*APIError); !ok || ae.Status != 403 && ae.Status != 404 {
 			return nil, err
 		}
-		deployment, err := s.executeManagement(ctx, p, s.appDeployment, "GET", "/v1/apps/"+target.ID+"/deployment", map[string]string{"app": target.ID}, nil, 0)
+		deployment, err := s.AppDeployment(ctx, agentActor(ctx, p), target.ID)
+		if err == nil {
+			err = agentFits(deployment)
+		}
 		if err == nil {
 			out["deployment"] = deployment["deployment"]
 		} else if ae, ok := err.(*APIError); !ok || ae.Status != 403 && ae.Status != 404 {

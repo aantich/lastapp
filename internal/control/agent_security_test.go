@@ -390,16 +390,3 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 		t.Fatal("approved client could not reconnect", e)
 	}
 }
-
-func TestAgentOperationResponseErrors(t *testing.T) {
-	s := &Server{}
-	for _, payload := range []string{strings.Repeat("x", agentMaxResponse+1), `not-json`} {
-		_, e := s.executeManagement(context.Background(), Principal{}, func(w http.ResponseWriter, r *http.Request, p Principal) error {
-			_, e := w.Write([]byte(payload))
-			return e
-		}, "GET", "/test", nil, nil, 0)
-		if e == nil {
-			t.Fatal("write/JSON error silently became successful empty response")
-		}
-	}
-}

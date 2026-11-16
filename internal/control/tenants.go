@@ -133,15 +133,13 @@ func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return e
+func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[Row], error) {
+	p := actor.Principal
+	if e := s.authorize(ctx, s.DB, p, "platform.admin", Resource{}, false); e != nil {
+		return Page[Row]{}, e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+	v, e := pageQuery(ctx, s.DB, page, collectionFor("users"), "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
+	return v, e
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -509,4 +507,9 @@ func ensureTenantAdmin(ctx context.Context, q Queryer, tenant string) error {
 		return conflict("Keep at least one active, directly assigned Tenant administrator.")
 	}
 	return nil
+}
+
+func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Users(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
+	return reply(w, 200, v, e)
 }

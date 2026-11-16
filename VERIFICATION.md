@@ -1,5 +1,33 @@
 # Lastapp verification
 
+## Operation extraction, steps 4–5 (loopback removed) — 16 November 2026
+
+- Rebased onto `fix/go-minor` (runtime-grants subcommand); full race suite
+  **PASS** before further changes (139 passing).
+- Roles/assignments/recipients (`authority`), database targets/resources
+  (`storage`), entity authoring, App contracts and App data access
+  (`authoring`), and workspaces, releases, deployments, builds, starters, audit
+  and user reads (`Server` operations) take an explicit `Actor`. Every MCP tool
+  calls them directly. `executeManagement`, the recorded-response writer and the
+  synthesized `If-Match` are deleted; `TestNoHTTPLoopback` (replacing the
+  ratchet, which went 25 → 20 → 10 → 0) fails if they return.
+- Both golden files stay byte-identical (`TestAgentToolSchemaGolden`,
+  `TestResponseShapeGolden`).
+- New direct operation tests as console and agent actors:
+  `TestAuthorityOperations`, `TestStorageOperations`, `TestAuthoringOperations`
+  (428/412 revisions, protected roles, retirement guard, target/TLS validation,
+  denied agent scopes and targets, request-ID/grant audit attribution). Tests
+  that inspected loopback-decoded values now decode the tool result as an MCP
+  client does (`wire`).
+
+Executed checks after each commit: `go build ./...`, `go vet ./...` **PASS**;
+golangci-lint **0 issues**; schema `--check` and driver verification (42 files)
+**PASS**; `git diff --check` clean; `go test -race -count=1 ./internal/...`
+with the local config **PASS** (final run: 141 passing tests/subtests, control
+package 153.2 s; only `TestPrepareFixture` skipped); the `make mcp-test` command
+(`-run TestAgent`, race) **PASS** (36). Browser e2e for this branch was not run:
+the shared dev stack on 8787 serves another branch from the main checkout.
+
 ## Operation extraction, steps 0–3 — 16 November 2026
 
 - Golden contracts (`internal/control/testdata`) were generated against the

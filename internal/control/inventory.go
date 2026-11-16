@@ -78,9 +78,6 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 	if e := named(in.Slug, in.Name); e != nil {
 		return Ref{}, e
 	}
-	// Database allocation and the initial assignment still read the delegated
-	// call from ctx.
-	ctx = withAgentCall(ctx, a.Agent)
 	e := v.run.mutate(ctx, a, "space.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		// Detect a retried parent create before allocating any child database.
 		var exists int
@@ -221,8 +218,6 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 	if in.Compute != "shared" && in.Compute != "dedicated" {
 		return Ref{}, bad("Invalid compute mode.")
 	}
-	// The initial assignment still reads the delegated call from ctx.
-	ctx = withAgentCall(ctx, a.Agent)
 	e := v.run.mutate(ctx, a, "app.manage", Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
 		parent, e := row(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", space, tenant)
 		if e != nil {

@@ -273,13 +273,6 @@ func agentMutationFinish(ctx context.Context, tx *sql.Tx, a *AgentCall) error {
 	return e
 }
 
-func operationID(ctx context.Context) string {
-	if a := agentCallFrom(ctx); a != nil {
-		return str(a.ResultRef["id"])
-	}
-	return newID()
-}
-
 func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user string, res Resource, permission string, targets ...string) error {
 	if grant == "" {
 		return nil

@@ -3,6 +3,7 @@ package control
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -34,14 +35,15 @@ func starterVersions() (map[string]string, error) {
 	return out, nil
 }
 
-func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p Principal) error {
-	a, ws, e := s.ownedDevelopmentApp(r.Context(), s.DB, p, r.PathValue("app"))
+func (s *Server) Starter(ctx context.Context, actor Actor, app string) (Row, error) {
+	p := actor.Principal
+	a, ws, e := s.ownedDevelopmentApp(ctx, s.DB, p, app)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	versions, e := starterVersions()
 	if e != nil {
-		return e
+		return nil, e
 	}
 	files := map[string]string{}
 	e = fs.WalkDir(starter.Files, "template", func(name string, entry fs.DirEntry, e error) error {
@@ -58,7 +60,7 @@ func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p Principal)
 		return e
 	})
 	if e != nil {
-		return e
+		return nil, e
 	}
 	files["src/lastapp.ts"] = clientsdk.Source
 	config, _ := json.MarshalIndent(Row{"apiOrigin": s.Config.PublicURL, "appID": a["id"], "environment": "development"}, "", "  ")
@@ -66,16 +68,15 @@ func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p Principal)
 	pkg, _ := json.MarshalIndent(Row{"name": "lastapp-client", "private": true, "version": "0.0.0", "type": "module", "scripts": Row{"dev": "vite", "build": "tsc --noEmit && vite build", "preview": "vite preview", "upload": "node scripts/upload.mjs"}, "dependencies": Row{"react": versions["react"], "react-dom": versions["react-dom"]}, "devDependencies": Row{"typescript": versions["typescript"], "vite": versions["vite"], "@types/react": versions["@types/react"], "@types/react-dom": versions["@types/react-dom"]}}, "", "  ")
 	files["package.json"] = string(pkg) + "\n"
 	files[".gitignore"] = "node_modules/\ndist/\n.env*\nlastapp.local.json\n"
-	send(w, 200, Row{"app_id": a["id"], "space_id": a["space_id"], "workspace_id": ws["id"], "files": files, "development_origin": "http://127.0.0.1:5173", "instructions": []string{"Write these files locally; run npm install and npm run dev. Commit your generated lockfile in your own source repository if you use one.", "Inspect workspace entity inventory, entity definitions and App contracts. Reuse entities, this SDK and shared UI across micro-apps.", "Approve development_origin with app_access_update. Use ordinary Connect, or create a development-launch PKCE code with lastapp_workspace and call window.lastapp.connectDevelopment({code,verifier,nonce}) from your browser tools.", "Create reusable fixtures through the ordinary workspace App data API. No production records are copied and no administrator ACL bypass exists.", "Build using npm run build. Get an upload ticket, then run node scripts/upload.mjs dist <upload_url> with its token in LASTAPP_UPLOAD_TOKEN. Do not bake secrets into the bundle.", "Create a release with the uploaded build ID, exact micro-app versions and shared dependency versions. Preview it, fix errors locally, upload a new build and repeat.", "Production activation requires an explicit production.deploy grant and a current production base. Poll the deployment result."}})
-	return nil
+	return Row{"app_id": a["id"], "space_id": a["space_id"], "workspace_id": ws["id"], "files": files, "development_origin": "http://127.0.0.1:5173", "instructions": []string{"Write these files locally; run npm install and npm run dev. Commit your generated lockfile in your own source repository if you use one.", "Inspect workspace entity inventory, entity definitions and App contracts. Reuse entities, this SDK and shared UI across micro-apps.", "Approve development_origin with app_access_update. Use ordinary Connect, or create a development-launch PKCE code with lastapp_workspace and call window.lastapp.connectDevelopment({code,verifier,nonce}) from your browser tools.", "Create reusable fixtures through the ordinary workspace App data API. No production records are copied and no administrator ACL bypass exists.", "Build using npm run build. Get an upload ticket, then run node scripts/upload.mjs dist <upload_url> with its token in LASTAPP_UPLOAD_TOKEN. Do not bake secrets into the bundle.", "Create a release with the uploaded build ID, exact micro-app versions and shared dependency versions. Preview it, fix errors locally, upload a new build and repeat.", "Production activation requires an explicit production.deploy grant and a current production base. Poll the deployment result."}}, nil
 }
 
 func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p Principal) error {
-	data, e := s.executeManagement(r.Context(), p, s.appStarter, "GET", "/v1/apps/"+r.PathValue("app")+"/starter", map[string]string{"app": r.PathValue("app")}, nil, 0)
+	data, e := s.Starter(r.Context(), httpActor(r, p), r.PathValue("app"))
 	if e != nil {
 		return e
 	}
-	files, ok := data["files"].(map[string]any)
+	files, ok := data["files"].(map[string]string)
 	if !ok {
 		return bad("Starter unavailable.")
 	}
@@ -91,7 +92,7 @@ func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p Pri
 		if e != nil {
 			return e
 		}
-		if _, e = io.WriteString(file, str(files[name])); e != nil {
+		if _, e = io.WriteString(file, files[name]); e != nil {
 			return e
 		}
 	}
@@ -103,4 +104,9 @@ func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p Pri
 	w.WriteHeader(200)
 	_, e = w.Write(content.Bytes())
 	return e
+}
+
+func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.Starter(r.Context(), httpActor(r, p), r.PathValue("app"))
+	return reply(w, 200, v, e)
 }

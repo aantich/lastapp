@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 
@@ -387,63 +386,6 @@ func agentToolVisible(spec agentToolSpec, g *agentGrant) bool {
 	return true
 }
 
-// Shared in-process operation boundary. Both transports call the same validated
-// Go operations; there are no network calls, synthetic cookies or admin actors.
-type operationResponse struct {
-	headers http.Header
-	status  int
-	body    bytes.Buffer
-	err     error
-}
-
-func newOperationResponse() *operationResponse      { return &operationResponse{headers: http.Header{}} }
-func (w *operationResponse) Header() http.Header    { return w.headers }
-func (w *operationResponse) WriteHeader(status int) { w.status = status }
-func (w *operationResponse) Write(b []byte) (int, error) {
-	if w.err != nil {
-		return 0, w.err
-	}
-	if w.body.Len()+len(b) > agentMaxResponse {
-		w.err = problem(413, "response_limit", "Response exceeds the context limit. Use a smaller page or entity section; for schemas, select one field.")
-		return 0, w.err
-	}
-	return w.body.Write(b)
-}
-
-func (w *operationResponse) Value() (Row, error) {
-	if w.err != nil {
-		return nil, w.err
-	}
-	out := Row{}
-	if e := json.Unmarshal(w.body.Bytes(), &out); e != nil {
-		return nil, e
-	}
-	return out, nil
-}
-
-func (s *Server) executeManagement(ctx context.Context, p Principal, fn endpoint, method, path string, values map[string]string, body any, revision int64) (Row, error) {
-	b, e := json.Marshal(body)
-	if e != nil {
-		return nil, e
-	}
-	r, e := http.NewRequestWithContext(context.WithValue(ctx, pageContextKey{}, &pageInfo{}), method, path, bytes.NewReader(b))
-	if e != nil {
-		return nil, e
-	}
-	r.Header.Set("X-Request-ID", newID())
-	if revision > 0 {
-		r.Header.Set("If-Match", strconv.FormatInt(revision, 10))
-	}
-	for k, v := range values {
-		r.SetPathValue(k, v)
-	}
-	out := newOperationResponse()
-	if e = fn(out, r, p); e != nil {
-		return nil, e
-	}
-	return out.Value()
-}
-
 func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTarget, error) {
 	g := p.Agent
 	if target == nil {
@@ -506,22 +448,6 @@ func agentPaths(res Resource, target *agentTarget) map[string]string {
 func agentScope(res Resource, target *agentTarget) (authz.Scope, Resource, error) {
 	paths := agentPaths(res, target)
 	return scopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
-}
-
-func agentScopePath(res Resource, target *agentTarget) string {
-	if target.Kind == "platform" {
-		return "/admin/v1"
-	}
-	base := "/v1/tenants/" + res.Tenant
-	switch target.Kind {
-	case "team":
-		base += "/teams/" + target.ID
-	case "space":
-		base += "/spaces/" + target.ID
-	case "app":
-		base += "/apps/" + target.ID
-	}
-	return base
 }
 
 func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, result Row, input any, permissions ...string) (context.Context, error) {
@@ -599,8 +525,8 @@ func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
 	}
 	var ae *APIError
 	if errors.As(e, &ae) && ae.Code == "response_limit" {
-		// executeManagement reached response serialization after the mutation
-		// committed. The receipt is the authoritative, compact outcome.
+		// The operation committed but its result exceeds the response bound.
+		// The receipt is the authoritative, compact outcome.
 		if a := agentCallFrom(ctx); a != nil && a.Committed {
 			return Row{"committed": true, "resource": a.ResultRef, "response_error": Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
 		}
@@ -626,10 +552,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	if count != 1 {
 		return nil, bad("Supply exactly one resource object.")
 	}
-	paths := agentPaths(res, target)
 	kind, key := "", ""
-	var body any
-	var fn endpoint
 	var call func(context.Context, Actor) (any, error)
 	permissions := []string{"resources.write"}
 	switch {
@@ -721,11 +644,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	if call != nil {
-		data, e := agentSized(call(ctx, agentActor(ctx, p)))
-		return agentWriteResult(ctx, data, e)
-	}
-	data, e := s.executeManagement(ctx, p, fn, "POST", agentScopePath(res, target), paths, body, 0)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
