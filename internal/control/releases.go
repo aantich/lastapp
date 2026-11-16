@@ -121,7 +121,8 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		if e = checkRevision(a.Revision, rev); e != nil {
 			return e
 		}
-		if _, e = row(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", in.Build, a.ID); e != nil {
+		var build string
+		if e = lookup(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", []any{in.Build, a.ID}, &build); e != nil {
 			return e
 		}
 		var count int

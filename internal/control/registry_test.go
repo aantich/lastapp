@@ -268,7 +268,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	untypedRoles, e := pageQuery(ctx, s.DB, PageRequest{Limit: 200}, collectionFor("roles"), "SELECT id,tenant_id,space_id,app_id,code,display_name,state,revision,scope_kind,domain,(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
+	untypedRoles, e := untypedPage(ctx, s.DB, PageRequest{Limit: 200}, collectionFor("roles"), "SELECT id,tenant_id,space_id,app_id,code,display_name,state,revision,scope_kind,domain,(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -540,4 +540,17 @@ func TestRegistryRecordKeysAreSorted(t *testing.T) {
 			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)
 		}
 	}
+}
+
+// untypedPage is the Row paging that the typed collections replaced.
+func untypedPage(ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[Row], error) {
+	info, query, args, e := pageSQL(req, c, query, args)
+	if e != nil {
+		return Page[Row]{}, e
+	}
+	v, e := rows(ctx, q, query, args...)
+	if e != nil {
+		return Page[Row]{}, e
+	}
+	return pageOf(info, v), nil
 }

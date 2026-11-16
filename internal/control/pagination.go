@@ -107,21 +107,9 @@ func collectionFor(key string) collection {
 	return defaultCollection
 }
 
-// pageQuery runs one bounded page of query, an already permission-filtered
-// statement, searching and ordering by the collection's static columns.
-func pageQuery(ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[Row], error) {
-	info, query, args, e := pageSQL(req, c, query, args)
-	if e != nil {
-		return Page[Row]{}, e
-	}
-	v, e := rows(ctx, q, query, args...)
-	if e != nil {
-		return Page[Row]{}, e
-	}
-	return pageOf(info, v), nil
-}
-
-// pageScan is pageQuery for a typed registry record.
+// pageScan runs one bounded page of query, an already permission-filtered
+// statement, searching and ordering by the collection's static columns, and
+// scans it into typed registry records.
 func pageScan[T any, P record[T]](ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[T], error) {
 	info, query, args, e := pageSQL(req, c, query, args)
 	if e != nil {

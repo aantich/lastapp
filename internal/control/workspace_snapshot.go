@@ -369,13 +369,13 @@ func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v entityV
 	if n == 0 {
 		return nil, nil
 	}
-	vs, e := rows(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v.SpaceID)
+	vs, e := scanStrings(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v.SpaceID)
 	if e != nil {
 		return nil, e
 	}
 	ids := map[string]bool{}
-	for _, d := range vs {
-		ids[str(d["id"])] = true
+	for _, id := range vs {
+		ids[id] = true
 	}
 	return ids, nil
 }
@@ -400,17 +400,27 @@ func snapshotContractHash(v spaceSnapshot) string {
 	return entity.Hash(copy)
 }
 
+// publishedDraft is an entity draft with its pending publication and the
+// hash of its active definition ("" before the first publication).
+type publishedDraft struct {
+	Draft      jsonValue
+	Pending    *string
+	ActiveHash string
+}
+
+func (v *publishedDraft) fields() []any { return []any{&v.Draft, &v.Pending, &v.ActiveHash} }
+
 func (s *Server) ensureSnapshotReady(ctx context.Context, q Queryer, space string) error {
-	drafts, e := rows(ctx, q, "SELECT e.draft_json,e.pending_version_id,ev.definition_hash FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.space_id=? AND e.state='active'", space)
+	drafts, e := scanAll[publishedDraft](ctx, q, "SELECT e.draft_json,e.pending_version_id,COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.space_id=? AND e.state='active'", space)
 	if e != nil {
 		return e
 	}
 	for _, draft := range drafts {
-		d, e := defOf(draft["draft_json"])
+		d, e := defOf(draft.Draft.value())
 		if e != nil {
 			return e
 		}
-		if draft["pending_version_id"] != nil || entity.Hash(d) != str(draft["definition_hash"]) {
+		if draft.Pending != nil || entity.Hash(d) != draft.ActiveHash {
 			return conflict("Publish every active entity draft before capturing a workspace or release.")
 		}
 	}

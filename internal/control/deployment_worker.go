@@ -144,11 +144,12 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			return tx.Commit()
 		}
 		for _, d := range plan.Snapshot.Entities {
-			current, e := row(attempt, q, "SELECT ev.definition_hash,ev.state,e.pending_version_id FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", d.ID)
-			if e != nil {
+			var hash, active string
+			var pending *string
+			if e := lookup(attempt, q, "SELECT COALESCE(ev.definition_hash,''),COALESCE(ev.state,''),e.pending_version_id FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, &hash, &active, &pending); e != nil {
 				return e
 			}
-			if str(current["definition_hash"]) == entity.Hash(d.Definition) && current["state"] == "published" && current["pending_version_id"] == nil {
+			if hash == entity.Hash(d.Definition) && active == "published" && pending == nil {
 				continue
 			}
 			var state string

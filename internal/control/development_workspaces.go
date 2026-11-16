@@ -317,15 +317,15 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
 		return Workspace{}, bad("Enter a workspace name (maximum 160 bytes).")
 	}
-	sp, e := row(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", space)
-	if e != nil {
+	res := Resource{Space: space}
+	var parent *string
+	if e := lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant, &parent); e != nil {
 		return Workspace{}, e
 	}
-	if sp["workspace_id"] != nil {
+	if parent != nil {
 		return Workspace{}, bad("Workspaces cannot contain workspaces.")
 	}
-	res := Resource{Tenant: str(sp["tenant_id"]), Space: space}
-	e = s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
+	e := s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
 		var owned, total int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(owner_user_id=?),0) FROM development_workspaces WHERE production_space_id=? AND state<>'archived'", p.ID, res.Space).Scan(&total, &owned); e != nil {
 			return e
@@ -341,22 +341,22 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 			return e
 		}
 		b, _ := json.Marshal(base)
-		source, e := row(ctx, tx, "SELECT sp.database_layout,d.target_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.id=?", res.Space)
-		if e != nil {
+		var layout, target string
+		if e = lookup(ctx, tx, "SELECT sp.database_layout,d.target_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.id=?", []any{res.Space}, &layout, &target); e != nil {
 			return e
 		}
 		if s.Config.WorkspaceDatabaseTarget != "" {
-			source["target_id"] = s.Config.WorkspaceDatabaseTarget
+			target = s.Config.WorkspaceDatabaseTarget
 		}
 		policy, e := policyFor(ctx, tx, res.Tenant)
 		if e != nil {
 			return e
 		}
 		backing, resource := newID(), newID()
-		if e = s.storage.allocate(ctx, tx, actor, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: str(source["database_layout"]), Target: str(source["target_id"])}, policy, &res); e != nil {
+		if e = s.storage.allocate(ctx, tx, actor, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: target}, policy, &res); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES(?,?,?,?,?,?)", backing, res.Tenant, "dev-"+strings.ReplaceAll(in.ID, "-", ""), in.Name, resource, source["database_layout"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES(?,?,?,?,?,?)", backing, res.Tenant, "dev-"+strings.ReplaceAll(in.ID, "-", ""), in.Name, resource, layout); e != nil {
 			return e
 		}
 		var grant any
