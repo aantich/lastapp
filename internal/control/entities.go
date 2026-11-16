@@ -101,24 +101,24 @@ func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, spac
 		return c, a, e
 	}
 	query := strings.Replace(effectiveAssignmentSQL, " ORDER BY g.scope_kind,g.id", " AND (g.scope_kind='team' OR (g.scope_kind='space' AND g.space_id=?) OR (g.scope_kind='app' AND g.app_id=?)) ORDER BY g.scope_kind,g.id", 1)
-	assignments, e := rows(ctx, q, query, user, tenant, space, app)
+	assignments, e := scanAll[EffectiveAssignment](ctx, q, query, user, tenant, space, app)
 	if e != nil {
 		return c, a, e
 	}
 	for _, g := range assignments {
-		if (g["scope_kind"] == "space" && str(g["space_id"]) == space) || (g["scope_kind"] == "app" && str(g["app_id"]) == app) {
-			c.Roles[str(g["role_id"])] = true
+		if (g.ScopeKind == "space" && deref(g.SpaceID) == space) || (g.ScopeKind == "app" && deref(g.AppID) == app) {
+			c.Roles[g.RoleID] = true
 		}
-		if g["scope_kind"] == "team" {
-			if g["code"] == "team.reviewer" {
-				c.ReviewTeams[str(g["scope_team_id"])] = true
+		if g.ScopeKind == "team" {
+			if g.Code == "team.reviewer" {
+				c.ReviewTeams[deref(g.ScopeTeamID)] = true
 			}
-			if g["code"] == "team.admin" {
-				c.AdminTeams[str(g["scope_team_id"])] = true
+			if g.Code == "team.admin" {
+				c.AdminTeams[deref(g.ScopeTeamID)] = true
 			}
 		}
 	}
-	teams, e := rows(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
+	teams, e := scanStrings(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
 	if e != nil {
 		return c, a, e
 	}
@@ -126,7 +126,7 @@ func (s *Server) actorContext(ctx context.Context, q Queryer, user, tenant, spac
 		return c, a, conflict("Membership expansion limit exceeded.")
 	}
 	for _, g := range teams {
-		c.Teams[str(g["group_id"])] = true
+		c.Teams[g] = true
 	}
 	if app != "" {
 		v, e := row(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", app, tenant, space)

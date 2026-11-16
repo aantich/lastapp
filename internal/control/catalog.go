@@ -64,10 +64,10 @@ func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p Principal) er
 	if e = s.member(r.Context(), tx, p, t, false); e != nil {
 		return e
 	}
-	roles, e := pageRows(r.Context(), tx, r, effectiveAssignmentSQL, p.ID, t)
+	roles, e := pageScan[EffectiveAssignment](r.Context(), tx, pageRequest(r.URL.Query()), collectionFor("my-role-assignments"), effectiveAssignmentSQL, p.ID, t)
 	if e != nil {
 		return e
 	}
-	send(w, 200, Row{"tenant_id": t, "user_id": p.ID, "items": roles, "business_acl_enforcement": true, "pagination": r.Context().Value(pageContextKey{})})
+	send(w, 200, Row{"tenant_id": t, "user_id": p.ID, "items": roles.Items, "business_acl_enforcement": true, "pagination": roles.Pagination})
 	return nil
 }

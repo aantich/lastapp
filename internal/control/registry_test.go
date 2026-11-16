@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aantich/lastapp/internal/authz"
@@ -223,4 +224,117 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, users.Items, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id LIMIT 200", SuperRole, SuperRole, SuperRole)
+
+	// Roles, assignments, recipients, effective assignments and the audited
+	// security snapshots.
+	spaceID := spaces.Items[0].ID
+	scope, res, e := scopeOf(tenant, "", spaceID, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	role := roleInput{ID: newID(), Code: "typed", Name: "Typed"}
+	if _, e = s.authority.CreateRole(ctx, admin, scope, res, role); e != nil {
+		t.Fatal(e)
+	}
+	renamed, request := "Typed role", newID()
+	if _, e = s.authority.UpdateRole(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, role.ID, rolePatch{Name: &renamed}, 1); e != nil {
+		t.Fatal(e)
+	}
+	roleSnapshotSQL := "SELECT id,tenant_id,space_id,app_id,scope_kind,domain,code,display_name,state,revision FROM roles WHERE id=?"
+	sameAudit := func(request, action, side, untyped string, extra Row, args ...any) {
+		t.Helper()
+		var details []byte
+		if e := s.DB.QueryRow("SELECT details_json FROM audit_events WHERE request_id=? AND action=?", request, action).Scan(&details); e != nil {
+			t.Fatal(action, e)
+		}
+		v, e := rows(ctx, s.DB, untyped, args...)
+		if e != nil || len(v) != 1 {
+			t.Fatal(untyped, e)
+		}
+		for k, x := range extra {
+			v[0][k] = x
+		}
+		var audited map[string]json.RawMessage
+		want, _ := json.Marshal(v[0])
+		if e = json.Unmarshal(details, &audited); e != nil || string(audited[side]) != string(want) {
+			t.Fatalf("audited %s %s:\nwant %s\ngot  %s", action, side, want, audited[side])
+		}
+	}
+	sameAudit(request, "role.updated", "after", roleSnapshotSQL, Row{"permissions": []string{}}, role.ID)
+	roles, e := s.authority.Roles(ctx, admin, scope, res, PageRequest{Limit: 200})
+	if e != nil {
+		t.Fatal(e)
+	}
+	untypedRoles, e := pageQuery(ctx, s.DB, PageRequest{Limit: 200}, collectionFor("roles"), "SELECT id,tenant_id,space_id,app_id,code,display_name,state,revision,scope_kind,domain,(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, v := range untypedRoles.Items {
+		v["permissions"] = []string{}
+		if def, ok := authz.Builtin(str(v["id"])); ok {
+			v["permissions"] = def.Permissions
+		} else {
+			v["data_permissions"] = []Row{}
+		}
+	}
+	if want, got := mustJSON(t, untypedRoles), mustJSON(t, roles); want != got {
+		t.Fatalf("roles differ\nwant %s\ngot  %s", want, got)
+	}
+	one4, e := s.authority.Role(ctx, admin, scope, res, role.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, one4, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=?", role.ID)
+	grant := assignmentInput{ID: newID(), User: joe, Role: role.ID}
+	request = newID()
+	if _, e = s.authority.Grant(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant); e != nil {
+		t.Fatal(e)
+	}
+	grantSnapshotSQL := "SELECT id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,revision FROM access_grants WHERE id=?"
+	sameAudit(request, "grant.created", "after", grantSnapshotSQL, nil, grant.ID)
+	assignments, e := s.authority.Assignments(ctx, admin, scope, res, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	where, args := assignmentFilter(scope)
+	sameJSON(t, s.DB, assignments.Items, `SELECT g.id,g.scope_kind,g.domain,g.user_id,g.group_id,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.revision,g.created_at,COALESCE(u.display_name,gr.display_name) AS principal_name,ro.display_name AS access_name,ro.state AS role_state,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
+	one5, e := s.authority.Assignment(ctx, admin, scope, res, grant.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, one5, grantSnapshotSQL, grant.ID)
+	recipients, e := s.authority.Recipients(ctx, admin, scope, res, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, recipients.Items, "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", tenant, SuperRole)
+	teamRecipients, e := s.authority.TeamRecipients(ctx, admin, scope, res, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, teamRecipients.Items, "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", tenant)
+	request = newID()
+	if _, e = s.authority.Revoke(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant.ID, 1); e != nil {
+		t.Fatal(e)
+	}
+	mine := rawFields(t, c, "/v1/tenants/"+tenant+"/my-role-assignments")
+	sameRaw(t, s.DB, mine["items"], "SELECT * FROM (SELECT g.id,g.scope_kind,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.group_id,ro.code,ro.display_name,ro.domain"+effectiveAssignmentSQL[strings.Index(effectiveAssignmentSQL, "\n"):]+") AS collection ORDER BY scope_kind,id", p.ID, tenant)
+	if string(mine["pagination"]) != `{"page":1,"limit":100,"has_more":false}` {
+		t.Fatal("my-role-assignments pagination", string(mine["pagination"]))
+	}
+	teamName := "Typed team"
+	request = newID()
+	if _, e = s.members.UpdateTeam(ctx, Actor{Principal: admin.Principal, RequestID: request}, tenant, team.ID, teamPatch{Name: &teamName}, 2); e != nil {
+		t.Fatal(e)
+	}
+	sameAudit(request, "group.updated", "after", "SELECT id,display_name,state,revision FROM groups WHERE id=?", nil, team.ID)
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, e := json.Marshal(v)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return string(b)
 }

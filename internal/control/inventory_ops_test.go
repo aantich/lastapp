@@ -299,7 +299,7 @@ func TestAuthorityOperations(t *testing.T) {
 	if e != nil || len(page.Items) != 2 {
 		t.Fatal("console assignments", page, e)
 	}
-	if v, e := s.authority.Assignment(ctx, human, scope, res, grant.ID); e != nil || str(v["role_id"]) != role.ID {
+	if v, e := s.authority.Assignment(ctx, human, scope, res, grant.ID); e != nil || v.RoleID != role.ID {
 		t.Fatal("console assignment", v, e)
 	}
 	_, e = s.authority.Revoke(ctx, human, scope, res, grant.ID, 0)
@@ -331,11 +331,11 @@ func TestAuthorityOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, p.Agent.ID).Scan(&n); e != nil || n != 1 {
 		t.Fatal("agent audit attribution", n, e)
 	}
-	recipients, e := s.authority.Recipients(ctx, agent, scope, res, false, PageRequest{})
+	recipients, e := s.authority.Recipients(ctx, agent, scope, res, PageRequest{})
 	if e != nil || len(recipients.Items) == 0 {
 		t.Fatal("agent recipients", recipients, e)
 	}
-	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, Resource{}, false, PageRequest{})
+	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, Resource{}, PageRequest{})
 	wantProblem(t, e, 400, "invalid_request")
 }
 

@@ -157,7 +157,10 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		}
 		switch in.Resource {
 		case "recipient":
-			return agentPage(s.authority.Recipients(ctx, agentActor(ctx, p), scope, sr, in.RecipientType == "team", in.pageRequest()))
+			if in.RecipientType == "team" {
+				return agentPage(s.authority.TeamRecipients(ctx, agentActor(ctx, p), scope, sr, in.pageRequest()))
+			}
+			return agentPage(s.authority.Recipients(ctx, agentActor(ctx, p), scope, sr, in.pageRequest()))
 		case "role":
 			return agentPage(s.authority.Roles(ctx, agentActor(ctx, p), scope, sr, in.pageRequest()))
 		}

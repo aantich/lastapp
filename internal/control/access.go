@@ -286,11 +286,11 @@ func (m *membership) UpdateTeam(ctx context.Context, a Actor, tenant, team strin
 		return Ref{}, revisionRequired()
 	}
 	e := m.run.mutate(ctx, a, "team.manage", Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
-		old, e := securitySnapshot(ctx, tx, "groups", tenant, team)
+		old, e := teamSnapshotOf(ctx, tx, tenant, team)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160) {
