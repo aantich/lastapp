@@ -346,11 +346,11 @@ func ensureReferenceConstraints(ctx context.Context, q Queryer, entityID string,
 
 func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v entityVersion) (map[string]bool, error) {
 	if v.Deployment != nil {
-		job, e := row(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", *v.Deployment)
-		if e != nil {
+		var stored jsonValue
+		if e := lookup(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", []any{*v.Deployment}, &stored); e != nil {
 			return nil, e
 		}
-		plan, e := decodeDeployment(job)
+		plan, e := decodeDeployment(stored)
 		if e != nil {
 			return nil, e
 		}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aantich/lastapp/internal/entity"
 )
@@ -25,7 +26,67 @@ type deploymentOperationKey struct{}
 
 // One public status projection for discovery, polling and MCP. Never expose the
 // persisted plan or delegation details through a status response.
-const deploymentStatusColumns = "d.id,d.tenant_id,d.space_id,d.release_id,d.target_app_id,d.state,d.error_message,d.revision,d.created_at,d.finished_at"
+// Deployment is a production deployment's status and the URL it serves.
+type Deployment struct {
+	CreatedAt  time.Time  `json:"created_at"`
+	Error      *string    `json:"error_message"`
+	FinishedAt *time.Time `json:"finished_at"`
+	ID         string     `json:"id"`
+	ReleaseID  string     `json:"release_id"`
+	Revision   int64      `json:"revision"`
+	SpaceID    string     `json:"space_id"`
+	State      string     `json:"state"`
+	TargetApp  string     `json:"target_app_id"`
+	TenantID   string     `json:"tenant_id"`
+	URL        string     `json:"url"`
+}
+
+const deploymentStatusColumns = "d.created_at,d.error_message,d.finished_at,d.id,d.release_id,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+
+func (v *Deployment) fields() []any {
+	return []any{&v.CreatedAt, &v.Error, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
+}
+
+// Release is a captured App release with its workspace ownership and
+// production target. The release view adds its preview and production URLs.
+type Release struct {
+	AppID           string    `json:"app_id"`
+	BackingSpace    string    `json:"backing_space_id"`
+	BaseHash        string    `json:"base_hash"`
+	BuildID         string    `json:"build_id"`
+	CreatedAt       time.Time `json:"created_at"`
+	CreatedBy       string    `json:"created_by"`
+	Name            string    `json:"display_name"`
+	ID              string    `json:"id"`
+	Manifest        jsonValue `json:"manifest_json"`
+	OwnerGrant      *string   `json:"owner_agent_grant_id"`
+	Owner           string    `json:"owner_user_id"`
+	PreviewURL      string    `json:"preview_url,omitempty"`
+	ProductionApp   string    `json:"production_app_id"`
+	ProductionSpace string    `json:"production_space_id"`
+	ProductionURL   string    `json:"production_url,omitempty"`
+	SnapshotHash    string    `json:"snapshot_hash"`
+	Snapshot        jsonValue `json:"snapshot_json"`
+	TenantID        string    `json:"tenant_id"`
+	WorkspaceID     string    `json:"workspace_id"`
+}
+
+func (v *Release) fields() []any {
+	return []any{&v.AppID, &v.BackingSpace, &v.BaseHash, &v.BuildID, &v.CreatedAt, &v.CreatedBy, &v.Name, &v.ID, &v.Manifest, &v.OwnerGrant, &v.Owner, &v.ProductionApp, &v.ProductionSpace, &v.SnapshotHash, &v.Snapshot, &v.TenantID, &v.WorkspaceID}
+}
+
+// ReleaseItem is a release in an App's collection.
+type ReleaseItem struct {
+	BuildID      string    `json:"build_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	Name         string    `json:"display_name"`
+	ID           string    `json:"id"`
+	SnapshotHash string    `json:"snapshot_hash"`
+}
+
+func (v *ReleaseItem) fields() []any {
+	return []any{&v.BuildID, &v.CreatedAt, &v.Name, &v.ID, &v.SnapshotHash}
+}
 
 type deploymentPlan struct {
 	Snapshot spaceSnapshot     `json:"snapshot"`
@@ -38,18 +99,18 @@ var (
 	pinnedVersionRE = regexp.MustCompile(`^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|sha256:[a-f0-9]{64})$`)
 )
 
-func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in releaseCreateInput, revision int64) (Row, error) {
+func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in releaseCreateInput, revision int64) (Release, error) {
 	p := actor.Principal
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 || id(in.Build) != nil {
-		return nil, bad("Provide a release name and uploaded build ID.")
+		return Release{}, bad("Provide a release name and uploaded build ID.")
 	}
 	rev := revision
 	if rev < 1 {
-		return nil, revisionRequired()
+		return Release{}, revisionRequired()
 	}
 	a, ws, e := s.ownedDevelopmentApp(ctx, s.DB, p, app)
 	if e != nil {
-		return nil, e
+		return Release{}, e
 	}
 	record := actor.operationID()
 	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
@@ -121,54 +182,54 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		return auditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
 	})
 	if e != nil {
-		return nil, e
+		return Release{}, e
 	}
 	return s.Release(ctx, actor, record)
 }
 
-func (s *Server) Releases(ctx context.Context, actor Actor, app string, page PageRequest) (Page[Row], error) {
+func (s *Server) Releases(ctx context.Context, actor Actor, app string, page PageRequest) (Page[ReleaseItem], error) {
 	p := actor.Principal
 	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[ReleaseItem]{}, e
 	}
 	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
-		return Page[Row]{}, e
+		return Page[ReleaseItem]{}, e
 	}
-	vs, e := pageQuery(ctx, s.DB, page, collectionFor("releases"), "SELECT rel.id,rel.display_name,rel.build_id,rel.snapshot_hash,rel.created_at FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
+	vs, e := pageScan[ReleaseItem](ctx, s.DB, page, collectionFor("releases"), "SELECT rel.build_id,rel.created_at,rel.display_name,rel.id,rel.snapshot_hash FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
 	return vs, e
 }
 
-func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id string) (Row, error) {
-	v, e := row(ctx, q, "SELECT rel.*,ws.production_space_id,ws.backing_space_id,ws.owner_user_id,ws.owner_agent_grant_id,wi.production_id AS production_app_id FROM app_releases rel JOIN development_workspaces ws ON ws.id=rel.workspace_id JOIN workspace_items wi ON wi.workspace_id=ws.id AND wi.kind='app' AND wi.development_id=rel.app_id WHERE rel.id=?", id)
+func (s *Server) releaseRow(ctx context.Context, q Queryer, p Principal, id string) (Release, error) {
+	v, e := scanOne[Release](ctx, q, "SELECT rel.app_id,ws.backing_space_id,rel.base_hash,rel.build_id,rel.created_at,rel.created_by,rel.display_name,rel.id,rel.manifest_json,ws.owner_agent_grant_id,ws.owner_user_id,wi.production_id,ws.production_space_id,rel.snapshot_hash,rel.snapshot_json,rel.tenant_id,rel.workspace_id FROM app_releases rel JOIN development_workspaces ws ON ws.id=rel.workspace_id JOIN workspace_items wi ON wi.workspace_id=ws.id AND wi.kind='app' AND wi.development_id=rel.app_id WHERE rel.id=?", id)
 	if e != nil {
-		return nil, e
+		return v, e
 	}
-	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["production_space_id"])}, false); e != nil {
-		return nil, e
+	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, false); e != nil {
+		return v, e
 	}
 	// Undeployed snapshots belong to the private workspace. Successful releases
 	// remain inspectable as production history after that workspace is archived.
 	var deployed int
-	if e = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM release_deployments WHERE release_id=? AND tenant_id=? AND space_id=? AND target_app_id=? AND state='active'", id, v["tenant_id"], v["production_space_id"], v["production_app_id"]).Scan(&deployed); e != nil {
-		return nil, e
+	if e = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM release_deployments WHERE release_id=? AND tenant_id=? AND space_id=? AND target_app_id=? AND state='active'", id, v.TenantID, v.ProductionSpace, v.ProductionApp).Scan(&deployed); e != nil {
+		return v, e
 	}
 	if deployed == 0 {
-		if e = s.workspaceGuard(ctx, q, p, str(v["backing_space_id"])); e != nil {
-			return nil, e
+		if e = s.workspaceGuard(ctx, q, p, v.BackingSpace); e != nil {
+			return v, e
 		}
 	}
 	return v, nil
 }
 
-func (s *Server) Release(ctx context.Context, actor Actor, release string) (Row, error) {
+func (s *Server) Release(ctx context.Context, actor Actor, release string) (Release, error) {
 	p := actor.Principal
 	v, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
-		return nil, e
+		return v, e
 	}
-	v["preview_url"] = s.appHostedOrigin(str(v["app_id"])) + "/"
-	v["production_url"] = s.appHostedOrigin(str(v["production_app_id"])) + "/"
+	v.PreviewURL = s.appHostedOrigin(v.AppID) + "/"
+	v.ProductionURL = s.appHostedOrigin(v.ProductionApp) + "/"
 	return v, nil
 }
 
@@ -178,7 +239,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 	if e != nil {
 		return nil, e
 	}
-	a, _, e := s.ownedDevelopmentApp(ctx, s.DB, p, str(rel["app_id"]))
+	a, _, e := s.ownedDevelopmentApp(ctx, s.DB, p, rel.AppID)
 	if e != nil {
 		return nil, e
 	}
@@ -207,11 +268,11 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 		if err != nil {
 			return err
 		}
-		ids, err := workspaceIDs(ctx, tx, str(rel["workspace_id"]))
+		ids, err := workspaceIDs(ctx, tx, rel.WorkspaceID)
 		if err != nil {
 			return err
 		}
-		if snapshotContractHash(remapSnapshot(currentSnapshot, ids)) != str(rel["snapshot_hash"]) {
+		if snapshotContractHash(remapSnapshot(currentSnapshot, ids)) != rel.SnapshotHash {
 			return conflict("Workspace configuration changed after this release was captured. Capture and test a fresh release.")
 		}
 		access, e := accessOf(a.Access)
@@ -221,15 +282,15 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 		old := access.Origin
 		access.Origin = origin
 		b, _ := json.Marshal(access)
-		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel["id"], b, origin, old, origin, a.ID); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel.ID, b, origin, old, origin, a.ID); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, Row{"release_id": rel["id"]})
+		return auditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, Row{"release_id": rel.ID})
 	})
 	if e != nil {
 		return nil, e
 	}
-	return Row{"id": rel["id"], "url": origin + "/"}, nil
+	return Row{"id": rel.ID, "url": origin + "/"}, nil
 }
 
 func (s *Server) deploymentAuthority(ctx context.Context, q Queryer, p Principal, res Resource) error {
@@ -263,17 +324,17 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	if rev < 1 {
 		return nil, revisionRequired()
 	}
-	res := Resource{Tenant: str(rel["tenant_id"]), Space: str(rel["production_space_id"])}
+	res := Resource{Tenant: rel.TenantID, Space: rel.ProductionSpace}
 	if e = s.deploymentAuthority(ctx, s.DB, p, res); e != nil {
 		return nil, e
 	}
-	if e = s.ensureReleaseBuild(ctx, s.DB, str(rel["id"])); e != nil {
+	if e = s.ensureReleaseBuild(ctx, s.DB, rel.ID); e != nil {
 		return nil, e
 	}
 	record := actor.operationID()
 	ctx = context.WithValue(ctx, deploymentOperationKey{}, record)
 	e = s.run.mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
-		a, e := s.appRow(ctx, tx, str(rel["production_app_id"]))
+		a, e := s.appRow(ctx, tx, rel.ProductionApp)
 		if e != nil {
 			if ae, ok := e.(*APIError); !ok || ae.Status != 404 {
 				return e
@@ -285,7 +346,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 			if e = checkRevision(a.Revision, rev); e != nil {
 				return e
 			}
-			if deref(a.ActiveRelease) == str(rel["id"]) {
+			if deref(a.ActiveRelease) == rel.ID {
 				return conflict("This release is already active in production.")
 			}
 		}
@@ -296,15 +357,15 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		if e != nil {
 			return e
 		}
-		if entity.Hash(current) != str(rel["base_hash"]) {
+		if entity.Hash(current) != rel.BaseHash {
 			return conflict("Production changed since this workspace was created. Create a fresh workspace and reconcile its configuration before deploying.")
 		}
 		var snap spaceSnapshot
-		b, _ := json.Marshal(rel["snapshot_json"])
-		if json.Unmarshal(b, &snap) != nil || snapshotContractHash(snap) != str(rel["snapshot_hash"]) {
+		b, _ := json.Marshal(rel.Snapshot)
+		if json.Unmarshal(b, &snap) != nil || snapshotContractHash(snap) != rel.SnapshotHash {
 			return conflict("Release snapshot is invalid.")
 		}
-		if s.appHostedOrigin(str(rel["production_app_id"])) == "" {
+		if s.appHostedOrigin(rel.ProductionApp) == "" {
 			return conflict("Configure the App hosting origin before deployment.")
 		}
 		if e = s.snapshotAppQuota(ctx, tx, res.Tenant, snap); e != nil {
@@ -312,13 +373,13 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		}
 		// The FK target App exists before the durable deployment record is inserted.
 		for _, app := range snap.Apps {
-			if app.ID == str(rel["production_app_id"]) {
+			if app.ID == rel.ProductionApp {
 				if _, e = tx.ExecContext(ctx, "INSERT IGNORE INTO apps(id,tenant_id,space_id,slug,display_name,compute_mode) VALUES(?,?,?,?,?,'shared')", app.ID, res.Tenant, res.Space, app.Slug, app.Name); e != nil {
 					return e
 				}
 			}
 		}
-		plan := deploymentPlan{Snapshot: snap, BaseHash: str(rel["base_hash"]), Versions: map[string]string{}}
+		plan := deploymentPlan{Snapshot: snap, BaseHash: rel.BaseHash, Versions: map[string]string{}}
 		for _, d := range snap.Entities {
 			plan.Versions[d.ID] = newID()
 		}
@@ -327,10 +388,10 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		if p.Agent != nil {
 			grantRev = p.Agent.Revision
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO release_deployments(id,tenant_id,space_id,release_id,target_app_id,created_by,agent_grant_id,agent_grant_revision,plan_json) VALUES(?,?,?,?,?,?,?,?,?)", record, res.Tenant, res.Space, rel["id"], rel["production_app_id"], p.ID, agentID(p), grantRev, pb); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO release_deployments(id,tenant_id,space_id,release_id,target_app_id,created_by,agent_grant_id,agent_grant_revision,plan_json) VALUES(?,?,?,?,?,?,?,?,?)", record, res.Tenant, res.Space, rel.ID, rel.ProductionApp, p.ID, agentID(p), grantRev, pb); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, Row{"release_id": rel["id"], "snapshot_hash": rel["snapshot_hash"]})
+		return auditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, Row{"release_id": rel.ID, "snapshot_hash": rel.SnapshotHash})
 	})
 	if e != nil {
 		return nil, e
@@ -338,16 +399,16 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	return Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."}, nil
 }
 
-func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string) (Row, error) {
+func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string) (Deployment, error) {
 	p := actor.Principal
-	v, e := row(ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
+	v, e := scanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
 	if e != nil {
-		return nil, e
+		return v, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, false); e != nil {
-		return nil, e
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, false); e != nil {
+		return v, e
 	}
-	v["url"] = s.appHostedOrigin(str(v["target_app_id"])) + "/"
+	v.URL = s.appHostedOrigin(v.TargetApp) + "/"
 	return v, nil
 }
 
@@ -371,16 +432,16 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Ro
 	if production != "" {
 		space = production
 	}
-	vs, e := rows(ctx, s.DB, `SELECT `+deploymentStatusColumns+`
+	vs, e := scanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+`
  FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id
  WHERE d.tenant_id=? AND d.space_id=? AND (d.state IN ('queued','preparing','publishing') OR d.target_app_id=? OR rel.app_id=?)
  ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a.TenantID, space, a.ID, a.ID)
 	if e != nil {
 		return nil, e
 	}
-	var deployment any
+	var deployment any // untyped nil when the App has none
 	if len(vs) > 0 {
-		vs[0]["url"] = s.appHostedOrigin(str(vs[0]["target_app_id"])) + "/"
+		vs[0].URL = s.appHostedOrigin(vs[0].TargetApp) + "/"
 		deployment = vs[0]
 	}
 	return Row{"deployment": deployment}, nil

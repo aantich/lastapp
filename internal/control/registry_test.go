@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -487,4 +489,34 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(e)
 	}
 	return string(b)
+}
+
+// jsonKeys lists a struct's JSON member names in field order, inlining
+// embedded structs as encoding/json does.
+func jsonKeys(t reflect.Type) []string {
+	keys := []string{}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if f.Anonymous && f.Type.Kind() == reflect.Struct {
+			keys = append(keys, jsonKeys(f.Type)...)
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if f.IsExported() && name != "" && name != "-" {
+			keys = append(keys, name)
+		}
+	}
+	return keys
+}
+
+// Typed records replace Rows, which marshal with sorted keys. Their JSON
+// members must therefore be declared in sorted order (snapshot records keep
+// their own documented order and are not Row replacements).
+func TestRegistryRecordKeysAreSorted(t *testing.T) {
+	for _, v := range []any{Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, Membership{}, Team{}, TeamMember{}, Administrator{}, User{}, Role{}, roleItem{}, rolePermission{}, Assignment{}, AssignmentItem{}, Recipient{}, Named{}, EffectiveAssignment{}, Target{}, AvailableTarget{}, Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, appRecord{}, Workspace{}, WorkspaceItem{}, workspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}} {
+		keys := jsonKeys(reflect.TypeOf(v))
+		if len(keys) == 0 || !slices.IsSorted(keys) {
+			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)
+		}
+	}
 }

@@ -80,7 +80,7 @@ func TestReleaseWorkspaceOwnership(t *testing.T) {
 		raw, _ := json.Marshal(agentReadInput{Resource: "release", ID: str(f.release["id"])})
 		result, e := f.s.toolAgentGet(ctx, p, raw)
 		if want == 200 {
-			if e != nil || result.(Row)["snapshot_json"] == nil {
+			if e != nil || result.(Release).Snapshot.value() == nil {
 				t.Fatal("authorized release inspection", e)
 			}
 			return

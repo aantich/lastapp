@@ -67,24 +67,24 @@ func (s *Server) toolAgentRelease(ctx context.Context, p Principal, raw json.Raw
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (Row, error)
+	var call func(context.Context, Actor) (any, error)
 	permission := "releases.write"
 	switch in.Action {
 	case "upload_ticket":
-		call = func(ctx context.Context, a Actor) (Row, error) { return s.UploadTicket(ctx, a, in.App) }
+		call = func(ctx context.Context, a Actor) (any, error) { return s.UploadTicket(ctx, a, in.App) }
 	case "capture":
 		if in.Capture == nil {
 			return nil, bad("capture parameters required.")
 		}
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.CreateRelease(ctx, a, in.App, *in.Capture, in.Revision)
 		}
 	case "preview":
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.PreviewRelease(ctx, a, in.Release, in.Revision)
 		}
 	case "deploy":
-		call = func(ctx context.Context, a Actor) (Row, error) {
+		call = func(ctx context.Context, a Actor) (any, error) {
 			return s.DeployRelease(ctx, a, in.Release, in.Revision)
 		}
 		permission = "production.deploy"

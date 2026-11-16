@@ -109,7 +109,7 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 		}
 		denied := s.agentJobAllowed(ctx, tx, deref(v.AgentGrant), v.CreatedBy, Resource{Tenant: v.TenantID, Space: v.SpaceID}, permission)
 		if denied == nil && v.Deployment != nil {
-			job, err := row(ctx, tx, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", *v.Deployment)
+			job, err := scanOne[deploymentTask](ctx, tx, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", *v.Deployment)
 			denied = err
 			if denied == nil {
 				_, denied = s.deploymentPrincipal(ctx, tx, job)
@@ -406,7 +406,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		return e
 	}
 	if v.Deployment != nil {
-		job, err := row(ctx, rt, "SELECT * FROM release_deployments WHERE id=? AND state='publishing'", *v.Deployment)
+		job, err := scanOne[deploymentTask](ctx, rt, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", *v.Deployment)
 		if err != nil {
 			return err
 		}

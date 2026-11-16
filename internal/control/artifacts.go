@@ -139,14 +139,57 @@ func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (Row
 	return Row{"upload_url": s.Config.PublicURL + "/artifact/v1/upload", "upload_token": secret, "expires_in": int(uploadTicketLifetime.Seconds()), "limits": artifact.Limits, "instructions": "POST {entrypoint:'index.html',files:[{path:'...',content_base64:'...'}]} using Authorization: Bearer <upload_token>. A ticket uploads one immutable build; identical retries return its build ID. Do not put tokens or local development credentials in builds."}, nil
 }
 
-func (s *Server) uploadPrincipal(ctx context.Context, q Queryer, v Row) (Principal, error) {
-	p := Principal{ID: str(v["user_id"])}
-	if str(v["agent_grant_id"]) != "" {
-		g, e := s.readAgentGrant(ctx, q, str(v["agent_grant_id"]))
+// uploadTicket is a bounded build-upload credential and the build it
+// produced, if it was already used.
+type uploadTicket struct {
+	TenantID, AppID, UserID, AgentGrant string // AgentGrant is empty for a person
+	AgentRevision                       int64
+	BuildID                             *string
+}
+
+const uploadTicketColumns = "tenant_id,app_id,user_id,COALESCE(agent_grant_id,''),COALESCE(agent_grant_revision,0),build_id"
+
+func (v *uploadTicket) fields() []any {
+	return []any{&v.TenantID, &v.AppID, &v.UserID, &v.AgentGrant, &v.AgentRevision, &v.BuildID}
+}
+
+// storedBuild is an uploaded static build and its file inventory.
+type storedBuild struct {
+	ID, Hash, Entry string
+	Size            int64
+	Files           jsonValue
+}
+
+const storedBuildColumns = "b.id,b.content_hash,b.entrypoint,b.size_bytes,b.files_json"
+
+func (v *storedBuild) fields() []any { return []any{&v.ID, &v.Hash, &v.Entry, &v.Size, &v.Files} }
+
+// files decodes the build's file inventory.
+func (v storedBuild) files() ([]artifact.FileInfo, error) {
+	var files []artifact.FileInfo
+	b, _ := json.Marshal(v.Files)
+	return files, json.Unmarshal(b, &files)
+}
+
+// Build is an uploaded build in an App's collection.
+type Build struct {
+	Hash      string    `json:"content_hash"`
+	CreatedAt time.Time `json:"created_at"`
+	Entry     string    `json:"entrypoint"`
+	ID        string    `json:"id"`
+	Size      int64     `json:"size_bytes"`
+}
+
+func (v *Build) fields() []any { return []any{&v.Hash, &v.CreatedAt, &v.Entry, &v.ID, &v.Size} }
+
+func (s *Server) uploadPrincipal(ctx context.Context, q Queryer, v uploadTicket) (Principal, error) {
+	p := Principal{ID: v.UserID}
+	if v.AgentGrant != "" {
+		g, e := s.readAgentGrant(ctx, q, v.AgentGrant)
 		if e != nil {
 			return p, e
 		}
-		if g.Revision != integer(v["agent_grant_revision"]) {
+		if g.Revision != v.AgentRevision {
 			return p, missing()
 		}
 		if e = requireAgent(g, "releases.write"); e != nil {
@@ -154,7 +197,7 @@ func (s *Server) uploadPrincipal(ctx context.Context, q Queryer, v Row) (Princip
 		}
 		p.Agent = g
 	}
-	if _, _, e := s.ownedDevelopmentApp(ctx, q, p, str(v["app_id"])); e != nil {
+	if _, _, e := s.ownedDevelopmentApp(ctx, q, p, v.AppID); e != nil {
 		return p, e
 	}
 	return p, nil
@@ -178,7 +221,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if len(raw) != 43 {
 			return problem(401, "invalid_upload", "Upload ticket required.")
 		}
-		v, e := row(ctx, s.DB, "SELECT * FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6)", hash(raw))
+		v, e := scanOne[uploadTicket](ctx, s.DB, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6)", hash(raw))
 		if e != nil {
 			return problem(401, "invalid_upload", "Upload ticket expired or invalid.")
 		}
@@ -210,10 +253,10 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		defer tx.Rollback()
-		if e = lockTenant(ctx, tx, str(v["tenant_id"])); e != nil {
+		if e = lockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
-		v, e = row(ctx, tx, "SELECT * FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(raw))
+		v, e = scanOne[uploadTicket](ctx, tx, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(raw))
 		if e != nil {
 			return missing()
 		}
@@ -221,19 +264,19 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return e
 		}
-		if v["build_id"] != nil {
-			existing, e := row(ctx, tx, "SELECT id,content_hash FROM app_builds WHERE id=?", v["build_id"])
-			if e != nil {
+		if v.BuildID != nil {
+			var existing string
+			if e = lookup(ctx, tx, "SELECT content_hash FROM app_builds WHERE id=?", []any{*v.BuildID}, &existing); e != nil {
 				return e
 			}
-			if str(existing["content_hash"]) != b.Hash {
+			if existing != b.Hash {
 				return conflict("Upload ticket already used for different content.")
 			}
-			send(w, 200, existing)
+			send(w, 200, Row{"content_hash": existing, "id": *v.BuildID})
 			return nil
 		}
 		var n int
-		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_builds WHERE app_id=?", v["app_id"]).Scan(&n); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_builds WHERE app_id=?", v.AppID).Scan(&n); e != nil {
 			return e
 		}
 		if n >= maxAppBuilds {
@@ -245,14 +288,14 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		build := newID()
 		files, _ := json.Marshal(b.Files)
-		if _, e = tx.ExecContext(ctx, "INSERT INTO app_builds(id,tenant_id,app_id,content_hash,files_json,entrypoint,size_bytes,created_by) VALUES(?,?,?,?,?,?,?,?)", build, v["tenant_id"], v["app_id"], b.Hash, files, b.Entry, b.Size, p.ID); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO app_builds(id,tenant_id,app_id,content_hash,files_json,entrypoint,size_bytes,created_by) VALUES(?,?,?,?,?,?,?,?)", build, v.TenantID, v.AppID, b.Hash, files, b.Entry, b.Size, p.ID); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE artifact_uploads SET build_id=? WHERE token_hash=?", build, hash(raw)); e != nil {
 			return e
 		}
-		ctx = agentAuditContext(ctx, str(v["agent_grant_id"]), "")
-		if e = audit(ctx, tx, str(v["tenant_id"]), p.ID, "build.uploaded", "app", str(v["app_id"]), r.Header.Get("X-Request-ID"), Row{"build_id": build, "content_hash": b.Hash, "size_bytes": b.Size}); e != nil {
+		ctx = agentAuditContext(ctx, v.AgentGrant, "")
+		if e = audit(ctx, tx, v.TenantID, p.ID, "build.uploaded", "app", v.AppID, r.Header.Get("X-Request-ID"), Row{"build_id": build, "content_hash": b.Hash, "size_bytes": b.Size}); e != nil {
 			return e
 		}
 		if e = tx.Commit(); e != nil {
@@ -266,16 +309,16 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) Builds(ctx context.Context, actor Actor, app string, page PageRequest) (Page[Row], error) {
+func (s *Server) Builds(ctx context.Context, actor Actor, app string, page PageRequest) (Page[Build], error) {
 	p := actor.Principal
 	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[Build]{}, e
 	}
 	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
-		return Page[Row]{}, e
+		return Page[Build]{}, e
 	}
-	vs, e := pageQuery(ctx, s.DB, page, collectionFor("builds"), "SELECT id,content_hash,entrypoint,size_bytes,created_at FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a.ID)
+	vs, e := pageScan[Build](ctx, s.DB, page, collectionFor("builds"), "SELECT content_hash,created_at,entrypoint,id,size_bytes FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a.ID)
 	return vs, e
 }
 
@@ -322,14 +365,13 @@ func (s *Server) serveAppHost(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	prefix := "/_lastapp/builds/"
-	var build Row
 	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-		build, e = row(ctx, s.DB, "SELECT b.id,b.entrypoint FROM app_releases r JOIN app_builds b ON b.id=r.build_id WHERE r.id=?", *release)
-		if e != nil {
+		var build, entry string
+		if lookup(ctx, s.DB, "SELECT b.id,b.entrypoint FROM app_releases r JOIN app_builds b ON b.id=r.build_id WHERE r.id=?", []any{*release}, &build, &entry) != nil {
 			http.NotFound(w, r)
 			return true
 		}
-		http.Redirect(w, r, prefix+str(build["id"])+"/"+str(build["entrypoint"]), 302)
+		http.Redirect(w, r, prefix+build+"/"+entry, 302)
 		return true
 	}
 	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, prefix), "/", 2)
@@ -339,14 +381,13 @@ func (s *Server) serveAppHost(w http.ResponseWriter, r *http.Request) bool {
 	}
 	// Historical builds remain addressable for already-open clients, but only if
 	// a release was actually deployed to this App (never arbitrary workspace builds).
-	build, e = row(ctx, s.DB, "SELECT b.* FROM app_builds b WHERE b.id=? AND (EXISTS(SELECT 1 FROM app_releases rel WHERE rel.build_id=b.id AND rel.app_id=?) OR EXISTS(SELECT 1 FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id WHERE rel.build_id=b.id AND d.target_app_id=? AND d.state='active'))", parts[0], app, app)
+	build, e := scanOne[storedBuild](ctx, s.DB, "SELECT "+storedBuildColumns+" FROM app_builds b WHERE b.id=? AND (EXISTS(SELECT 1 FROM app_releases rel WHERE rel.build_id=b.id AND rel.app_id=?) OR EXISTS(SELECT 1 FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id WHERE rel.build_id=b.id AND d.target_app_id=? AND d.state='active'))", parts[0], app, app)
 	if e != nil {
 		http.NotFound(w, r)
 		return true
 	}
-	var files []artifact.FileInfo
-	encoded, _ := json.Marshal(build["files_json"])
-	if json.Unmarshal(encoded, &files) != nil {
+	files, e := build.files()
+	if e != nil {
 		http.NotFound(w, r)
 		return true
 	}
@@ -363,7 +404,7 @@ func (s *Server) serveAppHost(w http.ResponseWriter, r *http.Request) bool {
 		http.NotFound(w, r)
 		return true
 	}
-	file, e := artifact.Read(s.artifactDirectory(), str(build["content_hash"]), parts[1])
+	file, e := artifact.Read(s.artifactDirectory(), build.Hash, parts[1])
 	if e != nil {
 		http.NotFound(w, r)
 		return true
@@ -383,16 +424,15 @@ func (s *Server) serveAppHost(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) ensureReleaseBuild(ctx context.Context, q Queryer, release string) error {
-	v, e := row(ctx, q, "SELECT b.* FROM app_releases rel JOIN app_builds b ON b.id=rel.build_id WHERE rel.id=?", release)
+	v, e := scanOne[storedBuild](ctx, q, "SELECT "+storedBuildColumns+" FROM app_releases rel JOIN app_builds b ON b.id=rel.build_id WHERE rel.id=?", release)
 	if e != nil {
 		return e
 	}
-	var files []artifact.FileInfo
-	b, _ := json.Marshal(v["files_json"])
-	if e = json.Unmarshal(b, &files); e != nil {
+	files, e := v.files()
+	if e != nil {
 		return e
 	}
-	build := artifact.Build{Hash: str(v["content_hash"]), Files: files, Size: int(integer(v["size_bytes"])), Entry: str(v["entrypoint"])}
+	build := artifact.Build{Hash: v.Hash, Files: files, Size: int(v.Size), Entry: v.Entry}
 	if e = artifact.Check(s.artifactDirectory(), build); e != nil {
 		return conflict("Release files are unavailable or corrupt on this server. Restore the shared artifact storage before deploying.")
 	}
