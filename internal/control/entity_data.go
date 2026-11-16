@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
@@ -66,7 +67,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	if r.URL.Path == "/data/v1/session/exchange" && r.Method == "POST" {
-		if e := s.limitRequest(w, Principal{ID: "exchange:" + s.loginClientIP(r)}, r); e != nil {
+		if e := s.limitRequest(w, access.Principal{ID: "exchange:" + s.loginClientIP(r)}, r); e != nil {
 			writeError(w, r, e)
 			return
 		}
@@ -76,7 +77,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 		se, err = s.dataSession(ctx, r)
 		if err == nil {
 			r.SetPathValue("tenant", se.TenantID)
-			err = s.limitRequest(w, Principal{ID: se.UserID}, r)
+			err = s.limitRequest(w, access.Principal{ID: se.UserID}, r)
 		}
 		if err == nil {
 			release, ok := s.tenantDataSlots.reserve(se.TenantID)

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/registry"
@@ -19,7 +20,7 @@ import (
 type releaseFixture struct {
 	s                                                     *Server
 	c                                                     testClient
-	p                                                     Principal
+	p                                                     access.Principal
 	tenant, space, workspace, backing, app, productionApp string
 	release                                               registry.Row
 }
@@ -41,7 +42,7 @@ func newReleaseFixture(t *testing.T) releaseFixture {
 		t.Fatal(e)
 	}
 	var e error
-	p.Agent, e = s.readAgentGrant(ctx, s.DB, p.Agent.ID)
+	p.Agent, e = s.ReadAgentGrant(ctx, s.DB, p.Agent.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -76,7 +77,7 @@ func TestReleaseWorkspaceOwnership(t *testing.T) {
 	ctx := context.Background()
 	path := "/v1/releases/" + registry.Str(f.release["id"])
 	f.c.want("GET", path, nil, 0, 200)
-	read := func(p Principal, want int) {
+	read := func(p access.Principal, want int) {
 		t.Helper()
 		raw, _ := json.Marshal(agentReadInput{Resource: "release", ID: registry.Str(f.release["id"])})
 		result, e := f.s.toolAgentGet(ctx, p, raw)
@@ -110,7 +111,7 @@ func TestReleaseWorkspaceOwnership(t *testing.T) {
 		t.Fatal(e)
 	}
 	var e error
-	other.Agent, e = f.s.readAgentGrant(ctx, f.s.DB, grant)
+	other.Agent, e = f.s.ReadAgentGrant(ctx, f.s.DB, grant)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -137,7 +138,7 @@ func TestReleaseWorkspaceOwnership(t *testing.T) {
 	read(other, 200)
 	f.c.as(joe).want("GET", path, nil, 0, 200)
 	// Production history never authorizes the backing workspace itself.
-	if e = f.s.workspaceGuard(ctx, f.s.DB, other, f.backing); e == nil {
+	if e = f.s.WorkspaceGuard(ctx, f.s.DB, other, f.backing); e == nil {
 		t.Fatal("release history opened a private workspace")
 	}
 }
@@ -194,7 +195,7 @@ func TestReleasePreviewConcurrentConfiguration(t *testing.T) {
 	r.SetPathValue("release", registry.Str(f.release["id"]))
 	r.Header.Set("If-Match", "1")
 	done := make(chan error, 1)
-	go func() { done <- f.s.releasePreview(httptest.NewRecorder(), r, Principal{ID: f.p.ID}) }()
+	go func() { done <- f.s.releasePreview(httptest.NewRecorder(), r, access.Principal{ID: f.p.ID}) }()
 	// Wait for the real preview transaction to contend on the Tenant lock. This
 	// puts the concurrent change after any unlocked preflight in the old code.
 	for {

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -258,11 +259,11 @@ func TestResponseShapeGolden(t *testing.T) {
 		if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'golden','Golden client',?,?,?,'{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", id, user, registry.Nullable(tenantID), kind, perms, s.mcpURL()); e != nil {
 			t.Fatal(e)
 		}
-		g, e := s.readAgentGrant(t.Context(), s.DB, id)
+		g, e := s.ReadAgentGrant(t.Context(), s.DB, id)
 		if e != nil {
 			t.Fatal(e)
 		}
-		return agentFixtureToken(t, s, Principal{ID: user, Agent: g})
+		return agentFixtureToken(t, s, access.Principal{ID: user, Agent: g})
 	}
 	platform := grant(operator, "platform", "", "read", "platform.manage")
 	key := registry.NewID()

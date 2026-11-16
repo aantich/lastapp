@@ -13,6 +13,7 @@ import (
 
 	mariadb "github.com/aantich/go-mariadb"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -102,13 +103,13 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		var active string
 		e = tx.QueryRowContext(ctx, "SELECT state FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&active)
 		if e == nil && job.AgentGrant != "" {
-			res, permission := Resource{Tenant: tenant}, "databases.provision"
+			res, permission := access.Resource{Tenant: tenant}, "databases.provision"
 			var production string
 			if registry.Lookup(ctx, tx, "SELECT w.production_space_id FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id WHERE sp.database_resource_id=? AND w.state='preparing'", []any{record}, &production) == nil {
 				res.Space = production
 				permission = "workspaces.write"
 			}
-			if denied := s.agentJobAllowed(ctx, tx, job.AgentGrant, job.AgentUser, res, permission, job.TargetID); denied != nil {
+			if denied := s.AgentJobAllowed(ctx, tx, job.AgentGrant, job.AgentUser, res, permission, job.TargetID); denied != nil {
 				var ae *registry.APIError
 				if !errors.As(denied, &ae) {
 					tx.Rollback()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -26,7 +27,7 @@ type agentReleaseInput struct {
 	RequestKey string              `json:"request_key"`
 }
 
-func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentWorkspace(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentWorkspaceInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -64,7 +65,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 	return agentWriteResult(ctx, v, e)
 }
 
-func (s *Server) toolAgentRelease(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentRelease(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentReleaseInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e

@@ -19,6 +19,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -190,12 +191,12 @@ func TestAgentManagementMCP(t *testing.T) {
 		return out
 	}
 	permissions := []string{"production.deploy", "read", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}
-	session, grant, access, refresh := connect(permissions, "space", space)
+	session, grant, accessToken, refresh := connect(permissions, "space", space)
 	otherEndpoint := &Server{DB: s.DB, Config: s.Config, agentTokenSlots: make(chan struct{}, agentTokenConcurrent)}
 	otherEndpoint.Config.PublicURL = "http://127.0.0.1:8999"
-	otherEndpoint.Checker = &Checker{Audience: otherEndpoint.mcpURL()}
+	otherEndpoint.Checker = &access.Checker{Audience: otherEndpoint.mcpURL()}
 	foreignRequest := httptest.NewRequest("POST", otherEndpoint.mcpURL(), strings.NewReader(`{}`))
-	foreignRequest.Header.Set("Authorization", "Bearer "+access)
+	foreignRequest.Header.Set("Authorization", "Bearer "+accessToken)
 	if _, e := otherEndpoint.agentPrincipal(foreignRequest); e == nil {
 		t.Fatal("MCP audience crossed endpoint boundary")
 	}
@@ -210,7 +211,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	tools, e := session.ListTools(context.Background(), nil)
 	expectedTools := 0
 	for _, spec := range s.agentTools() {
-		if agentToolVisible(spec, &agentGrant{Permissions: permissions}) {
+		if agentToolVisible(spec, &access.AgentGrant{Permissions: permissions}) {
 			expectedTools++
 		}
 	}
@@ -278,7 +279,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	// MCP credentials and cookies are intentionally different audiences.
 	for _, path := range []string{"/v1/tenants/" + tenant + "/spaces", "/data/v1/schema"} {
 		r := httptest.NewRequest("GET", s.Config.PublicURL+path, nil)
-		r.Header.Set("Authorization", "Bearer "+access)
+		r.Header.Set("Authorization", "Bearer "+accessToken)
 		w := httptest.NewRecorder()
 		c.h.ServeHTTP(w, r)
 		if w.Code != 401 {
@@ -293,7 +294,7 @@ func TestAgentManagementMCP(t *testing.T) {
 		t.Fatal("session header accepted as identity")
 	}
 	r = httptest.NewRequest("POST", s.Config.PublicURL+"/mcp", strings.NewReader(`{}`))
-	r.Header.Set("Authorization", "Bearer "+access)
+	r.Header.Set("Authorization", "Bearer "+accessToken)
 	r.Header.Set("Origin", "https://evil.example")
 	w = httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)

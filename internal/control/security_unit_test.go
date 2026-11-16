@@ -13,6 +13,7 @@ import (
 
 	mariadb "github.com/aantich/go-mariadb"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -117,7 +118,7 @@ func TestRedactedDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics omit the context state: %s", fields)
 	}
 	s := &Server{}
-	if e := s.authorize(context.Background(), nil, Principal{Platform: true}, "business.contact.read", Resource{}, true); e == nil {
+	if e := s.Authorize(context.Background(), nil, access.Principal{Platform: true}, "business.contact.read", access.Resource{}, true); e == nil {
 		t.Fatal("platform bypass accepts an unknown action domain")
 	}
 }

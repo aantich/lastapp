@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -136,7 +137,7 @@ func TestSecurityRegressions(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		_, e = s.DB.Exec("INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, SuperRole)
+		_, e = s.DB.Exec("INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, access.SuperRole)
 		if e == nil {
 			t.Fatal("duplicate grant accepted")
 		}
@@ -393,7 +394,7 @@ func TestSecurityRegressions(t *testing.T) {
 		base := "/v1/tenants/" + tenant
 		ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": outsideUser}, 0, 201)
 		grant := registry.NewID()
-		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": grant, "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
+		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": grant, "user_id": outsideUser, "role_id": access.TenantAdminRole}, 0, 201)
 		ownerClient.want("DELETE", base+"/role-assignments/"+grant, nil, 1, 200)
 		var details string
 		if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE resource_id=? AND action='grant.deleted'", grant).Scan(&details); e != nil {
@@ -406,7 +407,7 @@ func TestSecurityRegressions(t *testing.T) {
 			}
 			After any
 		}
-		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != outsideUser || change.Before.Role != TenantAdminRole || change.After != nil {
+		if e = json.Unmarshal([]byte(details), &change); e != nil || change.Before.User != outsideUser || change.Before.Role != access.TenantAdminRole || change.After != nil {
 			t.Fatalf("incomplete revocation audit: %s", details)
 		}
 	})
@@ -436,8 +437,8 @@ func TestSecurityRegressions(t *testing.T) {
 		tenant := createTenant(development)
 		base := "/v1/tenants/" + tenant
 		ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": outsideUser}, 0, 201)
-		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 201)
-		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsideUser, "role_id": TenantAdminRole}, 0, 409)
+		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsideUser, "role_id": access.TenantAdminRole}, 0, 201)
+		ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": outsideUser, "role_id": access.TenantAdminRole}, 0, 409)
 		scope := businessScope(tenant)
 		space := scope[strings.LastIndex(scope, "/")+1:]
 		for i := 0; i < 105; i++ {

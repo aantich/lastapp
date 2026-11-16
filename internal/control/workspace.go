@@ -3,6 +3,7 @@ package control
 import (
 	"net/http"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -56,14 +57,14 @@ func (v *databaseAttention) ScanFields() []any {
 	return []any{&v.DatabaseName, &v.ID, &v.LastError, &v.State}
 }
 
-func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	t := r.PathValue("tenant")
 	if !p.Platform {
-		if e := s.member(r.Context(), s.DB, p, t, false); e != nil {
+		if e := s.Member(r.Context(), s.DB, p, t, false); e != nil {
 			return e
 		}
 	}
-	caps, e := s.effectiveScopes(r.Context(), s.DB, p, t)
+	caps, e := s.EffectiveScopes(r.Context(), s.DB, p, t)
 	if e != nil {
 		return e
 	}
@@ -77,7 +78,7 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 		{"apps", "app.read", "FROM apps a WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)", "a.space_id", "a.id"},
 		{"microapps", "microapp.read", "FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND m.state<>'archived'", "a.space_id", "m.app_id"},
 	} {
-		filter, args := scopeSQL(caps[spec.action], spec.space, spec.app)
+		filter, args := access.ScopeSQL(caps[spec.action], spec.space, spec.app)
 		args = append([]any{t}, args...)
 		var count int
 		if e = s.DB.QueryRowContext(r.Context(), "SELECT COUNT(*) "+spec.query+" AND "+filter, args...).Scan(&count); e != nil {
@@ -85,7 +86,7 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p Princi
 		}
 		out[spec.key] = count
 	}
-	filter, args := scopeSQL(caps["app.read"], "a.space_id", "a.id")
+	filter, args := access.ScopeSQL(caps["app.read"], "a.space_id", "a.id")
 	args = append([]any{t}, args...)
 	recent, e := registry.ScanAll[recentApp](r.Context(), s.DB, "SELECT a.display_name,a.id,a.space_id,sp.display_name AS space_name,a.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
 	if e != nil {

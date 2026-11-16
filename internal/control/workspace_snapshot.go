@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
@@ -142,7 +143,7 @@ func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnap
 // The single publication capture routine is shared by the authoring endpoint and
 // bounded snapshot jobs. Candidate references are accepted only for a captured
 // batch whose tables are prepared before any version can activate.
-func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v EntityDefinition, version string, candidates map[string]bool) error {
+func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p access.Principal, v EntityDefinition, version string, candidates map[string]bool) error {
 	d, e := v.draft()
 	if e != nil {
 		return e
@@ -166,7 +167,7 @@ func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v
 	return e
 }
 
-func agentID(p Principal) any {
+func agentID(p access.Principal) any {
 	if p.Agent != nil {
 		return p.Agent.ID
 	}
@@ -222,34 +223,34 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	ctx = context.WithValue(ctx, workspaceOperationKey{}, v.ID)
-	p := Principal{ID: v.Owner}
-	if deref(v.OwnerGrant) != "" {
-		p.Agent, e = s.readAgentGrant(ctx, q, deref(v.OwnerGrant))
+	ctx = context.WithValue(ctx, access.WorkspaceOperationKey{}, v.ID)
+	p := access.Principal{ID: v.Owner}
+	if access.Deref(v.OwnerGrant) != "" {
+		p.Agent, e = s.ReadAgentGrant(ctx, q, access.Deref(v.OwnerGrant))
 		if e != nil {
 			return e
 		}
 	}
 	run := func() error {
 		if p.Agent != nil {
-			if e = requireAgent(p.Agent, "workspaces.write"); e != nil {
+			if e = access.RequireAgent(p.Agent, "workspaces.write"); e != nil {
 				return e
 			}
 		}
-		if e = s.workspaceOwner(ctx, q, p, v); e != nil {
+		if e = s.WorkspaceOwner(ctx, q, p, v); e != nil {
 			return e
 		}
-		if deref(v.DatabaseState) == "pending" || deref(v.DatabaseState) == "provisioning" {
+		if access.Deref(v.DatabaseState) == "pending" || access.Deref(v.DatabaseState) == "provisioning" {
 			return nil
 		}
-		if deref(v.DatabaseState) != "ready" {
+		if access.Deref(v.DatabaseState) != "ready" {
 			return registry.Conflict("Workspace storage failed. Inspect database setup and retry workspace preparation.")
 		}
 		defs, e := registry.ScanAll[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.BackingSpace)
 		if e != nil {
 			return e
 		}
-		if e = s.prepareSnapshotTables(ctx, deref(v.DatabaseResource), defs); e != nil {
+		if e = s.prepareSnapshotTables(ctx, access.Deref(v.DatabaseResource), defs); e != nil {
 			return e
 		}
 		candidates := map[string]bool{}
@@ -264,7 +265,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 		if e = lockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
-		if e = s.workspaceOwner(ctx, tx, p, v); e != nil {
+		if e = s.WorkspaceOwner(ctx, tx, p, v); e != nil {
 			return e
 		}
 		ready := true
@@ -286,7 +287,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 			}
 			// The workspace job owns baseline publication authority; ordinary later
 			// agent publications keep their own grants and permission checks.
-			if e = s.queueDefinition(ctx, tx, Principal{ID: p.ID}, d, registry.NewID(), candidates); e != nil {
+			if e = s.queueDefinition(ctx, tx, access.Principal{ID: p.ID}, d, registry.NewID(), candidates); e != nil {
 				return e
 			}
 		}

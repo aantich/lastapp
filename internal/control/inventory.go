@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -50,7 +51,7 @@ type inventory struct {
 	db  *sql.DB
 	run *runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *Resource) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *access.Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
@@ -99,13 +100,13 @@ func (v *inventory) Spaces(ctx context.Context, a Actor, tenant string, page Pag
 	if e != nil {
 		return Page[SpaceItem]{}, e
 	}
-	filter, args := scopeSQL(sc, "sp.id", "")
+	filter, args := access.ScopeSQL(sc, "sp.id", "")
 	args = append([]any{tenant}, args...)
 	return pageScan[SpaceItem](ctx, v.db, page, collectionFor("spaces"), "SELECT (SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count,sp.created_at,sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
 }
 
 func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (Space, error) {
-	if e := v.run.authorize(ctx, a, "space.read", Resource{Tenant: tenant, Space: space}); e != nil {
+	if e := v.run.authorize(ctx, a, "space.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
 		return Space{}, e
 	}
 	return registry.ScanOne[Space](ctx, v.db, "SELECT sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
@@ -121,7 +122,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 	if e := registry.Named(in.Slug, in.Name); e != nil {
 		return Ref{}, e
 	}
-	e := v.run.mutate(ctx, a, "space.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "space.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		// Detect a retried parent create before allocating any child database.
 		var exists int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE id=?", in.ID).Scan(&exists); e != nil {
@@ -265,11 +266,11 @@ func (v *inventory) Apps(ctx context.Context, a Actor, tenant, space string, pag
 	if e != nil {
 		return Page[AppItem]{}, e
 	}
-	filter, args := scopeSQL(sc, "a.space_id", "a.id")
+	filter, args := access.ScopeSQL(sc, "a.space_id", "a.id")
 	args = append([]any{tenant}, args...)
 	query := "SELECT a.compute_mode,a.created_at,a.display_name,a.id,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,sp.workspace_id FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
 	if space != "" {
-		if e = v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, Space: space}); e != nil {
+		if e = v.run.authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
 			return Page[AppItem]{}, e
 		}
 		query += " AND a.space_id=?"
@@ -281,7 +282,7 @@ func (v *inventory) Apps(ctx context.Context, a Actor, tenant, space string, pag
 }
 
 func (v *inventory) App(ctx context.Context, a Actor, tenant, app string) (App, error) {
-	if e := v.run.authorize(ctx, a, "app.read", Resource{Tenant: tenant, App: app}); e != nil {
+	if e := v.run.authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, App: app}); e != nil {
 		return App{}, e
 	}
 	return registry.ScanOne[App](ctx, v.db, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
@@ -300,7 +301,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 	if in.Compute != "shared" && in.Compute != "dedicated" {
 		return Ref{}, registry.Bad("Invalid compute mode.")
 	}
-	e := v.run.mutate(ctx, a, "app.manage", Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "app.manage", access.Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
 		var parent string
 		if e := registry.Lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{space, tenant}, &parent); e != nil {
 			return e
@@ -333,7 +334,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 	return v.run.ref(ctx, "apps", tenant, in.ID)
 }
 
-func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Spaces(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
 	if e == nil {
 		send(w, 200, v)
@@ -341,7 +342,7 @@ func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p Principal) err
 	return e
 }
 
-func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Space(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("space"))
 	if e == nil {
 		send(w, 200, v)
@@ -349,7 +350,7 @@ func (s *Server) getSpace(w http.ResponseWriter, r *http.Request, p Principal) e
 	return e
 }
 
-func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in spaceCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -361,7 +362,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 	return e
 }
 
-func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) apps(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Apps(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.URL.Query().Get("space_id"), pageRequest(r.URL.Query()))
 	if e == nil {
 		send(w, 200, v)
@@ -369,7 +370,7 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request, p Principal) error
 	return e
 }
 
-func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.App(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("app"))
 	if e == nil {
 		send(w, 200, v)
@@ -377,7 +378,7 @@ func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p Principal) err
 	return e
 }
 
-func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in appCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -426,11 +427,11 @@ func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, 
 	if e != nil {
 		return Page[microappItem]{}, e
 	}
-	filter, args := scopeSQL(sc, "a.space_id", "m.app_id")
+	filter, args := access.ScopeSQL(sc, "a.space_id", "m.app_id")
 	args = append([]any{tenant}, args...)
 	query := "SELECT " + microappColumns + ",a.display_name AS app_name,m.created_at,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
 	if app != "" {
-		if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: app}); e != nil {
+		if e = v.run.authorize(ctx, a, "microapp.read", access.Resource{Tenant: tenant, App: app}); e != nil {
 			return Page[microappItem]{}, e
 		}
 		query += " AND m.app_id=?"
@@ -446,7 +447,7 @@ func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string
 	if e != nil {
 		return Microapp{}, e
 	}
-	if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: m.AppID}); e != nil {
+	if e = v.run.authorize(ctx, a, "microapp.read", access.Resource{Tenant: tenant, App: m.AppID}); e != nil {
 		return Microapp{}, e
 	}
 	return m, nil
@@ -462,7 +463,7 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app str
 	if len(in.Artifact) > 1024 {
 		return Ref{}, registry.Bad("Artifact reference is too long.")
 	}
-	res := Resource{Tenant: tenant, App: app}
+	res := access.Resource{Tenant: tenant, App: app}
 	if e := registry.Lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{app, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
@@ -494,11 +495,11 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app str
 }
 
 func (v *inventory) UpdateSpace(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
-	return v.patch(ctx, a, "spaces", "space.manage", Resource{Tenant: tenant, Space: record}, record, in, revision)
+	return v.patch(ctx, a, "spaces", "space.manage", access.Resource{Tenant: tenant, Space: record}, record, in, revision)
 }
 
 func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
-	res := Resource{Tenant: tenant, App: record}
+	res := access.Resource{Tenant: tenant, App: record}
 	if e := registry.Lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{record, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
@@ -506,7 +507,7 @@ func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record strin
 }
 
 func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
-	res := Resource{Tenant: tenant}
+	res := access.Resource{Tenant: tenant}
 	if e := registry.Lookup(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", []any{record, tenant}, &res.Space, &res.App); e != nil {
 		return Ref{}, e
 	}
@@ -515,7 +516,7 @@ func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record 
 
 // patch changes Space, App or micro-app metadata and lifecycle state under the
 // record's revision. Restoring an archived Space or App rechecks plan quotas.
-func (v *inventory) patch(ctx context.Context, a Actor, table, action string, res Resource, record string, in metadataPatch, revision int64) (Ref, error) {
+func (v *inventory) patch(ctx context.Context, a Actor, table, action string, res access.Resource, record string, in metadataPatch, revision int64) (Ref, error) {
 	if revision < 1 {
 		return Ref{}, revisionRequired()
 	}
@@ -626,7 +627,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 	return v.run.ref(ctx, table, res.Tenant, record)
 }
 
-func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Microapps(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.URL.Query().Get("app_id"), pageRequest(r.URL.Query()))
 	if e == nil {
 		send(w, 200, v)
@@ -634,7 +635,7 @@ func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p Principal) 
 	return e
 }
 
-func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in microappCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -646,21 +647,21 @@ func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Princi
 	return e
 }
 
-func (s *Server) updateSpace(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateSpace(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	return updateInventory(w, r, p, s.inv.UpdateSpace)
 }
 
-func (s *Server) updateApp(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateApp(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	return updateInventory(w, r, p, s.inv.UpdateApp)
 }
 
-func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	return updateInventory(w, r, p, s.inv.UpdateMicroapp)
 }
 
 // updateInventory is the console adapter of the Space, App and micro-app
 // metadata and lifecycle operations.
-func updateInventory(w http.ResponseWriter, r *http.Request, p Principal, update func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error)) error {
+func updateInventory(w http.ResponseWriter, r *http.Request, p access.Principal, update func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error)) error {
 	var in metadataPatch
 	if e := decode(w, r, &in); e != nil {
 		return e

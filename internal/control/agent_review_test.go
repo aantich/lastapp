@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
-func agentSpaceFixture(t *testing.T) (*Server, testClient, Principal, string, string, string) {
+func agentSpaceFixture(t *testing.T) (*Server, testClient, access.Principal, string, string, string) {
 	t.Helper()
 	s, c, p, tenant, target, _ := agentSecurityFixture(t)
 	resource, space, app := registry.NewID(), registry.NewID(), registry.NewID()
@@ -30,7 +31,7 @@ func agentSpaceFixture(t *testing.T) (*Server, testClient, Principal, string, st
 	return s, c, p, tenant, space, app
 }
 
-func agentPublishedFixture(t *testing.T, s *Server, p Principal, tenant, space string, d entity.Definition) string {
+func agentPublishedFixture(t *testing.T, s *Server, p access.Principal, tenant, space string, d entity.Definition) string {
 	t.Helper()
 	if ds := d.Validate(); len(ds) > 0 {
 		t.Fatal("invalid fixture definition", ds[0])
@@ -62,16 +63,16 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'review2','Review two','platform','[\"read\",\"access.manage\"]','{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, operator, s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, grant)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, grant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := Principal{ID: operator, Platform: true, Agent: g}
+	p := access.Principal{ID: operator, Platform: true, Agent: g}
 	// The honest platform target must demand platform.manage.
-	normal := agentAssignmentInput{Action: "grant", Target: &agentTarget{Kind: "platform"}, ID: registry.NewID(), Role: SuperRole, User: candidate, RequestKey: registry.NewID()}
+	normal := agentAssignmentInput{Action: "grant", Target: &agentTarget{Kind: "platform"}, ID: registry.NewID(), Role: access.SuperRole, User: candidate, RequestKey: registry.NewID()}
 	raw, _ := json.Marshal(normal)
 	_, e = s.toolAgentAssignment(context.Background(), p, raw)
-	var authority *agentAuthorityError
+	var authority *access.AgentAuthorityError
 	if !errors.As(e, &authority) {
 		t.Fatal("normal platform target did not require explicit platform authority", e)
 	}
@@ -94,15 +95,15 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	if e = resolved.Validate(instance); e != nil {
 		t.Fatal("probe input is not an accepted MCP schema", e)
 	}
-	access := agentFixtureToken(t, s, p)
+	accessToken := agentFixtureToken(t, s, p)
 	r := httptest.NewRequest("POST", s.mcpURL(), strings.NewReader(string(agentTestJSON(t, registry.Row{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": registry.Row{"name": "lastapp_role_assignment", "arguments": normal}}))))
-	r.Header.Set("Authorization", "Bearer "+access)
+	r.Header.Set("Authorization", "Bearer "+accessToken)
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
 	var count int
-	if e = s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE role_id=? AND user_id=?", SuperRole, candidate).Scan(&count); e != nil {
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE role_id=? AND user_id=?", access.SuperRole, candidate).Scan(&count); e != nil {
 		t.Fatal(e)
 	}
 	if count != 0 {
@@ -118,7 +119,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\",\"platform.manage\"]',revision=revision+1 WHERE id=?", grant); e != nil {
 		t.Fatal(e)
 	}
-	p.Agent, e = s.readAgentGrant(context.Background(), s.DB, grant)
+	p.Agent, e = s.ReadAgentGrant(context.Background(), s.DB, grant)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -127,7 +128,7 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	if _, e = s.toolAgentAssignment(context.Background(), p, agentTestJSON(t, normal)); e != nil {
 		t.Fatal("explicitly approved platform assignment failed", e)
 	}
-	if e = s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE role_id=? AND user_id=?", SuperRole, candidate).Scan(&count); e != nil || count != 1 {
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE role_id=? AND user_id=?", access.SuperRole, candidate).Scan(&count); e != nil || count != 1 {
 		t.Fatal("approved assignment missing", e)
 	}
 }
@@ -249,12 +250,12 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	if _, e := s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"entities.check\"]' WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, p.Agent.ID)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, p.Agent.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
 	p.Agent = g
-	ctx := context.WithValue(context.Background(), agentContextKey{}, &AgentCall{Grant: g, Permission: []string{"entities.check"}, Operation: "lastapp_entity_check"})
+	ctx := context.WithValue(context.Background(), access.AgentContextKey{}, &access.AgentCall{Grant: g, Permission: []string{"entities.check"}, Operation: "lastapp_entity_check"})
 	raw := agentTestJSON(t, agentCheckInput{Entity: eid, Cases: []agentCase{{Operation: "create", Values: map[string]any{"choice_0": d.Fields[0].Values[0]}}}})
 	checked, e := s.toolAgentEntityCheck(ctx, p, raw)
 	if e != nil {
@@ -359,7 +360,7 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 	if _, e := s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"resources.write\"]',limits_json='{}' WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, p.Agent.ID)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, p.Agent.ID)
 	if e != nil {
 		t.Fatal(e)
 	}

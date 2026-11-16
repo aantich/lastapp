@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
@@ -145,7 +146,7 @@ type agentToolSpec struct {
 	Input             reflect.Type
 	Read              bool
 	Permissions       []string
-	Run               func(context.Context, Principal, json.RawMessage) (any, error)
+	Run               func(context.Context, access.Principal, json.RawMessage) (any, error)
 }
 
 func agentType[T any]() reflect.Type { return reflect.TypeFor[T]() }
@@ -228,19 +229,6 @@ func strictAgentInput(raw json.RawMessage, dst any) error {
 	return nil
 }
 
-func requireAgent(g *agentGrant, permissions ...string) error {
-	missing := []string{}
-	for _, permission := range permissions {
-		if !agentHas(g, permission) {
-			missing = append(missing, permission)
-		}
-	}
-	if len(missing) > 0 {
-		return &agentAuthorityError{Missing: missing}
-	}
-	return nil
-}
-
 func (s *Server) mcpHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := withRequestDeadline(r.Context())
@@ -314,11 +302,11 @@ func (s *Server) mcpHandler() http.Handler {
 					e = resolved.Validate(args)
 				}
 				var data any
-				a := &AgentCall{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
-				call = context.WithValue(call, agentContextKey{}, a)
+				a := &access.AgentCall{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
+				call = context.WithValue(call, access.AgentContextKey{}, a)
 				if e != nil {
 					e = registry.Bad("Tool arguments do not match its published schema: " + e.Error())
-				} else if e = s.checkAgent(call, s.DB, p, Resource{Tenant: p.Agent.Tenant}, false); e == nil {
+				} else if e = s.CheckAgent(call, s.DB, p, access.Resource{Tenant: p.Agent.Tenant}, false); e == nil {
 					data, e = current.Run(call, p, req.Params.Arguments)
 				}
 				result := registry.Row{"ok": e == nil}
@@ -352,11 +340,11 @@ func (s *Server) mcpHandler() http.Handler {
 				return &mcp.CallToolResult{StructuredContent: result, Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}, IsError: e != nil || result["ok"] == false}, nil
 			})
 		}
-		if agentHas(p.Agent, "read") {
+		if access.AgentHas(p.Agent, "read") {
 			for name, guide := range agentGuides {
 				topic, text := name, guide
 				server.AddResource(&mcp.Resource{URI: "lastapp://docs/" + topic, Name: topic, MIMEType: "text/markdown", Description: "Authoritative Lastapp agent guide"}, func(call context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-					if e := s.checkAgent(call, s.DB, p, Resource{Tenant: p.Agent.Tenant}, false); e != nil {
+					if e := s.CheckAgent(call, s.DB, p, access.Resource{Tenant: p.Agent.Tenant}, false); e != nil {
 						return nil, e
 					}
 					return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: "lastapp://docs/" + topic, MIMEType: "text/markdown", Text: text}}}, nil
@@ -368,25 +356,25 @@ func (s *Server) mcpHandler() http.Handler {
 }
 func ptrBool(v bool) *bool { return &v }
 func ptrInt(v int) *int    { return &v }
-func agentToolVisible(spec agentToolSpec, g *agentGrant) bool {
+func agentToolVisible(spec agentToolSpec, g *access.AgentGrant) bool {
 	for _, permission := range spec.Permissions {
-		if !agentHas(g, permission) {
+		if !access.AgentHas(g, permission) {
 			return false
 		}
 	}
 	if spec.Name == "lastapp_workspace" {
-		return agentHas(g, "workspaces.write") || agentHas(g, "workspaces.test")
+		return access.AgentHas(g, "workspaces.write") || access.AgentHas(g, "workspaces.test")
 	}
 	if spec.Name == "lastapp_release" {
-		return agentHas(g, "releases.write") || agentHas(g, "production.deploy")
+		return access.AgentHas(g, "releases.write") || access.AgentHas(g, "production.deploy")
 	}
 	if spec.Name == "lastapp_create" || spec.Name == "lastapp_update" {
-		return agentHas(g, "resources.write") || agentHas(g, "access.manage") || agentHas(g, "platform.manage")
+		return access.AgentHas(g, "resources.write") || access.AgentHas(g, "access.manage") || access.AgentHas(g, "platform.manage")
 	}
 	return true
 }
 
-func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTarget, error) {
+func (s *Server) agentRoot(p access.Principal, target *agentTarget) (access.Resource, *agentTarget, error) {
 	g := p.Agent
 	if target == nil {
 		target = &agentTarget{Kind: g.Kind, ID: g.Scope}
@@ -398,7 +386,7 @@ func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTa
 	// platform scope by the shared HTTP operation, or mutate request-key input.
 	copyTarget := *target
 	target = &copyTarget
-	res := Resource{Tenant: g.Tenant}
+	res := access.Resource{Tenant: g.Tenant}
 	switch target.Kind {
 	case "platform":
 		if g.Kind != "platform" || target.ID != "" {
@@ -430,7 +418,7 @@ func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTa
 	return res, target, nil
 }
 
-func agentPaths(res Resource, target *agentTarget) map[string]string {
+func agentPaths(res access.Resource, target *agentTarget) map[string]string {
 	v := map[string]string{"tenant": res.Tenant}
 	switch target.Kind {
 	case "space":
@@ -445,28 +433,28 @@ func agentPaths(res Resource, target *agentTarget) map[string]string {
 
 // agentScope is the role/assignment scope of a normalized agent target, the
 // one the matching console route would select.
-func agentScope(res Resource, target *agentTarget) (authz.Scope, Resource, error) {
+func agentScope(res access.Resource, target *agentTarget) (authz.Scope, access.Resource, error) {
 	paths := agentPaths(res, target)
 	return scopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
 }
 
-func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, result registry.Row, input any, permissions ...string) (context.Context, error) {
+func (s *Server) beginAgentWrite(ctx context.Context, p access.Principal, key string, result registry.Row, input any, permissions ...string) (context.Context, error) {
 	if e := registry.ID(key); e != nil {
 		return ctx, registry.Bad("request_key must be a canonical UUID")
 	}
-	if e := requireAgent(p.Agent, permissions...); e != nil {
+	if e := access.RequireAgent(p.Agent, permissions...); e != nil {
 		return ctx, e
 	}
-	old := agentCallFrom(ctx)
+	old := access.AgentCallFrom(ctx)
 	operation := ""
 	if old != nil {
 		operation = old.Operation
 	}
 	a := old
 	if a == nil {
-		a = &AgentCall{}
+		a = &access.AgentCall{}
 	}
-	*a = AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(registry.Row{"operation": operation, "input": input}), ResultRef: result}
+	*a = access.AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(registry.Row{"operation": operation, "input": input}), ResultRef: result}
 	var previous string
 	var saved any
 	e := s.DB.QueryRowContext(ctx, "SELECT input_hash,result_json FROM agent_operation_receipts WHERE grant_id=? AND request_key=?", p.Agent.ID, key).Scan(&previous, &saved)
@@ -474,12 +462,12 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 		if previous != a.Hash {
 			return ctx, registry.Conflict("request_key already belongs to different arguments")
 		}
-		return context.WithValue(ctx, agentContextKey{}, a), nil
+		return context.WithValue(ctx, access.AgentContextKey{}, a), nil
 	}
 	if !errors.Is(e, sql.ErrNoRows) {
 		return ctx, e
 	}
-	return context.WithValue(ctx, agentContextKey{}, a), nil
+	return context.WithValue(ctx, access.AgentContextKey{}, a), nil
 }
 
 // inventoryUpdate selects the Space, App or micro-app metadata operation.
@@ -519,7 +507,7 @@ func agentSized[T any](v T, e error) (any, error) {
 
 func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
 	if errors.Is(e, errAgentReplay) {
-		a := agentCallFrom(ctx)
+		a := access.AgentCallFrom(ctx)
 		a.Committed = true
 		return registry.Row{"replayed": true, "committed": true, "resource": a.ResultRef, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
 	}
@@ -527,14 +515,14 @@ func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
 	if errors.As(e, &ae) && ae.Code == "response_limit" {
 		// The operation committed but its result exceeds the response bound.
 		// The receipt is the authoritative, compact outcome.
-		if a := agentCallFrom(ctx); a != nil && a.Committed {
+		if a := access.AgentCallFrom(ctx); a != nil && a.Committed {
 			return registry.Row{"committed": true, "resource": a.ResultRef, "response_error": registry.Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
 		}
 	}
 	return data, e
 }
 
-func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentCreateInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -648,7 +636,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentUpdateInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -743,7 +731,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentLifecycleInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -814,7 +802,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentEntityInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -858,11 +846,11 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 	return agentWriteResult(ctx, data, e)
 }
 
-func stableAgentID(p Principal, key string) string {
+func stableAgentID(p access.Principal, key string) string {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("lastapp:agent:"+p.Agent.ID+":"+key)).String()
 }
 
-func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentEntityPublish(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentPublishInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -882,7 +870,7 @@ func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw js
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentEntityCheck(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentCheckInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -929,7 +917,7 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	return result, nil
 }
 
-func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentAssignment(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentAssignmentInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -938,21 +926,21 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor, authz.Scope, Resource) (any, error)
+	var call func(context.Context, Actor, authz.Scope, access.Resource) (any, error)
 	switch in.Action {
 	case "grant":
 		if (in.User == "") == (in.Team == "") {
 			return nil, registry.Bad("Choose exactly one user_id or team_id recipient.")
 		}
 		grant := assignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
-		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
+		call = func(ctx context.Context, a Actor, scope authz.Scope, sr access.Resource) (any, error) {
 			return s.authority.Grant(ctx, a, scope, sr, grant)
 		}
 	case "revoke":
 		if in.Revision < 1 {
 			return nil, registry.Problem(428, "revision_required", "Revocation requires expected_revision.")
 		}
-		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
+		call = func(ctx context.Context, a Actor, scope authz.Scope, sr access.Resource) (any, error) {
 			return s.authority.Revoke(ctx, a, scope, sr, in.ID, in.Revision)
 		}
 	default:
@@ -979,7 +967,7 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentMembership(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentMembershipInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -1034,7 +1022,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentAppAccess(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentAppAccessInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
@@ -1053,7 +1041,7 @@ func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.R
 	return agentWriteResult(ctx, data, e)
 }
 
-func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
+func (s *Server) toolAgentDatabase(ctx context.Context, p access.Principal, raw json.RawMessage) (any, error) {
 	var in agentDatabaseInput
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e

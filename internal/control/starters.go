@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 	clientsdk "github.com/aantich/lastapp/packages/client"
 	"github.com/aantich/lastapp/packages/starter"
@@ -72,7 +73,7 @@ func (s *Server) Starter(ctx context.Context, actor Actor, app string) (registry
 	return registry.Row{"app_id": a.ID, "space_id": a.SpaceID, "workspace_id": ws.ID, "files": files, "development_origin": "http://127.0.0.1:5173", "instructions": []string{"Write these files locally; run npm install and npm run dev. Commit your generated lockfile in your own source repository if you use one.", "Inspect workspace entity inventory, entity definitions and App contracts. Reuse entities, this SDK and shared UI across micro-apps.", "Approve development_origin with app_access_update. Use ordinary Connect, or create a development-launch PKCE code with lastapp_workspace and call window.lastapp.connectDevelopment({code,verifier,nonce}) from your browser tools.", "Create reusable fixtures through the ordinary workspace App data API. No production records are copied and no administrator ACL bypass exists.", "Build using npm run build. Get an upload ticket, then run node scripts/upload.mjs dist <upload_url> with its token in LASTAPP_UPLOAD_TOKEN. Do not bake secrets into the bundle.", "Create a release with the uploaded build ID, exact micro-app versions and shared dependency versions. Preview it, fix errors locally, upload a new build and repeat.", "Production activation requires an explicit production.deploy grant and a current production base. Poll the deployment result."}}, nil
 }
 
-func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	data, e := s.Starter(r.Context(), httpActor(r, p), r.PathValue("app"))
 	if e != nil {
 		return e
@@ -107,7 +108,7 @@ func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p Pri
 	return e
 }
 
-func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Starter(r.Context(), httpActor(r, p), r.PathValue("app"))
 	return reply(w, 200, v, e)
 }

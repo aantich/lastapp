@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -19,8 +19,7 @@ const (
 )
 
 type (
-	workspaceOperationKey struct{}
-	workspaceCreateInput  struct {
+	workspaceCreateInput struct {
 		ID   string `json:"id"`
 		Name string `json:"display_name"`
 	}
@@ -181,60 +180,12 @@ func workspaceIDs(ctx context.Context, q registry.Queryer, workspace string) (ma
 	return ids, e
 }
 
-func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p Principal, id string) (registry.Workspace, error) {
+func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p access.Principal, id string) (registry.Workspace, error) {
 	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.id=?", id)
 	if e != nil {
 		return v, e
 	}
-	return v, s.workspaceOwner(ctx, q, p, v)
-}
-
-func (s *Checker) workspaceOwner(ctx context.Context, q registry.Queryer, p Principal, v registry.Workspace) error {
-	if v.Owner != p.ID {
-		return registry.Missing()
-	}
-	if p.Agent != nil && deref(v.OwnerGrant) != p.Agent.ID {
-		return registry.Missing()
-	}
-	var active string
-	if e := q.QueryRowContext(ctx, "SELECT state FROM spaces WHERE id=?", v.ProductionSpace).Scan(&active); e != nil {
-		return e
-	}
-	if active != registry.StateActive {
-		return registry.Conflict("The production Space is inactive.")
-	}
-	// Losing authority on the source also stops access to its development copies.
-	if p.Agent != nil {
-		original, e := s.readAgentGrant(ctx, q, p.Agent.ID)
-		if e != nil {
-			return e
-		}
-		if original.Revision != p.Agent.Revision {
-			return registry.Missing()
-		}
-		p.Agent = original
-	}
-	return s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, true)
-}
-
-func (s *Checker) workspaceGuard(ctx context.Context, q registry.Queryer, p Principal, space string) error {
-	if space == "" {
-		return nil
-	}
-	v, e := registry.ScanOne[registry.Workspace](ctx, q, "SELECT "+registry.WorkspaceColumns+" FROM development_workspaces w WHERE w.backing_space_id=?", space)
-	if e != nil {
-		if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
-			return nil
-		}
-		return e
-	}
-	if e = s.workspaceOwner(ctx, q, p, v); e != nil {
-		return e
-	}
-	if v.State != "ready" && ctx.Value(workspaceOperationKey{}) != v.ID {
-		return registry.Conflict("Workspace is not ready. Inspect its status or retry preparation.")
-	}
-	return nil
+	return v, s.WorkspaceOwner(ctx, q, p, v)
 }
 
 func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page PageRequest) (Page[WorkspaceItem], error) {
@@ -247,7 +198,7 @@ func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page
 	if parent != nil {
 		return Page[WorkspaceItem]{}, registry.Bad("Select the production Space.")
 	}
-	if e := s.authorize(ctx, s.DB, p, "workspace.manage", Resource{Tenant: tenant, Space: space}, true); e != nil {
+	if e := s.Authorize(ctx, s.DB, p, "workspace.manage", access.Resource{Tenant: tenant, Space: space}, true); e != nil {
 		return Page[WorkspaceItem]{}, e
 	}
 	query := "SELECT backing_space_id,created_at,display_name,error_message,id,owner_agent_grant_id,production_space_id,revision,state FROM development_workspaces WHERE production_space_id=? AND owner_user_id=?"
@@ -281,7 +232,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
 		return registry.Workspace{}, registry.Bad("Enter a workspace name (maximum 160 bytes).")
 	}
-	res := Resource{Space: space}
+	res := access.Resource{Space: space}
 	var parent *string
 	if e := registry.Lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant, &parent); e != nil {
 		return registry.Workspace{}, e
@@ -362,7 +313,7 @@ func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace str
 	if rev < 1 {
 		return registry.Workspace{}, revisionRequired()
 	}
-	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, func(tx *sql.Tx) error {
 		v, e = s.workspaceRow(ctx, tx, p, workspace)
 		if e != nil {
 			return e
@@ -414,46 +365,17 @@ func lockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
 	return tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&v)
 }
 
-func (s *Checker) productionMutationGuard(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource) error {
-	if res.App != "" {
-		if e := q.QueryRowContext(ctx, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant).Scan(&res.Space); e != nil {
-			return e
-		}
-	}
-	if res.Space != "" && action != "workspace.manage" {
-		var job string
-		err := q.QueryRowContext(ctx, "SELECT id FROM release_deployments WHERE space_id=? AND state IN ('queued','preparing','publishing') LIMIT 1", res.Space).Scan(&job)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if err == nil && ctx.Value(deploymentOperationKey{}) != job {
-			return registry.Conflict("A deployment is preparing this Space. Wait for its result before changing configuration.")
-		}
-	}
-	if p.Agent == nil || res.Space == "" || action == "workspace.manage" {
-		return nil
-	}
-	var workspace sql.NullString
-	if e := q.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE id=?", res.Space).Scan(&workspace); e != nil {
-		return e
-	}
-	if !workspace.Valid {
-		return requireAgent(p.Agent, "production.deploy")
-	}
-	return nil
-}
-
-func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Workspaces(r.Context(), httpActor(r, p), r.PathValue("space"), pageRequest(r.URL.Query()))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Workspace(r.Context(), httpActor(r, p), r.PathValue("workspace"))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in workspaceCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -462,12 +384,12 @@ func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Princ
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) workspaceArchive(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) workspaceArchive(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.changeWorkspace(r.Context(), httpActor(r, p), r.PathValue("workspace"), false, ifMatch(r))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) workspaceRetry(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) workspaceRetry(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.changeWorkspace(r.Context(), httpActor(r, p), r.PathValue("workspace"), true, ifMatch(r))
 	return reply(w, 200, v, e)
 }

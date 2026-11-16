@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -61,7 +62,7 @@ func accessOf(v registry.JSONValue) (entity.AppAccess, error) {
 	return a, e
 }
 
-func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		Challenge string `json:"challenge"`
 		Nonce     string `json:"nonce"`
@@ -79,10 +80,10 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 	if v.State != registry.StateActive {
 		return registry.Missing()
 	}
-	if e = s.workspaceGuard(r.Context(), s.DB, p, v.SpaceID); e != nil {
+	if e = s.WorkspaceGuard(r.Context(), s.DB, p, v.SpaceID); e != nil {
 		return e
 	}
-	if e = s.member(r.Context(), s.DB, p, v.TenantID, true); e != nil {
+	if e = s.Member(r.Context(), s.DB, p, v.TenantID, true); e != nil {
 		return e
 	}
 	var sp string
@@ -134,7 +135,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		return e
 	}
 	challenge := base64.RawURLEncoding.EncodeToString(hash(in.Verifier))
-	if subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != deref(v.Origin) {
+	if subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != access.Deref(v.Origin) {
 		return registry.Problem(401, "invalid_exchange", "Launch challenge or origin mismatch.")
 	}
 	raw := token(32)
@@ -149,7 +150,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	w.Header().Set("Access-Control-Allow-Origin", deref(v.Origin))
+	w.Header().Set("Access-Control-Allow-Origin", access.Deref(v.Origin))
 	w.Header().Add("Vary", "Origin")
 	send(w, 200, registry.Row{"access_token": raw, "expires_in": int(appTokenLifetime.Seconds()), "token_type": "Bearer"})
 	return nil
@@ -184,7 +185,7 @@ func (s *Server) dataSession(ctx context.Context, r *http.Request) (appSession, 
 	if e = s.appSessionParent(ctx, s.DB, v); e != nil {
 		return v, e
 	}
-	if r.Header.Get("Origin") != deref(v.Origin) {
+	if r.Header.Get("Origin") != access.Deref(v.Origin) {
 		return v, registry.Problem(403, "invalid_origin", "App origin mismatch.")
 	}
 	return v, nil
@@ -211,17 +212,17 @@ func projectAppPermissions(ctx context.Context, tx *sql.Tx, app string, a entity
 	return nil
 }
 
-func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var appID, name, space, spaceName, tenant string
 	var access registry.JSONValue
 	e := registry.Lookup(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", []any{r.PathValue("app")}, &appID, &name, &access, &space, &spaceName, &tenant)
 	if e != nil {
 		return e
 	}
-	if e = s.workspaceGuard(r.Context(), s.DB, p, space); e != nil {
+	if e = s.WorkspaceGuard(r.Context(), s.DB, p, space); e != nil {
 		return e
 	}
-	if e = s.member(r.Context(), s.DB, p, tenant, true); e != nil {
+	if e = s.Member(r.Context(), s.DB, p, tenant, true); e != nil {
 		return e
 	}
 	a, e := accessOf(access)

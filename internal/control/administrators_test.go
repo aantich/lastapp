@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -30,7 +31,7 @@ func TestTenantAdministratorTask(t *testing.T) {
 	platform.want("POST", task, registry.Row{"account": registry.Row{"email": email}}, 0, 201)
 	platform.want("POST", task, input, 0, 409)
 	var count int
-	if e := s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE tenant_id=? AND user_id=? AND role_id=?", tenant, user, TenantAdminRole).Scan(&count); e != nil || count != 1 {
+	if e := s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE tenant_id=? AND user_id=? AND role_id=?", tenant, user, access.TenantAdminRole).Scan(&count); e != nil || count != 1 {
 		t.Fatal("duplicate or missing administrator", e)
 	}
 	platform.as(owner).want("POST", task, input, 0, 403)

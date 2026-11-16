@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -38,10 +39,10 @@ func decodeDeployment(v registry.JSONValue) (deploymentPlan, error) {
 	return plan, e
 }
 
-func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v deploymentTask) (Principal, error) {
-	p := Principal{ID: v.CreatedBy}
+func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v deploymentTask) (access.Principal, error) {
+	p := access.Principal{ID: v.CreatedBy}
 	if v.AgentGrant != "" {
-		g, e := s.readAgentGrant(ctx, q, v.AgentGrant)
+		g, e := s.ReadAgentGrant(ctx, q, v.AgentGrant)
 		if e != nil {
 			return p, e
 		}
@@ -50,7 +51,7 @@ func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v 
 		}
 		p.Agent = g
 	}
-	return p, s.deploymentAuthority(ctx, q, p, Resource{Tenant: v.TenantID, Space: v.SpaceID})
+	return p, s.deploymentAuthority(ctx, q, p, access.Resource{Tenant: v.TenantID, Space: v.SpaceID})
 }
 
 func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
@@ -59,7 +60,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 		return e
 	}
 	v := jobs[0]
-	ctx = context.WithValue(ctx, deploymentOperationKey{}, v.ID)
+	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, v.ID)
 	ctx = agentAuditContext(ctx, v.AgentGrant, "")
 	attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()

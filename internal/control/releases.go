@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -23,7 +24,6 @@ type releaseCreateInput struct {
 	Build    string          `json:"build_id"`
 	Manifest releaseManifest `json:"manifest"`
 }
-type deploymentOperationKey struct{}
 
 // One public status projection for discovery, polling and MCP. Never expose the
 // persisted plan or delegation details through a status response.
@@ -114,7 +114,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		return Release{}, e
 	}
 	record := actor.operationID()
-	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		a, e = s.appRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
@@ -195,19 +195,19 @@ func (s *Server) Releases(ctx context.Context, actor Actor, app string, page Pag
 	if e != nil {
 		return Page[ReleaseItem]{}, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
+	if e = s.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return Page[ReleaseItem]{}, e
 	}
 	vs, e := pageScan[ReleaseItem](ctx, s.DB, page, collectionFor("releases"), "SELECT rel.build_id,rel.created_at,rel.display_name,rel.id,rel.snapshot_hash FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
 	return vs, e
 }
 
-func (s *Server) releaseRow(ctx context.Context, q registry.Queryer, p Principal, id string) (Release, error) {
+func (s *Server) releaseRow(ctx context.Context, q registry.Queryer, p access.Principal, id string) (Release, error) {
 	v, e := registry.ScanOne[Release](ctx, q, "SELECT rel.app_id,ws.backing_space_id,rel.base_hash,rel.build_id,rel.created_at,rel.created_by,rel.display_name,rel.id,rel.manifest_json,ws.owner_agent_grant_id,ws.owner_user_id,wi.production_id,ws.production_space_id,rel.snapshot_hash,rel.snapshot_json,rel.tenant_id,rel.workspace_id FROM app_releases rel JOIN development_workspaces ws ON ws.id=rel.workspace_id JOIN workspace_items wi ON wi.workspace_id=ws.id AND wi.kind='app' AND wi.development_id=rel.app_id WHERE rel.id=?", id)
 	if e != nil {
 		return v, e
 	}
-	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, false); e != nil {
+	if e = s.Authorize(ctx, q, p, "release.manage", access.Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, false); e != nil {
 		return v, e
 	}
 	// Undeployed snapshots belong to the private workspace. Successful releases
@@ -217,7 +217,7 @@ func (s *Server) releaseRow(ctx context.Context, q registry.Queryer, p Principal
 		return v, e
 	}
 	if deployed == 0 {
-		if e = s.workspaceGuard(ctx, q, p, v.BackingSpace); e != nil {
+		if e = s.WorkspaceGuard(ctx, q, p, v.BackingSpace); e != nil {
 			return v, e
 		}
 	}
@@ -253,7 +253,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 	if origin == "" {
 		return nil, registry.Conflict("Configure the App hosting origin first.")
 	}
-	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		a, e = s.appRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
@@ -295,7 +295,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 	return registry.Row{"id": rel.ID, "url": origin + "/"}, nil
 }
 
-func (s *Server) deploymentAuthority(ctx context.Context, q registry.Queryer, p Principal, res Resource) error {
+func (s *Server) deploymentAuthority(ctx context.Context, q registry.Queryer, p access.Principal, res access.Resource) error {
 	var active int
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE tenant_id=? AND id=? AND state='active' AND workspace_id IS NULL", res.Tenant, res.Space).Scan(&active); e != nil {
 		return e
@@ -304,12 +304,12 @@ func (s *Server) deploymentAuthority(ctx context.Context, q registry.Queryer, p 
 		return registry.Conflict("Select an active production Space for deployment.")
 	}
 	if p.Agent != nil {
-		if e := requireAgent(p.Agent, "production.deploy"); e != nil {
+		if e := access.RequireAgent(p.Agent, "production.deploy"); e != nil {
 			return e
 		}
 	}
 	for _, action := range []string{"production.deploy", "entity.publish", "app.manage", "authorization.manage"} {
-		if e := s.authorize(ctx, q, p, action, res, true); e != nil {
+		if e := s.Authorize(ctx, q, p, action, res, true); e != nil {
 			return e
 		}
 	}
@@ -326,7 +326,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	if rev < 1 {
 		return nil, revisionRequired()
 	}
-	res := Resource{Tenant: rel.TenantID, Space: rel.ProductionSpace}
+	res := access.Resource{Tenant: rel.TenantID, Space: rel.ProductionSpace}
 	if e = s.deploymentAuthority(ctx, s.DB, p, res); e != nil {
 		return nil, e
 	}
@@ -334,7 +334,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		return nil, e
 	}
 	record := actor.operationID()
-	ctx = context.WithValue(ctx, deploymentOperationKey{}, record)
+	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, record)
 	e = s.run.mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
 		a, e := s.appRow(ctx, tx, rel.ProductionApp)
 		if e != nil {
@@ -348,7 +348,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 			if e = checkRevision(a.Revision, rev); e != nil {
 				return e
 			}
-			if deref(a.ActiveRelease) == rel.ID {
+			if access.Deref(a.ActiveRelease) == rel.ID {
 				return registry.Conflict("This release is already active in production.")
 			}
 		}
@@ -407,7 +407,7 @@ func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string)
 	if e != nil {
 		return v, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, false); e != nil {
+	if e = s.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, false); e != nil {
 		return v, e
 	}
 	v.URL = s.appHostedOrigin(v.TargetApp) + "/"
@@ -422,7 +422,7 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (re
 	if e != nil {
 		return nil, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
+	if e = s.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return nil, e
 	}
 	space := a.SpaceID
@@ -449,7 +449,7 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (re
 	return registry.Row{"deployment": deployment}, nil
 }
 
-func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in releaseCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -458,32 +458,32 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) releaseList(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) releaseList(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Releases(r.Context(), httpActor(r, p), r.PathValue("app"), pageRequest(r.URL.Query()))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) releaseGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) releaseGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Release(r.Context(), httpActor(r, p), r.PathValue("release"))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) releasePreview(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.PreviewRelease(r.Context(), httpActor(r, p), r.PathValue("release"), ifMatch(r))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.DeployRelease(r.Context(), httpActor(r, p), r.PathValue("release"), ifMatch(r))
 	return reply(w, 202, v, e)
 }
 
-func (s *Server) deploymentGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) deploymentGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Deployment(r.Context(), httpActor(r, p), r.PathValue("deployment"))
 	return reply(w, 200, v, e)
 }
 
-func (s *Server) appDeployment(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appDeployment(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.AppDeployment(r.Context(), httpActor(r, p), r.PathValue("app"))
 	return reply(w, 200, v, e)
 }

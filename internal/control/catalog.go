@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -40,7 +41,7 @@ func seedControlCatalog(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
-func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	kind := authz.Kind(r.URL.Query().Get("scope_kind"))
 	if kind != "" && !authz.ValidKind(kind) {
 		return registry.Bad("Unsupported scope category.")
@@ -55,17 +56,17 @@ func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p Principal
 	return nil
 }
 
-func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	tx, e := s.DB.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	t := r.PathValue("tenant")
-	if e = s.member(r.Context(), tx, p, t, false); e != nil {
+	if e = s.Member(r.Context(), tx, p, t, false); e != nil {
 		return e
 	}
-	roles, e := pageScan[EffectiveAssignment](r.Context(), tx, pageRequest(r.URL.Query()), collectionFor("my-role-assignments"), effectiveAssignmentSQL, p.ID, t)
+	roles, e := pageScan[access.EffectiveAssignment](r.Context(), tx, pageRequest(r.URL.Query()), collectionFor("my-role-assignments"), access.EffectiveAssignmentSQL, p.ID, t)
 	if e != nil {
 		return e
 	}

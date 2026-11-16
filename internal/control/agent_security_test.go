@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
 // Regression fixtures use metadata-only database resources and never run a worker.
-func agentSecurityFixture(t *testing.T) (*Server, testClient, Principal, string, string, string) {
+func agentSecurityFixture(t *testing.T) (*Server, testClient, access.Principal, string, string, string) {
 	t.Helper()
 	s, c, _, owner, _ := foundationFixture(t)
 	tenant := registry.NewID()
@@ -31,15 +32,15 @@ func agentSecurityFixture(t *testing.T) (*Server, testClient, Principal, string,
 	}
 	grant := registry.NewID()
 	perms, _ := json.Marshal([]string{"read", "production.deploy", "resources.write", "entities.draft", "databases.provision"})
-	limits, _ := json.Marshal(agentLimits{TargetIDs: []string{allowed}, MaxDatabases: 1})
+	limits, _ := json.Marshal(access.AgentLimits{TargetIDs: []string{allowed}, MaxDatabases: 1})
 	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'review-client','Review client',?,'tenant',?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, owner, tenant, perms, limits, s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, grant)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, grant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	return s, c.as(owner), Principal{ID: owner, Agent: g}, tenant, allowed, denied
+	return s, c.as(owner), access.Principal{ID: owner, Agent: g}, tenant, allowed, denied
 }
 
 func TestAgentRetryTargetGuard(t *testing.T) {
@@ -62,7 +63,7 @@ func TestAgentRetryTargetGuard(t *testing.T) {
 		if _, e = s.DB.Exec("UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 			t.Fatal(e)
 		}
-		allowed := s.agentJobAllowed(context.Background(), s.DB, registry.Str(row["agent_grant_id"]), p.ID, Resource{Tenant: tenant}, "databases.provision", denied) == nil
+		allowed := s.AgentJobAllowed(context.Background(), s.DB, registry.Str(row["agent_grant_id"]), p.ID, access.Resource{Tenant: tenant}, "databases.provision", denied) == nil
 		t.Fatalf("unapproved retry accepted: state=%v, grant_id=%v, still runnable after revocation=%v; result=%v", row["state"], row["agent_grant_id"], allowed, result)
 	}
 }
@@ -131,7 +132,7 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	if _, e := s.DB.Exec("UPDATE agent_grants SET scope_kind='space',scope_id=? WHERE id=?", space, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(context.Background(), s.DB, p.Agent.ID)
+	g, e := s.ReadAgentGrant(context.Background(), s.DB, p.Agent.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -211,14 +212,14 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.agentJobAllowed(ctx, s.DB, p.Agent.ID, p.ID, Resource{Tenant: tenant}, "databases.provision", target); e == nil {
+	if e = s.AgentJobAllowed(ctx, s.DB, p.Agent.ID, p.ID, access.Resource{Tenant: tenant}, "databases.provision", target); e == nil {
 		t.Fatal("revoked retry remains runnable")
 	}
 	if _, e = s.DB.Exec("UPDATE database_resources SET state='failed' WHERE id=?", first); e != nil {
 		t.Fatal(e)
 	}
 	// A human takes ownership explicitly; no stale agent binding can strand it.
-	_, e = s.storage.RetryDatabase(ctx, Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}, tenant, first, 3)
+	_, e = s.storage.RetryDatabase(ctx, Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}, tenant, first, 3)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -231,7 +232,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	}
 }
 
-func agentFixtureToken(t *testing.T, s *Server, p Principal) string {
+func agentFixtureToken(t *testing.T, s *Server, p access.Principal) string {
 	t.Helper()
 	access := token(32)
 	if _, e := s.DB.Exec("INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE))", registry.NewID(), p.Agent.ID, p.Agent.Revision, registry.NewID(), hash(access), hash(token(48))); e != nil {
@@ -242,9 +243,9 @@ func agentFixtureToken(t *testing.T, s *Server, p Principal) string {
 
 func TestAgentTokenRevisionBinding(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
-	access := agentFixtureToken(t, s, p)
+	accessToken := agentFixtureToken(t, s, p)
 	r := httptest.NewRequest("POST", s.mcpURL(), nil)
-	r.Header.Set("Authorization", "Bearer "+access)
+	r.Header.Set("Authorization", "Bearer "+accessToken)
 	snapshot, e := s.agentPrincipal(r)
 	if e != nil {
 		t.Fatal(e)
@@ -255,10 +256,10 @@ func TestAgentTokenRevisionBinding(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if agentHas(snapshot.Agent, "access.manage") {
+	if access.AgentHas(snapshot.Agent, "access.manage") {
 		t.Fatal("previously loaded principal changed with grant")
 	}
-	if e = s.checkAgent(context.Background(), s.DB, snapshot, Resource{Tenant: p.Agent.Tenant}, false); e == nil {
+	if e = s.CheckAgent(context.Background(), s.DB, snapshot, access.Resource{Tenant: p.Agent.Tenant}, false); e == nil {
 		t.Fatal("stale snapshot remained authorized")
 	}
 	if _, e = s.agentPrincipal(r); e == nil {
@@ -417,8 +418,8 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 		t.Fatal("over-limit read result was returned", e)
 	}
 	ref := registry.Row{"kind": "app", "id": registry.NewID()}
-	call := &AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
-	ctx := context.WithValue(context.Background(), agentContextKey{}, call)
+	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
+	ctx := context.WithValue(context.Background(), access.AgentContextKey{}, call)
 	// The mutation did not commit: the agent sees the limit error and may retry.
 	data, limit := agentSized(large, nil)
 	if v, e := agentWriteResult(ctx, data, limit); v != nil || !isLimit(e) {
@@ -442,8 +443,8 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 		t.Fatal("non-limit error was rewritten", e)
 	}
 	// A replayed request reports the stored receipt and marks the call committed.
-	replayed := &AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
-	v, e = agentWriteResult(context.WithValue(context.Background(), agentContextKey{}, replayed), nil, errAgentReplay)
+	replayed := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
+	v, e = agentWriteResult(context.WithValue(context.Background(), access.AgentContextKey{}, replayed), nil, errAgentReplay)
 	if e != nil || v.(registry.Row)["replayed"] != true || v.(registry.Row)["committed"] != true || !replayed.Committed {
 		t.Fatal("replayed mutation was not reported as committed", v, e)
 	}
@@ -454,16 +455,16 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 // its context fails instead of running with delegation checks but no receipt.
 func TestActorIsTheAgentSource(t *testing.T) {
 	r := &runner{access: &Server{}}
-	call := &AgentCall{Operation: "lastapp_create", Key: registry.NewID()}
-	mcp := context.WithValue(context.Background(), agentContextKey{}, call)
+	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID()}
+	mcp := context.WithValue(context.Background(), access.AgentContextKey{}, call)
 	for name, a := range map[string]Actor{
-		"missing agent": {Principal: Principal{ID: registry.NewID()}, RequestID: registry.NewID()},
-		"other agent":   {Principal: Principal{ID: registry.NewID()}, RequestID: registry.NewID(), Agent: &AgentCall{Operation: "lastapp_create"}},
+		"missing agent": {Principal: access.Principal{ID: registry.NewID()}, RequestID: registry.NewID()},
+		"other agent":   {Principal: access.Principal{ID: registry.NewID()}, RequestID: registry.NewID(), Agent: &access.AgentCall{Operation: "lastapp_create"}},
 	} {
-		if e := r.mutate(mcp, a, "apps.create", Resource{Tenant: registry.NewID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, errActorAgentMismatch) {
+		if e := r.mutate(mcp, a, "apps.create", access.Resource{Tenant: registry.NewID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, errActorAgentMismatch) {
 			t.Fatal(name, "mutation accepted a mismatched actor", e)
 		}
-		if e := r.authorize(mcp, a, "apps.read", Resource{Tenant: registry.NewID()}); !errors.Is(e, errActorAgentMismatch) {
+		if e := r.authorize(mcp, a, "apps.read", access.Resource{Tenant: registry.NewID()}); !errors.Is(e, errActorAgentMismatch) {
 			t.Fatal(name, "read authorization accepted a mismatched actor", e)
 		}
 		if _, e := r.scopes(mcp, a, registry.NewID(), "apps.read"); !errors.Is(e, errActorAgentMismatch) {
@@ -472,13 +473,13 @@ func TestActorIsTheAgentSource(t *testing.T) {
 	}
 	// The Actor's own call is what the authorization checks see.
 	ctx, e := withAgentCall(context.Background(), call)
-	if e != nil || agentCallFrom(ctx) != call {
+	if e != nil || access.AgentCallFrom(ctx) != call {
 		t.Fatal("actor agent call was not exposed", e)
 	}
-	if ctx, e = withAgentCall(mcp, call); e != nil || agentCallFrom(ctx) != call {
+	if ctx, e = withAgentCall(mcp, call); e != nil || access.AgentCallFrom(ctx) != call {
 		t.Fatal("matching actor was rejected", e)
 	}
-	if ctx, e = withAgentCall(context.Background(), nil); e != nil || agentCallFrom(ctx) != nil {
+	if ctx, e = withAgentCall(context.Background(), nil); e != nil || access.AgentCallFrom(ctx) != nil {
 		t.Fatal("human actor gained an agent call", e)
 	}
 }

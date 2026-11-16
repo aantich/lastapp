@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -147,7 +148,7 @@ func TestAuthorizationFoundation(t *testing.T) {
 	// Team administrators can govern their team, never its Tenant or other scopes.
 	ownerClient.want("POST", teamPath+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": authz.TeamAdminRole}, 0, 201)
 	joeClient.want("POST", teamPath+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": authz.TeamReviewerRole}, 0, 201)
-	joeClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": TenantAdminRole}, 0, 403)
+	joeClient.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": access.TenantAdminRole}, 0, 403)
 	joeClient.want("GET", base+"/memberships", nil, 0, 403)
 	// Custom business roles have stable scope ownership and no administrative powers.
 	scope := base + "/spaces/" + spaces[0]
@@ -162,7 +163,7 @@ func TestAuthorizationFoundation(t *testing.T) {
 		t.Fatal("business role widened control authority")
 	}
 	ownerClient.want("POST", base+"/spaces/"+spaces[1]+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": role}, 0, 404)
-	ownerClient.want("POST", "/v1/tenants/"+other+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": TenantAdminRole}, 0, 400)
+	ownerClient.want("POST", "/v1/tenants/"+other+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": access.TenantAdminRole}, 0, 400)
 	ownerClient.want("POST", scope+"/roles", registry.Row{"id": registry.NewID(), "code": "escalate", "display_name": "Denied", "permissions": []string{"platform.admin"}}, 0, 400)
 	ownerClient.want("PATCH", scope+"/roles/"+authz.SpaceManagerRole, registry.Row{"state": "disabled"}, 1, 403)
 	// Membership changes immediately change team-recipient business roles.
@@ -204,7 +205,7 @@ func TestAuthorizationFoundation(t *testing.T) {
 			t.Fatal("nullable scope bypass accepted")
 		}
 	}
-	if e = s.authorize(context.Background(), s.DB, Principal{ID: operator, Platform: true}, "deals.read", Resource{}, false); e == nil {
+	if e = s.Authorize(context.Background(), s.DB, access.Principal{ID: operator, Platform: true}, "deals.read", access.Resource{}, false); e == nil {
 		t.Fatal("unknown business action used platform bypass")
 	}
 	ownerClient.want("PATCH", base+"/memberships/"+joe, registry.Row{"state": "disabled"}, 1, 200)
@@ -236,7 +237,7 @@ func TestAuthorizationFoundation(t *testing.T) {
 		}
 	}
 	joeGrant := registry.NewID()
-	ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": joeGrant, "user_id": joe, "role_id": TenantAdminRole}, 0, 201)
+	ownerClient.want("POST", base+"/role-assignments", registry.Row{"id": joeGrant, "user_id": joe, "role_id": access.TenantAdminRole}, 0, 201)
 	var wg sync.WaitGroup
 	statuses := make([]int, 2)
 	for i, g := range []struct {

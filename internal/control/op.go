@@ -8,6 +8,7 @@ import (
 
 	mariadb "github.com/aantich/go-mariadb"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -20,27 +21,9 @@ import (
 // rechecked against the registry), the request ID recorded in audit events and,
 // for an MCP tool call, the delegated agent call that owns its receipt.
 type Actor struct {
-	Principal Principal
+	Principal access.Principal
 	RequestID string
-	Agent     *AgentCall
-}
-
-// AgentCall is one delegated MCP tool execution: the grant, the delegated
-// permissions it requires, the receipt identity (request key and input hash),
-// the compact result reference stored in the receipt and whether it committed.
-type AgentCall struct {
-	Grant                *agentGrant
-	Permission           []string
-	Operation, Key, Hash string
-	ResultRef            registry.Row
-	Committed            bool
-}
-
-type agentContextKey struct{}
-
-func agentCallFrom(ctx context.Context) *AgentCall {
-	a, _ := ctx.Value(agentContextKey{}).(*AgentCall)
-	return a
+	Agent     *access.AgentCall
 }
 
 // errActorAgentMismatch rejects an operation whose Actor does not carry the
@@ -51,25 +34,25 @@ var errActorAgentMismatch = errors.New("operation actor does not carry the agent
 // the delegated call from ctx until they take the Actor themselves. The Actor
 // is the only source: ctx is never a fallback, and an Actor that disagrees
 // with an agent call already in ctx fails rather than skipping its receipt.
-func withAgentCall(ctx context.Context, a *AgentCall) (context.Context, error) {
-	switch current := agentCallFrom(ctx); {
+func withAgentCall(ctx context.Context, a *access.AgentCall) (context.Context, error) {
+	switch current := access.AgentCallFrom(ctx); {
 	case current == a:
 		return ctx, nil
 	case current != nil:
 		return ctx, errActorAgentMismatch
 	}
-	return context.WithValue(ctx, agentContextKey{}, a), nil
+	return context.WithValue(ctx, access.AgentContextKey{}, a), nil
 }
 
 // actorFrom is the shim for code not yet migrated to explicit actors: it reads
 // the agent call that an MCP adapter placed in ctx.
-func actorFrom(ctx context.Context, p Principal, requestID string) Actor {
-	return Actor{Principal: p, RequestID: requestID, Agent: agentCallFrom(ctx)}
+func actorFrom(ctx context.Context, p access.Principal, requestID string) Actor {
+	return Actor{Principal: p, RequestID: requestID, Agent: access.AgentCallFrom(ctx)}
 }
 
 // agentActor is the actor of one MCP tool call. Every call gets its own
 // operation request ID, as an HTTP request would.
-func agentActor(ctx context.Context, p Principal) Actor {
+func agentActor(ctx context.Context, p access.Principal) Actor {
 	return actorFrom(ctx, p, registry.NewID())
 }
 
@@ -93,7 +76,7 @@ type opError struct {
 	Rule               *string
 	Retryable          bool
 	// Authority carries the missing delegated scopes of needs_authorization.
-	Authority *agentAuthorityError
+	Authority *access.AgentAuthorityError
 	// Unmapped marks an unexpected failure: log diagnostic() server-side and
 	// never return its details.
 	Unmapped bool
@@ -139,7 +122,7 @@ func classify(err error) opError {
 		o.Rule = &rf.Rule
 	}
 	if ae.Code == "needs_authorization" {
-		var authority *agentAuthorityError
+		var authority *access.AgentAuthorityError
 		if errors.As(err, &authority) {
 			o.Authority = authority
 		}
@@ -172,7 +155,7 @@ type runner struct {
 	access *Server
 }
 
-func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resource, fn func(*sql.Tx) error) error {
+func (r *runner) mutate(ctx context.Context, a Actor, action string, res access.Resource, fn func(*sql.Tx) error) error {
 	ctx, e := withAgentCall(ctx, a.Agent)
 	if e != nil {
 		return e
@@ -189,14 +172,14 @@ func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resourc
 		}
 	} else {
 		var x string
-		if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", SuperRole).Scan(&x); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", access.SuperRole).Scan(&x); e != nil {
 			return e
 		}
 	}
-	if e = r.access.authorize(ctx, tx, a.Principal, action, res, true); e != nil {
+	if e = r.access.Authorize(ctx, tx, a.Principal, action, res, true); e != nil {
 		return e
 	}
-	if e = r.access.productionMutationGuard(ctx, tx, a.Principal, action, res); e != nil {
+	if e = r.access.ProductionMutationGuard(ctx, tx, a.Principal, action, res); e != nil {
 		return e
 	}
 	if e = agentMutationBegin(ctx, tx, a.Agent); e != nil {
@@ -218,23 +201,23 @@ func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resourc
 }
 
 // authorize is a read-side live authorization check for a.
-func (r *runner) authorize(ctx context.Context, a Actor, action string, res Resource) error {
+func (r *runner) authorize(ctx context.Context, a Actor, action string, res access.Resource) error {
 	return r.check(ctx, r.db, a, action, res, false)
 }
 
 // authorizeTx rechecks a's mutating authority inside an operation transaction.
-func (r *runner) authorizeTx(ctx context.Context, tx *sql.Tx, a Actor, action string, res Resource) error {
+func (r *runner) authorizeTx(ctx context.Context, tx *sql.Tx, a Actor, action string, res access.Resource) error {
 	return r.check(ctx, tx, a, action, res, true)
 }
 
 // check is the live authorization check on q. mutating selects the stricter
 // membership and platform-control rules of a change, also before its transaction.
-func (r *runner) check(ctx context.Context, q registry.Queryer, a Actor, action string, res Resource, mutating bool) error {
+func (r *runner) check(ctx context.Context, q registry.Queryer, a Actor, action string, res access.Resource, mutating bool) error {
 	ctx, e := withAgentCall(ctx, a.Agent)
 	if e != nil {
 		return e
 	}
-	return r.access.authorize(ctx, q, a.Principal, action, res, mutating)
+	return r.access.Authorize(ctx, q, a.Principal, action, res, mutating)
 }
 
 // operationID is the identifier of the record a's operation creates: the
@@ -247,12 +230,12 @@ func (a Actor) operationID() string {
 }
 
 // scopes returns a's live read scopes in tenant; apply them before paging.
-func (r *runner) scopes(ctx context.Context, a Actor, tenant, action string) (scopeSet, error) {
+func (r *runner) scopes(ctx context.Context, a Actor, tenant, action string) (access.ScopeSet, error) {
 	ctx, e := withAgentCall(ctx, a.Agent)
 	if e != nil {
-		return scopeSet{}, e
+		return access.ScopeSet{}, e
 	}
-	return r.access.scopes(ctx, r.db, a.Principal, tenant, action)
+	return r.access.Scopes(ctx, r.db, a.Principal, tenant, action)
 }
 
 // ref reads a record's compact result after its mutation committed.

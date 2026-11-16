@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -86,14 +87,14 @@ func (in planInput) validate() error {
 }
 
 func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Plan], error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 		return Page[Plan]{}, e
 	}
 	return pageScan[Plan](ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
 }
 
 func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Plan, error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 		return Plan{}, e
 	}
 	return registry.ScanOne[Plan](ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
@@ -106,7 +107,7 @@ func (v *inventory) CreatePlan(ctx context.Context, a Actor, in planInput) (Ref,
 	if e := in.validate(); e != nil {
 		return Ref{}, e
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, "INSERT INTO plans (id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", in.ID, in.Code, in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases)
 		if e != nil {
 			return e
@@ -126,7 +127,7 @@ func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in p
 	if revision < 1 {
 		return Ref{}, revisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		var current int64
 		var code string
 		e := registry.Lookup(ctx, tx, "SELECT revision,code FROM plans WHERE id=? FOR UPDATE", []any{record}, &current, &code)
@@ -151,7 +152,7 @@ func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in p
 	return v.run.ref(ctx, "plans", "", record)
 }
 
-func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) plans(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Plans(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
 	if e == nil {
 		send(w, 200, v)
@@ -159,7 +160,7 @@ func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) erro
 	return e
 }
 
-func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in planInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -171,7 +172,7 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in planInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -204,13 +205,13 @@ func (v *User) ScanFields() []any {
 
 func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[User], error) {
 	p := actor.Principal
-	if e := s.authorize(ctx, s.DB, p, "platform.admin", Resource{}, false); e != nil {
+	if e := s.Authorize(ctx, s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
 		return Page[User]{}, e
 	}
-	return pageScan[User](ctx, s.DB, page, collectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
+	return pageScan[User](ctx, s.DB, page, collectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", access.SuperRole, access.SuperRole, access.SuperRole)
 }
 
-func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		State string `json:"state"`
 	}
@@ -225,7 +226,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 		return e
 	}
 	record := r.PathValue("id")
-	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e = s.mutate(r.Context(), p, "platform.admin", access.Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		old, e := lockRecord(r.Context(), tx, "users", "", record)
 		if e != nil {
 			return e
@@ -319,14 +320,14 @@ type tenantPatch struct {
 }
 
 func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[tenantItem], error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 		return Page[tenantItem]{}, e
 	}
 	return pageScan[tenantItem](ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
 }
 
 func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Tenant, error) {
-	if e := v.run.authorize(ctx, a, "tenant.read", Resource{Tenant: tenant}); e != nil {
+	if e := v.run.authorize(ctx, a, "tenant.read", access.Resource{Tenant: tenant}); e != nil {
 		return Tenant{}, e
 	}
 	return registry.ScanOne[Tenant](ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
@@ -348,7 +349,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 	}
 	var account preparedAccount
 	if in.Account != nil {
-		if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 			return Ref{}, e
 		}
 		var e error
@@ -361,7 +362,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 	}
 	ctx, cancel := account.deadline(ctx)
 	defer cancel()
-	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		if in.Account != nil {
 			var e error
 			in.Admin, e = localAccount(ctx, tx, account, true)
@@ -380,7 +381,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 		if e = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE id=? AND state='active'", in.Admin).Scan(&user); e != nil {
 			return registry.Bad("Select an active registered administrator.")
 		}
-		platform, e := isPlatform(ctx, tx, in.Admin)
+		platform, e := access.IsPlatform(ctx, tx, in.Admin)
 		if e != nil {
 			return e
 		}
@@ -394,7 +395,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 		if _, e = tx.ExecContext(ctx, "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", in.ID, in.Admin); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", registry.NewID(), in.ID, in.Admin, TenantAdminRole); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", registry.NewID(), in.ID, in.Admin, access.TenantAdminRole); e != nil {
 			return e
 		}
 		return auditAs(ctx, tx, a, in.ID, "tenant.created", "tenant", in.ID, registry.Row{"initial_admin_user_id": in.Admin})
@@ -411,7 +412,7 @@ func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in
 	if revision < 1 {
 		return Ref{}, revisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", Resource{Tenant: record}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{Tenant: record}, func(tx *sql.Tx) error {
 		var name, state, plan, layout string
 		var current int64
 		e := registry.Lookup(ctx, tx, "SELECT display_name,state,plan_id,COALESCE(default_layout,''),revision FROM tenants WHERE id=?", []any{record}, &name, &state, &plan, &layout, &current)
@@ -466,7 +467,7 @@ func (v *inventory) UpdateTenantProfile(ctx context.Context, a Actor, tenant, na
 	if revision < 1 {
 		return Ref{}, revisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "tenant.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "tenant.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		before, e := lockRecord(ctx, tx, "tenants", "", tenant)
 		if e != nil {
 			return e
@@ -485,7 +486,7 @@ func (v *inventory) UpdateTenantProfile(ctx context.Context, a Actor, tenant, na
 	return v.run.ref(ctx, "tenants", "", tenant)
 }
 
-func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Tenants(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
 	if e == nil {
 		send(w, 200, v)
@@ -493,7 +494,7 @@ func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) er
 	return e
 }
 
-func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.inv.Tenant(r.Context(), httpActor(r, p), r.PathValue("tenant"))
 	if e == nil {
 		send(w, 200, v)
@@ -501,7 +502,7 @@ func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) 
 	return e
 }
 
-func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in tenantCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -513,7 +514,7 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principa
 	return e
 }
 
-func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in tenantPatch
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -525,7 +526,7 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principa
 	return e
 }
 
-func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		Name string `json:"display_name"`
 	}
@@ -590,7 +591,7 @@ func quota(ctx context.Context, q registry.Queryer, tenant, table string, limit 
 
 func ensurePlatformAdmin(ctx context.Context, q registry.Queryer) error {
 	var n int
-	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.scope_kind='platform' AND g.role_id=?", SuperRole).Scan(&n)
+	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.scope_kind='platform' AND g.role_id=?", access.SuperRole).Scan(&n)
 	if e != nil {
 		return e
 	}
@@ -602,7 +603,7 @@ func ensurePlatformAdmin(ctx context.Context, q registry.Queryer) error {
 
 func ensureTenantAdmin(ctx context.Context, q registry.Queryer, tenant string) error {
 	var n int
-	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL AND NOT EXISTS (SELECT 1 FROM access_grants pg WHERE pg.user_id=g.user_id AND pg.role_id=?)", tenant, TenantAdminRole, SuperRole).Scan(&n)
+	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL AND NOT EXISTS (SELECT 1 FROM access_grants pg WHERE pg.user_id=g.user_id AND pg.role_id=?)", tenant, access.TenantAdminRole, access.SuperRole).Scan(&n)
 	if e != nil {
 		return e
 	}
@@ -612,7 +613,7 @@ func ensureTenantAdmin(ctx context.Context, q registry.Queryer, tenant string) e
 	return nil
 }
 
-func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) users(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Users(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
 	return reply(w, 200, v, e)
 }

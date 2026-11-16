@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -25,15 +26,15 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	if _, e := s.DB.Exec("UPDATE agent_grants SET scope_kind='space',scope_id=?,permissions_json=?,limits_json='{}',revision=revision+1 WHERE id=?", space, b, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	p.Agent, _ = s.readAgentGrant(ctx, s.DB, p.Agent.ID)
+	p.Agent, _ = s.ReadAgentGrant(ctx, s.DB, p.Agent.ID)
 	other := p
 	other.ID = p.ID
 	grant := registry.NewID()
 	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,scope_id,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'another-agent','Another agent',?,'space',?,?,'{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, p.ID, tenant, space, b, s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
-	other.Agent, _ = s.readAgentGrant(ctx, s.DB, grant)
-	callWorkspace := func(actor Principal, name string) registry.Row {
+	other.Agent, _ = s.ReadAgentGrant(ctx, s.DB, grant)
+	callWorkspace := func(actor access.Principal, name string) registry.Row {
 		t.Helper()
 		key := registry.NewID()
 		input := agentWorkspaceInput{Action: "create", Space: space, Name: name, RequestKey: key}
@@ -85,7 +86,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	}
 	app := registry.NewID()
 	oc.want("POST", "/v1/tenants/"+tenant+"/spaces/"+registry.Str(own["backing_space_id"])+"/apps", registry.Row{"id": app, "slug": "client", "display_name": "Client", "initial_manager_user_id": p.ID}, 0, 201)
-	for _, actor := range []Principal{p, other} {
+	for _, actor := range []access.Principal{p, other} {
 		raw, _ = json.Marshal(agentReadInput{Resource: "app_deployment", ID: app})
 		result, err := s.toolAgentGet(ctx, actor, raw)
 		if actor.Agent.ID == p.Agent.ID {

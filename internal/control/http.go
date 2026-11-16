@@ -10,12 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/registry"
 	admin "github.com/aantich/lastapp/web/admin"
 )
 
-type endpoint func(http.ResponseWriter, *http.Request, Principal) error
+type endpoint func(http.ResponseWriter, *http.Request, access.Principal) error
 
 // requestTimeout bounds the database work of one console API or MCP request.
 var requestTimeout = 25 * time.Second
@@ -88,7 +89,7 @@ func (s *Server) Handler() http.Handler {
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
 	s.mux.HandleFunc("POST /auth/login/password", s.passwordLogin)
 	s.api("POST /auth/password", s.changePassword)
-	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p Principal) error {
+	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		c, _ := r.Cookie(s.cookieName("lastapp_session"))
 		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", hash(c.Value))
 		if e != nil {
@@ -99,7 +100,7 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, registry.Row{"ok": true})
 		return nil
 	})
-	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p Principal) error {
+	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		ts, e := s.myTenants(r, p)
 		if e != nil {
 			return e
@@ -107,7 +108,7 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, registry.Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "auth_method": p.AuthMethod, "password_change_required": p.PasswordChangeRequired, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
 		return nil
 	})
-	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p Principal) error {
+	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		v, e := s.myTenants(r, p)
 		if e == nil {
 			sendPage(w, r, v)
@@ -237,18 +238,18 @@ func (v *TenantRef) ScanFields() []any { return []any{&v.Name, &v.ID, &v.Slug, &
 
 // myTenants pages the Tenants where the principal has an active membership.
 // It is the one query behind both /v1/me and /v1/my-tenants.
-func (s *Server) myTenants(r *http.Request, p Principal) ([]TenantRef, error) {
+func (s *Server) myTenants(r *http.Request, p access.Principal) ([]TenantRef, error) {
 	return pageRows[TenantRef](r.Context(), s.DB, r, "SELECT t.display_name,t.id,t.slug,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
 }
 
-func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	tenant := r.PathValue("tenant")
 	if !p.Platform {
-		if e := s.member(r.Context(), s.DB, p, tenant, false); e != nil {
+		if e := s.Member(r.Context(), s.DB, p, tenant, false); e != nil {
 			return e
 		}
 	}
-	scopes, e := s.effectiveScopes(r.Context(), s.DB, p, tenant)
+	scopes, e := s.EffectiveScopes(r.Context(), s.DB, p, tenant)
 	if e != nil {
 		return e
 	}
@@ -300,8 +301,8 @@ func (v *AuditEvent) ScanFields() []any {
 	return []any{&v.Action, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
 }
 
-func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+func (s *Server) overview(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+	if e := s.Authorize(r.Context(), s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
 		return e
 	}
 	out := registry.Row{}
@@ -332,7 +333,7 @@ func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page Pa
 	if tenant == "" {
 		action = "platform.admin"
 	}
-	if e := s.authorize(ctx, s.DB, p, action, Resource{Tenant: tenant}, false); e != nil {
+	if e := s.Authorize(ctx, s.DB, p, action, access.Resource{Tenant: tenant}, false); e != nil {
 		return Page[AuditEvent]{}, e
 	}
 	args := []any{}
@@ -346,7 +347,7 @@ func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page Pa
 }
 
 // httpActor is the console caller of an operation.
-func httpActor(r *http.Request, p Principal) Actor {
+func httpActor(r *http.Request, p access.Principal) Actor {
 	return actorFrom(r.Context(), p, r.Header.Get("X-Request-ID"))
 }
 
@@ -390,7 +391,7 @@ func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (
 	return v, registry.Lookup(ctx, tx, query+" FOR UPDATE", args, &v.Revision, &v.State)
 }
 
-func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) audits(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Audits(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
 	return reply(w, 200, v, e)
 }

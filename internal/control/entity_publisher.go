@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
@@ -81,7 +82,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 		}
 		return false, e
 	}
-	ctx = agentAuditContext(ctx, deref(v.AgentGrant), agentClient)
+	ctx = agentAuditContext(ctx, access.Deref(v.AgentGrant), agentClient)
 	// Only a missing row means "no workspace". Any other read error fails
 	// closed: a workspace job must not skip its owner's authority recheck.
 	var workspace *registry.Workspace
@@ -92,14 +93,14 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 		return false, e
 	}
 	if workspace != nil && workspace.State == "preparing" {
-		ctx = context.WithValue(ctx, workspaceOperationKey{}, workspace.ID)
+		ctx = context.WithValue(ctx, access.WorkspaceOperationKey{}, workspace.ID)
 	}
 
 	if len(cursor) > 0 {
 		*cursor[0] = v.TenantID
 	}
 	attempt := registry.NewID()
-	if v.State == "queued" && (deref(v.AgentGrant) != "" || workspace != nil || v.Deployment != nil) {
+	if v.State == "queued" && (access.Deref(v.AgentGrant) != "" || workspace != nil || v.Deployment != nil) {
 		tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if err != nil {
 			return true, err
@@ -113,7 +114,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 		if v.Deployment != nil {
 			permission = "production.deploy"
 		}
-		denied := s.agentJobAllowed(ctx, tx, deref(v.AgentGrant), v.CreatedBy, Resource{Tenant: v.TenantID, Space: v.SpaceID}, permission)
+		denied := s.AgentJobAllowed(ctx, tx, access.Deref(v.AgentGrant), v.CreatedBy, access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, permission)
 		if denied == nil && v.Deployment != nil {
 			job, err := registry.ScanOne[deploymentTask](ctx, tx, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", *v.Deployment)
 			denied = err
@@ -122,15 +123,15 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 			}
 		}
 		if denied == nil && workspace != nil {
-			actor := Principal{ID: workspace.Owner}
-			if deref(workspace.OwnerGrant) != "" {
-				actor.Agent, denied = s.readAgentGrant(ctx, tx, *workspace.OwnerGrant)
+			actor := access.Principal{ID: workspace.Owner}
+			if access.Deref(workspace.OwnerGrant) != "" {
+				actor.Agent, denied = s.ReadAgentGrant(ctx, tx, *workspace.OwnerGrant)
 				if denied == nil {
-					denied = requireAgent(actor.Agent, "workspaces.write")
+					denied = access.RequireAgent(actor.Agent, "workspaces.write")
 				}
 			}
 			if denied == nil {
-				denied = s.workspaceOwner(ctx, tx, actor, *workspace)
+				denied = s.WorkspaceOwner(ctx, tx, actor, *workspace)
 			}
 		}
 
@@ -211,10 +212,10 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	if e = json.Unmarshal(planJSON, &plan); e != nil {
 		return e
 	}
-	if entity.Hash(plan) != deref(v.StoragePlanHash) || entity.Hash(d) != v.Hash {
+	if entity.Hash(plan) != access.Deref(v.StoragePlanHash) || entity.Hash(d) != v.Hash {
 		return ownershipConflict()
 	}
-	entityID, version, attempt := v.EntityID, v.ID, deref(v.Attempt)
+	entityID, version, attempt := v.EntityID, v.ID, access.Deref(v.Attempt)
 	db, e := s.businessDB(ctx, v.Resource, true)
 	if e != nil {
 		return e
@@ -284,7 +285,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 			return e
 		}
 	}
-	alreadyActivated := deref(activeVersion) == version
+	alreadyActivated := access.Deref(activeVersion) == version
 	if exists && !alreadyActivated {
 		var hasRows bool
 		if e = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+data.Table(entityID)+" LIMIT 1)").Scan(&hasRows); e != nil {
@@ -454,7 +455,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 }
 
 func openPublicationGate(ctx context.Context, q registry.Queryer, v entityVersion, layoutHash string) error {
-	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v.ID, layoutHash, v.EntityID, deref(v.Attempt))
+	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v.ID, layoutHash, v.EntityID, access.Deref(v.Attempt))
 	if err != nil {
 		return err
 	}
@@ -462,7 +463,7 @@ func openPublicationGate(ctx context.Context, q registry.Queryer, v entityVersio
 		// A deployment can restart after opening storage but before its registry
 		// transaction commits. MariaDB reports zero changed rows on that retry.
 		var matched int
-		if err = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM _lastapp_entity_state WHERE entity_id=? AND attempt_id=? AND version_id=? AND layout_hash=? AND gate_open=1", v.EntityID, deref(v.Attempt), v.ID, layoutHash).Scan(&matched); err != nil {
+		if err = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM _lastapp_entity_state WHERE entity_id=? AND attempt_id=? AND version_id=? AND layout_hash=? AND gate_open=1", v.EntityID, access.Deref(v.Attempt), v.ID, layoutHash).Scan(&matched); err != nil {
 			return err
 		}
 		if matched != 1 {
@@ -607,7 +608,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	if s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v.EntityID).Scan(&current) != nil || current != *v.BaseVersion {
 		return
 	}
-	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", *v.BaseVersion, v.EntityID, deref(v.Attempt)); e != nil {
+	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", *v.BaseVersion, v.EntityID, access.Deref(v.Attempt)); e != nil {
 		// Best effort: if this fails the gate stays closed, which fails closed.
 		s.logger(ctx).Warn("restore publication base failed", append([]any{"entity_id", v.EntityID}, diagnostic(e)...)...)
 	}
@@ -616,7 +617,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 // activateEntityVersion changes only registry authority. Deployment workers call
 // it for every prepared entity in the same transaction as roles and App policies.
 func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entityVersion, d entity.Definition) error {
-	entityID, version, attempt := v.EntityID, v.ID, deref(v.Attempt)
+	entityID, version, attempt := v.EntityID, v.ID, access.Deref(v.Attempt)
 	tenant, space := v.TenantID, v.SpaceID
 	var active, pending, current string
 	e := registry.Lookup(ctx, tx, "SELECT COALESCE(e.active_version_id,''),COALESCE(e.pending_version_id,''),COALESCE(v.attempt_id,'') FROM entity_definitions e JOIN entity_versions v ON v.id=? WHERE e.id=? FOR UPDATE", []any{version, entityID}, &active, &pending, &current)
@@ -627,10 +628,10 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entity
 		return registry.Conflict("Publication attempt superseded.")
 	}
 	if active != version {
-		if active != deref(v.BaseVersion) || pending != version {
+		if active != access.Deref(v.BaseVersion) || pending != version {
 			return registry.Conflict("Publication base changed; review again.")
 		}
-		if e = s.authorize(ctx, tx, Principal{ID: v.CreatedBy}, "entity.publish", Resource{Tenant: tenant, Space: space}, true); e != nil {
+		if e = s.Authorize(ctx, tx, access.Principal{ID: v.CreatedBy}, "entity.publish", access.Resource{Tenant: tenant, Space: space}, true); e != nil {
 			return e
 		}
 		candidates, err := s.publicationCandidates(ctx, tx, v)

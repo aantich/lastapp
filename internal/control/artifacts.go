@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -83,7 +84,7 @@ func (s *Server) releaseRoutes() {
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }
 
-func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p Principal, app string) (appRecord, registry.Workspace, error) {
+func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p access.Principal, app string) (appRecord, registry.Workspace, error) {
 	a, e := s.appRow(ctx, q, app)
 	if e != nil {
 		return appRecord{}, registry.Workspace{}, e
@@ -95,10 +96,10 @@ func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p 
 	if e != nil {
 		return appRecord{}, registry.Workspace{}, registry.Missing()
 	}
-	if e = s.workspaceOwner(ctx, q, p, w); e != nil {
+	if e = s.WorkspaceOwner(ctx, q, p, w); e != nil {
 		return appRecord{}, registry.Workspace{}, e
 	}
-	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: a.TenantID, App: app}, true); e != nil {
+	if e = s.Authorize(ctx, q, p, "release.manage", access.Resource{Tenant: a.TenantID, App: app}, true); e != nil {
 		return appRecord{}, registry.Workspace{}, e
 	}
 	return a, w, nil
@@ -114,12 +115,12 @@ func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (reg
 		return nil, e
 	}
 	if p.Agent != nil {
-		if e = requireAgent(p.Agent, "releases.write"); e != nil {
+		if e = access.RequireAgent(p.Agent, "releases.write"); e != nil {
 			return nil, e
 		}
 	}
 	secret := token(32)
-	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		var n int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM artifact_uploads WHERE user_id=? AND expires_at>UTC_TIMESTAMP(6) AND build_id IS NULL", p.ID).Scan(&n); e != nil {
 			return e
@@ -183,17 +184,17 @@ type Build struct {
 
 func (v *Build) ScanFields() []any { return []any{&v.Hash, &v.CreatedAt, &v.Entry, &v.ID, &v.Size} }
 
-func (s *Server) uploadPrincipal(ctx context.Context, q registry.Queryer, v uploadTicket) (Principal, error) {
-	p := Principal{ID: v.UserID}
+func (s *Server) uploadPrincipal(ctx context.Context, q registry.Queryer, v uploadTicket) (access.Principal, error) {
+	p := access.Principal{ID: v.UserID}
 	if v.AgentGrant != "" {
-		g, e := s.readAgentGrant(ctx, q, v.AgentGrant)
+		g, e := s.ReadAgentGrant(ctx, q, v.AgentGrant)
 		if e != nil {
 			return p, e
 		}
 		if g.Revision != v.AgentRevision {
 			return p, registry.Missing()
 		}
-		if e = requireAgent(g, "releases.write"); e != nil {
+		if e = access.RequireAgent(g, "releases.write"); e != nil {
 			return p, e
 		}
 		p.Agent = g
@@ -316,7 +317,7 @@ func (s *Server) Builds(ctx context.Context, actor Actor, app string, page PageR
 	if e != nil {
 		return Page[Build]{}, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
+	if e = s.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return Page[Build]{}, e
 	}
 	vs, e := pageScan[Build](ctx, s.DB, page, collectionFor("builds"), "SELECT content_hash,created_at,entrypoint,id,size_bytes FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a.ID)
@@ -440,12 +441,12 @@ func (s *Server) ensureReleaseBuild(ctx context.Context, q registry.Queryer, rel
 	return nil
 }
 
-func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.UploadTicket(r.Context(), httpActor(r, p), r.PathValue("app"))
 	return reply(w, 201, v, e)
 }
 
-func (s *Server) buildList(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) buildList(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.Builds(r.Context(), httpActor(r, p), r.PathValue("app"), pageRequest(r.URL.Query()))
 	return reply(w, 200, v, e)
 }

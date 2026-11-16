@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -13,21 +14,21 @@ import (
 // every data request. Agent tokens never authenticate directly to the data API.
 func (s *Server) appSessionParent(ctx context.Context, q registry.Queryer, v appSession) error {
 	denied := registry.Problem(401, "unauthenticated", "App session expired or revoked.")
-	p := Principal{ID: v.UserID}
-	if deref(v.AgentGrant) != "" {
-		g, e := s.readAgentGrant(ctx, q, deref(v.AgentGrant))
+	p := access.Principal{ID: v.UserID}
+	if access.Deref(v.AgentGrant) != "" {
+		g, e := s.ReadAgentGrant(ctx, q, access.Deref(v.AgentGrant))
 		if e != nil {
 			return denied
 		}
 		p.Agent = g
-		if g.Revision != deref(v.AgentRevision) || requireAgent(g, "workspaces.test") != nil {
+		if g.Revision != access.Deref(v.AgentRevision) || access.RequireAgent(g, "workspaces.test") != nil {
 			return denied
 		}
 		var workspace string
 		if e = q.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v.SpaceID).Scan(&workspace); e != nil {
 			return denied
 		}
-		if e = s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, true); e != nil {
+		if e = s.Authorize(ctx, q, p, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, true); e != nil {
 			return denied
 		}
 	} else {
@@ -39,7 +40,7 @@ func (s *Server) appSessionParent(ctx context.Context, q registry.Queryer, v app
 		if n != 1 {
 			return denied
 		}
-		if e = s.workspaceGuard(ctx, q, p, v.SpaceID); e != nil {
+		if e = s.WorkspaceGuard(ctx, q, p, v.SpaceID); e != nil {
 			return denied
 		}
 	}
@@ -57,7 +58,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 	if p.Agent == nil {
 		return nil, registry.Bad("Use ordinary browser App sign-in; development launch codes require a delegated agent connection.")
 	}
-	if e := requireAgent(p.Agent, "workspaces.test"); e != nil {
+	if e := access.RequireAgent(p.Agent, "workspaces.test"); e != nil {
 		return nil, e
 	}
 	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
@@ -82,7 +83,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 		return nil, registry.Bad("Approve the exact development App origin using app_access_update first.")
 	}
 	code := token(32)
-	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 		return e
 	})
@@ -92,7 +93,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 	return registry.Row{"code": code, "nonce": in.Nonce, "origin": in.Origin, "expires_in": int(launchLifetime.Seconds()), "instruction": "Exchange once with the locally held verifier using SDK connectDevelopment. Never put this code or an App token in a build."}, nil
 }
 
-func (s *Server) developmentLaunch(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) developmentLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in developmentLaunchInput
 	if e := decode(w, r, &in); e != nil {
 		return e

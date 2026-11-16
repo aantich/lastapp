@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
@@ -34,14 +35,14 @@ func wire(t *testing.T, v any) registry.Row {
 	return out
 }
 
-func agentCall(p Principal, operation string, input any, permissions ...string) *AgentCall {
-	return &AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: registry.NewID(), Hash: entity.Hash(registry.Row{"operation": operation, "input": input}), ResultRef: registry.Row{"type": "test"}}
+func agentCall(p access.Principal, operation string, input any, permissions ...string) *access.AgentCall {
+	return &access.AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: registry.NewID(), Hash: entity.Hash(registry.Row{"operation": operation, "input": input}), ResultRef: registry.Row{"type": "test"}}
 }
 
 func TestInventoryOperations(t *testing.T) {
 	s, _, p, tenant, _, app := agentSpaceFixture(t)
 	ctx := context.Background()
-	human := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	human := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 
 	// Console actor: create, revision rules and audit attribution.
 	in := microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Order: 2}
@@ -73,7 +74,7 @@ func TestInventoryOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='outsider'").Scan(&outsider); e != nil {
 		t.Fatal(e)
 	}
-	_, e = s.inv.CreateMicroapp(ctx, Actor{Principal: Principal{ID: outsider}, RequestID: registry.NewID()}, tenant, app, microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "denied", Name: "Denied"}})
+	_, e = s.inv.CreateMicroapp(ctx, Actor{Principal: access.Principal{ID: outsider}, RequestID: registry.NewID()}, tenant, app, microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "denied", Name: "Denied"}})
 	wantProblem(t, e, 404, "not_found")
 	_, e = s.inv.Plans(ctx, human, PageRequest{})
 	wantProblem(t, e, 403, "forbidden")
@@ -88,11 +89,11 @@ func TestInventoryOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE action='microapp.created' AND resource_id=?", agentIn.ID).Scan(&details); e != nil || details != `{"agent_client_id":"review-client","agent_grant_id":"`+p.Agent.ID+`","details":{"app_id":"`+app+`"}}` {
 		t.Fatal("agent audit attribution", details, e)
 	}
-	replay := &AgentCall{Grant: call.Grant, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash, ResultRef: call.ResultRef}
+	replay := &access.AgentCall{Grant: call.Grant, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash, ResultRef: call.ResultRef}
 	if _, e = s.inv.CreateMicroapp(ctx, Actor{Principal: p, RequestID: registry.NewID(), Agent: replay}, tenant, app, agentIn); !errors.Is(e, errAgentReplay) {
 		t.Fatal("replay executed again", e)
 	}
-	reused := &AgentCall{Grant: call.Grant, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: "different"}
+	reused := &access.AgentCall{Grant: call.Grant, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: "different"}
 	_, e = s.inv.UpdateMicroapp(ctx, Actor{Principal: p, RequestID: registry.NewID(), Agent: reused}, tenant, agentIn.ID, metadataPatch{Name: &name}, 1)
 	wantProblem(t, e, 409, "conflict")
 	missingScope := agentCall(p, "lastapp_lifecycle", nil, "lifecycle.manage")
@@ -111,8 +112,8 @@ func TestInventoryOperations(t *testing.T) {
 func TestTenantInventoryOperations(t *testing.T) {
 	s, _, operator, owner, _ := foundationFixture(t)
 	ctx := context.Background()
-	platform := Actor{Principal: Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
-	human := Actor{Principal: Principal{ID: owner}, RequestID: registry.NewID()}
+	platform := Actor{Principal: access.Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
+	human := Actor{Principal: access.Principal{ID: owner}, RequestID: registry.NewID()}
 	tenant := tenantCreateInput{ID: registry.NewID(), Slug: "ops-tenant", Name: "Ops", Plan: "10000000-0000-4000-8000-000000000001", Admin: owner}
 	_, e := s.inv.CreateTenant(ctx, human, tenant)
 	wantProblem(t, e, 403, "forbidden")
@@ -150,11 +151,11 @@ func TestTenantInventoryOperations(t *testing.T) {
 	if _, e = s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'ops','Ops client',?,'tenant','[\"read\",\"resources.write\",\"production.deploy\"]','{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", grant, owner, tenant.ID, s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
-	g, e := s.readAgentGrant(ctx, s.DB, grant)
+	g, e := s.ReadAgentGrant(ctx, s.DB, grant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := Principal{ID: owner, Agent: g}
+	p := access.Principal{ID: owner, Agent: g}
 	app := appCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
 	call := agentCall(p, "lastapp_create", app, "resources.write")
 	agent := Actor{Principal: p, RequestID: registry.NewID(), Agent: call}
@@ -166,7 +167,7 @@ func TestTenantInventoryOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, grant).Scan(&n); e != nil || n != 2 {
 		t.Fatal("agent attribution of app and initial assignment", n, e)
 	}
-	replay := &AgentCall{Grant: g, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash}
+	replay := &access.AgentCall{Grant: g, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash}
 	if _, e = s.inv.CreateApp(ctx, Actor{Principal: p, RequestID: registry.NewID(), Agent: replay}, tenant.ID, space.ID, app); !errors.Is(e, errAgentReplay) {
 		t.Fatal("replay executed again", e)
 	}
@@ -182,14 +183,14 @@ func TestTenantInventoryOperations(t *testing.T) {
 func TestMembershipOperations(t *testing.T) {
 	s, _, p, tenant, _, _ := agentSecurityFixture(t)
 	ctx := context.Background()
-	human := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	human := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 	var operator, joe string
 	for subject, dest := range map[string]*string{"operator": &operator, "outsider": &joe} {
 		if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject=?", subject).Scan(dest); e != nil {
 			t.Fatal(e)
 		}
 	}
-	platform := Actor{Principal: Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
+	platform := Actor{Principal: access.Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
 
 	// Console actor: membership, team and member revisions.
 	if v, e := s.members.AddMembership(ctx, human, tenant, accountChoice{User: joe}); e != nil || v.UserID != joe {
@@ -242,7 +243,7 @@ func TestMembershipOperations(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if p.Agent, e = s.readAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
+	if p.Agent, e = s.ReadAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
 	call = agentCall(p, "lastapp_membership", "remove", "access.manage")
@@ -253,7 +254,7 @@ func TestMembershipOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, p.Agent.ID).Scan(&n); e != nil || n != 1 {
 		t.Fatal("agent audit attribution", n, e)
 	}
-	replay := &AgentCall{Grant: p.Agent, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash}
+	replay := &access.AgentCall{Grant: p.Agent, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash}
 	if _, e = s.members.RemoveTeamMember(ctx, Actor{Principal: p, RequestID: registry.NewID(), Agent: replay}, tenant, team.ID, joe, 4); !errors.Is(e, errAgentReplay) {
 		t.Fatal("replay executed again", e)
 	}
@@ -265,7 +266,7 @@ func TestMembershipOperations(t *testing.T) {
 func TestAuthorityOperations(t *testing.T) {
 	s, _, p, tenant, space, _ := agentSpaceFixture(t)
 	ctx := context.Background()
-	human := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	human := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 	scope, res, e := scopeOf(tenant, "", space, "")
 	if e != nil {
 		t.Fatal(e)
@@ -320,7 +321,7 @@ func TestAuthorityOperations(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\",\"production.deploy\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if p.Agent, e = s.readAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
+	if p.Agent, e = s.ReadAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
 	call = agentCall(p, "lastapp_assignment", "grant", "access.manage")
@@ -336,19 +337,19 @@ func TestAuthorityOperations(t *testing.T) {
 	if e != nil || len(recipients.Items) == 0 {
 		t.Fatal("agent recipients", recipients, e)
 	}
-	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, Resource{}, PageRequest{})
+	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, access.Resource{}, PageRequest{})
 	wantProblem(t, e, 400, "invalid_request")
 }
 
 func TestStorageOperations(t *testing.T) {
 	s, _, p, tenant, allowed, denied := agentSecurityFixture(t)
 	ctx := context.Background()
-	human := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	human := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 	var operator string
 	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='operator'").Scan(&operator); e != nil {
 		t.Fatal(e)
 	}
-	platform := Actor{Principal: Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
+	platform := Actor{Principal: access.Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
 
 	// Targets are platform inventory; a Tenant sees only active targets.
 	_, e := s.storage.Targets(ctx, human, PageRequest{})
@@ -405,7 +406,7 @@ func TestStorageOperations(t *testing.T) {
 func TestAuthoringOperations(t *testing.T) {
 	s, _, p, _, space, app := agentSpaceFixture(t)
 	ctx := context.Background()
-	human := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	human := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 
 	// Console actor: draft lifecycle, revisions and generated views.
 	d := entity.Definition{Format: 1, Key: "ticket", Label: "Ticket", Fields: []entity.Field{{Key: "title", Label: "Title", Type: "text", MaxLength: 100}}, Projection: []string{"title"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}}

@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -162,8 +163,8 @@ func (s *Server) passwordWork() (func(), error) {
 	}
 }
 
-func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
+func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+	if e := s.Authorize(r.Context(), s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
 		return e
 	}
 	var in accountInput
@@ -180,7 +181,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p Princ
 	ctx, cancel := renewDeadline(r.Context())
 	defer cancel()
 	var user string
-	e = s.mutate(ctx, p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e = s.mutate(ctx, p, "platform.admin", access.Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		var e error
 		user, e = localAccount(ctx, tx, account, true)
 		if e != nil {
@@ -206,14 +207,14 @@ func (s *Server) BootstrapLocal(ctx context.Context, name, email, password strin
 	}
 	defer tx.Rollback()
 	var locked string
-	if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", SuperRole).Scan(&locked); e != nil {
+	if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", access.SuperRole).Scan(&locked); e != nil {
 		return "", e
 	}
 	user, e := localAccount(ctx, tx, account, true)
 	if e != nil {
 		return "", e
 	}
-	ok, e := isPlatform(ctx, tx, user)
+	ok, e := access.IsPlatform(ctx, tx, user)
 	if e != nil {
 		return "", e
 	}
@@ -221,7 +222,7 @@ func (s *Server) BootstrapLocal(ctx context.Context, name, email, password strin
 		if e = platformCandidate(ctx, tx, user); e != nil {
 			return "", e
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, SuperRole); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, access.SuperRole); e != nil {
 			return "", e
 		}
 		if e = audit(ctx, tx, "", user, "platform.bootstrap", "user", user, registry.NewID(), registry.Row{}); e != nil {
@@ -315,7 +316,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	if p.AuthMethod != "password" {
 		return registry.Bad("This account uses single sign-on. Manage its password with your identity provider.")
 	}

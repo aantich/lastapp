@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -76,7 +77,7 @@ func (l *requestLimiter) allowRate(key string, now time.Time, burst, refill floa
 	return allowed
 }
 
-func (s *Server) limitRequest(w http.ResponseWriter, p Principal, r *http.Request) error {
+func (s *Server) limitRequest(w http.ResponseWriter, p access.Principal, r *http.Request) error {
 	now := time.Now()
 	if !s.limiter.allow("user:"+p.ID, now) {
 		return rateLimited(w)
@@ -85,7 +86,7 @@ func (s *Server) limitRequest(w http.ResponseWriter, p Principal, r *http.Reques
 		// Bound unauthorized traffic per user, but never let an untrusted Tenant
 		// ID allocate or consume another Tenant's shared request budget.
 		if !p.Platform {
-			if e := s.member(r.Context(), s.DB, p, tenant, false); e != nil {
+			if e := s.Member(r.Context(), s.DB, p, tenant, false); e != nil {
 				return e
 			}
 		}

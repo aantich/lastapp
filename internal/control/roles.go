@@ -8,18 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
 // requestScope reads a role/assignment scope from the console route.
-func requestScope(r *http.Request) (authz.Scope, Resource, error) {
+func requestScope(r *http.Request) (authz.Scope, access.Resource, error) {
 	return scopeOf(r.PathValue("tenant"), r.PathValue("team"), r.PathValue("space"), r.PathValue("app"))
 }
 
 // scopeOf derives the one authorization scope selected by the given IDs: the
 // most specific of App, Space, team and Tenant, or the platform without a Tenant.
-func scopeOf(t, team, space, app string) (authz.Scope, Resource, error) {
+func scopeOf(t, team, space, app string) (authz.Scope, access.Resource, error) {
 	k := authz.Tenant
 	if t == "" {
 		k = authz.Platform
@@ -38,16 +39,16 @@ func scopeOf(t, team, space, app string) (authz.Scope, Resource, error) {
 		scope.Space = ""
 	}
 	if e := scope.Validate(); e != nil {
-		return scope, Resource{}, registry.Bad(e.Error())
+		return scope, access.Resource{}, registry.Bad(e.Error())
 	}
 	for _, v := range []string{t, team, space, app} {
 		if v != "" {
 			if e := registry.ID(v); e != nil {
-				return scope, Resource{}, e
+				return scope, access.Resource{}, e
 			}
 		}
 	}
-	return scope, Resource{Tenant: t, Team: team, Space: space, App: app}, nil
+	return scope, access.Resource{Tenant: t, Team: team, Space: space, App: app}, nil
 }
 
 // authority owns roles, role assignments and recipient discovery. Console
@@ -201,7 +202,7 @@ func activeTenantUser(ctx context.Context, q registry.Queryer, t, user string) e
 
 // Roles pages the roles defined at scope: fixed platform-defined roles with
 // their control permissions, and custom roles with their data permissions.
-func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[roleItem], error) {
+func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[roleItem], error) {
 	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
 		return Page[roleItem]{}, e
 	}
@@ -227,7 +228,7 @@ func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res R
 }
 
 // Role reads one role visible at scope; res carries the trusted ancestry.
-func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string) (Role, error) {
+func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string) (Role, error) {
 	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
 		return Role{}, e
 	}
@@ -236,7 +237,7 @@ func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res Re
 
 // CreateRole adds a custom business role to a Space or App; Tenant and team
 // roles are fixed.
-func (v *authority) CreateRole(ctx context.Context, a Actor, scope authz.Scope, res Resource, in roleInput) (Ref, error) {
+func (v *authority) CreateRole(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, in roleInput) (Ref, error) {
 	if scope.Kind != authz.Space && scope.Kind != authz.App {
 		return Ref{}, registry.Bad("Tenant and team roles are fixed.")
 	}
@@ -285,7 +286,7 @@ func (v *authority) CreateRole(ctx context.Context, a Actor, scope authz.Scope, 
 }
 
 // UpdateRole renames or enables/disables a custom role under its revision.
-func (v *authority) UpdateRole(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string, in rolePatch, revision int64) (Ref, error) {
+func (v *authority) UpdateRole(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string, in rolePatch, revision int64) (Ref, error) {
 	if revision < 1 {
 		return Ref{}, revisionRequired()
 	}
@@ -351,7 +352,7 @@ func assignmentAction(scope authz.Scope, manage bool) string {
 	return "authorization.read"
 }
 
-func (v *authority) Assignments(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[AssignmentItem], error) {
+func (v *authority) Assignments(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[AssignmentItem], error) {
 	if e := v.run.authorize(ctx, a, assignmentAction(scope, false), res); e != nil {
 		return Page[AssignmentItem]{}, e
 	}
@@ -361,7 +362,7 @@ func (v *authority) Assignments(ctx context.Context, a Actor, scope authz.Scope,
 
 // Assignment reads one assignment at scope after an authorization.read check
 // on res, the trusted ancestry of the requested target.
-func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string) (Assignment, error) {
+func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string) (Assignment, error) {
 	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
 		return Assignment{}, e
 	}
@@ -372,12 +373,12 @@ func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, 
 
 // assignmentAuthority is the role-specific authority to grant or revoke: fixed
 // administrative roles need authority above the scope they confer.
-func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor, scope authz.Scope, res Resource, role string) error {
+func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor, scope authz.Scope, res access.Resource, role string) error {
 	switch role {
 	case authz.SuperRole:
-		return v.run.authorizeTx(ctx, tx, a, "platform.admin", Resource{})
+		return v.run.authorizeTx(ctx, tx, a, "platform.admin", access.Resource{})
 	case authz.TenantAdminRole, authz.SpaceManagerRole:
-		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", Resource{Tenant: scope.Tenant})
+		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", access.Resource{Tenant: scope.Tenant})
 	case authz.AppManagerRole:
 		space := res.Space
 		if space == "" {
@@ -385,14 +386,14 @@ func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor
 				return e
 			}
 		}
-		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", Resource{Tenant: scope.Tenant, Space: space})
+		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", access.Resource{Tenant: scope.Tenant, Space: space})
 	default:
 		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", res)
 	}
 }
 
 // Grant assigns an existing active role at scope to one user or team.
-func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res Resource, in assignmentInput) (Ref, error) {
+func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, in assignmentInput) (Ref, error) {
 	for _, value := range []string{in.ID, in.Role} {
 		if e := registry.ID(value); e != nil {
 			return Ref{}, e
@@ -446,7 +447,7 @@ func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res R
 		}
 		if domain == authz.Control {
 			if scope.Kind != authz.Platform {
-				platform, e := isPlatform(ctx, tx, in.User)
+				platform, e := access.IsPlatform(ctx, tx, in.User)
 				if e != nil {
 					return e
 				}
@@ -490,7 +491,7 @@ func platformCandidate(ctx context.Context, q registry.Queryer, user string) err
 
 // Revoke deletes an assignment under its revision, keeping at least one
 // platform and one Tenant administrator.
-func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res Resource, record string, revision int64) (done, error) {
+func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string, revision int64) (done, error) {
 	if revision < 1 {
 		return done{}, revisionRequired()
 	}
@@ -520,12 +521,12 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 		if _, e = tx.ExecContext(ctx, "DELETE FROM access_grants WHERE id=?", record); e != nil {
 			return e
 		}
-		if role == SuperRole {
+		if role == access.SuperRole {
 			if e = ensurePlatformAdmin(ctx, tx); e != nil {
 				return e
 			}
 		}
-		if role == TenantAdminRole {
+		if role == access.TenantAdminRole {
 			if e = ensureTenantAdmin(ctx, tx, scope.Tenant); e != nil {
 				return e
 			}
@@ -540,22 +541,22 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 
 // Recipients lets scope managers search eligible users or active teams without
 // reading the global user directory or gaining membership authority.
-func (v *authority) Recipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Recipient], error) {
+func (v *authority) Recipients(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[Recipient], error) {
 	if e := v.recipientScope(ctx, a, scope, res); e != nil {
 		return Page[Recipient]{}, e
 	}
-	return pageScan[Recipient](ctx, v.db, page, collectionFor("recipients"), "SELECT u.display_name,u.email,u.id,u.id AS user_id FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, SuperRole)
+	return pageScan[Recipient](ctx, v.db, page, collectionFor("recipients"), "SELECT u.display_name,u.email,u.id,u.id AS user_id FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, access.SuperRole)
 }
 
 // TeamRecipients is Recipients for active teams.
-func (v *authority) TeamRecipients(ctx context.Context, a Actor, scope authz.Scope, res Resource, page PageRequest) (Page[Named], error) {
+func (v *authority) TeamRecipients(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[Named], error) {
 	if e := v.recipientScope(ctx, a, scope, res); e != nil {
 		return Page[Named]{}, e
 	}
 	return pageScan[Named](ctx, v.db, page, collectionFor("team-recipients"), "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
 }
 
-func (v *authority) recipientScope(ctx context.Context, a Actor, scope authz.Scope, res Resource) error {
+func (v *authority) recipientScope(ctx context.Context, a Actor, scope authz.Scope, res access.Resource) error {
 	if scope.Kind == authz.Platform {
 		return registry.Bad("A Tenant scope is required.")
 	}
@@ -574,7 +575,7 @@ func assignInitialManager(ctx context.Context, tx *sql.Tx, a Actor, tenant, spac
 	if e := activeTenantUser(ctx, tx, tenant, user); e != nil {
 		return e
 	}
-	platform, e := isPlatform(ctx, tx, user)
+	platform, e := access.IsPlatform(ctx, tx, user)
 	if e != nil {
 		return e
 	}
@@ -596,7 +597,7 @@ func assignInitialManager(ctx context.Context, tx *sql.Tx, a Actor, tenant, spac
 	return auditChangeAs(ctx, tx, a, tenant, "grant.created", "access_grants", "access_grant", record, nil)
 }
 
-func (s *Server) roles(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) roles(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
@@ -608,7 +609,7 @@ func (s *Server) roles(w http.ResponseWriter, r *http.Request, p Principal) erro
 	return e
 }
 
-func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
@@ -624,7 +625,7 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
@@ -640,7 +641,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) grants(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) grants(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
@@ -652,7 +653,7 @@ func (s *Server) grants(w http.ResponseWriter, r *http.Request, p Principal) err
 	return e
 }
 
-func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
@@ -668,7 +669,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal
 	return e
 }
 
-func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
@@ -680,7 +681,7 @@ func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p Principal
 	return e
 }
 
-func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
 		return e

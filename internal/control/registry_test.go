@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
@@ -78,14 +79,14 @@ func (r rawJSON) MarshalJSON() ([]byte, error) { return r, nil }
 func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	s, c, p, tenant, reviewSpace, app := agentSpaceFixture(t)
 	ctx := context.Background()
-	admin := Actor{Principal: Principal{ID: p.ID}, RequestID: registry.NewID()}
+	admin := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 	limited := registry.Row{"id": registry.NewID(), "code": "limited-" + registry.NewID()[:8], "display_name": "Limited", "allow_shared_database": true, "allow_managed_database": true, "default_layout": "shared", "max_spaces": 2, "max_apps": 0}
 	var operator string
 	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject='operator'", s.Config.OIDCIssuer).Scan(&operator); e != nil {
 		t.Fatal(e)
 	}
 	c.as(operator).want("POST", "/admin/v1/plans", limited, 0, 201)
-	root := Actor{Principal: Principal{ID: operator}, RequestID: registry.NewID()}
+	root := Actor{Principal: access.Principal{ID: operator}, RequestID: registry.NewID()}
 
 	plans, e := s.inv.Plans(ctx, root, PageRequest{Limit: 200})
 	if e != nil {
@@ -192,12 +193,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, members.Items, "SELECT m.user_id,m.state,m.revision,m.created_at,u.display_name,u.email,u.state AS user_state,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,ag.id AS administrator_id,ag.revision AS administrator_revision FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,m.user_id", SuperRole, TenantAdminRole, tenant)
+	sameJSON(t, s.DB, members.Items, "SELECT m.user_id,m.state,m.revision,m.created_at,u.display_name,u.email,u.state AS user_state,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,ag.id AS administrator_id,ag.revision AS administrator_revision FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,m.user_id", access.SuperRole, access.TenantAdminRole, tenant)
 	administrators, e := s.members.Administrators(ctx, root, tenant, PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, administrators.Items, "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,g.id", tenant, TenantAdminRole)
+	sameJSON(t, s.DB, administrators.Items, "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,g.id", tenant, access.TenantAdminRole)
 	if _, e = s.members.UpdateMembership(ctx, admin, tenant, joe, registry.StateActive, 2); e != nil {
 		t.Fatal(e)
 	}
@@ -222,12 +223,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, teamMembers.Items, "SELECT gm.user_id,gm.state,u.display_name,u.state AS user_state,tm.state AS tenant_state,ga.id AS administrator_id,ga.revision AS administrator_revision,gr.id AS reviewer_id,gr.revision AS reviewer_revision,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team.ID)
+	sameJSON(t, s.DB, teamMembers.Items, "SELECT gm.user_id,gm.state,u.display_name,u.state AS user_state,tm.state AS tenant_state,ga.id AS administrator_id,ga.revision AS administrator_revision,gr.id AS reviewer_id,gr.revision AS reviewer_revision,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", access.SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team.ID)
 	users, e := s.Users(ctx, root, PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, users.Items, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id LIMIT 200", SuperRole, SuperRole, SuperRole)
+	sameJSON(t, s.DB, users.Items, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id LIMIT 200", access.SuperRole, access.SuperRole, access.SuperRole)
 
 	// Roles, assignments, recipients, effective assignments and the audited
 	// security snapshots.
@@ -311,7 +312,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, recipients.Items, "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", tenant, SuperRole)
+	sameJSON(t, s.DB, recipients.Items, "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", tenant, access.SuperRole)
 	teamRecipients, e := s.authority.TeamRecipients(ctx, admin, scope, res, PageRequest{})
 	if e != nil {
 		t.Fatal(e)
@@ -322,7 +323,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	mine := rawFields(t, c, "/v1/tenants/"+tenant+"/my-role-assignments")
-	sameRaw(t, s.DB, mine["items"], "SELECT * FROM (SELECT g.id,g.scope_kind,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.group_id,ro.code,ro.display_name,ro.domain"+effectiveAssignmentSQL[strings.Index(effectiveAssignmentSQL, "\n"):]+") AS collection ORDER BY scope_kind,id", p.ID, tenant)
+	sameRaw(t, s.DB, mine["items"], "SELECT * FROM (SELECT g.id,g.scope_kind,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.group_id,ro.code,ro.display_name,ro.domain"+access.EffectiveAssignmentSQL[strings.Index(access.EffectiveAssignmentSQL, "\n"):]+") AS collection ORDER BY scope_kind,id", p.ID, tenant)
 	if string(mine["pagination"]) != `{"page":1,"limit":100,"has_more":false}` {
 		t.Fatal("my-role-assignments pagination", string(mine["pagination"]))
 	}
@@ -535,7 +536,7 @@ func jsonKeys(t reflect.Type) []string {
 // members must therefore be declared in sorted order (snapshot records keep
 // their own documented order and are not Row replacements).
 func TestRegistryRecordKeysAreSorted(t *testing.T) {
-	for _, v := range []any{Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, Membership{}, Team{}, TeamMember{}, Administrator{}, User{}, Role{}, roleItem{}, rolePermission{}, Assignment{}, AssignmentItem{}, Recipient{}, Named{}, EffectiveAssignment{}, Target{}, AvailableTarget{}, Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, appRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
+	for _, v := range []any{Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, Membership{}, Team{}, TeamMember{}, Administrator{}, User{}, Role{}, roleItem{}, rolePermission{}, Assignment{}, AssignmentItem{}, Recipient{}, Named{}, access.EffectiveAssignment{}, Target{}, AvailableTarget{}, Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, appRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
 		keys := jsonKeys(reflect.TypeOf(v))
 		if len(keys) == 0 || !slices.IsSorted(keys) {
 			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)

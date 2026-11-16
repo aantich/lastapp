@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -230,8 +231,8 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	admin.want("GET", base+"/overview", nil, 0, 200)
 	admin.want("GET", "/admin/v1/users", nil, 0, 403)
 	platform.want("POST", base+"/memberships", registry.Row{"user_id": operator}, 0, 201)
-	platform.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": operator, "role_id": TenantAdminRole}, 0, 400)
-	platform.want("POST", "/admin/v1/role-assignments", registry.Row{"id": registry.NewID(), "user_id": user, "role_id": SuperRole}, 0, 409)
+	platform.want("POST", base+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": operator, "role_id": access.TenantAdminRole}, 0, 400)
+	platform.want("POST", "/admin/v1/role-assignments", registry.Row{"id": registry.NewID(), "user_id": user, "role_id": access.SuperRole}, 0, 409)
 	// Creation of another Tenant never replaces this global user's password.
 	another := registry.NewID()
 	create["id"], create["slug"] = another, "existing-"+another

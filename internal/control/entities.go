@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
 func (s *Server) entityRoutes() {
-	s.api("GET /v1/entity-capabilities", func(w http.ResponseWriter, r *http.Request, p Principal) error {
+	s.api("GET /v1/entity-capabilities", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		send(w, 200, entity.Capabilities())
 		return nil
 	})
@@ -192,24 +193,24 @@ func validateEntityRefsCandidates(ctx context.Context, q registry.Queryer, d ent
 func (s *Server) actorContext(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error) {
 	c := entity.Context{Actor: user, Now: time.Now().UTC(), Roles: map[string]bool{}, Teams: map[string]bool{}, ReviewTeams: map[string]bool{}, AdminTeams: map[string]bool{}}
 	a := entity.AppAccess{Inherit: true}
-	if e := s.member(ctx, q, Principal{ID: user}, tenant, true); e != nil {
+	if e := s.Member(ctx, q, access.Principal{ID: user}, tenant, true); e != nil {
 		return c, a, e
 	}
-	query := strings.Replace(effectiveAssignmentSQL, " ORDER BY g.scope_kind,g.id", " AND (g.scope_kind='team' OR (g.scope_kind='space' AND g.space_id=?) OR (g.scope_kind='app' AND g.app_id=?)) ORDER BY g.scope_kind,g.id", 1)
-	assignments, e := registry.ScanAll[EffectiveAssignment](ctx, q, query, user, tenant, space, app)
+	query := strings.Replace(access.EffectiveAssignmentSQL, " ORDER BY g.scope_kind,g.id", " AND (g.scope_kind='team' OR (g.scope_kind='space' AND g.space_id=?) OR (g.scope_kind='app' AND g.app_id=?)) ORDER BY g.scope_kind,g.id", 1)
+	assignments, e := registry.ScanAll[access.EffectiveAssignment](ctx, q, query, user, tenant, space, app)
 	if e != nil {
 		return c, a, e
 	}
 	for _, g := range assignments {
-		if (g.ScopeKind == "space" && deref(g.SpaceID) == space) || (g.ScopeKind == "app" && deref(g.AppID) == app) {
+		if (g.ScopeKind == "space" && access.Deref(g.SpaceID) == space) || (g.ScopeKind == "app" && access.Deref(g.AppID) == app) {
 			c.Roles[g.RoleID] = true
 		}
 		if g.ScopeKind == "team" {
 			if g.Code == "team.reviewer" {
-				c.ReviewTeams[deref(g.ScopeTeamID)] = true
+				c.ReviewTeams[access.Deref(g.ScopeTeamID)] = true
 			}
 			if g.Code == "team.admin" {
-				c.AdminTeams[deref(g.ScopeTeamID)] = true
+				c.AdminTeams[access.Deref(g.ScopeTeamID)] = true
 			}
 		}
 	}
@@ -236,7 +237,7 @@ func (s *Server) actorContext(ctx context.Context, q registry.Queryer, user, ten
 	return c, a, nil
 }
 
-func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in credentials
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -249,7 +250,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p Pri
 		return e
 	}
 	tenant, record := r.PathValue("tenant"), r.PathValue("id")
-	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e = s.mutate(r.Context(), p, "database.manage", access.Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		var current int64
 		var mode string
 		e := registry.Lookup(r.Context(), tx, "SELECT revision,management_mode FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &mode)
@@ -330,7 +331,7 @@ type authoring struct {
 	db           *sql.DB
 	run          *runner
 	config       *Config
-	queue        func(ctx context.Context, tx *sql.Tx, p Principal, v EntityDefinition, version string, candidates map[string]bool) error
+	queue        func(ctx context.Context, tx *sql.Tx, p access.Principal, v EntityDefinition, version string, candidates map[string]bool) error
 	actorContext func(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error)
 }
 
@@ -371,13 +372,13 @@ func (v *authoring) entityRow(ctx context.Context, q registry.Queryer, a Actor, 
 	if e != nil {
 		return out, e
 	}
-	e = v.run.check(ctx, q, a, action, Resource{Tenant: out.TenantID, Space: out.SpaceID}, true)
+	e = v.run.check(ctx, q, a, action, access.Resource{Tenant: out.TenantID, Space: out.SpaceID}, true)
 	return out, e
 }
 
 // authoringSpace reads an active Space whose entities a may manage.
-func (v *authoring) authoringSpace(ctx context.Context, a Actor, space string) (Resource, error) {
-	res := Resource{Space: space}
+func (v *authoring) authoringSpace(ctx context.Context, a Actor, space string) (access.Resource, error) {
+	res := access.Resource{Space: space}
 	if e := registry.Lookup(ctx, v.db, "SELECT tenant_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant); e != nil {
 		return res, e
 	}
@@ -542,7 +543,7 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 		return EntityDefinition{}, registry.Bad("Definition exceeds its encoded-size limit.")
 	}
 	tenant := old.TenantID
-	e = v.run.mutate(ctx, a, "entity.manage", Resource{Tenant: tenant, Space: old.SpaceID}, func(tx *sql.Tx) error {
+	e = v.run.mutate(ctx, a, "entity.manage", access.Resource{Tenant: tenant, Space: old.SpaceID}, func(tx *sql.Tx) error {
 		var current int64
 		var pending *string
 		e := registry.Lookup(ctx, tx, "SELECT revision,pending_version_id FROM entity_definitions WHERE id=? FOR UPDATE", []any{old.ID}, &current, &pending)
@@ -622,7 +623,7 @@ func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revi
 		return nil, e
 	}
 	version := a.operationID()
-	e = v.run.mutate(ctx, a, "entity.publish", Resource{Tenant: current.TenantID, Space: current.SpaceID}, func(tx *sql.Tx) error {
+	e = v.run.mutate(ctx, a, "entity.publish", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, func(tx *sql.Tx) error {
 		current, e = registry.ScanOne[EntityDefinition](ctx, tx, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=? FOR UPDATE", current.ID)
 		if e != nil {
 			return e
@@ -739,14 +740,14 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
+	if e = v.run.check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	access, e := accessOf(current.Access)
+	appAccess, e := accessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
-	manager := v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
+	manager := v.run.check(ctx, v.db, a, "entity.manage", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
 	vs, e := registry.ScanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
 	if e != nil {
 		return nil, e
@@ -764,13 +765,13 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 		allowedFields := []string{}
 		for _, permission := range d.Permissions {
 			pid := entity.PermissionID(value.ID, permission.Key)
-			if !manager && !access.Inherit && !slices.ContainsFunc(access.Ceiling, func(g entity.Gate) bool { return g.Permission == pid }) {
+			if !manager && !appAccess.Inherit && !slices.ContainsFunc(appAccess.Ceiling, func(g entity.Gate) bool { return g.Permission == pid }) {
 				continue
 			}
 			fields := permission.Fields
-			if !manager && !access.Inherit {
+			if !manager && !appAccess.Inherit {
 				fields = []string{}
-				for _, g := range access.Ceiling {
+				for _, g := range appAccess.Ceiling {
 					if g.Permission == pid {
 						fields = append(fields, g.Fields...)
 					}
@@ -853,7 +854,7 @@ func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (registr
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
+	if e = v.run.check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
 	access, e := accessOf(current.Access)
@@ -873,7 +874,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 	if e != nil {
 		return nil, e
 	}
-	res := Resource{Tenant: current.TenantID, App: current.ID}
+	res := access.Resource{Tenant: current.TenantID, App: current.ID}
 	e = v.run.mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
 		current, e = registry.ScanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
 		if e != nil {
@@ -891,7 +892,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 		if e != nil {
 			return e
 		}
-		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
+		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", access.Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
 		if !spaceManager && (old.Origin != in.Origin || old.Inherit != in.Inherit || entity.Hash(old.Ceiling) != entity.Hash(in.Ceiling)) {
 			return registry.Problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
 		}
@@ -973,7 +974,7 @@ func entityViewOf(r *http.Request) entityView {
 	return entityView{Section: q.Get("section"), Version: q.Get("version"), Field: q.Get("field")}
 }
 
-func (s *Server) entityList(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityList(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.authoring.Entities(r.Context(), httpActor(r, p), r.PathValue("space"))
 	if e == nil {
 		send(w, 200, v)
@@ -981,7 +982,7 @@ func (s *Server) entityList(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in entityCreateInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -998,7 +999,7 @@ func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p Principa
 	return e
 }
 
-func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.authoring.Entity(r.Context(), httpActor(r, p), r.PathValue("entity"), entityViewOf(r))
 	if e == nil {
 		send(w, 200, v)
@@ -1006,7 +1007,7 @@ func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p Principal) 
 	return e
 }
 
-func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in entitySaveInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -1023,7 +1024,7 @@ func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) entityValidate(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityValidate(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		Definition entity.Definition `json:"definition"`
 	}
@@ -1037,7 +1038,7 @@ func (s *Server) entityValidate(w http.ResponseWriter, r *http.Request, p Princi
 	return e
 }
 
-func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.authoring.PublishEntity(r.Context(), httpActor(r, p), r.PathValue("entity"), ifMatch(r))
 	if e == nil {
 		send(w, 202, v)
@@ -1045,7 +1046,7 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 	return e
 }
 
-func (s *Server) entityPublication(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityPublication(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.authoring.Publication(r.Context(), httpActor(r, p), r.PathValue("entity"), r.PathValue("version"))
 	if e == nil {
 		send(w, 200, v)
@@ -1053,7 +1054,7 @@ func (s *Server) entityPublication(w http.ResponseWriter, r *http.Request, p Pri
 	return e
 }
 
-func (s *Server) entityTest(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) entityTest(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in entityTestInput
 	if e := decode(w, r, &in); e != nil {
 		return e
@@ -1065,7 +1066,7 @@ func (s *Server) entityTest(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	q := r.URL.Query()
 	view := contractView{Entity: q.Get("entity_id"), Section: q.Get("section"), Field: q.Get("field"), Version: q.Get("version"), Page: pageRequest(q)}
 	v, e := s.authoring.AppContracts(r.Context(), httpActor(r, p), r.PathValue("app"), view)
@@ -1075,7 +1076,7 @@ func (s *Server) appContracts(w http.ResponseWriter, r *http.Request, p Principa
 	return e
 }
 
-func (s *Server) appAccessGet(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appAccessGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.authoring.AppAccess(r.Context(), httpActor(r, p), r.PathValue("app"))
 	if e == nil {
 		send(w, 200, v)
@@ -1083,7 +1084,7 @@ func (s *Server) appAccessGet(w http.ResponseWriter, r *http.Request, p Principa
 	return e
 }
 
-func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Principal) error {
+func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in entity.AppAccess
 	if e := decode(w, r, &in); e != nil {
 		return e

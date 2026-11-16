@@ -26,15 +26,10 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 	"github.com/pressly/goose/v3"
 
-	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
-)
-
-const (
-	SuperRole       = authz.SuperRole
-	TenantAdminRole = authz.TenantAdminRole
 )
 
 //go:embed migrations/*.sql
@@ -61,7 +56,7 @@ type Config struct {
 }
 
 type Server struct {
-	*Checker
+	*access.Checker
 	uploadSlots            chan struct{}
 	agentSlots             chan struct{}
 	agentBootstrapSlots    chan struct{}
@@ -201,7 +196,7 @@ func Open(c Config) (*Server, error) {
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
-	s.Checker = &Checker{Audience: s.mcpURL()}
+	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &runner{db: db, access: s}
 	s.authoring = &authoring{db: db, run: s.run, config: &s.Config, queue: s.queueDefinition, actorContext: s.actorContext}
 	s.storage = &storage{db: db, run: s.run, seal: s.seal, config: &s.Config, registryName: cfg.DBName}
@@ -373,11 +368,11 @@ func checkRevision(got, want int64) error {
 
 // audit is the context shim of auditAs for code not yet migrated to actors.
 func audit(ctx context.Context, q registry.Queryer, tenant, user, action, kind, record, request string, details any) error {
-	return auditAs(ctx, q, Actor{Principal: Principal{ID: user}, RequestID: request, Agent: agentCallFrom(ctx)}, tenant, action, kind, record, details)
+	return auditAs(ctx, q, Actor{Principal: access.Principal{ID: user}, RequestID: request, Agent: access.AgentCallFrom(ctx)}, tenant, action, kind, record, details)
 }
 
 // mutate is the context shim of runner.mutate for handlers not yet migrated
 // to operations with an explicit Actor.
-func (s *Server) mutate(ctx context.Context, p Principal, action string, res Resource, request string, fn func(*sql.Tx) error) error {
+func (s *Server) mutate(ctx context.Context, p access.Principal, action string, res access.Resource, request string, fn func(*sql.Tx) error) error {
 	return s.run.mutate(ctx, actorFrom(ctx, p, request), action, res, fn)
 }

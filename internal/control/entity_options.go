@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -23,7 +24,7 @@ func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt
 	if f.Type == "team" {
 		action = "team.read"
 	}
-	sc, e := s.scopes(r.Context(), s.DB, Principal{ID: rt.actor.Actor}, rt.session.TenantID, action)
+	sc, e := s.Scopes(r.Context(), s.DB, access.Principal{ID: rt.actor.Actor}, rt.session.TenantID, action)
 	if e != nil {
 		return e
 	}
