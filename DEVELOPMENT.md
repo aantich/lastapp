@@ -100,7 +100,8 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Agent context and canonical runtime documentation | `agent_context.go` → `lastapp_context`, `lastapp_describe`, `lastapp://docs/*` |
 | Static releases, coherent security activation and status recovery | `releases.go`, `deployment_worker.go`; `GET /v1/apps/{app}/deployment` |
 | Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
-| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes |
+| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes; pages under `tenant/`, `platform/`, `entity-designer/` |
+| Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
 
 Do not add a second policy language, ORM, query compiler, permission cache or MCP
 service to make a local feature easier. Extend the existing typed contract and

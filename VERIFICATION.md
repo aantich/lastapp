@@ -34,6 +34,39 @@ node_modules in this worktree and no console source changed); schema validator
 `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./internal/...`
 **PASS** (control package 146.8 s; only `TestPrepareFixture` skipped).
 
+## Console data layer and component split — 16 November 2026
+
+- `@tanstack/react-query` 5.107.1 (pinned) is the console read layer:
+  `useApiQuery()` wraps the typed `api()` helper with the query AbortSignal.
+  `useAction()` remains the only mutation mechanism and invalidates cached reads.
+  FormModal, the entity designer and App releases now use it, so they all get
+  the double-submit guard. Logging out or an expired session clears the cache.
+- Polling: the Tenant workspace (5 s) and the designer publication poll
+  (1.5 s, stops when the pending version clears) use `refetchInterval`. The
+  deployment status poll keeps its 1.5-10 s backoff and stops at a final state.
+- TenantWorkspace (1233 → 449 lines), PlatformWorkspace (767 → 199) and
+  designer.tsx (1674 → 379) are split into page/section files. The markup was
+  moved unchanged. The designer is a lazy chunk. An ErrorBoundary keyed by
+  route wraps the routed pages of both consoles.
+- Expression arguments and App data-access gates use stable generated keys
+  (`useListKeys`). Validation diagnostics are read-only and keep index keys.
+- ESLint suppressions: 40 → 20, none added.
+
+Executed checks in `web/admin`: `npm run lint`, `npm run typecheck`,
+`npm run build` **PASS** at each commit. The stack was rebuilt and restarted
+with `scripts/dev.py` before each browser run. `npm run test:e2e`: **29/29**
+passed after each data-layer and split commit; **32/32** with the new
+`tests/console-data.spec.ts`. That spec checks:
+- Tenant polling: 2-3 overview reads in 11 s, never overlapping; none while a
+  form is open; polling resumes after the form closes.
+- Expression argument identity after a removal. This assertion failed as
+  expected when the index key was put back temporarily.
+- No error and no horizontal overflow at 1280 and 390 px on 4 Platform and
+  7 Tenant pages, including the lazy-loaded designer.
+
+Not covered: the ErrorBoundary fallback has no browser test, and no test
+forces a failure of the designer chunk download.
+
 ## Error wrapping and structured request logging — 16 November 2026
 
 - Underlying errors are wrapped with `%w` (registry ping, cipher setup, schema
