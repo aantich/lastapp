@@ -169,14 +169,19 @@ uses installed Chrome locally and a Vite server on 5173; CI uses Chromium.
 Rebuild with `make dev` after Go or embedded-console changes before browser testing.
 
 For registry changes, add a forward Goose migration (the startup schema check
-derives its required version from the newest embedded migration), update runtime
-grants as needed, then regenerate the SQL document with
-`python3 design/validate_schema.py --write`. `--check` compares the document with
-the migrations without database access. Without a flag the validator does the same
+derives its required version from the newest embedded migration), then regenerate
+the SQL document with `python3 design/validate_schema.py --write`. `--check` compares the document
+with the migrations without database access. Without a flag the validator does the same
 comparison and then runs `TestAuthorizationFoundation` on a disposable registry on
 the existing local server (`LASTAPP_TEST_CONFIG`, default `.local/config.json`). It does not test
 every later feature; use the relevant entity/MCP/security suites too. Never edit
 the generated SQL independently of migrations.
+
+Runtime UPDATE,DELETE grants are derived from the migrations: every new table
+receives them unless it is listed in `appendOnlyRegistryTables`
+(`internal/control/grants.go`). `lastapp runtime-grants -database NAME -host HOST`
+prints those statements without configuration or a database connection;
+`scripts/dev.py` and the CI fixture apply the same list.
 
 For security changes, add a regression that fails for the actual boundary being
 fixed. Reuse existing test fixtures/helpers and runtime policy catalogs. For UI

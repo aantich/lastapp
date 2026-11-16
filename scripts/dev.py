@@ -100,9 +100,9 @@ def main():
   for _ in range(100):
    if not listening(8787) and not listening(8788):break
    time.sleep(.1)
- run([LOCAL/'lastapp','migrate','-config',LOCAL/'migrate.json']);# Runtime credentials can append/read audit history but cannot change it.
- for table in ['users','sessions','plans','tenants','tenant_memberships','database_targets','database_resources','spaces','apps','microapp_installations','groups','group_memberships','local_accounts','roles','role_permissions','access_grants','permissions','entity_definitions','entity_versions','agent_grants','agent_oauth_requests','agent_token_sessions','agent_oauth_clients','development_workspaces','workspace_items','artifact_uploads','release_deployments']:
-  sql(f"GRANT UPDATE,DELETE ON {REGISTRY}.`{table}` TO 'lastapp_control'@'{host}';")
+ run([LOCAL/'lastapp','migrate','-config',LOCAL/'migrate.json'])
+ # Runtime credentials can append/read audit history but cannot change it; lastapp derives the mutable tables from its migrations.
+ sql(run([LOCAL/'lastapp','runtime-grants','-database',REGISTRY,'-host',host],stdout=subprocess.PIPE,text=True).stdout)
  run([LOCAL/'lastapp','seed-development','-config',configfile,'-provisioner-file',LOCAL/'provisioner.secret'])
  start('devoidc',[LOCAL/'devoidc']);wait_url('http://127.0.0.1:8788/.well-known/openid-configuration')
  start('lastapp',[LOCAL/'lastapp','serve','-config',configfile]);wait_url('http://127.0.0.1:8787/readyz')

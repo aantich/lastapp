@@ -3,10 +3,8 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -62,25 +60,36 @@ func TestPrepareFixture(t *testing.T) {
 		"GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'%'",
 		"GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'%' WITH GRANT OPTION",
 	}
-	// Derive mutable tables from the migrated schema so a new table is not
-	// silently left without runtime grants.
+	// The runtime grants come from the embedded migrations (the same source as
+	// `lastapp runtime-grants`); confirm they name exactly the migrated tables.
 	tables, e := s.DB.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema='lastapp_control' AND table_type='BASE TABLE' AND table_name<>? ORDER BY table_name", goose.TableName())
 	if e != nil {
 		t.Fatal(e)
 	}
+	var migrated []string
 	for tables.Next() {
 		var table string
 		if e = tables.Scan(&table); e != nil {
 			t.Fatal(e)
 		}
-		if !appendOnlyRegistryTables[table] {
-			statements = append(statements, "GRANT UPDATE,DELETE ON `lastapp_control`.`"+table+"` TO 'lastapp_control'@'%'")
-		}
+		migrated = append(migrated, table)
 	}
 	if e = tables.Err(); e != nil {
 		t.Fatal(e)
 	}
 	tables.Close()
+	parsed, e := registryTables()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if strings.Join(parsed, ",") != strings.Join(migrated, ",") {
+		t.Fatalf("migration-derived tables %v differ from migrated tables %v", parsed, migrated)
+	}
+	grants, e := RuntimeGrantStatements("lastapp_control", "%")
+	if e != nil {
+		t.Fatal(e)
+	}
+	statements = append(statements, grants...)
 	for _, statement := range statements {
 		if _, e = s.DB.Exec(statement); e != nil {
 			t.Fatal(e)
@@ -92,49 +101,43 @@ func TestPrepareFixture(t *testing.T) {
 	}
 }
 
-// scripts/dev.py grants the local runtime account in Python; keep its explicit
-// table list equal to the migrated tables minus appendOnlyRegistryTables.
-func TestDevelopmentRuntimeGrantsCoverRegistryTables(t *testing.T) {
-	want := map[string]bool{}
-	created := regexp.MustCompile(`(?i)CREATE TABLE\s+(?:IF NOT EXISTS\s+)?` + "`?" + `([a-z0-9_]+)`)
-	names, e := fs.Glob(migrationFiles, "migrations/*.sql")
+// RuntimeGrantStatements (printed by `lastapp runtime-grants` for
+// scripts/dev.py) grants every migrated table except the append-only set.
+func TestRuntimeGrantStatements(t *testing.T) {
+	tables, e := registryTables()
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, name := range names {
-		b, e := migrationFiles.ReadFile(name)
-		if e != nil {
-			t.Fatal(e)
-		}
-		for _, m := range created.FindAllStringSubmatch(string(b), -1) {
-			want[m[1]] = !appendOnlyRegistryTables[m[1]]
-		}
-	}
-	for table := range appendOnlyRegistryTables {
-		if _, ok := want[table]; !ok {
-			t.Fatalf("append-only table %s is not in the migrations", table)
-		}
-	}
-	script, e := os.ReadFile(filepath.Join("..", "..", "scripts", "dev.py"))
+	statements, e := RuntimeGrantStatements("lastapp_foundation", "127.0.0.1")
 	if e != nil {
 		t.Fatal(e)
-	}
-	list := regexp.MustCompile(`for table in \[([^\]]*)\]`).FindSubmatch(script)
-	if list == nil {
-		t.Fatal("runtime grant table list not found in scripts/dev.py")
 	}
 	got := map[string]bool{}
-	for _, v := range strings.Split(string(list[1]), ",") {
-		got[strings.Trim(strings.TrimSpace(v), "'\"")] = true
+	for _, statement := range statements {
+		got[statement] = true
 	}
-	for table, mutable := range want {
-		if mutable != got[table] {
-			t.Errorf("scripts/dev.py runtime UPDATE,DELETE grant for %s = %v, want %v", table, got[table], mutable)
+	mutable := 0
+	for _, table := range tables {
+		want := "GRANT UPDATE,DELETE ON `lastapp_foundation`.`" + table + "` TO 'lastapp_control'@'127.0.0.1'"
+		if got[want] == appendOnlyRegistryTables[table] {
+			t.Errorf("runtime UPDATE,DELETE grant for %s = %v, want %v", table, got[want], !appendOnlyRegistryTables[table])
 		}
-		delete(got, table)
+		if !appendOnlyRegistryTables[table] {
+			mutable++
+		}
 	}
-	for table := range got {
-		t.Errorf("scripts/dev.py grants unknown table %s", table)
+	if len(statements) != mutable || mutable < 20 {
+		t.Errorf("got %d grants for %d mutable tables", len(statements), mutable)
+	}
+	for _, table := range []string{"users", "sessions", "release_deployments"} {
+		if !got["GRANT UPDATE,DELETE ON `lastapp_foundation`.`"+table+"` TO 'lastapp_control'@'127.0.0.1'"] {
+			t.Errorf("missing runtime grant for %s", table)
+		}
+	}
+	for _, bad := range [][2]string{{"x`; DROP", "%"}, {"lastapp", "a'b"}, {"", "%"}, {"lastapp", ""}} {
+		if _, e := RuntimeGrantStatements(bad[0], bad[1]); e == nil {
+			t.Errorf("accepted database %q host %q", bad[0], bad[1])
+		}
 	}
 }
 

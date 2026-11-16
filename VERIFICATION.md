@@ -7,10 +7,16 @@
   goose's own collection).
 - `/v1/me` and `/v1/my-tenants` share one membership query; Go-side state
   comparisons and written values use named constants and one `enabledState`.
-- The CI fixture grants runtime UPDATE,DELETE on every migrated table except
-  the explicit append-only set; `TestDevelopmentRuntimeGrantsCoverRegistryTables`
-  checks `scripts/dev.py` against the same rule. `TestPrepareFixture` itself
-  only runs in CI (opt-in disposable server) and was not executed locally.
+- Runtime UPDATE,DELETE grants cover every migrated table except the explicit
+  append-only set, derived once in Go (`RuntimeGrantStatements`). The CI fixture
+  applies them and checks the migration-derived table list against
+  `information_schema`; `scripts/dev.py` applies the output of the new
+  `lastapp runtime-grants` subcommand instead of its own Python table list.
+  `TestRuntimeGrantStatements` **PASS**; the subcommand's 27 tables equal the
+  removed Python list, and dev.py's grant step was dry-run against a scratch
+  binary with a stub SQL runner (the dev stack was not restarted).
+  `TestPrepareFixture` itself only runs in CI (opt-in disposable server) and was
+  not executed locally.
 - Flaky `TestTenantAdministratorTask` under `-race`: one 600k PBKDF2 derivation
   measured about 2.8 s with the race detector on an idle 10-core machine, and an
   earlier loaded run took 50 s for the test. The 15 s login deadline spanned

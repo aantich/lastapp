@@ -66,7 +66,7 @@ The `Starter` plan allows one shared managed database, three Spaces and ten Apps
 ## Implementation
 
 - `internal/control`: explicit SQL/HTTP handlers, registry role resolution, encrypted database credentials, local/OIDC sessions and provisioning. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
-- `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`.
+- `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`, `runtime-grants`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
 - `design/control_plane.sql`: canonical registry schema, kept equal to the executable migrations. It includes local accounts, entities/publications, App-bound sessions and agent OAuth/delegation/receipt tables. Regenerate from migrations with `python3 design/validate_schema.py --write`; check parity with `--check`.
