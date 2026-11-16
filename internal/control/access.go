@@ -72,13 +72,13 @@ func (s *Server) addMembership(w http.ResponseWriter, r *http.Request, p Princip
 			}
 			return e
 		}
-		if state != "active" {
+		if state != stateActive {
 			return bad("An active existing user is required. They must sign in once first.")
 		}
 		if _, e := tx.ExecContext(r.Context(), "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", t, in.User); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, t, p.ID, "membership.created", "user", in.User, r.Header.Get("X-Request-ID"), Row{"before": nil, "after": Row{"user_id": in.User, "state": "active"}})
+		return audit(r.Context(), tx, t, p.ID, "membership.created", "user", in.User, r.Header.Get("X-Request-ID"), Row{"before": nil, "after": Row{"user_id": in.User, "state": stateActive}})
 	})
 	if e == nil {
 		send(w, 201, Row{"user_id": in.User})
@@ -93,7 +93,7 @@ func (s *Server) updateMembership(w http.ResponseWriter, r *http.Request, p Prin
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if in.State != "active" && in.State != "disabled" {
+	if !enabledState(in.State) {
 		return bad("Invalid membership state.")
 	}
 	rev, e := expectedRevision(r)
@@ -126,7 +126,7 @@ func (s *Server) updateMembership(w http.ResponseWriter, r *http.Request, p Prin
 		if e = ensureTenantAdmin(r.Context(), tx, t); e != nil {
 			return e
 		}
-		if in.State == "disabled" {
+		if in.State == stateDisabled {
 			if _, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE tenant_id=? AND user_id=? AND state='active'", t, u); e != nil {
 				return e
 			}
@@ -186,7 +186,7 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, p Principal
 		if _, e := tx.ExecContext(r.Context(), "INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", in.ID, t, in.Slug, in.Name); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, t, p.ID, "group.created", "group", in.ID, r.Header.Get("X-Request-ID"), Row{"before": nil, "after": Row{"display_name": in.Name, "state": "active"}})
+		return audit(r.Context(), tx, t, p.ID, "group.created", "group", in.ID, r.Header.Get("X-Request-ID"), Row{"before": nil, "after": Row{"display_name": in.Name, "state": stateActive}})
 	})
 	if e != nil {
 		return e
@@ -219,7 +219,7 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request, p Principal
 		if name != nil && (strings.TrimSpace(*name) == "" || len(*name) > 160) {
 			return bad("Invalid name.")
 		}
-		if state != nil && *state != "active" && *state != "disabled" {
+		if state != nil && !enabledState(*state) {
 			return bad("Invalid state.")
 		}
 		if _, e = tx.ExecContext(r.Context(), "UPDATE groups SET display_name=COALESCE(?,display_name),state=COALESCE(?,state),revision=revision+1 WHERE id=? AND tenant_id=?", name, state, record, t); e != nil {

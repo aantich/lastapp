@@ -287,8 +287,26 @@ func named(slug, name string) error {
 	return nil
 }
 
+// Record lifecycle states shared by registry tables. The migrations' CHECK
+// constraints define which states each table allows; Go comparisons and written
+// values use these names, while static SQL predicates keep the readable literal.
+const (
+	stateActive    = "active"
+	stateDisabled  = "disabled"
+	stateSuspended = "suspended"
+	stateArchived  = "archived"
+	stateRetired   = "retired"
+	stateRevoked   = "revoked"
+)
+
+// enabledState reports whether state is valid for active/disabled records
+// such as users, memberships, groups, roles and database targets.
+func enabledState(state string) bool {
+	return state == stateActive || state == stateDisabled
+}
+
 func validState(state string) bool {
-	return state == "active" || state == "suspended" || state == "archived"
+	return state == stateActive || state == stateSuspended || state == stateArchived
 }
 
 func token(n int) string {

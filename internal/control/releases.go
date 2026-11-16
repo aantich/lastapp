@@ -85,7 +85,7 @@ func (s *Server) releaseCreate(w http.ResponseWriter, r *http.Request, p Princip
 		}
 		needed := map[string]bool{}
 		for _, v := range base.Microapps {
-			if v.App == str(a["id"]) && v.State == "active" {
+			if v.App == str(a["id"]) && v.State == stateActive {
 				needed[v.Slug] = true
 				if !pinnedVersionRE.MatchString(in.Manifest.Microapps[v.Slug]) {
 					return bad("Pin a version for each active micro-app in this App.")

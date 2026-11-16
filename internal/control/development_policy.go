@@ -63,10 +63,10 @@ func (s *Server) snapshotAppQuota(ctx context.Context, q Queryer, tenant string,
 		if e = q.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE id=? AND state<>'archived'", app.ID).Scan(&n); e != nil {
 			return e
 		}
-		if app.State != "archived" && n == 0 {
+		if app.State != stateArchived && n == 0 {
 			count++
 		}
-		if app.State == "archived" && n == 1 {
+		if app.State == stateArchived && n == 1 {
 			count--
 		}
 	}

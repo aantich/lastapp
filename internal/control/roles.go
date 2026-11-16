@@ -51,7 +51,7 @@ func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 	if e != nil {
 		return e
 	}
-	if state != "active" {
+	if state != stateActive {
 		return bad("An active Tenant member is required.")
 	}
 	return nil
@@ -109,9 +109,9 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p Principal)
 		return e
 	}
 	if in.State == "" {
-		in.State = "active"
+		in.State = stateActive
 	}
-	if in.State != "active" && in.State != "disabled" {
+	if !enabledState(in.State) {
 		return bad("Invalid role state.")
 	}
 	e = s.mutate(r.Context(), p, "authorization.manage", res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
@@ -165,7 +165,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p Principal)
 	if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160) {
 		return bad("Invalid name.")
 	}
-	if in.State != nil && *in.State != "active" && *in.State != "disabled" {
+	if in.State != nil && !enabledState(*in.State) {
 		return bad("Invalid state.")
 	}
 	record := r.PathValue("id")
@@ -292,7 +292,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal
 		if e = s.assignmentAuthority(r.Context(), tx, p, scope, res, role); e != nil {
 			return e
 		}
-		if str(role["state"]) != "active" {
+		if str(role["state"]) != stateActive {
 			return bad("An active role is required.")
 		}
 		if str(role["domain"]) == authz.Control && in.Group != "" {
@@ -455,7 +455,7 @@ func (s *Server) updateGroupMember(w http.ResponseWriter, r *http.Request, p Pri
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if in.State != "active" && in.State != "disabled" {
+	if !enabledState(in.State) {
 		return bad("Invalid membership state.")
 	}
 	rev, e := expectedRevision(r)
@@ -475,7 +475,7 @@ func (s *Server) updateGroupMember(w http.ResponseWriter, r *http.Request, p Pri
 		if e != nil {
 			return e
 		}
-		if in.State == "active" {
+		if in.State == stateActive {
 			if e = activeTenantUser(r.Context(), tx, t, u); e != nil {
 				return e
 			}
