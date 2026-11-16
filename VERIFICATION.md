@@ -874,3 +874,19 @@ exercised by these local checks. No commit, push or remote deployment was made.
 - `npm run lint`, `npm run typecheck`, `go build ./...`, golangci-lint (0 issues)
   and `python3 -m py_compile` on the touched scripts passed. The CI workflow
   change (browser step via `scripts/e2e.py`) was not executed on GitHub here.
+
+## Operation review follow-ups — 16 November 2026
+
+- `TestAgentOperationResponseLimit` replaces the coverage removed with the MCP
+  loopback: an over-limit read returns `response_limit` without data; an
+  over-limit result after a committed mutation returns the compact `committed`
+  + `resource` reply (an uncommitted one returns the error). Removing the
+  `Committed` condition, or the committed branch, makes it fail.
+- `TestActorIsTheAgentSource`: an Actor whose agent call differs from (or omits)
+  the one already in its context fails `mutate`, `authorize` and `scopes` with
+  `errActorAgentMismatch`; the context is no longer a fallback.
+- Rebased on origin/main 87a8ecd. `go build`, `go vet`, golangci-lint v2.15.0
+  (0 issues), `validate_schema.py --check`, `verify_driver.py` passed;
+  `go test -race -count=1 ./internal/...` on the development MariaDB: 5
+  packages, 78 top-level tests passed, 1 skipped (`TestPrepareFixture`, e2e
+  only); golden snapshots unchanged.
