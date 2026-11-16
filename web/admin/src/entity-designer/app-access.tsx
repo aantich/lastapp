@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { apiKey, queryClient, useApiQuery } from "../query";
 import { useAction } from "../use-action";
+import { useListKeys } from "../list-keys";
 import type { EntityCatalog, Item } from "../api-types";
 import { Select } from "../select";
 import { FieldChoices, Expression } from "./expression";
@@ -36,6 +37,11 @@ export function AppDataAccess({
   });
   const readError =
     stateQuery.error || contractsQuery.error || catalogQuery.error;
+  // Gates have no id of their own; these keys follow them through removal.
+  const gateKeys = {
+    ceiling: useListKeys(access?.ceiling?.length || 0),
+    restrictions: useListKeys(access?.restrictions?.length || 0),
+  };
   if (!access)
     return <p>{error || readError?.message || "Loading data access…"}</p>;
   const permissions = contracts.flatMap((c) =>
@@ -45,13 +51,14 @@ export function AppDataAccess({
       entity: c.definition,
     })),
   );
-  function gates(key: string) {
+  function gates(key: "ceiling" | "restrictions") {
+    const keys = gateKeys[key];
     return (
       <div className="entity-gates">
         {access![key].map((g: Item, i: number) => {
           const p = permissions.find((p) => p.id === g.permission);
           return (
-            <section className="panel entity-advanced" key={i}>
+            <section className="panel entity-advanced" key={keys.keys[i]}>
               <label className="field">
                 <span>Base Space permission</span>
                 <Select
@@ -150,12 +157,13 @@ export function AppDataAccess({
               <button
                 type="button"
                 className="text-button danger"
-                onClick={() =>
+                onClick={() => {
+                  keys.remove(i);
                   edit({
                     ...access,
                     [key]: access![key].filter((_: Item, j: number) => j !== i),
-                  })
-                }
+                  });
+                }}
               >
                 Remove gate
               </button>
