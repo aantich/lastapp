@@ -1,64 +1,21 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { accountHost, apiOrigin, rootSQLCommand } from "./stack";
 
-const local = fileURLToPath(new URL("../../../.local", import.meta.url));
+export { accountHost };
 
-// Database account host the server provisions with; '%' when MariaDB runs in
-// Docker or CI because published-port connections arrive from a gateway.
-export const accountHost: string = process.env.CI
-  ? "%"
-  : JSON.parse(readFileSync(resolve(local, "config.json"), "utf8"))
-      .runtime_account_host;
-
-// Runs SQL as MariaDB root on the local stack: CI service (TCP, empty
-// password), host mariadbd (socket) or docker-compose.yaml (scripts/dev.py).
+// Runs SQL as MariaDB root on the disposable e2e database (see stack.ts).
 export function rootSQL(sql: string, extra: string[] = []): string {
-  const run = (cmd: string, args: string[], env = process.env) =>
-    execFileSync(cmd, args, { input: sql, encoding: "utf8", env });
-  if (process.env.CI)
-    return run("mariadb", [
-      "--no-defaults",
-      "--protocol=TCP",
-      "--host=127.0.0.1",
-      "--port=33317",
-      "-uroot",
-      ...extra,
-    ]);
-  const socket = resolve(local, "mariadb.sock");
-  if (existsSync(socket))
-    return run("mariadb", [
-      "--no-defaults",
-      "--protocol=SOCKET",
-      `--socket=${socket}`,
-      "-uroot",
-      ...extra,
-    ]);
-  const state = JSON.parse(readFileSync(resolve(local, "state.json"), "utf8"));
-  return run(
-    "docker",
-    [
-      "compose",
-      "-f",
-      resolve(local, "../docker-compose.yaml"),
-      "exec",
-      "-T",
-      "-e",
-      "MYSQL_PWD",
-      "mariadb",
-      "mariadb",
-      "-uroot",
-      ...extra,
-    ],
-    { ...process.env, MYSQL_PWD: state.root_password },
-  );
+  const [cmd, ...args] = rootSQLCommand;
+  return execFileSync(cmd, [...args, ...extra], {
+    input: sql,
+    encoding: "utf8",
+  });
 }
 export async function login(
   page: Page,
   subject = "operator",
-  origin = "http://127.0.0.1:8787",
+  origin = apiOrigin,
 ) {
   await page.goto(origin + "/console/");
   await page.getByRole("link", { name: "Continue with SSO" }).click();

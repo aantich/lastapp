@@ -1,15 +1,10 @@
 import { test, expect } from "@playwright/test";
-import {
-  mkdtemp,
-  mkdir,
-  writeFile,
-  symlink,
-  rm,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { login, logout, fixtureTenant, post } from "./helpers";
+import { apiOrigin } from "./stack";
 
 test("full production capacity still permits creating an App in a workspace", async ({
   page,
@@ -461,7 +456,7 @@ test("deployment status survives reload and retries a transient failure", async 
   const job = {
     id: crypto.randomUUID(),
     target_app_id: app,
-    url: "http://localhost:8787/",
+    url: apiOrigin.replace("127.0.0.1", "localhost") + "/",
     error_message: "Storage preparation failed safely.",
   };
   await page.route(`**/v1/apps/${app}/deployment`, async (route) => {
