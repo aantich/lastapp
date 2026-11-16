@@ -8,7 +8,7 @@ import { FormModal, type Modal } from "./form-modal";
 import { status } from "./console-forms";
 import type { Item, Page } from "./api-types";
 import "./development-workspaces.css";
-import { errorMessage } from "./use-action";
+import { errorMessage, useAction } from "./use-action";
 
 async function encode(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -30,18 +30,10 @@ export function AppReleases({
 }) {
   const [selected, setSelected] = useState<Item>(),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [modal, setModal] = useState<Modal | null>(null);
   const { config } = useConsoleConfig();
   const folder = useRef<HTMLInputElement>(null),
-    live = useRef(true),
     development = !!app.workspace_id;
-  useEffect(() => {
-    live.current = true;
-    return () => {
-      live.current = false;
-    };
-  }, []);
   // Release history pages accumulate behind "Load more".
   const releasesPath = `/v1/apps/${app.id}/releases`;
   const releasePages = useInfiniteQuery({
@@ -114,17 +106,10 @@ export function AppReleases({
     )
       refresh();
   }, [deployment, refresh]);
-  async function run(action: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    try {
-      await action();
-    } catch (e) {
-      if (live.current) setError(errorMessage(e));
-    } finally {
-      if (live.current) setBusy(false);
-    }
-  }
+  const { busy, run } = useAction(app.id, {
+    onSuccess: () => {},
+    onError: setError,
+  });
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     await run(async () => {

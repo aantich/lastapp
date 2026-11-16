@@ -13,7 +13,7 @@ import {
   choiceLabel,
 } from "./expression";
 import "./entity.css";
-import { errorMessage } from "../use-action";
+import { useAction } from "../use-action";
 import { confirmAction } from "../confirm";
 import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 const keyOf = (name: string) => {
@@ -61,7 +61,6 @@ export function EntityDesigner({
     [draft, setDraft] = useState<Item | null>(null),
     [tab, setTab] = useState("fields"),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [name, setName] = useState(""),
     [template, setTemplate] = useState(""),
     [review, setReview] = useState(false);
@@ -160,17 +159,12 @@ export function EntityDesigner({
       window.removeEventListener(beforeNavigateEvent, navigate);
     };
   }, [dirty]);
-  async function run(fn: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    try {
-      await fn();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Designer actions share the console's mutation guard: one at a time, the
+  // previous error cleared, cached reads (the entity list) refreshed after.
+  const { busy, run } = useAction(space, {
+    onSuccess: () => {},
+    onError: setError,
+  });
   async function open(id: string) {
     if (dirty && !(await discardChanges())) return;
     await run(async () => {
@@ -195,7 +189,6 @@ export function EntityDesigner({
     );
     setRecord(v);
     setDraft(v.draft_json);
-    await load();
     return v;
   }
   const replace = (list: string, key: string, v: Item) =>
@@ -278,7 +271,6 @@ export function EntityDesigner({
                   "",
                   location.pathname + "?entity=" + encodeURIComponent(v.id),
                 );
-                await load();
               });
             }}
           >
@@ -559,7 +551,6 @@ export function EntityDesigner({
                               saved.revision,
                             );
                             setRecord(v);
-                            await load();
                           });
                       }}
                     >
