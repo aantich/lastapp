@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -858,11 +857,6 @@ func (v *Authoring) SaveAppAccess(ctx context.Context, a op.Actor, app string, i
 		return nil, e
 	}
 	return v.AppAccess(ctx, a, app)
-}
-
-func EntityViewOf(r *http.Request) EntityView {
-	q := r.URL.Query()
-	return EntityView{Section: q.Get("section"), Version: q.Get("version"), Field: q.Get("field")}
 }
 
 func ProjectAppPermissions(ctx context.Context, tx *sql.Tx, app string, a entity.AppAccess) error {

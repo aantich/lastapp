@@ -4,11 +4,12 @@ import (
 	"net/http"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/roles"
 )
 
 func (s *Server) roles(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -20,7 +21,7 @@ func (s *Server) roles(w http.ResponseWriter, r *http.Request, p access.Principa
 }
 
 func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -36,7 +37,7 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p access.Pri
 }
 
 func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -52,7 +53,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p access.Pri
 }
 
 func (s *Server) grants(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -64,7 +65,7 @@ func (s *Server) grants(w http.ResponseWriter, r *http.Request, p access.Princip
 }
 
 func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -80,7 +81,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p access.Pr
 }
 
 func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -92,7 +93,7 @@ func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p access.Pr
 }
 
 func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	scope, res, e := roles.RequestScope(r)
+	scope, res, e := requestScope(r)
 	if e != nil {
 		return e
 	}
@@ -102,4 +103,9 @@ func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p acce
 	}
 	v, e := s.authority.Recipients(r.Context(), httpActor(r, p), scope, res, pageRequest(r.URL.Query()))
 	return reply(w, 200, v, e)
+}
+
+// requestScope reads a role/assignment scope from the console route.
+func requestScope(r *http.Request) (authz.Scope, access.Resource, error) {
+	return roles.ScopeOf(r.PathValue("tenant"), r.PathValue("team"), r.PathValue("space"), r.PathValue("app"))
 }

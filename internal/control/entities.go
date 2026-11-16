@@ -144,8 +144,8 @@ func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p access.P
 	a := httpActor(r, p)
 	created, e := s.authoring.CreateEntity(r.Context(), a, r.PathValue("space"), in)
 	var v any = created
-	if e == nil && entities.EntityViewOf(r) != (entities.EntityView{}) {
-		v, e = s.authoring.Entity(r.Context(), a, created.ID, entities.EntityViewOf(r))
+	if e == nil && entityViewOf(r) != (entities.EntityView{}) {
+		v, e = s.authoring.Entity(r.Context(), a, created.ID, entityViewOf(r))
 	}
 	if e == nil {
 		send(w, 200, v)
@@ -154,7 +154,7 @@ func (s *Server) entityCreate(w http.ResponseWriter, r *http.Request, p access.P
 }
 
 func (s *Server) entityGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.authoring.Entity(r.Context(), httpActor(r, p), r.PathValue("entity"), entities.EntityViewOf(r))
+	v, e := s.authoring.Entity(r.Context(), httpActor(r, p), r.PathValue("entity"), entityViewOf(r))
 	if e == nil {
 		send(w, 200, v)
 	}
@@ -169,8 +169,8 @@ func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p access.Pri
 	a := httpActor(r, p)
 	saved, e := s.authoring.SaveEntity(r.Context(), a, r.PathValue("entity"), in, ifMatch(r))
 	var v any = saved
-	if e == nil && entities.EntityViewOf(r) != (entities.EntityView{}) {
-		v, e = s.authoring.Entity(r.Context(), a, r.PathValue("entity"), entities.EntityViewOf(r))
+	if e == nil && entityViewOf(r) != (entities.EntityView{}) {
+		v, e = s.authoring.Entity(r.Context(), a, r.PathValue("entity"), entityViewOf(r))
 	}
 	if e == nil {
 		send(w, 200, v)
@@ -248,4 +248,9 @@ func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p access.
 		send(w, 200, v)
 	}
 	return e
+}
+
+func entityViewOf(r *http.Request) entities.EntityView {
+	q := r.URL.Query()
+	return entities.EntityView{Section: q.Get("section"), Version: q.Get("version"), Field: q.Get("field")}
 }

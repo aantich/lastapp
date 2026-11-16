@@ -3,7 +3,6 @@ package roles
 import (
 	"context"
 	"database/sql"
-	"net/http"
 	"strings"
 	"time"
 
@@ -12,11 +11,6 @@ import (
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
-
-// RequestScope reads a role/assignment scope from the console route.
-func RequestScope(r *http.Request) (authz.Scope, access.Resource, error) {
-	return ScopeOf(r.PathValue("tenant"), r.PathValue("team"), r.PathValue("space"), r.PathValue("app"))
-}
 
 // ScopeOf derives the one authorization scope selected by the given IDs: the
 // most specific of App, Space, team and Tenant, or the platform without a Tenant.
