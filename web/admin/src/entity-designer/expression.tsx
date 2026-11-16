@@ -2,14 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { EntityCatalog, Item } from "../api-types";
 import "./entity.css";
 import { useListKeys } from "../list-keys";
+import { choiceLabel } from "./shared";
 // One expression shape for the SDK and the console (packages/client).
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
 const own = (value: Item, key: string) =>
   Object.hasOwn(value, key) ? value[key] : undefined;
-export const choiceLabel = (field: Item, key: string): string => {
-  const label = own(field.value_labels || {}, key);
-  return typeof label === "string" ? label : key;
-};
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
 const booleanOptions = ["true", "false"].map((v) => ({ value: v, label: v }));

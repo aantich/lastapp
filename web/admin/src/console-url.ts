@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useRef,
+} from "react";
 
 // The console's route table: every console URL is built and parsed here.
 //   /console/                                   sign-in landing
@@ -71,8 +77,11 @@ const navigationAllowed = (proceed: () => void) =>
 
 export function useConsoleURL() {
   const [path, setPath] = useState(location.pathname);
+  // The URL to restore when a listener cancels a back/forward navigation.
   const current = useRef(location.pathname + location.search);
-  current.current = path + location.search;
+  useLayoutEffect(() => {
+    current.current = path + location.search;
+  });
   useEffect(() => {
     const pop = () => {
       const target = location.pathname + location.search;

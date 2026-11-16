@@ -3,8 +3,8 @@ import { RemoteSelect } from "../remote-select";
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
 import type { EntityCatalog, Item } from "../api-types";
-import { Expression, choiceLabel } from "./expression";
-import { fieldLabel, keyOf } from "./shared";
+import { Expression } from "./expression";
+import { choiceLabel, fieldLabel, keyOf } from "./shared";
 
 // Adds or edits one field of the draft definition.
 export function FieldEditor({

@@ -20,24 +20,6 @@
       "count": 2
     }
   },
-  "src/console-url.ts": {
-    "react-hooks/refs": {
-      "count": 1
-    }
-  },
-  "src/entity-designer/expression.tsx": {
-    "react-refresh/only-export-components": {
-      "count": 1
-    }
-  },
-  "src/main.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    },
-    "react-refresh/only-export-components": {
-      "count": 1
-    }
-  },
   "src/new-password-input.tsx": {
     "react-refresh/only-export-components": {
       "count": 2

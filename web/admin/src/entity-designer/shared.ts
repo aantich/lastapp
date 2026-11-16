@@ -17,6 +17,13 @@ export const keyOf = (name: string) => {
       : "item_" + crypto.randomUUID().replaceAll("-", "")
   ).slice(0, 48);
 };
+// A choice value's display label; keys without one show as themselves.
+// Only the labels object's own keys count, never inherited properties.
+export const choiceLabel = (field: Item, key: string): string => {
+  const labels = field.value_labels || {},
+    label = Object.hasOwn(labels, key) ? labels[key] : undefined;
+  return typeof label === "string" ? label : key;
+};
 export const fieldLabel = (key: string) => key[0].toUpperCase() + key.slice(1);
 export const discardChanges = () =>
   confirmAction({
