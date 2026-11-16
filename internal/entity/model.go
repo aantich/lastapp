@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -17,11 +18,13 @@ import (
 
 const FormatVersion = 1
 
-var Limits = struct{ Fields, Rules, Permissions, Depth, Nodes, Page, MaxPage, Bulk, ReadPaths, DataRequests int }{64, 64, 64, 8, 64, 50, 200, 100, 512, 64}
-var Types = []string{"text", "integer", "decimal", "boolean", "date", "timestamp", "choice", "reference", "user", "team", "json"}
-var Operations = []string{"read", "create", "update", "delete", "acl.manage"}
-var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
-var reserved = []string{"id", "revision", "created_at", "updated_at", "created_by", "updated_by", "tenant_id", "space_id"}
+var (
+	Limits     = struct{ Fields, Rules, Permissions, Depth, Nodes, Page, MaxPage, Bulk, ReadPaths, DataRequests int }{64, 64, 64, 8, 64, 50, 200, 100, 512, 64}
+	Types      = []string{"text", "integer", "decimal", "boolean", "date", "timestamp", "choice", "reference", "user", "team", "json"}
+	Operations = []string{"read", "create", "update", "delete", "acl.manage"}
+	keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
+	reserved   = []string{"id", "revision", "created_at", "updated_at", "created_by", "updated_by", "tenant_id", "space_id"}
+)
 
 type Definition struct {
 	Format      int          `json:"format_version"`
@@ -100,16 +103,18 @@ func Decode(b []byte) (Definition, error) {
 		return d, e
 	}
 	var more any
-	if dec.Decode(&more) != io.EOF {
+	if !errors.Is(dec.Decode(&more), io.EOF) {
 		return d, fmt.Errorf("one definition required")
 	}
 	return d, nil
 }
+
 func Hash(v any) string {
 	b, _ := json.Marshal(v)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
+
 func (d Definition) Field(key string) (Field, bool) {
 	for _, f := range d.Fields {
 		if f.Key == key {
@@ -131,6 +136,7 @@ func (d Definition) Field(key string) (Field, bool) {
 	}
 	return Field{}, false
 }
+
 func (d Definition) Validate() []Diagnostic {
 	out := []Diagnostic{}
 	add := func(path, msg string) { out = append(out, Diagnostic{"invalid_definition", path, msg}) }
@@ -397,6 +403,7 @@ func (d Definition) Validate() []Diagnostic {
 	}
 	return out
 }
+
 func contexts(x Expr) []string {
 	out := []string{}
 	if x.Context != "" {
@@ -407,6 +414,7 @@ func contexts(x Expr) []string {
 	}
 	return out
 }
+
 func (d Definition) CalculationOrder() ([]Field, error) {
 	out := []Field{}
 	state := map[string]int{}
@@ -443,6 +451,7 @@ func (d Definition) CalculationOrder() ([]Field, error) {
 	}
 	return out, nil
 }
+
 func Capabilities() any {
 	return map[string]any{"format_version": FormatVersion, "types": Types, "operations": Operations, "operators": Operators, "relationships": []string{"member", "owner", "team_member", "team_reviewer", "team_admin", "user", "team"}, "limits": Limits, "templates": Templates(), "field_defaults": FieldDefaults(), "field_constraints": FieldConstraints(), "context_providers": ContextProviders}
 }

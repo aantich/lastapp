@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/aantich/lastapp/internal/authz"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 type testClient struct {
@@ -44,6 +45,7 @@ func (c testClient) req(method, path string, body any, revision int64) (int, Row
 	}
 	return w.Code, out
 }
+
 func (c testClient) want(method, path string, body any, revision int64, status int) Row {
 	c.t.Helper()
 	got, v := c.req(method, path, body, revision)
@@ -52,6 +54,7 @@ func (c testClient) want(method, path string, body any, revision int64, status i
 	}
 	return v
 }
+
 func (c testClient) as(uid string) testClient {
 	c.t.Helper()
 	session, csrf := token(32), token(32)
@@ -62,6 +65,7 @@ func (c testClient) as(uid string) testClient {
 	c.session, c.csrf = session, csrf
 	return c
 }
+
 func (c testClient) waitDB(tenant, record, state string) Row {
 	c.t.Helper()
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
@@ -77,6 +81,7 @@ func (c testClient) waitDB(tenant, record, state string) Row {
 	c.t.Fatal("database status timeout")
 	return nil
 }
+
 func TestMariaDBControlPlane(t *testing.T) {
 	configPath := os.Getenv("LASTAPP_TEST_CONFIG")
 	if configPath == "" {
@@ -146,7 +151,9 @@ func TestMariaDBControlPlane(t *testing.T) {
 	// Idempotency must not allocate an orphan database on a duplicate parent ID.
 	ownerClient.want("POST", base+"/spaces", Row{"initial_manager_user_id": owner, "id": spaceIDs[0], "slug": "duplicate", "display_name": "Duplicate", "database": Row{"mode": "managed", "layout": "dedicated", "target_id": target}}, 0, 409)
 	var n int
-	s.DB.QueryRow("SELECT COUNT(*) FROM database_resources WHERE tenant_id=?", tenant).Scan(&n)
+	if e := s.DB.QueryRow("SELECT COUNT(*) FROM database_resources WHERE tenant_id=?", tenant).Scan(&n); e != nil {
+		t.Fatal(e)
+	}
 	if n != 1 {
 		t.Fatal("duplicate Space allocated a database")
 	}
@@ -219,7 +226,9 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	json.Unmarshal(b, &state)
+	if e = json.Unmarshal(b, &state); e != nil {
+		t.Fatal(e)
+	}
 	adminConfig, e := LoadConfig(filepath.Join(filepath.Dir(configPath), "migrate.json"))
 	if e != nil {
 		t.Fatal(e)
@@ -236,7 +245,9 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if _, e = adminServer.DB.Exec("CREATE TABLE `" + fixtureDB + "`.contacts (id INT PRIMARY KEY,name VARCHAR(100))"); e != nil {
 		t.Fatal(e)
 	}
-	adminServer.DB.Exec("INSERT INTO `" + fixtureDB + "`.contacts VALUES (1,'Existing customer')")
+	if _, e = adminServer.DB.Exec("INSERT INTO `" + fixtureDB + "`.contacts VALUES (1,'Existing customer')"); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = adminServer.DB.Exec("CREATE USER '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY '" + state.Legacy + "'"); e != nil {
 		t.Fatal(e)
 	}
@@ -253,8 +264,12 @@ func TestMariaDBControlPlane(t *testing.T) {
 	}
 	var runtime credentials
 	var enc []byte
-	s.DB.QueryRow("SELECT runtime_credentials_enc FROM database_resources WHERE id=?", registered).Scan(&enc)
-	s.unseal("database", registered, tenant, enc, &runtime)
+	if e := s.DB.QueryRow("SELECT runtime_credentials_enc FROM database_resources WHERE id=?", registered).Scan(&enc); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.unseal("database", registered, tenant, enc, &runtime); e != nil {
+		t.Fatal(e)
+	}
 	targetRow, _ := row(ctx, s.DB, "SELECT * FROM database_targets WHERE id=?", target)
 	db, e := s.targetDB(ctx, targetRow, runtime, fixtureDB)
 	if e != nil {
@@ -287,7 +302,9 @@ func TestMariaDBControlPlane(t *testing.T) {
 		t.Fatalf("collision adopted: %v", failed)
 	}
 	var comment string
-	adminServer.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", collisionName).Scan(&comment)
+	if e := adminServer.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", collisionName).Scan(&comment); e != nil {
+		t.Fatal(e)
+	}
 	if comment != "owned-by-someone-else" {
 		t.Fatal("unknown database changed")
 	}
@@ -326,7 +343,9 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if _, e = adminServer.DB.Exec("KILL CONNECTION " + str(leader)); e != nil {
 		t.Fatal(e)
 	}
-	held.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", "lastapp:resource:"+recovery)
+	if _, e = held.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", "lastapp:resource:"+recovery); e != nil {
+		t.Fatal(e)
+	}
 	c.waitDB(tenant, recovery, "ready")
 	t.Log("credential repair, collision refusal and leadership-loss recovery passed")
 

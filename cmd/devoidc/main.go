@@ -32,7 +32,9 @@ func random() string {
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
 func encode(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
+
 func main() {
 	address := flag.String("address", "127.0.0.1:8788", "loopback address")
 	origin := flag.String("app-origin", "http://127.0.0.1:8787", "allowed Lastapp origin")
@@ -58,7 +60,7 @@ func main() {
 	codes := map[string]login{}
 	reply := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(v)
+		_ = json.NewEncoder(w).Encode(v) // client disconnects are not actionable
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +69,7 @@ func main() {
 	mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "local", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
 	})
-	page := template.Must(template.New("login").Parse(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in · Lastapp</title><style>body{background:#f5f6f9;font:15px system-ui;color:#192234;display:grid;place-items:center;min-height:95vh}main{background:white;padding:44px;width:340px;border:1px solid #e2e5ed;border-radius:18px;box-shadow:0 16px 50px #15284709}small{color:#7b65ca;letter-spacing:.1em}h1{font-size:26px;margin-bottom:8px}p{color:#748095;line-height:1.6}label{display:block;margin-top:22px;font-size:13px}select,input,button{box-sizing:border-box;width:100%;padding:12px;margin-top:8px;border:1px solid #d9dfe9;border-radius:8px;font:inherit}button{background:#6551d9;color:white;border:0;cursor:pointer;margin-top:26px}footer{margin-top:26px;font-size:12px;color:#8390a4}</style></head><body><main><small>LASTAPP / DEVELOPMENT</small><h1>Welcome back.</h1><p>Sign in to your local control plane.</p>{{if .Error}}<p style="color:#b42318">{{.Error}}</p>{{end}}<form method="post"><label>Account<select name="subject"><option value="operator">Platform operator</option><option value="tenant-admin">Tenant administrator</option><option value="outsider">Outside user</option><option value="joe">Joe (Marketing Reviewer)</option></select></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button>Sign in</button></form><footer>Local development identity provider · loopback only</footer></main></body></html>`))
+	page := template.Must(template.New("login").Parse(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in · Lastapp</title><style>body{background:#f5f6f9;font:15px system-ui;color:#192234;display:grid;place-items:center;min-height:95vh}main{background:white;padding:44px;width:340px;border:1px solid #e2e5ed;border-radius:18px;box-shadow:0 16px 50px #15284709}small{color:#7b65ca;letter-spacing:.1em}h1{font-size:26px;margin-bottom:8px}p{color:#748095;line-height:1.6}label{display:block;margin-top:22px;font-size:13px}input,button{box-sizing:border-box;width:100%;padding:12px;margin-top:8px;border:1px solid #d9dfe9;border-radius:8px;font:inherit}fieldset{border:0;padding:0;margin:22px 0 0}legend{font-size:13px;padding:0}label.acct{display:flex;align-items:center;gap:10px;margin-top:8px;padding:10px 12px;border:1px solid #d9dfe9;border-radius:8px;font-size:15px;cursor:pointer}label.acct:has(:checked){border-color:#6551d9;background:#f3f1fd}label.acct:has(:focus-visible){outline:2px solid #6551d9;outline-offset:2px}label.acct input{width:auto;margin:0;accent-color:#6551d9}button{background:#6551d9;color:white;border:0;cursor:pointer;margin-top:26px}footer{margin-top:26px;font-size:12px;color:#8390a4}</style></head><body><main><small>LASTAPP / DEVELOPMENT</small><h1>Welcome back.</h1><p>Sign in to your local control plane.</p>{{if .Error}}<p style="color:#b42318">{{.Error}}</p>{{end}}<form method="post"><fieldset><legend>Account</legend><label class="acct"><input type="radio" name="subject" value="operator" checked>Platform operator</label><label class="acct"><input type="radio" name="subject" value="tenant-admin">Tenant administrator</label><label class="acct"><input type="radio" name="subject" value="outsider">Outside user</label><label class="acct"><input type="radio" name="subject" value="joe">Joe (Marketing Reviewer)</label></fieldset><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button>Sign in</button></form><footer>Local development identity provider · loopback only</footer></main></body></html>`))
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if q.Get("client_id") != "lastapp-local" || q.Get("redirect_uri") != *origin+"/auth/callback" || q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || q.Get("state") == "" || q.Get("nonce") == "" {
@@ -77,7 +79,7 @@ func main() {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+*origin+" "+*devUI+"; frame-ancestors 'none'")
 		if r.Method == "GET" {
-			page.Execute(w, nil)
+			_ = page.Execute(w, nil) // static template; only write errors are possible
 			return
 		}
 		if r.Method != "POST" {
@@ -89,10 +91,13 @@ func main() {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
-		r.ParseForm()
+		if r.ParseForm() != nil {
+			http.Error(w, "Invalid form", 400)
+			return
+		}
 		sub := r.PostForm.Get("subject")
 		if (sub != "operator" && sub != "tenant-admin" && sub != "outsider" && sub != "joe") || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("password")), []byte(*password)) != 1 {
-			page.Execute(w, map[string]string{"Error": "Invalid credentials."})
+			_ = page.Execute(w, map[string]string{"Error": "Invalid credentials."}) // only write errors are possible
 			return
 		}
 		code := random()
@@ -113,7 +118,10 @@ func main() {
 	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
-		r.ParseForm()
+		if r.ParseForm() != nil {
+			http.Error(w, "Invalid form", 400)
+			return
+		}
 		client := r.Form.Get("client_id")
 		if client == "" {
 			client, _, _ = r.BasicAuth()

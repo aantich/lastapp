@@ -106,6 +106,14 @@ func TestRedactedDiagnostics(t *testing.T) {
 	if strings.Contains(fields, secret) || !strings.Contains(fields, "1142") {
 		t.Fatal("diagnostics leak secrets or omit SQL number")
 	}
+	wrapped := fmt.Errorf("registry connection failed: %w", fmt.Errorf("ping: %w", &mariadb.MySQLError{Number: 1045, Message: secret}))
+	fields = fmt.Sprint(diagnostic(wrapped))
+	if strings.Contains(fields, secret) || strings.Contains(fields, "registry connection") || !strings.Contains(fields, "1045") || !strings.Contains(fields, "*mariadb.MySQLError") {
+		t.Fatalf("wrapped diagnostics leak messages or lose the chain: %s", fields)
+	}
+	if fields = fmt.Sprint(diagnostic(fmt.Errorf("query: %w", context.DeadlineExceeded))); !strings.Contains(fields, "deadline_exceeded") {
+		t.Fatalf("diagnostics omit the context state: %s", fields)
+	}
 	s := &Server{}
 	if e := s.authorize(context.Background(), nil, Principal{Platform: true}, "business.contact.read", Resource{}, true); e == nil {
 		t.Fatal("platform bypass accepts an unknown action domain")
@@ -132,4 +140,24 @@ func TestPasswordWorkIsBounded(t *testing.T) {
 	}
 	second()
 	third()
+}
+
+func TestWrappedErrorResponses(t *testing.T) {
+	secret := "user:hunter2@tcp(db)/registry"
+	respond := func(err error) (int, string) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/v1/x", nil)
+		r.Header.Set("X-Request-ID", "rid")
+		writeError(w, r, err)
+		return w.Code, w.Body.String()
+	}
+	if code, body := respond(fmt.Errorf("insert: %w", &mariadb.MySQLError{Number: 1062, Message: secret})); code != 409 || strings.Contains(body, secret) {
+		t.Fatalf("wrapped SQL error mapped to %d: %s", code, body)
+	}
+	if code, body := respond(fmt.Errorf("outer: %w", bad("Visible validation message."))); code != 400 || !strings.Contains(body, "Visible validation message.") {
+		t.Fatalf("wrapped API error mapped to %d: %s", code, body)
+	}
+	if code, body := respond(fmt.Errorf("connect %s: %w", secret, errors.New(secret))); code != 500 || strings.Contains(body, secret) || strings.Contains(body, "connect") {
+		t.Fatalf("internal error response is not generic (%d): %s", code, body)
+	}
 }

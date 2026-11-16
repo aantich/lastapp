@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { login, logout, fixtureTenant, choose, menu } from "./helpers";
+import { login, logout, fixtureTenant, choose } from "./helpers";
 
 test("OAuth consent scopes an agent and account settings edit and revoke it", async ({
   page,
@@ -60,7 +60,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   expect(
     await page
       .locator(
-        '.agent-grant-form input:not([type="checkbox"]), .agent-grant-form select',
+        '.agent-grant-form input:not([type="checkbox"]), .agent-grant-form .select-trigger',
       )
       .evaluateAll((nodes) =>
         nodes.every((node) => node.getBoundingClientRect().height >= 36),
@@ -219,7 +219,7 @@ test("agent consent returns after signing in and can be denied", async ({
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Continue with SSO" }).click();
-  await page.locator("select[name=subject]").selectOption("operator");
+  await page.locator('input[name=subject][value="operator"]').check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(

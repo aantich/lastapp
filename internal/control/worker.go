@@ -6,18 +6,19 @@ import (
 	"database/sql/driver"
 	"encoding/hex"
 	"errors"
-	mariadb "github.com/aantich/go-mariadb"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	mariadb "github.com/aantich/go-mariadb"
 )
 
 // A pinned registry connection owns leadership and publishes every worker result.
 func (s *Server) RunWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		if e := s.workerLeader(ctx); e != nil && ctx.Err() == nil {
-			s.Log.Warn("provisioning leader disconnected", diagnostic(e)...)
+			s.logger(ctx).Warn("provisioning leader disconnected", diagnostic(e)...)
 		}
 		select {
 		case <-ctx.Done():
@@ -26,6 +27,7 @@ func (s *Server) RunWorker(ctx context.Context) {
 		}
 	}
 }
+
 func (s *Server) workerLeader(ctx context.Context) error {
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {
@@ -143,7 +145,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		cancel()
 		code, message, state := "", "", "ready"
 		if err != nil {
-			s.Log.Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, diagnostic(err)...)...)
+			s.logger(ctx).Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, diagnostic(err)...)...)
 			code, message = provisionError(err)
 			state = "failed"
 		}
@@ -164,6 +166,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
+
 func provisionError(e error) (string, string) {
 	var ae *APIError
 	if errors.As(e, &ae) {
@@ -184,12 +187,15 @@ func provisionError(e error) (string, string) {
 	}
 	return "connection_or_provisioning_failed", "Could not connect or provision. Check the target, credentials, TLS and network policy, then retry."
 }
+
 func ownershipConflict() error {
 	return problem(409, "ownership_conflict", "Existing database or account does not match Lastapp ownership. Nothing was replaced.")
 }
 
-var generatedRE = regexp.MustCompile(`^la_[a-f0-9]{32}$`)
-var accountHostRE = regexp.MustCompile(`^[a-zA-Z0-9.%:_\-]+$`)
+var (
+	generatedRE   = regexp.MustCompile(`^la_[a-f0-9]{32}$`)
+	accountHostRE = regexp.MustCompile(`^[a-zA-Z0-9.%:_\-]+$`)
+)
 
 func (s *Server) provision(ctx context.Context, record string) error {
 	job, e := row(ctx, s.DB, "SELECT d.*,t.canonical_host,t.port,t.tls_mode,t.provisioning_credentials_enc FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=?", record)
@@ -276,6 +282,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	defer verify.Close()
 	return validateRuntime(ctx, verify, name, true)
 }
+
 func validateRuntime(ctx context.Context, db *sql.DB, name string, strict bool) error {
 	var version string
 	if e := db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); e != nil {
@@ -295,6 +302,7 @@ func validateRuntime(ctx context.Context, db *sql.DB, name string, strict bool) 
 	}
 	return checkGrants(ctx, db, name, strict, true)
 }
+
 func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required bool) error {
 	rs, e := db.QueryContext(ctx, "SHOW GRANTS")
 	if e != nil {
@@ -363,7 +371,9 @@ func releasePinnedLock(conn *sql.Conn, name string) {
 	defer cancel()
 	var released sql.NullInt64
 	if e := conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", name).Scan(&released); e != nil || !released.Valid || released.Int64 != 1 {
-		conn.Raw(func(any) error { return driver.ErrBadConn })
+		// Returning ErrBadConn makes database/sql discard the session; the
+		// returned error is that same sentinel, so there is nothing to handle.
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 	}
 }
 

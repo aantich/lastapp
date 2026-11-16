@@ -31,13 +31,16 @@ func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 		}
 	}
 	var env map[string]any
-	json.Unmarshal(enc, &env)
+	if e := json.Unmarshal(enc, &env); e != nil {
+		t.Fatal(e)
+	}
 	env["Data"] = "AAAA"
 	tampered, _ := json.Marshal(env)
 	if s.unseal("database", "resource-a", "tenant-a", tampered, &out) == nil {
 		t.Fatal("tampering accepted")
 	}
 }
+
 func TestRequestValidation(t *testing.T) {
 	for _, body := range []string{`{"unknown":1}`, `{} {}`, `{`} {
 		r := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))

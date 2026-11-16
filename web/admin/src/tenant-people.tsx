@@ -1,9 +1,12 @@
 import { useBuiltinRoles } from "./console-config";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
-import { nameFields, status, type Item } from "./console-forms";
+import { useAction } from "./use-action";
+import { confirmAction } from "./confirm";
+import { nameFields, status } from "./console-forms";
+import type { Item, TenantCapabilities } from "./api-types";
 export function TenantPeople({
   tenant,
   caps,
@@ -14,7 +17,7 @@ export function TenantPeople({
   reload,
 }: {
   tenant: string;
-  caps: Item;
+  caps: TenantCapabilities;
   tab: string;
   team: string;
   selectTeam: (id: string) => void;
@@ -26,8 +29,11 @@ export function TenantPeople({
     path = base + "/teams/" + team;
   const [group, setGroup] = useState<Item>({}),
     [modal, setModal] = useState<Modal | null>(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [error, setError] = useState("");
+  const { busy, run: act } = useAction(path, {
+    onSuccess: refresh,
+    onError: setError,
+  });
   const canMembers = !!caps["membership.read"]?.all,
     manageMembers = !!caps["membership.manage"]?.all,
     manageTeam =
@@ -40,7 +46,7 @@ export function TenantPeople({
   useEffect(() => {
     if (!team) return;
     let live = true;
-    api(path)
+    api<Item>(path)
       .then((v) => {
         if (live) setGroup(v);
       })
@@ -51,20 +57,7 @@ export function TenantPeople({
       live = false;
     };
   }, [tenant, team, reload]);
-  async function act(fn: () => Promise<any>) {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await fn();
-      refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const name: [string, (r: Item) => any] = [
+  const name: [string, (r: Item) => ReactNode] = [
     "Person",
     (r) => (
       <>
@@ -359,13 +352,17 @@ export function TenantPeople({
                       <button
                         className="text-button danger"
                         disabled={busy}
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            confirm(
-                              "Remove " +
+                            await confirmAction({
+                              title: "Remove from team?",
+                              message:
+                                "Remove " +
                                 r.display_name +
                                 " from this team and revoke their team roles?",
-                            )
+                              confirmLabel: "Remove from team",
+                              danger: true,
+                            })
                           )
                             act(() =>
                               api(

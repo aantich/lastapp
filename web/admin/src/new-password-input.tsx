@@ -1,5 +1,6 @@
 import { useEffect, useRef, type InputHTMLAttributes } from "react";
-import { useConsoleConfig, type PasswordPolicy } from "./console-config";
+import { useConsoleConfig } from "./console-config";
+import type { PasswordPolicy } from "./api-types";
 
 export function usePasswordPolicy() {
   return useConsoleConfig().config.password_policy;

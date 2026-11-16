@@ -14,6 +14,7 @@ func TestScopes(t *testing.T) {
 		}
 	}
 }
+
 func TestCatalogIsClosedAndImmutable(t *testing.T) {
 	seen := map[string]bool{}
 	for _, r := range Roles() {

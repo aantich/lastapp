@@ -24,9 +24,11 @@ func FieldConstraints() any {
 	return map[string]any{"max_decimal_precision": MaxDecimalPrecision, "max_decimal_scale": MaxDecimalScale, "max_integer": int64(MaxInteger), "min_text_length": MinTextLength, "max_text_length": MaxTextLength, "max_indexed_text_length": MaxIndexedTextLength, "max_choice_values": MaxChoiceValues, "max_json_bytes": MaxJSONBytes, "max_json_depth": MaxJSONDepth, "max_json_nodes": MaxJSONNodes, "max_query_parameters": MaxSQLParameters, "max_publication_validation_records": MaxPublicationValidationRecords, "max_actor_teams": MaxActorTeams, "max_tenant_data_requests": MaxTenantDataRequests, "max_read_response_bytes": MaxReadResponseBytes, "max_definition_bytes": MaxDefinitionBytes, "max_description_bytes": MaxDescriptionBytes}
 }
 
-const MaxReadResponseBytes = 2 << 20
-const MaxDefinitionBytes = 1 << 20
-const MaxDescriptionBytes = 4000
+const (
+	MaxReadResponseBytes = 2 << 20
+	MaxDefinitionBytes   = 1 << 20
+	MaxDescriptionBytes  = 4000
+)
 
 // Conservative encoded width, including JSON escaping and field/map overhead.
 func EstimatedRecordBytes(fields []Field) int {

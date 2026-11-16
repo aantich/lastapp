@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { Item } from "../console-forms";
+import type { EntityCatalog, Item } from "../api-types";
+import { Select } from "../select";
 import { FieldChoices, Expression } from "./expression";
 export function AppDataAccess({
   app,
@@ -13,15 +14,15 @@ export function AppDataAccess({
     [access, edit] = useState<Item | null>(null),
     [contracts, setContracts] = useState<Item[]>([]),
     [roles, setRoles] = useState<Item[]>([]),
-    [catalog, setCatalog] = useState<Item>({}),
+    [catalog, setCatalog] = useState<EntityCatalog | null>(null),
     [error, setError] = useState(""),
     [saving, setSaving] = useState(false);
   useEffect(() => {
     let live = true;
     Promise.all([
-      api("/v1/apps/" + app + "/data-access"),
-      api("/v1/apps/" + app + "/entity-contracts"),
-      api("/v1/entity-capabilities"),
+      api<Item>("/v1/apps/" + app + "/data-access"),
+      api<Item>("/v1/apps/" + app + "/entity-contracts"),
+      api<EntityCatalog>("/v1/entity-capabilities"),
     ])
       .then(([s, c, cat]) => {
         if (live) {
@@ -54,26 +55,24 @@ export function AppDataAccess({
             <section className="panel entity-advanced" key={i}>
               <label className="field">
                 <span>Base Space permission</span>
-                <select
+                <Select
                   value={g.permission}
-                  onChange={(e) =>
+                  onChange={(permission) =>
                     edit({
                       ...access,
                       [key]: access![key].map((x: Item, j: number) =>
-                        i === j
-                          ? { permission: e.target.value, fields: [] }
-                          : x,
+                        i === j ? { permission, fields: [] } : x,
                       ),
                     })
                   }
-                >
-                  <option value="">Choose permission</option>
-                  {permissions.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.entity.label} · {p.label} ({p.operation})
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "", label: "Choose permission" },
+                    ...permissions.map((p) => ({
+                      value: p.id,
+                      label: `${p.entity.label} · ${p.label} (${p.operation})`,
+                    })),
+                  ]}
+                />
               </label>
               {p && (
                 <FieldChoices
@@ -118,7 +117,7 @@ export function AppDataAccess({
                 />{" "}
                 Limit matching records
               </label>
-              {g.when && p && (
+              {g.when && p && catalog && (
                 <Expression
                   fields={p.entity.fields}
                   catalog={catalog}
@@ -186,7 +185,7 @@ export function AppDataAccess({
         e.preventDefault();
         setSaving(true);
         setError("");
-        api(
+        api<Item>(
           "/v1/apps/" + app + "/data-access",
           "PATCH",
           access,

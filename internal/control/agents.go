@@ -27,13 +27,16 @@ var agentPermissions = []Row{
 	{"code": "lifecycle.manage", "label": "Change resource lifecycle", "description": "Archive, disable, restore or retire supported resources. Also requires access-management authority; changing entity lifecycle requires publication authority."},
 	{"code": "platform.manage", "label": "Manage platform inventory", "description": "Manage Tenants and plans only with an explicitly approved platform grant and current platform authority. Does not permit Tenant authoring."},
 }
-var agentDefaultPermissions = []string{"read"}
-var agentPresets = []Row{
-	{"label": "Workspace author", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
-	{"label": "Inspect only", "permissions": []string{"read"}},
-	{"label": "App author", "permissions": []string{"read", "resources.write"}},
-	{"label": "Entity author", "permissions": []string{"read", "entities.draft", "entities.check"}},
-}
+
+var (
+	agentDefaultPermissions = []string{"read"}
+	agentPresets            = []Row{
+		{"label": "Workspace author", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
+		{"label": "Inspect only", "permissions": []string{"read"}},
+		{"label": "App author", "permissions": []string{"read", "resources.write"}},
+		{"label": "Entity author", "permissions": []string{"read", "entities.draft", "entities.check"}},
+	}
+)
 
 func agentPermissionKinds(code string) []string {
 	switch code {
@@ -50,6 +53,7 @@ func agentPermissionKinds(code string) []string {
 	}
 	return nil
 }
+
 func agentPermissionCatalog() []Row {
 	out := []Row{}
 	for _, permission := range agentPermissions {
@@ -71,26 +75,28 @@ func agentScopeCodes() []string {
 	return out
 }
 
-const agentAccessLifetime = 15 * time.Minute
-const agentGrantDays = 7
-const agentMaxGrantDays = 30
-const agentCodeLifetime = 5 * time.Minute
-const agentMaxResponse = 2 << 20
-const agentMaxDatabases = 20
-const agentMaxTargets = 32
-const agentMaxConnections = 100
-const agentMaxReceipts = 10000
-const agentMaxConcurrent = 16
-const agentMaxTokenRotations = 4096
-const agentMaxSyntheticCases = 10
-const agentMaxClients = 1000
-const agentUnapprovedClientLifetime = 10 * time.Minute
-const agentBootstrapConcurrent = 4
-const agentTokenConcurrent = 4
-const agentValidationConcurrent = 8
-const agentClientIdleLifetime = 30 * 24 * time.Hour
-const agentMaxClientRedirects = 16
-const agentMaxClientMetadata = 65536
+const (
+	agentAccessLifetime           = 15 * time.Minute
+	agentGrantDays                = 7
+	agentMaxGrantDays             = 30
+	agentCodeLifetime             = 5 * time.Minute
+	agentMaxResponse              = 2 << 20
+	agentMaxDatabases             = 20
+	agentMaxTargets               = 32
+	agentMaxConnections           = 100
+	agentMaxReceipts              = 10000
+	agentMaxConcurrent            = 16
+	agentMaxTokenRotations        = 4096
+	agentMaxSyntheticCases        = 10
+	agentMaxClients               = 1000
+	agentUnapprovedClientLifetime = 10 * time.Minute
+	agentBootstrapConcurrent      = 4
+	agentTokenConcurrent          = 4
+	agentValidationConcurrent     = 8
+	agentClientIdleLifetime       = 30 * 24 * time.Hour
+	agentMaxClientRedirects       = 16
+	agentMaxClientMetadata        = 65536
+)
 
 type agentLimits struct {
 	TargetIDs    []string `json:"target_ids"`
@@ -112,8 +118,10 @@ type agentGrant struct {
 
 // Audit identity is metadata, never an authorization credential. Workers carry
 // it from persisted jobs, including after revocation or recovery.
-type agentAuditKey struct{}
-type agentAuditIdentity struct{ Grant, Client string }
+type (
+	agentAuditKey      struct{}
+	agentAuditIdentity struct{ Grant, Client string }
+)
 
 func agentAuditContext(ctx context.Context, grant, client string) context.Context {
 	if grant == "" {
@@ -122,19 +130,22 @@ func agentAuditContext(ctx context.Context, grant, client string) context.Contex
 	return context.WithValue(ctx, agentAuditKey{}, agentAuditIdentity{Grant: grant, Client: client})
 }
 
-type agentContextKey struct{}
-type agentExecution struct {
-	Grant                *agentGrant
-	Permission           []string
-	Operation, Key, Hash string
-	Result               Row
-	Committed            bool
-}
+type (
+	agentContextKey struct{}
+	agentExecution  struct {
+		Grant                *agentGrant
+		Permission           []string
+		Operation, Key, Hash string
+		Result               Row
+		Committed            bool
+	}
+)
 type agentAuthorityError struct{ Missing []string }
 
 func (e *agentAuthorityError) Error() string {
 	return "Additional delegated scopes required: " + strings.Join(e.Missing, ", ")
 }
+
 func (e *agentAuthorityError) Unwrap() error { return problem(403, "needs_authorization", e.Error()) }
 
 var errAgentReplay = errors.New("agent operation already committed")
@@ -142,6 +153,7 @@ var errAgentReplay = errors.New("agent operation already committed")
 func agentHas(g *agentGrant, permission string) bool {
 	return g != nil && slices.Contains(g.Permissions, permission)
 }
+
 func (s *Server) checkAgent(ctx context.Context, q Queryer, p Principal, res Resource, exact bool) error {
 	g := p.Agent
 	if g == nil {
@@ -151,7 +163,7 @@ func (s *Server) checkAgent(ctx context.Context, q Queryer, p Principal, res Res
 	e := q.QueryRowContext(ctx, `SELECT g.revision FROM agent_grants g JOIN users u ON u.id=g.user_id AND u.state='active'
  LEFT JOIN local_accounts l ON l.user_id=u.id WHERE g.id=? AND g.user_id=? AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)
  AND COALESCE(l.must_change_password,0)=0 AND g.audience_uri=? LOCK IN SHARE MODE`, g.ID, p.ID, s.mcpURL()).Scan(&revision)
-	if e != nil && e != sql.ErrNoRows {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	if e != nil || revision != g.Revision {
@@ -244,7 +256,7 @@ func (s *Server) agentMutationBegin(ctx context.Context, tx *sql.Tx) error {
 		}
 		return errAgentReplay
 	}
-	if e != sql.ErrNoRows {
+	if !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	var n int
@@ -256,6 +268,7 @@ func (s *Server) agentMutationBegin(ctx context.Context, tx *sql.Tx) error {
 	}
 	return nil
 }
+
 func (s *Server) agentMutationFinish(ctx context.Context, tx *sql.Tx) error {
 	a, ok := ctx.Value(agentContextKey{}).(*agentExecution)
 	if !ok {
@@ -271,12 +284,14 @@ func (s *Server) agentMutationFinish(ctx context.Context, tx *sql.Tx) error {
 	}
 	return e
 }
+
 func operationID(ctx context.Context) string {
 	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
 		return str(a.Result["id"])
 	}
 	return newID()
 }
+
 func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user string, res Resource, permission string, targets ...string) error {
 	if grant == "" {
 		return nil
@@ -305,6 +320,7 @@ func (s *Server) agentJobAllowed(ctx context.Context, q Queryer, grant, user str
 	}
 	return s.authorize(ctx, q, p, action, res, true)
 }
+
 func (s *Server) readAgentGrant(ctx context.Context, q Queryer, key string) (*agentGrant, error) {
 	v, e := row(ctx, q, "SELECT id,user_id,client_id,client_name,COALESCE(tenant_id,'') AS tenant_id,scope_kind,COALESCE(scope_id,'') AS scope_id,permissions_json,limits_json,revision,audience_uri FROM agent_grants WHERE id=?", key)
 	if e != nil {
@@ -312,6 +328,7 @@ func (s *Server) readAgentGrant(ctx context.Context, q Queryer, key string) (*ag
 	}
 	return agentGrantFromRow(v)
 }
+
 func agentGrantFromRow(v Row) (*agentGrant, error) {
 	g := &agentGrant{ID: str(v["id"]), User: str(v["user_id"]), Client: str(v["client_id"]), Name: str(v["client_name"]), Tenant: str(v["tenant_id"]), Kind: str(v["scope_kind"]), Scope: str(v["scope_id"]), Revision: integer(v["revision"])}
 	g.Audience = str(v["audience_uri"])
@@ -322,6 +339,7 @@ func agentGrantFromRow(v Row) (*agentGrant, error) {
 	b, _ = json.Marshal(v["limits_json"])
 	return g, json.Unmarshal(b, &g.Limits)
 }
+
 func (s *Server) agentPrincipal(r *http.Request) (Principal, error) {
 	var p Principal
 	raw := r.Header.Get("Authorization")

@@ -31,7 +31,9 @@ func TestSlowOpenDoesNotBlockAnotherResource(t *testing.T) {
 	started, finish, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		p.Acquire(context.Background(), "slow", func() (*sql.DB, error) { close(started); <-finish; return nil, fmt.Errorf("Simulated failure") })
+		if _, _, e := p.Acquire(context.Background(), "slow", func() (*sql.DB, error) { close(started); <-finish; return nil, fmt.Errorf("Simulated failure") }); e == nil {
+			t.Error("simulated open failure was not reported")
+		}
 	}()
 	<-started
 	ready := make(chan error, 1)

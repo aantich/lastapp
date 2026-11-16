@@ -39,6 +39,7 @@ func (s *Server) api(pattern string, fn endpoint) {
 		}
 	})
 }
+
 func (s *Server) Handler() http.Handler {
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { send(w, 200, Row{"status": "ok"}) })
 	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +174,7 @@ func (s *Server) Handler() http.Handler {
 				http.Error(w, "Build the admin UI before compiling Lastapp (make build).", 503)
 				return
 			}
-			w.Write(b)
+			_, _ = w.Write(b) // client disconnects are not actionable
 			return
 		}
 		clone := r.Clone(r.Context())
@@ -181,21 +182,19 @@ func (s *Server) Handler() http.Handler {
 		files.ServeHTTP(w, clone)
 	})
 	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/console/", 302) })
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.observe(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.serveAppHost(w, r) {
 			return
 		}
-		rid := newID()
-		r.Header.Set("X-Request-ID", rid)
-		w.Header().Set("X-Request-ID", rid)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		s.mux.ServeHTTP(w, r)
-	})
+	}))
 }
+
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	if !p.Platform {
@@ -214,6 +213,7 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principa
 	send(w, 200, Row{"permissions": out})
 	return nil
 }
+
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
@@ -239,6 +239,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) e
 	send(w, 200, out)
 	return e
 }
+
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	action := "audit.read"
@@ -260,6 +261,7 @@ func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) err
 	}
 	return e
 }
+
 func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, record string, status int) error {
 	query := "SELECT id,revision FROM " + table + " WHERE id=?"
 	args := []any{record}
@@ -274,6 +276,7 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 	}
 	return e
 }
+
 func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (Row, error) {
 	query := "SELECT id,revision,state FROM " + table + " WHERE id=?"
 	args := []any{record}

@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	mariadb "github.com/aantich/go-mariadb"
-	"github.com/aantich/lastapp/internal/authz"
 	"net"
 	"strconv"
+
+	mariadb "github.com/aantich/go-mariadb"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 // SeedDevelopment is an explicit CLI-only fixture operation. It is never an HTTP route.

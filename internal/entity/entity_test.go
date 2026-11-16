@@ -11,6 +11,7 @@ import (
 func sample() Definition {
 	return Definition{Format: 1, Key: "deal", Label: "Deal", Fields: []Field{{Key: "name", Label: "Name", Type: "text", MaxLength: 200, Required: true}, {Key: "amount", Label: "Amount", Type: "decimal", Precision: 18, Scale: 2, Required: true}, {Key: "probability", Label: "Probability", Type: "integer", Required: true, Default: &Expr{Literal: json.Number("0")}}, {Key: "expected", Label: "Expected", Type: "decimal", Precision: 18, Scale: 2, Calculation: &Expr{Op: "div", Args: []Expr{{Op: "mul", Args: []Expr{{Field: "amount"}, {Field: "probability"}}}, {Literal: json.Number("100")}}}}, {Key: "owner", Label: "Owner", Type: "user", Default: &Expr{Context: "actor.id"}}}, Owner: "owner", Rules: []Rule{}, Permissions: []Permission{}}
 }
+
 func TestCandidate(t *testing.T) {
 	d := sample()
 	c := Context{Actor: "11111111-1111-4111-8111-111111111111", Now: time.Now()}
@@ -34,6 +35,7 @@ func TestCandidate(t *testing.T) {
 		t.Fatal("required null accepted")
 	}
 }
+
 func TestValidationAndCycles(t *testing.T) {
 	d := sample()
 	if ds := d.Validate(); len(ds) > 0 {
@@ -54,6 +56,7 @@ func TestValidationAndCycles(t *testing.T) {
 		t.Fatal("unknown contract property")
 	}
 }
+
 func TestCompletePaths(t *testing.T) {
 	d := sample()
 	d.Permissions = []Permission{{Key: "name", Label: "Name", Operation: "update", Relationship: "member", Fields: []string{"name"}}, {Key: "amount", Label: "Amount", Operation: "update", Relationship: "member", Fields: []string{"amount"}}}
@@ -71,6 +74,7 @@ func TestCompletePaths(t *testing.T) {
 		t.Fatal("owner escape")
 	}
 }
+
 func TestReadFieldComposition(t *testing.T) {
 	d := sample()
 	d.Permissions = []Permission{{Key: "names", Operation: "read", Relationship: "member", Fields: []string{"name"}}, {Key: "salaries", Operation: "read", Relationship: "owner", Fields: []string{"amount"}}}
@@ -84,6 +88,7 @@ func TestReadFieldComposition(t *testing.T) {
 		t.Fatal("mismatched permission ceiling", sql, e)
 	}
 }
+
 func TestNullAndTypedArithmetic(t *testing.T) {
 	d := sample()
 	x := Expr{Op: "not", Args: []Expr{{Op: "eq", Args: []Expr{{Field: "name"}, {Literal: "A"}}}}}
@@ -100,6 +105,7 @@ func TestNullAndTypedArithmetic(t *testing.T) {
 		t.Fatal("zero division")
 	}
 }
+
 func TestTransitionScope(t *testing.T) {
 	d := sample()
 	d.Permissions = []Permission{{Key: "approve", Operation: "update", Relationship: "member", Fields: []string{"name"}, ChangeWhen: &Expr{Op: "eq", Args: []Expr{{Field: "old.name"}, {Literal: "Pending"}}}}}

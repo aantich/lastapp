@@ -2,7 +2,9 @@ import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { RemoteSelect } from "../remote-select";
-import type { Item } from "../console-forms";
+import { Select } from "../select";
+import { NumberInput } from "../number-input";
+import type { EntityCatalog, Item, Page } from "../api-types";
 import {
   Expression,
   FieldChoices,
@@ -10,6 +12,9 @@ import {
   choiceLabel,
 } from "./expression";
 import "./entity.css";
+import { errorMessage } from "../use-action";
+import { confirmAction } from "../confirm";
+import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 const keyOf = (name: string) => {
   const bare = name
     .normalize("NFKD")
@@ -26,6 +31,13 @@ const keyOf = (name: string) => {
   ).slice(0, 48);
 };
 const fieldLabel = (key: string) => key[0].toUpperCase() + key.slice(1);
+const discardChanges = () =>
+  confirmAction({
+    title: "Discard unsaved changes?",
+    message: "Your unsaved entity changes will be lost.",
+    confirmLabel: "Discard changes",
+    danger: true,
+  });
 const emptyDefinition = (name: string, format: number) => ({
   format_version: format,
   key: keyOf(name),
@@ -47,7 +59,7 @@ export function EntityDesigner({
   const [items, setItems] = useState<Item[]>([]),
     [record, setRecord] = useState<Item | null>(null),
     [draft, setDraft] = useState<Item | null>(null),
-    [catalog, setCatalog] = useState<Item | null>(null),
+    [catalog, setCatalog] = useState<EntityCatalog | null>(null),
     [tab, setTab] = useState("fields"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -62,22 +74,24 @@ export function EntityDesigner({
   const dirty =
     !!record && JSON.stringify(draft) !== JSON.stringify(record.draft_json);
   const load = () =>
-    api("/v1/spaces/" + space + "/entities").then((v) => setItems(v.items));
+    api<Page>("/v1/spaces/" + space + "/entities").then((v) =>
+      setItems(v.items),
+    );
   useEffect(() => {
     let live = true;
     Promise.all([
-      api("/v1/entity-capabilities"),
-      api("/v1/tenants/" + tenant + "/spaces/" + space + "/roles"),
-      api("/v1/spaces/" + space + "/entities"),
+      api<EntityCatalog>("/v1/entity-capabilities"),
+      api<Page>("/v1/tenants/" + tenant + "/spaces/" + space + "/roles"),
+      api<Page>("/v1/spaces/" + space + "/entities"),
     ])
       .then(([c, r, l]) => {
         if (live) {
           setCatalog(c);
-          setRoles(r.items.filter((x: Item) => x.domain === "data"));
+          setRoles(r.items.filter((x) => x.domain === "data"));
           setItems(l.items);
           const selected = new URLSearchParams(location.search).get("entity");
           if (selected) {
-            api("/v1/entities/" + selected)
+            api<Item>("/v1/entities/" + selected)
               .then((v) => {
                 if (live && v.space_id === space) {
                   setRecord(v);
@@ -101,20 +115,23 @@ export function EntityDesigner({
       e.preventDefault();
     };
     const navigate = (e: Event) => {
-      if (!confirm("Discard your unsaved entity changes?")) e.preventDefault();
+      e.preventDefault();
+      void discardChanges().then((discard) => {
+        if (discard) (e as BeforeNavigateEvent).detail.proceed();
+      });
     };
     window.addEventListener("beforeunload", fn);
-    window.addEventListener("lastapp:before-navigate", navigate);
+    window.addEventListener(beforeNavigateEvent, navigate);
     return () => {
       window.removeEventListener("beforeunload", fn);
-      window.removeEventListener("lastapp:before-navigate", navigate);
+      window.removeEventListener(beforeNavigateEvent, navigate);
     };
   }, [dirty]);
   useEffect(() => {
     if (!record?.pending_version_id) return;
     let live = true;
     const timer = setInterval(() => {
-      api("/v1/entities/" + record.id)
+      api<Item>("/v1/entities/" + record.id)
         .then((v) => {
           if (!live) return;
           setRecord((current) =>
@@ -148,15 +165,15 @@ export function EntityDesigner({
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
   }
   async function open(id: string) {
-    if (dirty && !confirm("Discard your unsaved changes?")) return;
+    if (dirty && !(await discardChanges())) return;
     await run(async () => {
-      const v = await api("/v1/entities/" + id);
+      const v = await api<Item>("/v1/entities/" + id);
       setRecord(v);
       setDraft(v.draft_json);
       history.replaceState(
@@ -169,7 +186,7 @@ export function EntityDesigner({
     });
   }
   async function save() {
-    const v = await api(
+    const v = await api<Item>(
       "/v1/entities/" + record!.id,
       "PATCH",
       { definition: draft },
@@ -190,13 +207,15 @@ export function EntityDesigner({
         ? d![list].map((x: Item) => (x.key === key ? v : x))
         : [...d![list], v],
     }));
-  const remove = (list: string, key: string) => {
+  const remove = async (list: string, key: string) => {
+    const kind = list === "fields" ? "field" : "definition";
     if (
-      confirm(
-        "Remove this " +
-          (list === "fields" ? "field" : "definition") +
-          " from the draft?",
-      )
+      await confirmAction({
+        title: "Remove " + kind + "?",
+        message: "Remove this " + kind + " from the draft?",
+        confirmLabel: "Remove",
+        danger: true,
+      })
     )
       setDraft((d) => ({
         ...d,
@@ -230,7 +249,7 @@ export function EntityDesigner({
             onSubmit={(e) => {
               e.preventDefault();
               void run(async () => {
-                const v = await api(
+                const v = await api<Item>(
                   "/v1/spaces/" + space + "/entities",
                   "POST",
                   {
@@ -263,17 +282,17 @@ export function EntityDesigner({
           >
             <label className="field">
               <span>Start from</span>
-              <select
+              <Select
                 value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-              >
-                <option value="">Blank entity</option>
-                {catalog.templates?.map((d: Item) => (
-                  <option key={d.key} value={d.key}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+                onChange={setTemplate}
+                options={[
+                  { value: "", label: "Blank entity" },
+                  ...(catalog.templates || []).map((d: Item) => ({
+                    value: d.key,
+                    label: d.label,
+                  })),
+                ]}
+              />
             </label>
             <label className="field">
               <span>Entity name</span>
@@ -317,8 +336,8 @@ export function EntityDesigner({
             <div className="entity-title">
               <button
                 className="text-button"
-                onClick={() => {
-                  if (!dirty || confirm("Discard your unsaved changes?")) {
+                onClick={async () => {
+                  if (!dirty || (await discardChanges())) {
                     setDraft(null);
                     setRecord(null);
                     history.replaceState(null, "", location.pathname);
@@ -437,39 +456,39 @@ export function EntityDesigner({
                   <div className="entity-form-grid">
                     <label className="field">
                       <span>Owner field</span>
-                      <select
+                      <Select
                         value={draft.owner_field || ""}
-                        onChange={(e) =>
-                          setDraft({ ...draft, owner_field: e.target.value })
+                        onChange={(owner_field) =>
+                          setDraft({ ...draft, owner_field })
                         }
-                      >
-                        <option value="">None</option>
-                        {draft.fields
-                          .filter((f: Item) => f.type === "user")
-                          .map((f: Item) => (
-                            <option key={f.key} value={f.key}>
-                              {f.label}
-                            </option>
-                          ))}
-                      </select>
+                        options={[
+                          { value: "", label: "None" },
+                          ...draft.fields
+                            .filter((f: Item) => f.type === "user")
+                            .map((f: Item) => ({
+                              value: f.key,
+                              label: f.label,
+                            })),
+                        ]}
+                      />
                     </label>
                     <label className="field">
                       <span>Owning team field</span>
-                      <select
+                      <Select
                         value={draft.team_field || ""}
-                        onChange={(e) =>
-                          setDraft({ ...draft, team_field: e.target.value })
+                        onChange={(team_field) =>
+                          setDraft({ ...draft, team_field })
                         }
-                      >
-                        <option value="">None</option>
-                        {draft.fields
-                          .filter((f: Item) => f.type === "team")
-                          .map((f: Item) => (
-                            <option key={f.key} value={f.key}>
-                              {f.label}
-                            </option>
-                          ))}
-                      </select>
+                        options={[
+                          { value: "", label: "None" },
+                          ...draft.fields
+                            .filter((f: Item) => f.type === "team")
+                            .map((f: Item) => ({
+                              value: f.key,
+                              label: f.label,
+                            })),
+                        ]}
+                      />
                     </label>
                   </div>
                   <section className="entity-settings-group">
@@ -504,17 +523,28 @@ export function EntityDesigner({
                     <button
                       className="secondary danger"
                       disabled={busy || !!record?.pending_version_id}
-                      onClick={() => {
+                      onClick={async () => {
+                        const archived = record?.state === "archived";
                         if (
-                          confirm(
-                            record?.state === "archived"
-                              ? "Restore this entity?"
-                              : "Archive this entity? Its API will stop serving requests; data is preserved.",
+                          await confirmAction(
+                            archived
+                              ? {
+                                  title: "Restore entity?",
+                                  message: "Restore this entity?",
+                                  confirmLabel: "Restore",
+                                }
+                              : {
+                                  title: "Archive entity?",
+                                  message:
+                                    "Archive this entity? Its API will stop serving requests; data is preserved.",
+                                  confirmLabel: "Archive",
+                                  danger: true,
+                                },
                           )
                         )
                           void run(async () => {
                             const saved = dirty ? await save() : record!;
-                            const v = await api(
+                            const v = await api<Item>(
                               "/v1/entities/" + saved.id,
                               "PATCH",
                               {
@@ -704,7 +734,7 @@ export function EntityDesigner({
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      const v = await api(
+                      const v = await api<Item>(
                         "/v1/entities/" + record!.id + "/validate",
                         "POST",
                         { definition: draft },
@@ -723,13 +753,13 @@ export function EntityDesigner({
                   onClick={() =>
                     void run(async () => {
                       const saved = dirty ? await save() : record!;
-                      await api(
+                      await api<Item>(
                         "/v1/entities/" + saved.id + "/publications",
                         "POST",
                         {},
                         saved.revision,
                       );
-                      const v = await api("/v1/entities/" + saved.id);
+                      const v = await api<Item>("/v1/entities/" + saved.id);
                       setRecord(v);
                       setReview(false);
                     })
@@ -891,7 +921,7 @@ function FieldEditor({
 }: {
   field: Item;
   fields: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   space: string;
   published: boolean;
   save: (v: Item) => void;
@@ -946,23 +976,21 @@ function FieldEditor({
       </label>
       <label className="field">
         <span>Type</span>
-        <select
+        <Select
           value={f.type}
           disabled={published}
-          onChange={(e) =>
+          onChange={(type) =>
             set({
-              ...catalog.field_defaults[e.target.value],
+              ...catalog.field_defaults[type],
               key: f.key,
               label: f.label,
             })
           }
-        >
-          {catalog.types.map((type: string) => (
-            <option key={type} value={type}>
-              {fieldLabel(type)}
-            </option>
-          ))}
-        </select>
+          options={catalog.types.map((type: string) => ({
+            value: type,
+            label: fieldLabel(type),
+          }))}
+        />
       </label>
       <label>
         <input
@@ -975,13 +1003,12 @@ function FieldEditor({
       {f.type === "text" && (
         <label className="field">
           <span>Maximum length</span>
-          <input
-            type="number"
+          <NumberInput
             required
             max={catalog.field_constraints.max_text_length}
             min={catalog.field_constraints.min_text_length}
-            value={f.max_length ?? ""}
-            onChange={(e) => patch({ max_length: Number(e.target.value) })}
+            value={f.max_length}
+            onChange={(n) => patch({ max_length: Number(n) })}
           />
         </label>
       )}
@@ -990,11 +1017,10 @@ function FieldEditor({
           {["precision", "scale"].map((key) => (
             <label className="field" key={key}>
               <span>{fieldLabel(key)}</span>
-              <input
-                type="number"
+              <NumberInput
                 required
                 value={f[key]}
-                onChange={(e) => patch({ [key]: Number(e.target.value) })}
+                onChange={(n) => patch({ [key]: Number(n) })}
               />
             </label>
           ))}
@@ -1075,25 +1101,25 @@ function FieldEditor({
         <summary>Defaults, calculation and query options</summary>
         <label className="field">
           <span>Value source</span>
-          <select
+          <Select
             value={
               f.calculation ? "calculation" : f.default ? "default" : "input"
             }
-            onChange={(e) =>
+            onChange={(source) =>
               patch({
-                default:
-                  e.target.value === "default" ? { literal: "" } : undefined,
+                default: source === "default" ? { literal: "" } : undefined,
                 calculation:
-                  e.target.value === "calculation"
+                  source === "calculation"
                     ? { field: fields[0]?.key || "" }
                     : undefined,
               })
             }
-          >
-            <option value="input">User input</option>
-            <option value="default">Default when omitted</option>
-            <option value="calculation">Calculated</option>
-          </select>
+            options={[
+              { value: "input", label: "User input" },
+              { value: "default", label: "Default when omitted" },
+              { value: "calculation", label: "Calculated" },
+            ]}
+          />
         </label>
         {(f.default || f.calculation) && (
           <Expression
@@ -1122,15 +1148,16 @@ function FieldEditor({
         ))}
         <label className="field">
           <span>Uniqueness</span>
-          <select
+          <Select
             value={f.unique || ""}
-            onChange={(e) => patch({ unique: e.target.value })}
-          >
-            <option value="">None</option>
-            <option value="entity">Across this entity</option>
-            <option value="owner">Per owner</option>
-            <option value="team">Per team</option>
-          </select>
+            onChange={(unique) => patch({ unique })}
+            options={[
+              { value: "", label: "None" },
+              { value: "entity", label: "Across this entity" },
+              { value: "owner", label: "Per owner" },
+              { value: "team", label: "Per team" },
+            ]}
+          />
         </label>
         <label className="field">
           <span>Stable key</span>
@@ -1158,7 +1185,7 @@ function PermissionEditor({
   value: Item;
   definition: Item;
   roles: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   tenant: string;
   save: (v: Item) => void;
 }) {
@@ -1187,33 +1214,34 @@ function PermissionEditor({
       </label>
       <label className="field">
         <span>Who</span>
-        <select
+        <Select
           value={p.roles ? "roles" : p.relationship}
-          onChange={(e) =>
+          onChange={(who) =>
             patch(
-              e.target.value === "roles"
+              who === "roles"
                 ? { roles: [], relationship: undefined }
-                : { roles: undefined, relationship: e.target.value },
+                : { roles: undefined, relationship: who },
             )
           }
-        >
-          <option value="roles">Space roles</option>
-          {catalog.relationships.map((t: string) => (
-            <option key={t} value={t}>
-              {(
-                {
-                  member: "All active Tenant members",
-                  owner: "Record owner",
-                  team_member: "Members of record's team",
-                  team_reviewer: "Reviewers of record's team",
-                  team_admin: "Admins of record's team",
-                  user: "Specific user",
-                  team: "Specific team",
-                } as Record<string, string>
-              )[t] || t}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "roles", label: "Space roles" },
+            ...catalog.relationships.map((t: string) => ({
+              value: t,
+              label:
+                (
+                  {
+                    member: "All active Tenant members",
+                    owner: "Record owner",
+                    team_member: "Members of record's team",
+                    team_reviewer: "Reviewers of record's team",
+                    team_admin: "Admins of record's team",
+                    user: "Specific user",
+                    team: "Specific team",
+                  } as Record<string, string>
+                )[t] || t,
+            })),
+          ]}
+        />
       </label>
       {p.roles && (
         <div className="field-choices">
@@ -1256,16 +1284,14 @@ function PermissionEditor({
       )}
       <label className="field">
         <span>Can</span>
-        <select
+        <Select
           value={p.operation}
-          onChange={(e) => patch({ operation: e.target.value })}
-        >
-          {catalog.operations.map((op: string) => (
-            <option key={op} value={op}>
-              {op === "acl.manage" ? "Manage record access (advanced)" : op}
-            </option>
-          ))}
-        </select>
+          onChange={(operation) => patch({ operation })}
+          options={catalog.operations.map((op: string) => ({
+            value: op,
+            label: op === "acl.manage" ? "Manage record access (advanced)" : op,
+          }))}
+        />
       </label>
       {["read", "create", "update"].includes(p.operation) && (
         <>
@@ -1368,7 +1394,7 @@ function RuleEditor({
 }: {
   value: Item;
   fields: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   save: (v: Item) => void;
 }) {
   const [r, set] = useState({ ...value });
@@ -1396,13 +1422,14 @@ function RuleEditor({
       </label>
       <label className="field">
         <span>Rule type</span>
-        <select
+        <Select
           value={r.kind}
-          onChange={(e) => set({ ...r, kind: e.target.value })}
-        >
-          <option value="validation">Validate resulting record</option>
-          <option value="change">Allowed change</option>
-        </select>
+          onChange={(kind) => set({ ...r, kind })}
+          options={[
+            { value: "validation", label: "Validate resulting record" },
+            { value: "change", label: "Allowed change" },
+          ]}
+        />
       </label>
       <label>
         <input
@@ -1452,17 +1479,14 @@ function RuleEditor({
       </label>
       <label className="field">
         <span>Show error on field</span>
-        <select
+        <Select
           value={r.field || ""}
-          onChange={(e) => set({ ...r, field: e.target.value })}
-        >
-          <option value="">Whole record</option>
-          {fields.map((f) => (
-            <option key={f.key} value={f.key}>
-              {f.label}
-            </option>
-          ))}
-        </select>
+          onChange={(field) => set({ ...r, field })}
+          options={[
+            { value: "", label: "Whole record" },
+            ...fields.map((f) => ({ value: f.key, label: f.label })),
+          ]}
+        />
       </label>
       <button className="primary">Save rule</button>
     </form>
@@ -1496,7 +1520,7 @@ function EntityTest({
       onSubmit={(e) => {
         e.preventDefault();
         setError("");
-        api("/v1/entities/" + record.id + "/test", "POST", {
+        api<Item>("/v1/entities/" + record.id + "/test", "POST", {
           definition: draft,
           ...scenario,
         })
@@ -1531,14 +1555,14 @@ function EntityTest({
       </label>
       <label className="field">
         <span>Operation</span>
-        <select
+        <Select
           value={scenario.operation}
-          onChange={(e) => set({ ...scenario, operation: e.target.value })}
-        >
-          {["create", "read", "update", "delete"].map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
+          onChange={(operation) => set({ ...scenario, operation })}
+          options={["create", "read", "update", "delete"].map((v) => ({
+            value: v,
+            label: v,
+          }))}
+        />
       </label>
       {scenario.operation !== "create" && (
         <>

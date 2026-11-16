@@ -3,9 +3,11 @@ package control
 import (
 	"context"
 	"database/sql"
-	"github.com/aantich/lastapp/internal/authz"
+	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 func requestScope(r *http.Request) (authz.Scope, Resource, error) {
@@ -39,10 +41,11 @@ func requestScope(r *http.Request) (authz.Scope, Resource, error) {
 	}
 	return scope, Resource{Tenant: t, Team: team, Space: space, App: app}, nil
 }
+
 func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT u.state FROM users u JOIN tenant_memberships m ON m.user_id=u.id AND m.tenant_id=? AND m.state='active' WHERE u.id=? FOR UPDATE", t, user).Scan(&state)
-	if e == sql.ErrNoRows {
+	if errors.Is(e, sql.ErrNoRows) {
 		return bad("An active Tenant member is required.")
 	}
 	if e != nil {
@@ -53,6 +56,7 @@ func activeTenantUser(ctx context.Context, q Queryer, t, user string) error {
 	}
 	return nil
 }
+
 func (s *Server) roles(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
@@ -80,6 +84,7 @@ func (s *Server) roles(w http.ResponseWriter, r *http.Request, p Principal) erro
 	sendPage(w, r, v)
 	return nil
 }
+
 func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
@@ -140,6 +145,7 @@ func (s *Server) createRole(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	return result(w, r, s, "roles", scope.Tenant, in.ID, 201)
 }
+
 func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
@@ -188,6 +194,7 @@ func (s *Server) updateRole(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	return result(w, r, s, "roles", scope.Tenant, record, 200)
 }
+
 func assignmentFilter(scope authz.Scope) (string, []any) {
 	where := "g.scope_kind=? AND g.tenant_id <=> ?"
 	args := []any{scope.Kind, nullable(scope.Tenant)}
@@ -204,6 +211,7 @@ func assignmentFilter(scope authz.Scope) (string, []any) {
 	}
 	return where, args
 }
+
 func (s *Server) grants(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
@@ -223,6 +231,7 @@ func (s *Server) grants(w http.ResponseWriter, r *http.Request, p Principal) err
 	}
 	return e
 }
+
 func (s *Server) assignmentAuthority(ctx context.Context, q Queryer, p Principal, scope authz.Scope, res Resource, role Row) error {
 	switch str(role["id"]) {
 	case authz.SuperRole:
@@ -241,6 +250,7 @@ func (s *Server) assignmentAuthority(ctx context.Context, q Queryer, p Principal
 		return s.authorize(ctx, q, p, "authorization.manage", res, true)
 	}
 }
+
 func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
@@ -349,6 +359,7 @@ func platformCandidate(ctx context.Context, q Queryer, user string) error {
 	}
 	return nil
 }
+
 func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	scope, res, e := requestScope(r)
 	if e != nil {
@@ -436,6 +447,7 @@ func assignInitialManager(ctx context.Context, tx *sql.Tx, p Principal, tenant, 
 	}
 	return auditChange(ctx, tx, tenant, p.ID, "grant.created", "access_grants", "access_grant", record, request, nil)
 }
+
 func (s *Server) updateGroupMember(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		State string `json:"state"`

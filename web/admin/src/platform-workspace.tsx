@@ -1,5 +1,5 @@
 import { useBuiltinRoles } from "./console-config";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Building2,
   Users,
@@ -11,10 +11,11 @@ import {
 import { api } from "./api";
 import { Collection } from "./collection";
 import { ConsoleShell } from "./console-shell";
-import { useConsoleURL } from "./console-url";
+import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
 import { FormModal, type Modal, type Field } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
+import { useAction } from "./use-action";
 import {
   accountFields,
   accountPayload,
@@ -22,8 +23,8 @@ import {
   nameFields,
   stateOptions,
   status,
-  type Item,
 } from "./console-forms";
+import type { Item, Me, Page, TenantOverview } from "./api-types";
 const nav = [
   { id: "tenants", label: "Tenants", icon: Building2 },
   { id: "users", label: "Users", icon: Users },
@@ -36,39 +37,37 @@ export function PlatformWorkspace({
   signOut,
   refreshMe,
 }: {
-  me: Item;
+  me: Me;
   appearanceControls: ReturnType<typeof useAppearance>;
   signOut: () => void;
   refreshMe: () => Promise<void>;
 }) {
   const roles = useBuiltinRoles();
   const [path, navigate] = useConsoleURL(),
-    parts = path.split("/").filter(Boolean),
-    page = parts[2] || "tenants",
-    tenant = page === "tenants" ? parts[3] || "" : "",
-    tab = parts[4] || "overview",
-    settingsTab = parts[3] || "servers";
-  const [overview, setOverview] = useState<Item>({}),
+    route = parsePlatformURL(path),
+    { page, tenant, tab, settingsTab } = route;
+  const [overview, setOverview] = useState<TenantOverview>({}),
     [reload, setReload] = useState(0),
     [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [plans, setPlans] = useState<Item[]>([]);
-  const current = useRef(path);
-  current.current = path;
   const refresh = () => setReload((r) => r + 1);
-  function go(page: string) {
-    navigate("/console/platform/" + page);
+  const { busy, run: act } = useAction(path, {
+    onSuccess: refresh,
+    onError: setError,
+  });
+  function go(...page: string[]) {
+    navigate(consoleURL.platform(...page));
   }
   useEffect(() => {
-    if (!path.startsWith("/console/platform/"))
-      navigate("/console/platform/tenants", true);
+    if (!path.startsWith(consoleURL.platform()))
+      navigate(consoleURL.platform("tenants"), true);
     setModal(null);
     setError("");
   }, [path]);
   useEffect(() => {
     let live = true;
-    api("/admin/v1/plans")
+    api<Page>("/admin/v1/plans")
       .then((v) => {
         if (live) setPlans(v.items);
       })
@@ -83,7 +82,7 @@ export function PlatformWorkspace({
     setOverview({});
     if (!tenant) return;
     let live = true;
-    api("/v1/tenants/" + tenant + "/overview")
+    api<TenantOverview>("/v1/tenants/" + tenant + "/overview")
       .then((v) => {
         if (live) setOverview(v);
       })
@@ -95,20 +94,6 @@ export function PlatformWorkspace({
     };
   }, [tenant, reload]);
   const profile = overview.tenant || {};
-  async function act(fn: () => Promise<any>) {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    const started = path;
-    try {
-      await fn();
-      if (current.current === started) refresh();
-    } catch (e) {
-      if (current.current === started) setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
   function done() {
     setModal(null);
     refresh();
@@ -409,7 +394,7 @@ export function PlatformWorkspace({
     : page === "account"
       ? "My account"
       : nav.find((p) => p.id === page)?.label || "Tenants";
-  const columnsName: [string, (r: Item) => any] = [
+  const columnsName: [string, (r: Item) => ReactNode] = [
     "Name",
     (r) => (
       <>
@@ -418,7 +403,7 @@ export function PlatformWorkspace({
       </>
     ),
   ];
-  const columnsStatus: [string, (r: Item) => any] = [
+  const columnsStatus: [string, (r: Item) => ReactNode] = [
     "Status",
     (r) => status(r.state),
   ];
@@ -498,9 +483,7 @@ export function PlatformWorkspace({
               <button
                 key={id}
                 className={tab === id ? "active" : ""}
-                onClick={() =>
-                  navigate(`/console/platform/tenants/${tenant}/${id}`)
-                }
+                onClick={() => go("tenants", tenant, id)}
               >
                 {id[0].toUpperCase() + id.slice(1)}
               </button>
@@ -521,11 +504,7 @@ export function PlatformWorkspace({
                 </dl>
                 <button
                   className="primary"
-                  onClick={() =>
-                    navigate(
-                      `/console/platform/tenants/${tenant}/administrators`,
-                    )
-                  }
+                  onClick={() => go("tenants", tenant, "administrators")}
                 >
                   Manage administrators
                 </button>
@@ -584,7 +563,7 @@ export function PlatformWorkspace({
                 </button>
                 <button
                   className="text-button"
-                  onClick={() => go("activity/" + tenant)}
+                  onClick={() => go("activity", tenant)}
                 >
                   View Tenant activity
                 </button>
@@ -606,9 +585,7 @@ export function PlatformWorkspace({
           actions={(r) => (
             <button
               className="text-button"
-              onClick={() =>
-                navigate("/console/platform/tenants/" + r.id + "/overview")
-              }
+              onClick={() => go("tenants", r.id, "overview")}
             >
               Open
             </button>
@@ -688,8 +665,8 @@ export function PlatformWorkspace({
       ) : page === "activity" ? (
         <Collection
           path={
-            parts[3]
-              ? "/v1/tenants/" + parts[3] + "/audit-events"
+            route.id
+              ? "/v1/tenants/" + route.id + "/audit-events"
               : "/admin/v1/audit-events"
           }
           reload={reload}
@@ -717,7 +694,7 @@ export function PlatformWorkspace({
               <button
                 key={id}
                 className={settingsTab === id ? "active" : ""}
-                onClick={() => go("settings/" + id)}
+                onClick={() => go("settings", id)}
               >
                 {label}
               </button>

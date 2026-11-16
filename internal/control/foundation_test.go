@@ -2,12 +2,13 @@ package control
 
 import (
 	"context"
-	"github.com/aantich/lastapp/internal/authz"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 // The fixture owns only its new registry. Business resources below are metadata
@@ -63,6 +64,7 @@ func foundationFixture(t *testing.T) (*Server, testClient, string, string, strin
 	}
 	return s, (testClient{t: t, s: s, h: s.Handler()}).as(operator), operator, owner, joe
 }
+
 func hasAssignment(items any, role string) bool {
 	for _, v := range items.([]any) {
 		if str(v.(map[string]any)["role_id"]) == role {
@@ -71,6 +73,7 @@ func hasAssignment(items any, role string) bool {
 	}
 	return false
 }
+
 func TestAuthorizationFoundation(t *testing.T) {
 	s, c, operator, owner, joe := foundationFixture(t)
 	ownerClient, joeClient := c.as(owner), c.as(joe)
@@ -186,7 +189,9 @@ func TestAuthorizationFoundation(t *testing.T) {
 	joeClient.want("PATCH", base+"/apps/"+apps[1], Row{"display_name": "Denied"}, 1, 403)
 	// Data/control join separation and nullable scope checks also hold in SQL.
 	var permission string
-	s.DB.QueryRow("SELECT id FROM permissions WHERE code='app.manage'").Scan(&permission)
+	if e := s.DB.QueryRow("SELECT id FROM permissions WHERE code='app.manage'").Scan(&permission); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = s.DB.Exec("INSERT INTO role_permissions(role_id,permission_id,domain) VALUES (?,?,'control')", role, permission); e == nil {
 		t.Fatal("data role acquired control permission through SQL")
 	}

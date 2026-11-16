@@ -104,7 +104,7 @@
   margin-top: 8px;
 }
 .tenant-switch input,
-.tenant-switch select {
+.tenant-switch .select-trigger {
   display: block;
   width: 100%;
   max-width: 100%;
@@ -347,14 +347,12 @@ body {
   margin: 0;
 }
 button,
-input,
-select {
+input {
   font: inherit;
 }
 button,
 a,
-input,
-select {
+input {
   outline-offset: 4px;
 }
 :focus-visible {
@@ -376,7 +374,6 @@ a {
   cursor: pointer;
 }
 button,
-select,
 input {
   transition:
     background 0.15s,
@@ -581,7 +578,7 @@ code {
   display: block;
   margin-bottom: 7px;
 }
-.context-picker select {
+.context-picker .select-trigger {
   width: 100%;
   border: 0;
   background: transparent;
@@ -1497,7 +1494,7 @@ td {
   font-weight: 400;
 }
 .fields input:not([type="checkbox"]),
-.fields select {
+.fields .select-trigger {
   width: 100%;
   min-height: var(--ui-control-height);
   padding: 8px 12px;
@@ -1508,7 +1505,7 @@ td {
   color: var(--ui-text);
 }
 .fields input:focus,
-.fields select:focus {
+.fields .select-trigger:focus {
   outline: 2px solid var(--ui-primary-soft);
   outline-offset: 1px;
   border-color: var(--ui-primary);
@@ -1556,6 +1553,12 @@ td {
     10px ui-monospace,
     monospace;
   color: var(--ui-muted);
+}
+.confirm-modal {
+  width: 440px;
+}
+.confirm-modal > header p {
+  font-size: 12px;
 }
 .modal form > .error {
   margin: 0 var(--ui-panel-padding) 20px;
@@ -2384,7 +2387,7 @@ td {
   min-width: 0;
 }
 .access-editor input,
-.access-editor select {
+.access-editor .select-trigger {
   width: 100%;
 }
 .access-toolbar,
@@ -2541,6 +2544,79 @@ summary {
 .combobox-popup [role="option"].focused,
 .combobox-popup [role="option"]:hover {
   background: var(--ui-hover);
+}
+.combobox-popup.above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.combobox-popup [role="option"] {
+  cursor: pointer;
+}
+.combobox-popup [role="option"][aria-selected="true"] {
+  font-weight: 600;
+}
+.combobox-popup [role="option"][aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.select-trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-control-height);
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: 12px;
+  text-align: left;
+}
+.select-trigger:disabled {
+  cursor: not-allowed;
+}
+.select-trigger > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+.select-trigger[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+.select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-value.placeholder {
+  color: var(--ui-muted);
+}
+.search-combobox.select-control > input.select-native-value {
+  position: absolute;
+  left: 12px;
+  bottom: 0;
+  width: 1px;
+  min-height: 0;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.number-input {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.number-input > input {
+  flex: 1;
+  min-width: 0;
+}
+.number-input > button.secondary {
+  flex-shrink: 0;
+  width: var(--ui-control-height);
+  padding: 0;
 }
 .combobox-popup > small {
   display: block;

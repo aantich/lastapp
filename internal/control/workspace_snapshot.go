@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-
+	"errors"
 	"strings"
 	"time"
 
@@ -73,6 +73,7 @@ func remapSnapshot(base spaceSnapshot, ids map[string]string) spaceSnapshot {
 	}
 	return out
 }
+
 func snapshotIDs(base spaceSnapshot) map[string]string {
 	ids := map[string]string{}
 	for _, v := range base.Entities {
@@ -89,6 +90,7 @@ func snapshotIDs(base spaceSnapshot) map[string]string {
 	}
 	return ids
 }
+
 func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
 	if len(base.Apps) > maxWorkspaceApps {
 		return conflict("Space exceeds the workspace App limit.")
@@ -162,6 +164,7 @@ func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v
 	_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v["id"])
 	return e
 }
+
 func agentID(p Principal) any {
 	if p.Agent != nil {
 		return p.Agent.ID
@@ -197,7 +200,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 			}
 			continue
 		}
-		if e != sql.ErrNoRows {
+		if !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
 		if _, e = db.ExecContext(ctx, data.SkeletonSQL(str(v["id"]), marker, d)); e != nil {
@@ -206,6 +209,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 	}
 	return nil
 }
+
 func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 	vs, e := rows(ctx, q, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.state='preparing' ORDER BY w.created_at LIMIT 1")
 	if e != nil || len(vs) == 0 {
@@ -306,11 +310,11 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 	if e = run(); e == nil {
 		return nil
 	}
-	var message = "Workspace preparation failed. Check storage and publications, then retry."
+	message := "Workspace preparation failed. Check storage and publications, then retry."
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
 	} else {
-		s.Log.Warn("workspace preparation failed", diagnostic(e)...)
+		s.logger(ctx).Warn("workspace preparation failed", diagnostic(e)...)
 	}
 	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v["id"])
 	return err

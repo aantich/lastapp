@@ -3,11 +3,12 @@ package control
 import (
 	"database/sql"
 	"encoding/base64"
-	"github.com/aantich/lastapp/internal/data"
-	"github.com/aantich/lastapp/internal/entity"
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func base64Encode(b []byte) string          { return base64.RawURLEncoding.EncodeToString(b) }
@@ -75,6 +76,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	send(w, 200, Row{"items": out})
 	return nil
 }
+
 func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRuntime, record string) error {
 	if !rt.d.Sharing {
 		return missing()
@@ -215,6 +217,7 @@ func (rt dataRuntime) canDelegate(permission entity.Permission, c entity.Context
 	}
 	return false
 }
+
 func (s *Server) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRuntime, c entity.Context, shared map[string]bool) error {
 	permissions := []Row{}
 	for _, p := range rt.d.Permissions {

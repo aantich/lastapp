@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
@@ -52,6 +53,7 @@ func loginEmail(raw string) (string, error) {
 	}
 	return email, nil
 }
+
 func validatePassword(password string) error {
 	n := utf8.RuneCountInString(password)
 	if !utf8.ValidString(password) || n < minPasswordLength || n > maxPasswordLength {
@@ -59,10 +61,12 @@ func validatePassword(password string) error {
 	}
 	return nil
 }
+
 func passwordKey(password string, salt []byte, iterations int) []byte {
 	key, _ := pbkdf2.Key(sha256.New, password, salt, iterations, 32)
 	return key
 }
+
 func (s *Server) prepareAccount(in accountInput) (preparedAccount, error) {
 	email, e := loginEmail(in.Email)
 	if e != nil {
@@ -108,7 +112,7 @@ func localAccount(ctx context.Context, tx *sql.Tx, in preparedAccount, canCreate
 		}
 		return user, nil
 	}
-	if e != sql.ErrNoRows {
+	if !errors.Is(e, sql.ErrNoRows) {
 		return "", e
 	}
 	if len(in.Hash) == 0 {
@@ -127,10 +131,12 @@ func newConsoleSession(ctx context.Context, tx *sql.Tx, user, method string) (st
 	_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,expires_at,auth_method) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR),?)", hash(session), user, hash(csrf), method)
 	return session, csrf, e
 }
+
 func (s *Server) sessionCookies(w http.ResponseWriter, session, csrf string) {
 	s.cookie(w, "lastapp_session", session, 8*3600, true)
 	s.cookie(w, "lastapp_csrf", csrf, 8*3600, false)
 }
+
 func invalidLogin() error {
 	return problem(401, "invalid_credentials", "Email or password is incorrect.")
 }
@@ -246,10 +252,10 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		var iterations int
 		var revision int64
 		e = s.DB.QueryRowContext(ctx, "SELECT a.user_id,a.password_hash,a.password_salt,a.password_iterations,a.revision,u.state FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.login_email=?", email).Scan(&user, &expected, &salt, &iterations, &revision, &state)
-		if e != nil && e != sql.ErrNoRows {
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			salt, expected, iterations = make([]byte, 16), make([]byte, 32), passwordIterations
 		}
 		got := passwordKey(in.Password, salt, iterations)

@@ -1,6 +1,14 @@
 import { test, expect } from "@playwright/test";
-import { login, fixtureTenant, selectTenant, nav, choose } from "./helpers";
-import { execFileSync } from "node:child_process";
+import {
+  login,
+  fixtureTenant,
+  selectTenant,
+  nav,
+  choose,
+  pick,
+  rootSQL,
+  accountHost,
+} from "./helpers";
 import { randomBytes } from "node:crypto";
 
 test("existing database registration, shared access controls and Tenant-switch isolation", async ({
@@ -9,20 +17,12 @@ test("existing database registration, shared access controls and Tenant-switch i
 }) => {
   const suffix = Date.now().toString(),
     dbName = "ui_" + suffix,
-    password = randomBytes(24).toString("hex"),
-    accountHost = process.env.CI ? "%" : "127.0.0.1";
-  const args = process.env.CI
-    ? ["--protocol=TCP", "--host=127.0.0.1", "--port=33317"]
-    : ["--protocol=SOCKET", "--socket=../../.local/mariadb.sock"];
-  execFileSync("mariadb", ["--no-defaults", ...args, "-uroot"], {
-    input: `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data(id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES(7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  await login(page);
-  const { tenant, base, outsider } = await fixtureTenant(
-    page,
-    "Registered database",
+    password = randomBytes(24).toString("hex");
+  rootSQL(
+    `CREATE DATABASE ${dbName}; CREATE TABLE ${dbName}.existing_data(id INT PRIMARY KEY); INSERT INTO ${dbName}.existing_data VALUES(7); CREATE USER '${dbName}'@'${accountHost}' IDENTIFIED BY '${password}'; GRANT SELECT,INSERT,UPDATE,DELETE ON \`ui\\_${suffix}\`.* TO '${dbName}'@'${accountHost}';`,
   );
+  await login(page);
+  const { tenant, base } = await fixtureTenant(page, "Registered database");
   const other = await fixtureTenant(page, "Switch destination");
   const context = await browser.newContext(),
     admin = await context.newPage();
@@ -33,7 +33,7 @@ test("existing database registration, shared access controls and Tenant-switch i
   await admin
     .getByRole("button", { name: "Add database", exact: true })
     .click();
-  await admin.getByLabel("Method", { exact: true }).selectOption("registered");
+  await pick(admin.getByLabel("Method", { exact: true }), "registered");
   await admin
     .getByLabel("Existing database name", { exact: true })
     .fill(dbName);
@@ -55,18 +55,7 @@ test("existing database registration, shared access controls and Tenant-switch i
       .getByText("ready", { exact: true }),
   ).toBeVisible({ timeout: 30000 });
   expect(
-    execFileSync(
-      "mariadb",
-      [
-        "--no-defaults",
-        ...args,
-        "-uroot",
-        "-N",
-        "-e",
-        `SELECT id FROM ${dbName}.existing_data`,
-      ],
-      { encoding: "utf8" },
-    ).trim(),
+    rootSQL(`SELECT id FROM ${dbName}.existing_data;`, ["-N"]).trim(),
   ).toBe("7");
   await nav(admin, "Spaces");
   await admin
@@ -74,7 +63,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     .click();
   await admin.getByLabel("Name", { exact: true }).fill("Sales");
   await admin.getByText("Advanced", { exact: true }).click();
-  await admin.getByLabel("Database", { exact: true }).selectOption("existing");
+  await pick(admin.getByLabel("Database", { exact: true }), "existing");
   await choose(admin, "Existing database", dbName);
   await admin
     .getByRole("dialog")

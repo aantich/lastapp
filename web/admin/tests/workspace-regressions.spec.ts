@@ -74,7 +74,9 @@ test("only platform admins create global credentials; Tenant admins add existing
   await expect(page.getByRole("row").filter({ hasText: email })).toBeVisible();
   const members = (await (await page.request.get(base + "/memberships")).json())
     .items;
-  expect(members.find((m: any) => m.email === email).user_id).toBe(user.id);
+  expect(
+    members.find((m: { email: string }) => m.email === email).user_id,
+  ).toBe(user.id);
 
   // The platform-created credentials work. Delaying a real request with the old
   // session across password rotation must not sign out the new session.
@@ -277,7 +279,7 @@ test("expired sessions return to login and signing out an expired session succee
   ).toHaveCount(0);
   // Complete another login directly from the recovered UI, without a reload.
   await page.getByRole("link", { name: "Continue with SSO" }).click();
-  await page.locator("select[name=subject]").selectOption("tenant-admin");
+  await page.locator(`input[name=subject][value="tenant-admin"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(

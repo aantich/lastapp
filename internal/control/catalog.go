@@ -3,9 +3,11 @@ package control
 import (
 	"context"
 	"database/sql"
-	"github.com/aantich/lastapp/internal/authz"
-	"github.com/google/uuid"
 	"net/http"
+
+	"github.com/google/uuid"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 // Called only by trusted bootstrap against a fresh development registry.
@@ -36,6 +38,7 @@ func seedControlCatalog(ctx context.Context, db *sql.DB) error {
 	}
 	return tx.Commit()
 }
+
 func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p Principal) error {
 	kind := authz.Kind(r.URL.Query().Get("scope_kind"))
 	if kind != "" && !authz.ValidKind(kind) {
@@ -50,6 +53,7 @@ func (s *Server) roleCatalog(w http.ResponseWriter, r *http.Request, p Principal
 	send(w, 200, Row{"items": out})
 	return nil
 }
+
 func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tx, e := s.DB.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if e != nil {

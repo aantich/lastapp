@@ -2,9 +2,12 @@ import { useEffect, useState, useRef } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
 import { RemoteSelect } from "./remote-select";
-import { useDialogFocus } from "./appearance";
+import { Select } from "./select";
+import { NumberInput } from "./number-input";
+import { useDialogFocus } from "./dialog";
+import { errorMessage } from "./use-action";
 
-type Item = Record<string, any>;
+import type { Item, Page, Redirect } from "./api-types";
 type GrantValues = {
   tenant_id: string;
   scope_kind: string;
@@ -80,7 +83,7 @@ function AgentGrantForm({
         try {
           await submit(values);
         } catch (e) {
-          setError((e as Error).message);
+          setError(errorMessage(e));
         } finally {
           setBusy(false);
         }
@@ -108,32 +111,31 @@ function AgentGrantForm({
           )}
           <label className="form-field">
             <span className="field-label">Access scope</span>
-            <select
+            <Select
               value={values.scope_kind}
-              onChange={(e) =>
+              onChange={(scope_kind) =>
                 setValues({
                   ...values,
-                  scope_kind: e.target.value,
+                  scope_kind,
                   scope_id: "",
                   permissions: values.permissions.filter((code) =>
-                    eligiblePermissions(e.target.value).some(
+                    eligiblePermissions(scope_kind).some(
                       (p: Item) => p.code === code,
                     ),
                   ),
                 })
               }
-            >
-              {(me.platform_admin
+              options={(me.platform_admin
                 ? ["platform"]
                 : ["tenant", "space", "app", "team"]
-              ).map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind === "tenant"
+              ).map((kind) => ({
+                value: kind,
+                label:
+                  kind === "tenant"
                     ? "Entire Tenant, including future resources"
-                    : kind[0].toUpperCase() + kind.slice(1)}
-                </option>
-              ))}
-            </select>
+                    : kind[0].toUpperCase() + kind.slice(1),
+              }))}
+            />
           </label>
           {!["tenant", "platform"].includes(values.scope_kind) &&
             values.tenant_id && (
@@ -259,18 +261,18 @@ function AgentGrantForm({
           ))}
           <label className="form-field">
             <span className="field-label">Maximum new databases</span>
-            <input
-              type="number"
+            <NumberInput
               min={1}
               max={config.max_databases}
               required
+              steppers
               value={values.limits.max_databases}
-              onChange={(e) =>
+              onChange={(n) =>
                 setValues({
                   ...values,
                   limits: {
                     ...values.limits,
-                    max_databases: Number(e.target.value),
+                    max_databases: Number(n),
                   },
                 })
               }
@@ -280,15 +282,13 @@ function AgentGrantForm({
       )}
       <label className="form-field agent-expiry">
         <span className="field-label">Access expires in days</span>
-        <input
-          type="number"
+        <NumberInput
           min={1}
           max={config.max_days}
           required
+          steppers
           value={values.days}
-          onChange={(e) =>
-            setValues({ ...values, days: Number(e.target.value) })
-          }
+          onChange={(n) => setValues({ ...values, days: Number(n) })}
         />
         <small className="muted">
           You can revoke access at any time. Closing the browser or signing out
@@ -328,8 +328,8 @@ export function AgentConsent({ me }: { me: Item }) {
   useEffect(() => {
     let live = true;
     Promise.all([
-      api(`/v1/agent-access/requests/${encodeURIComponent(request)}`),
-      api("/v1/agent-access/config"),
+      api<Item>(`/v1/agent-access/requests/${encodeURIComponent(request)}`),
+      api<Item>("/v1/agent-access/config"),
     ])
       .then(([i, c]) => {
         if (live) {
@@ -346,12 +346,12 @@ export function AgentConsent({ me }: { me: Item }) {
   }, [request]);
   async function deny() {
     try {
-      const result = await api(`/v1/agent-access/requests/${request}`, "POST", {
+      const result = await api<Redirect>(`/v1/agent-access/requests/${request}`, "POST", {
         deny: true,
       });
       location.assign(result.redirect_url);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     }
   }
   return (
@@ -397,7 +397,7 @@ export function AgentConsent({ me }: { me: Item }) {
               }}
               requested={info.scopes.split(" ")}
               submit={async (values) => {
-                const result = await api(
+                const result = await api<Redirect>(
                   `/v1/agent-access/requests/${request}`,
                   "POST",
                   values,
@@ -434,7 +434,7 @@ function AgentGrantDialog({
     <div className="overlay">
       <section
         className="modal agent-edit-modal"
-        ref={ref as any}
+        ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby="agent-dialog-title"
@@ -492,21 +492,21 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
     setLoading(true);
     try {
       const [c, list] = await Promise.all([
-        api("/v1/agent-access/config"),
-        api(
+        api<Item>("/v1/agent-access/config"),
+        api<Page>(
           `/v1/agent-access?page=${page}&limit=20${tenant ? "&tenant_id=" + tenant : ""}`,
         ),
       ]);
       if (request !== generation.current) return;
       setConfig(c);
       setItems(list.items);
-      setMore(list.pagination.has_more);
+      setMore(!!list.pagination?.has_more);
       setLoadFailed(false);
       setError("");
     } catch (e) {
       if (request === generation.current) {
         setLoadFailed(true);
-        setError((e as Error).message);
+        setError(errorMessage(e));
       }
     } finally {
       if (request === generation.current) setLoading(false);
@@ -630,7 +630,7 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
                           );
                           await load();
                         } catch (e) {
-                          setError((e as Error).message);
+                          setError(errorMessage(e));
                         } finally {
                           setBusy("");
                         }

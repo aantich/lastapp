@@ -2,8 +2,9 @@ package control
 
 import (
 	"fmt"
-	"github.com/aantich/lastapp/internal/entity"
 	"sync"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 type definitionCache struct {

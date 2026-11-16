@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net"
@@ -27,6 +28,7 @@ func (s *Server) artifactDirectory() string {
 	}
 	return ""
 }
+
 func (s *Server) appHostingBase() string {
 	base := s.Config.AppOrigin
 	if base == "" && s.Config.Development {
@@ -64,6 +66,7 @@ func (s *Server) appHostedOrigin(app string) string {
 	}
 	return strings.TrimSuffix(u.String(), "/")
 }
+
 func (s *Server) releaseRoutes() {
 	s.api("POST /v1/apps/{app}/upload-tickets", s.artifactTicket)
 	s.mux.HandleFunc("POST /artifact/v1/upload", s.artifactUpload)
@@ -78,6 +81,7 @@ func (s *Server) releaseRoutes() {
 	s.api("GET /v1/apps/{app}/starter", s.appStarter)
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }
+
 func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal, app string) (Row, Row, error) {
 	a, e := s.appRow(ctx, q, app)
 	if e != nil {
@@ -98,6 +102,7 @@ func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal
 	}
 	return a, w, nil
 }
+
 func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if s.artifactDirectory() == "" {
 		return conflict("Configure persistent artifact storage first.")
@@ -133,6 +138,7 @@ func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p Princi
 	send(w, 201, Row{"upload_url": s.Config.PublicURL + "/artifact/v1/upload", "upload_token": secret, "expires_in": int(uploadTicketLifetime.Seconds()), "limits": artifact.Limits, "instructions": "POST {entrypoint:'index.html',files:[{path:'...',content_base64:'...'}]} using Authorization: Bearer <upload_token>. A ticket uploads one immutable build; identical retries return its build ID. Do not put tokens or local development credentials in builds."})
 	return nil
 }
+
 func (s *Server) uploadPrincipal(ctx context.Context, q Queryer, v Row) (Principal, error) {
 	p := Principal{ID: str(v["user_id"])}
 	if str(v["agent_grant_id"]) != "" {
@@ -153,6 +159,7 @@ func (s *Server) uploadPrincipal(ctx context.Context, q Queryer, v Row) (Princip
 	}
 	return p, nil
 }
+
 func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
@@ -191,7 +198,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			return bad("Invalid or oversized static build upload.")
 		}
 		var more any
-		if d.Decode(&more) != io.EOF {
+		if !errors.Is(d.Decode(&more), io.EOF) {
 			return bad("One upload object required.")
 		}
 		b, e := artifact.Inspect(in.Files, in.Entry)
@@ -233,7 +240,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			return conflict("App build limit reached. Create a fresh workspace.")
 		}
 		if e = artifact.Store(s.artifactDirectory(), in.Files, b); e != nil {
-			s.Log.Warn("artifact storage failed", diagnostic(e)...)
+			s.logger(ctx).Warn("artifact storage failed", diagnostic(e)...)
 			return problem(503, "artifact_storage", "Could not persist the build.")
 		}
 		build := newID()
@@ -258,6 +265,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, e)
 	}
 }
+
 func (s *Server) buildList(w http.ResponseWriter, r *http.Request, p Principal) error {
 	a, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
 	if e != nil {

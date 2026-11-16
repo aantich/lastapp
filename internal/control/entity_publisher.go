@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"github.com/aantich/lastapp/internal/data"
-	"github.com/aantich/lastapp/internal/entity"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (*sql.DB, error) {
@@ -35,6 +36,7 @@ func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (
 	}
 	return s.targetDB(ctx, v, cred, str(v["database_name"]))
 }
+
 func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(), error) {
 	v, e := row(ctx, s.DB, "SELECT d.credential_generation FROM database_resources d JOIN database_targets t ON t.id=d.target_id AND t.state='active' WHERE d.id=? AND d.state='ready'", resource)
 	if e != nil {
@@ -42,6 +44,7 @@ func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(
 	}
 	return s.dataPools.Acquire(ctx, resource+":"+str(v["credential_generation"]), func() (*sql.DB, error) { return s.businessDB(ctx, resource, false) })
 }
+
 func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*string) (bool, error) {
 	last := ""
 	if len(cursor) > 0 {
@@ -134,7 +137,7 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	if e == nil {
 		return true, nil
 	}
-	s.Log.Warn("entity publication failed", append([]any{"entity_id", v["entity_id"]}, diagnostic(e)...)...)
+	s.logger(ctx).Warn("entity publication failed", append([]any{"entity_id", v["entity_id"]}, diagnostic(e)...)...)
 	message := "Publication failed. Check database/schema privileges and retry; existing data is preserved."
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
@@ -165,6 +168,7 @@ func (s *Server) publicationJob(ctx context.Context, q Queryer, cursor ...*strin
 	}
 	return true, tx.Commit()
 }
+
 func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	d, e := defOf(v["definition_json"])
 	if e != nil {
@@ -210,7 +214,7 @@ func (s *Server) publishEntity(ctx context.Context, v Row) error {
 	var comment string
 	e = conn.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", table).Scan(&comment)
 	exists := e == nil
-	if e != nil && e != sql.ErrNoRows {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
 	if exists && comment != tableMarker {
@@ -438,12 +442,13 @@ func openPublicationGate(ctx context.Context, q Queryer, v Row, layoutHash strin
 	}
 	return nil
 }
+
 func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) error {
 	names := []string{"_lastapp_entity_state", "_lastapp_record_acl", "_lastapp_data_audit"}
 	for i, name := range names {
 		var c string
 		e := q.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", name).Scan(&c)
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			if _, e = q.ExecContext(ctx, data.SupportDDL[i]+" COMMENT='"+marker+"'"); e != nil {
 				return e
 			}
@@ -455,6 +460,7 @@ func (s *Server) ensureSupport(ctx context.Context, q Queryer, marker string) er
 	}
 	return nil
 }
+
 func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v Row, d entity.Definition) error {
 	previous, e := rows(ctx, tx, "SELECT id,state,security_hash,security_revision FROM permissions WHERE entity_id=?", v["entity_id"])
 	if e != nil {
@@ -527,6 +533,7 @@ func verifyEntityColumns(ctx context.Context, q Queryer, id string, d entity.Def
 	}
 	return nil
 }
+
 func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 	if v["base_version_id"] == nil {
 		return
@@ -562,7 +569,10 @@ func (s *Server) restorePublicationBase(ctx context.Context, v Row) {
 	if s.DB.QueryRowContext(ctx, "SELECT COALESCE(active_version_id,'') FROM entity_definitions WHERE id=?", v["entity_id"]).Scan(&current) != nil || current != str(v["base_version_id"]) {
 		return
 	}
-	conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"])
+	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", v["base_version_id"], v["entity_id"], v["attempt_id"]); e != nil {
+		// Best effort: if this fails the gate stays closed, which fails closed.
+		s.logger(ctx).Warn("restore publication base failed", append([]any{"entity_id", str(v["entity_id"])}, diagnostic(e)...)...)
+	}
 }
 
 // activateEntityVersion changes only registry authority. Deployment workers call

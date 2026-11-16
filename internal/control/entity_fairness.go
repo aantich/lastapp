@@ -1,8 +1,9 @@
 package control
 
 import (
-	"github.com/aantich/lastapp/internal/entity"
 	"sync"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 // Only active requests occupy this map; the global semaphore also bounds its size.

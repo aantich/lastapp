@@ -2,6 +2,7 @@ package control
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 
 	"github.com/aantich/lastapp/internal/authz"
@@ -47,7 +48,7 @@ func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, 
 		}
 		var state string
 		if e := tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
-			if e == sql.ErrNoRows {
+			if errors.Is(e, sql.ErrNoRows) {
 				return missing()
 			}
 			return e
@@ -64,7 +65,7 @@ func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, 
 		}
 		var memberState string
 		e = tx.QueryRowContext(r.Context(), "SELECT state FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", t, in.User).Scan(&memberState)
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			if e = metadataQuota(r.Context(), tx, t, "tenant_memberships"); e != nil {
 				return e
 			}

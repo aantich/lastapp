@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { RemoteSelect } from "./remote-select";
-import { useDialogFocus } from "./appearance";
+import { Select } from "./select";
+import { NumberInput } from "./number-input";
+import { useDialogFocus } from "./dialog";
 import {
   NewPasswordInput,
   usePasswordPolicy,
   generatePassword,
 } from "./new-password-input";
-type Item = Record<string, any>;
+import { errorMessage } from "./use-action";
+import type { Item } from "./api-types";
 export type Field = {
   key: string;
   label: string;
@@ -17,7 +20,7 @@ export type Field = {
   newPassword?: boolean;
   hint?: string;
   lookup?: string;
-  value?: any;
+  value?: unknown;
   when?: (values: Item) => boolean;
   generate?: boolean;
   advanced?: boolean;
@@ -31,7 +34,7 @@ export type Modal = {
   description?: string;
   fields: Field[];
   initial: Item;
-  save: (v: Item) => Promise<any>;
+  save: (v: Item) => Promise<unknown>;
   submit?: string;
 };
 export function FormModal({
@@ -69,7 +72,7 @@ export function FormModal({
       if (mounted.current) done();
     } catch (e) {
       if (mounted.current) {
-        setError((e as Error).message);
+        setError(errorMessage(e));
         setBusy(false);
       }
     }
@@ -222,28 +225,35 @@ export function FormModal({
                         }
                       />
                     ) : f.type === "select" ? (
-                      <select
+                      <Select
                         aria-label={f.label}
                         required={f.required}
                         value={values[f.key] ?? ""}
-                        onChange={(e) =>
-                          setValues({ ...values, [f.key]: e.target.value })
+                        options={(f.options || []).map((o) => ({
+                          value: o.value,
+                          label: o.label,
+                        }))}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
                         }
-                      >
-                        <option value="">Choose…</option>
-                        {f.options?.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
+                      />
+                    ) : f.type === "number" ? (
+                      <NumberInput
+                        aria-label={f.label}
+                        autoFocus={i === 0 && !advanced}
+                        required={f.required}
+                        min={0}
+                        value={values[f.key]}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value })
+                        }
+                      />
                     ) : (
                       <span className="form-input-group">
                         <Input
                           aria-label={f.label}
                           autoFocus={i === 0 && !advanced}
                           required={f.required}
-                          min={f.type === "number" ? 0 : undefined}
                           type={
                             f.type === "password" && visible.includes(f.key)
                               ? "text"

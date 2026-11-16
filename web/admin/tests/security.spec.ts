@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import { selectTenant, logout, choose, fixtureTenant } from "./helpers";
+import { selectTenant, logout, choose, fixtureTenant, pick } from "./helpers";
 
 async function signIn(
   page: Page,
@@ -10,7 +10,7 @@ async function signIn(
   await page
     .getByRole("link", { name: "Continue with SSO", exact: true })
     .click();
-  await page.locator("select[name=subject]").selectOption(subject);
+  await page.locator(`input[name=subject][value="${subject}"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(new RegExp("^" + origin + "/console/"));
@@ -134,7 +134,7 @@ test("Vite login returns to the development UI and authenticated writes succeed"
     .getByRole("button", { name: "Create Tenant", exact: true })
     .click();
   const suffix = Date.now().toString();
-  await page.getByLabel("Account", { exact: true }).selectOption("existing");
+  await pick(page.getByLabel("Account", { exact: true }), "existing");
   await choose(page, "Existing account", "Tenant administrator");
   await page.getByLabel("Name", { exact: true }).fill("AAA Proxy " + suffix);
   await page

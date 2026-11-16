@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Layers3, Menu, X, ChevronDown } from "lucide-react";
-import { AppearancePanel, useAppearance, useDialogFocus } from "./appearance";
-type Item = Record<string, any>;
+import {
+  Layers3,
+  Menu,
+  X,
+  ChevronDown,
+  type LucideIcon,
+} from "lucide-react";
+import { AppearancePanel, useAppearance } from "./appearance";
+import { useDialogFocus } from "./dialog";
+import type { Item } from "./api-types";
 export function ConsoleShell({
   me,
   kind,
@@ -20,7 +27,7 @@ export function ConsoleShell({
   me: Item;
   kind: string;
   title: string;
-  nav: { id: string; label: string; icon: any }[];
+  nav: { id: string; label: string; icon: LucideIcon }[];
   active: string;
   navigate: (page: string) => void;
   context?: ReactNode;
@@ -86,7 +93,7 @@ export function ConsoleShell({
       )}
       <aside
         className="sidebar"
-        ref={ref as any}
+        ref={ref}
         inert={mobile && !open}
         role={mobile && open ? "dialog" : undefined}
         aria-modal={mobile && open ? true : undefined}

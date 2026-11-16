@@ -16,7 +16,9 @@ Use **Continue with SSO** to open development SSO, then choose **Platform operat
 
 ## Run
 
-Requirements: Go 1.25+, working Node/npm, and MariaDB server/client/install tools. Verified on this Mac with Go 1.27.4, Node 24.20.0 and MariaDB 12.3.3.
+Requirements: Go 1.25+, working Node/npm, and either MariaDB server/client/install tools or Docker. Verified on this Mac with Go 1.27.4, Node 24.20.0 and MariaDB 12.3.3.
+
+Without a local `mariadbd` (or with `LASTAPP_MARIADB=docker`), `make dev` runs MariaDB from [docker-compose.yaml](docker-compose.yaml) instead: the same `mariadb:12.3` image as CI, published only on `127.0.0.1:33317`, data in the `lastapp_mariadb-data` volume, root password generated into `.local/mariadb.env`. Database accounts then use host `%`, because published-port connections reach the container from the Docker gateway rather than `127.0.0.1`. `make stop` stops the container and keeps the volume.
 
 ```sh
 git clone https://github.com/aantich/lastapp.git

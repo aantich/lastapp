@@ -4,21 +4,26 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/aantich/lastapp/internal/entity"
 )
 
-const maxOwnedWorkspaces = 5
-const maxSpaceWorkspaces = 20
+const (
+	maxOwnedWorkspaces = 5
+	maxSpaceWorkspaces = 20
+)
 
-type workspaceAllocationKey struct{}
-type workspaceOperationKey struct{}
-type workspaceCreateInput struct {
-	ID   string `json:"id"`
-	Name string `json:"display_name"`
-}
+type (
+	workspaceAllocationKey struct{}
+	workspaceOperationKey  struct{}
+	workspaceCreateInput   struct {
+		ID   string `json:"id"`
+		Name string `json:"display_name"`
+	}
+)
 
 // A snapshot contains configuration only. Never add records, credentials,
 // assignments or approved origins here: it is also the release review boundary.
@@ -120,6 +125,7 @@ func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSn
 	}
 	return out, nil
 }
+
 func (s *Server) workspaceRoutes() {
 	s.api("GET /v1/spaces/{space}/workspaces", s.workspaceList)
 	s.api("POST /v1/spaces/{space}/workspaces", s.workspaceCreate)
@@ -128,6 +134,7 @@ func (s *Server) workspaceRoutes() {
 	s.api("POST /v1/workspaces/{workspace}/retry", s.workspaceRetry)
 	s.api("POST /v1/apps/{app}/development-launch", s.developmentLaunch)
 }
+
 func (s *Server) workspaceRow(ctx context.Context, q Queryer, p Principal, id string) (Row, error) {
 	v, e := row(ctx, q, "SELECT w.*,sp.database_resource_id,d.state AS database_state FROM development_workspaces w JOIN spaces sp ON sp.id=w.backing_space_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE w.id=?", id)
 	if e != nil {
@@ -138,6 +145,7 @@ func (s *Server) workspaceRow(ctx context.Context, q Queryer, p Principal, id st
 	}
 	return v, nil
 }
+
 func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v Row) error {
 	if str(v["owner_user_id"]) != p.ID {
 		return missing()
@@ -165,6 +173,7 @@ func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v R
 	}
 	return s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["production_space_id"])}, true)
 }
+
 func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, space string) error {
 	if space == "" {
 		return nil
@@ -184,6 +193,7 @@ func (s *Server) workspaceGuard(ctx context.Context, q Queryer, p Principal, spa
 	}
 	return nil
 }
+
 func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p Principal) error {
 	sp, e := row(r.Context(), s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", r.PathValue("space"))
 	if e != nil {
@@ -207,6 +217,7 @@ func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p Princip
 	}
 	return e
 }
+
 func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p Principal) error {
 	v, e := s.workspaceRow(r.Context(), s.DB, p, r.PathValue("workspace"))
 	if e != nil {
@@ -221,6 +232,7 @@ func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p Principa
 	send(w, 200, v)
 	return nil
 }
+
 func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in workspaceCreateInput
 	if e := decode(w, r, &in); e != nil {
@@ -302,12 +314,15 @@ func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Princ
 	r.SetPathValue("workspace", in.ID)
 	return s.workspaceGet(w, r, p)
 }
+
 func (s *Server) workspaceArchive(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.workspaceState(w, r, p, false)
 }
+
 func (s *Server) workspaceRetry(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.workspaceState(w, r, p, true)
 }
+
 func (s *Server) workspaceState(w http.ResponseWriter, r *http.Request, p Principal, retry bool) error {
 	v, e := s.workspaceRow(r.Context(), s.DB, p, r.PathValue("workspace"))
 	if e != nil {
@@ -368,6 +383,7 @@ func lockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
 	var v string
 	return tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&v)
 }
+
 func (s *Server) productionMutationGuard(ctx context.Context, q Queryer, p Principal, action string, res Resource) error {
 	if res.App != "" {
 		if e := q.QueryRowContext(ctx, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant).Scan(&res.Space); e != nil {
@@ -377,7 +393,7 @@ func (s *Server) productionMutationGuard(ctx context.Context, q Queryer, p Princ
 	if res.Space != "" && action != "workspace.manage" {
 		var job string
 		err := q.QueryRowContext(ctx, "SELECT id FROM release_deployments WHERE space_id=? AND state IN ('queued','preparing','publishing') LIMIT 1", res.Space).Scan(&job)
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if err == nil && ctx.Value(deploymentOperationKey{}) != job {

@@ -3,13 +3,14 @@ package entity
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"math/big"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 type Operator struct {
@@ -43,6 +44,7 @@ func Fields(x Expr) []string {
 	}
 	return out
 }
+
 func (d Definition) ExpressionType(x Expr, transition bool) (string, error) {
 	nodes := 0
 	var check func(Expr, int) (string, error)
@@ -182,6 +184,7 @@ func (d Definition) ExpressionType(x Expr, transition bool) (string, error) {
 	}
 	return check(x, 0)
 }
+
 func rat(v any) (*big.Rat, bool) {
 	if v == nil {
 		return nil, false
@@ -369,6 +372,7 @@ func Eval(x Expr, c Context) (any, error) {
 	}
 	return nil, fmt.Errorf("Unsupported expression.")
 }
+
 func Allows(x *Expr, c Context) bool {
 	if x == nil {
 		return true
@@ -376,6 +380,7 @@ func Allows(x *Expr, c Context) bool {
 	v, e := Eval(*x, c)
 	return e == nil && Truth(v)
 }
+
 func round(r *big.Rat, scale int) string {
 	factor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale)), nil)
 	n := new(big.Int).Mul(r.Num(), factor)
@@ -403,6 +408,7 @@ func round(r *big.Rat, scale int) string {
 	}
 	return s
 }
+
 func Value(f Field, v any, calculated bool) (any, error) {
 	err := func() (any, error) {
 		return nil, Diagnostic{"invalid_value", f.Key, "Invalid value for " + f.Label + "."}
@@ -535,6 +541,7 @@ func Value(f Field, v any, calculated bool) (any, error) {
 	}
 	return err()
 }
+
 func bounds(f Field, r *big.Rat) bool {
 	if f.Minimum != nil {
 		m, ok := rat(f.Minimum)
@@ -550,6 +557,7 @@ func bounds(f Field, r *big.Rat) bool {
 	}
 	return true
 }
+
 func (d Definition) Candidate(c Context, input map[string]any, create bool) (map[string]any, error) {
 	c = d.Bind(c)
 	out := map[string]any{}
@@ -615,6 +623,7 @@ func (d Definition) Candidate(c Context, input map[string]any, create bool) (map
 	}
 	return out, nil
 }
+
 func (d Definition) CheckRules(c Context, create bool) error {
 	c = d.Bind(c)
 	for _, r := range d.Rules {

@@ -3,8 +3,10 @@ import { Download, Upload, RefreshCw, ExternalLink } from "lucide-react";
 import { api } from "./api";
 import { useConsoleConfig } from "./console-config";
 import { FormModal, type Modal } from "./form-modal";
-import { status, type Item } from "./console-forms";
+import { status } from "./console-forms";
+import type { Item, Page } from "./api-types";
 import "./development-workspaces.css";
+import { errorMessage } from "./use-action";
 
 async function encode(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -52,8 +54,8 @@ export function AppReleases({
     let alive = true;
     setError("");
     Promise.all([
-      api(`/v1/apps/${app.id}/releases?page=${page}`),
-      ...(development ? [api(`/v1/apps/${app.id}/builds`)] : []),
+      api<Page>(`/v1/apps/${app.id}/releases?page=${page}`),
+      ...(development ? [api<Page>(`/v1/apps/${app.id}/builds`)] : []),
     ])
       .then(([rels, b]) => {
         if (!alive) return;
@@ -61,9 +63,7 @@ export function AppReleases({
           page === 1
             ? rels.items
             : [
-                ...old.filter(
-                  (r) => !rels.items.some((n: Item) => n.id === r.id),
-                ),
+                ...old.filter((r) => !rels.items.some((n) => n.id === r.id)),
                 ...rels.items,
               ],
         );
@@ -83,7 +83,7 @@ export function AppReleases({
     let retryDelay = 1500;
     async function poll() {
       try {
-        const result = await api(`/v1/apps/${app.id}/deployment`);
+        const result = await api<Item>(`/v1/apps/${app.id}/deployment`);
         if (!alive) return;
         const latest: Item | undefined = result.deployment || undefined;
         const previous = previousDeployment.current;
@@ -92,7 +92,8 @@ export function AppReleases({
         setDeploymentError("");
         if (
           latest?.state === "active" &&
-          previous && previous.id === latest.id &&
+          previous &&
+          previous.id === latest.id &&
           previous.state !== "active"
         )
           refreshApp.current();
@@ -105,7 +106,7 @@ export function AppReleases({
       } catch (e) {
         if (!alive) return;
         setDeploymentError(
-          `Could not refresh deployment status: ${(e as Error).message}`,
+          `Could not refresh deployment status: ${errorMessage(e)}`,
         );
         if ([401, 403, 404].includes((e as { status?: number }).status || 0))
           return;
@@ -125,7 +126,7 @@ export function AppReleases({
     try {
       await action();
     } catch (e) {
-      if (live.current) setError((e as Error).message);
+      if (live.current) setError(errorMessage(e));
     } finally {
       if (live.current) setBusy(false);
     }
@@ -133,7 +134,11 @@ export function AppReleases({
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     await run(async () => {
-      const ticket = await api(`/v1/apps/${app.id}/upload-tickets`, "POST", {}),
+      const ticket = await api<Item>(
+          `/v1/apps/${app.id}/upload-tickets`,
+          "POST",
+          {},
+        ),
         list = Array.from(files);
       if (
         list.length > ticket.limits.max_files ||
@@ -165,12 +170,10 @@ export function AppReleases({
   }
   async function capture(buildID: string) {
     const [latest, inventory] = await Promise.all([
-      api(`/v1/tenants/${tenant}/apps/${app.id}`),
-      api(`/v1/tenants/${tenant}/microapps?app_id=${app.id}&limit=200`),
+      api<Item>(`/v1/tenants/${tenant}/apps/${app.id}`),
+      api<Page>(`/v1/tenants/${tenant}/microapps?app_id=${app.id}&limit=200`),
     ]);
-    const activeMicros: Item[] = inventory.items.filter(
-      (m: Item) => m.state === "active",
-    );
+    const activeMicros = inventory.items.filter((m) => m.state === "active");
     if (
       inventory.pagination?.has_more ||
       activeMicros.length > config.development_policy.max_release_microapps
@@ -179,7 +182,7 @@ export function AppReleases({
     let previous: Item = {};
     if (releases[0])
       previous =
-        (await api("/v1/releases/" + releases[0].id)).manifest_json || {};
+        (await api<Item>("/v1/releases/" + releases[0].id)).manifest_json || {};
     setModal({
       title: "Create release",
       description:
@@ -213,7 +216,7 @@ export function AppReleases({
       ],
       submit: "Create release",
       save: async (v) => {
-        const rel = await api(
+        const rel = await api<Item>(
           `/v1/apps/${app.id}/releases`,
           "POST",
           {
@@ -235,8 +238,8 @@ export function AppReleases({
   }
   async function preview() {
     if (!selected) return;
-    const current = await api(`/v1/tenants/${tenant}/apps/${app.id}`),
-      result = await api(
+    const current = await api<Item>(`/v1/tenants/${tenant}/apps/${app.id}`),
+      result = await api<{ url: string }>(
         `/v1/releases/${selected.id}/preview`,
         "POST",
         {},
@@ -257,14 +260,14 @@ export function AppReleases({
       save: async () => {
         let revision = 1;
         try {
-          const target = await api(
+          const target = await api<Item>(
             `/v1/tenants/${tenant}/apps/${selected.production_app_id}`,
           );
           revision = target.revision;
         } catch (e) {
           if ((e as { status?: number }).status !== 404) throw e;
         }
-        const result = await api(
+        const result = await api<Item>(
           `/v1/releases/${selected.id}/deploy`,
           "POST",
           {},
@@ -362,7 +365,9 @@ export function AppReleases({
                 "release-item " + (selected?.id === r.id ? "selected" : "")
               }
               onClick={() =>
-                run(async () => setSelected(await api("/v1/releases/" + r.id)))
+                run(async () =>
+                  setSelected(await api<Item>("/v1/releases/" + r.id)),
+                )
               }
             >
               <strong>{r.display_name}</strong>

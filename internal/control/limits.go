@@ -43,6 +43,7 @@ type requestLimiter struct {
 func (l *requestLimiter) allow(key string, now time.Time) bool {
 	return l.allowRate(key, now, 120, 20)
 }
+
 func (l *requestLimiter) allowRate(key string, now time.Time, burst, refill float64) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()

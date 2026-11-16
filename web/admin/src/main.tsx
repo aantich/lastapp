@@ -7,30 +7,37 @@ import { useAppearance } from "./appearance";
 import { LoginScreen, PasswordScreen } from "./login";
 import { TenantWorkspace } from "./tenant-workspace";
 import { PlatformWorkspace } from "./platform-workspace";
-import type { Item } from "./console-forms";
+import type { Me } from "./api-types";
 import { ConsoleConfigProvider, useConsoleConfig } from "./console-config";
 import { AppLaunch } from "./entity-designer/launch";
 import { AgentConsent } from "./agent-access";
+import { ConfirmHost } from "./confirm-dialog";
+import { consoleURL, isConsolePath } from "./console-url";
 import "./agent-access.css";
 function App() {
   const { refresh: refreshConfig } = useConsoleConfig();
   const appearanceControls = useAppearance();
-  const [me, setMe] = useState<Item | null>(null),
+  const [me, setMe] = useState<Me | null>(null),
     [auth, setAuth] = useState("loading"),
     [error, setError] = useState("");
   async function loadMe() {
-    const who = await api("/v1/me");
+    const who = await api<Me>("/v1/me");
     setMe(who);
     setAuth(who.password_change_required ? "password" : "in");
-    if (!who.password_change_required && location.pathname === "/console/") {
+    if (
+      !who.password_change_required &&
+      location.pathname === consoleURL.root
+    ) {
       try {
         const back = sessionStorage.getItem("lastapp-return-path");
         sessionStorage.removeItem("lastapp-return-path");
-        if (back?.startsWith("/console/") && !back.startsWith("/console//")) {
+        if (isConsolePath(back)) {
           history.replaceState(null, "", back);
           window.dispatchEvent(new PopStateEvent("popstate"));
         }
-      } catch {}
+      } catch {
+        // sessionStorage can be unavailable (private mode, blocked storage)
+      }
     }
   }
   function endSession() {
@@ -51,10 +58,12 @@ function App() {
     api("/auth/logout", "POST", {})
       .then(() => {
         endSession();
-        history.replaceState(null, "", "/console/");
+        history.replaceState(null, "", consoleURL.root);
         try {
           sessionStorage.removeItem("lastapp-return-path");
-        } catch {}
+        } catch {
+          // sessionStorage can be unavailable (private mode, blocked storage)
+        }
       })
       .catch((e) => {
         if (e.status === 401) endSession();
@@ -86,8 +95,8 @@ function App() {
     );
   if (auth === "password")
     return <PasswordScreen required done={loadMe} signOut={signOut} />;
-  if (location.pathname === "/console/launch") return <AppLaunch />;
-  if (location.pathname === "/console/agent-consent")
+  if (location.pathname === consoleURL.launch) return <AppLaunch />;
+  if (location.pathname === consoleURL.agentConsent)
     return <AgentConsent me={me!} />;
   return (
     <>
@@ -118,6 +127,7 @@ createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ConsoleConfigProvider>
       <App />
+      <ConfirmHost />
     </ConsoleConfigProvider>
   </React.StrictMode>,
 );

@@ -33,6 +33,7 @@ func starterVersions() (map[string]string, error) {
 	}
 	return out, nil
 }
+
 func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p Principal) error {
 	a, ws, e := s.ownedDevelopmentApp(r.Context(), s.DB, p, r.PathValue("app"))
 	if e != nil {

@@ -1,19 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-const own = (value: Record<string, any>, key: string) =>
+import type { EntityCatalog, Item } from "../api-types";
+// One expression shape for the SDK and the console (packages/client).
+import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
+const own = (value: Item, key: string) =>
   Object.hasOwn(value, key) ? value[key] : undefined;
-export const choiceLabel = (field: Record<string, any>, key: string) =>
-  typeof own(field.value_labels || {}, key) === "string"
-    ? own(field.value_labels, key)
-    : key;
-import type { Item } from "../console-forms";
-export type Expr = {
-  op?: string;
-  args?: Expr[];
-  field?: string;
-  context?: string;
-  literal?: any;
-  decimal?: string;
+export const choiceLabel = (field: Item, key: string): string => {
+  const label = own(field.value_labels || {}, key);
+  return typeof label === "string" ? label : key;
 };
+import { Select } from "../select";
+import { NumberInput } from "../number-input";
+const booleanOptions = ["true", "false"].map((v) => ({ value: v, label: v }));
 export function Expression({
   value,
   onChange,
@@ -30,7 +27,7 @@ export function Expression({
   value: Expr;
   onChange: (x: Expr) => void;
   fields: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   transition?: boolean;
   label?: string;
   depth?: number;
@@ -49,25 +46,23 @@ export function Expression({
           ? "decimal"
           : "literal";
   const providers = (catalog.context_providers || []).filter(
-    (p: Item) =>
-      !contextType || contextType === "text" || p.type === contextType,
+    (p) => !contextType || contextType === "text" || p.type === contextType,
   );
   const args = value.args || [];
   const options = (catalog.operators || []).filter(
-    (o: Item) => formula || o.kind !== "numeric",
+    (o) => formula || o.kind !== "numeric",
   );
-  const operator = options.find((x: Item) => x.key === value.op);
+  const operator = options.find((x) => x.key === value.op);
   const update = (i: number, v: Expr) =>
     onChange({ ...value, args: args.map((a, j) => (j === i ? v : a)) });
   return (
     <fieldset className="expression">
       <legend>{label}</legend>
       <div className="expression-head">
-        <select
+        <Select
           aria-label={label + " value type"}
           value={mode}
-          onChange={(e) => {
-            const m = e.target.value;
+          onChange={(m) =>
             onChange(
               m === "op"
                 ? {
@@ -81,73 +76,65 @@ export function Expression({
                     : m === "decimal"
                       ? { decimal: "0" }
                       : { literal: "" },
-            );
-          }}
-        >
-          {!defaultOnly && <option value="field">Field</option>}
-          <option value="literal">Value</option>
-          <option value="decimal">Decimal</option>
-          {allowContext && providers.length > 0 && (
-            <option value="context">Context</option>
-          )}
-          {!defaultOnly && <option value="op">Expression</option>}
-        </select>
+            )
+          }
+          options={[
+            ...(!defaultOnly ? [{ value: "field", label: "Field" }] : []),
+            { value: "literal", label: "Value" },
+            { value: "decimal", label: "Decimal" },
+            ...(allowContext && providers.length > 0
+              ? [{ value: "context", label: "Context" }]
+              : []),
+            ...(!defaultOnly ? [{ value: "op", label: "Expression" }] : []),
+          ]}
+        />
         {mode === "field" ? (
-          <select
+          <Select
             aria-label={label + " field"}
             value={value.field}
-            onChange={(e) => onChange({ field: e.target.value })}
-          >
-            {fields.map((f) => (
-              <option key={f.key} value={f.key}>
-                {f.label}
-              </option>
-            ))}
-            {transition &&
-              fields.flatMap((f) =>
-                ["old", "new"].map((p) => (
-                  <option key={p + f.key} value={p + "." + f.key}>
-                    {p === "old" ? "Previous" : "Resulting"} {f.label}
-                  </option>
-                )),
-              )}
-          </select>
+            onChange={(field) => onChange({ field })}
+            options={[
+              ...fields.map((f) => ({ value: f.key, label: f.label })),
+              ...(transition
+                ? fields.flatMap((f) =>
+                    ["old", "new"].map((p) => ({
+                      value: p + "." + f.key,
+                      label:
+                        (p === "old" ? "Previous " : "Resulting ") + f.label,
+                    })),
+                  )
+                : []),
+            ]}
+          />
         ) : mode === "context" ? (
-          <select
+          <Select
             aria-label={label + " context"}
             value={value.context}
-            onChange={(e) => onChange({ context: e.target.value })}
-          >
-            {providers.map((p: Item) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+            onChange={(context) => onChange({ context })}
+            options={providers.map((p) => ({
+              value: p.key,
+              label: p.label,
+            }))}
+          />
         ) : mode === "op" ? (
-          <select
+          <Select
             aria-label={label + " operator"}
             value={value.op}
-            onChange={(e) => {
-              const op = options.find((x: Item) => x.key === e.target.value);
+            onChange={(key) => {
+              const op = options.find((x) => x.key === key);
               onChange({
-                op: e.target.value,
+                op: key,
                 args: Array.from(
-                  { length: op.min_args },
+                  { length: op?.min_args ?? 0 },
                   (_, i) => args[i] || { literal: "" },
                 ),
               });
             }}
-          >
-            {options.map((o: Item) => (
-              <option key={o.key} value={o.key}>
-                {o.key}
-              </option>
-            ))}
-          </select>
+            options={options.map((o) => ({ value: o.key, label: o.key }))}
+          />
         ) : (
           <>
-            <select
+            <Select
               aria-label={label + " literal type"}
               value={
                 mode === "decimal"
@@ -156,71 +143,63 @@ export function Expression({
                     ? "null"
                     : typeof value.literal
               }
-              onChange={(e) =>
+              onChange={(type) =>
                 onChange(
-                  e.target.value === "decimal"
+                  type === "decimal"
                     ? { decimal: "0" }
                     : {
                         literal:
-                          e.target.value === "number"
+                          type === "number"
                             ? 0
-                            : e.target.value === "boolean"
+                            : type === "boolean"
                               ? true
-                              : e.target.value === "object"
+                              : type === "object"
                                 ? {}
-                                : e.target.value === "null"
+                                : type === "null"
                                   ? null
                                   : "",
                       },
                 )
               }
-            >
-              <option value="string">Text</option>
-              <option value="number">Integer</option>
-              <option value="decimal">Decimal</option>
-              <option value="boolean">Boolean</option>
-              <option value="null">Null</option>
-              <option value="object">JSON object or list</option>
-            </select>
+              options={[
+                { value: "string", label: "Text" },
+                { value: "number", label: "Integer" },
+                { value: "decimal", label: "Decimal" },
+                { value: "boolean", label: "Boolean" },
+                { value: "null", label: "Null" },
+                { value: "object", label: "JSON object or list" },
+              ]}
+            />
             {value.literal !== null &&
               (typeof value.literal === "boolean" ? (
-                <select
+                <Select
                   aria-label={label + " value"}
                   value={String(value.literal)}
-                  onChange={(e) =>
-                    onChange({ literal: e.target.value === "true" })
-                  }
-                >
-                  <option>true</option>
-                  <option>false</option>
-                </select>
+                  onChange={(v) => onChange({ literal: v === "true" })}
+                  options={booleanOptions}
+                />
               ) : typeof value.literal === "object" ? (
                 <JSONInput
                   value={value.literal}
                   label={label + " value"}
                   onChange={(v) => onChange({ literal: v })}
                 />
+              ) : typeof value.literal === "number" ? (
+                <NumberInput
+                  aria-label={label + " value"}
+                  value={value.literal}
+                  onChange={(n) => onChange({ literal: Number(n) })}
+                />
               ) : (
                 <input
                   aria-label={label + " value"}
-                  value={value.decimal ?? value.literal ?? ""}
-                  type={
-                    mode === "decimal"
-                      ? "text"
-                      : typeof value.literal === "number"
-                        ? "number"
-                        : "text"
-                  }
+                  value={String(value.decimal ?? value.literal ?? "")}
+                  inputMode={mode === "decimal" ? "decimal" : undefined}
                   onChange={(e) =>
                     onChange(
                       mode === "decimal"
                         ? { decimal: e.target.value }
-                        : {
-                            literal:
-                              typeof value.literal === "number"
-                                ? Number(e.target.value)
-                                : e.target.value,
-                          },
+                        : { literal: e.target.value },
                     )
                   }
                 />
@@ -317,40 +296,34 @@ export function ValueInputs({
           <label className="field" key={f.key}>
             <span>{f.label}</span>
             {f.type === "boolean" ? (
-              <select
+              <Select
                 value={
                   own(value, f.key) === undefined
                     ? ""
                     : String(own(value, f.key))
                 }
-                onChange={(e) =>
+                onChange={(v) =>
                   onChange({
                     ...value,
-                    [f.key]:
-                      e.target.value === ""
-                        ? undefined
-                        : e.target.value === "true",
+                    [f.key]: v === "" ? undefined : v === "true",
                   })
                 }
-              >
-                <option value="">Omit</option>
-                <option>true</option>
-                <option>false</option>
-              </select>
+                options={[{ value: "", label: "Omit" }, ...booleanOptions]}
+              />
             ) : f.type === "choice" ? (
-              <select
+              <Select
                 value={own(value, f.key) ?? ""}
-                onChange={(e) =>
-                  onChange({ ...value, [f.key]: e.target.value || undefined })
+                onChange={(v) =>
+                  onChange({ ...value, [f.key]: v || undefined })
                 }
-              >
-                <option value="">Omit</option>
-                {f.values?.map((v: string) => (
-                  <option key={v} value={v}>
-                    {choiceLabel(f, v)}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "Omit" },
+                  ...(f.values || []).map((v: string) => ({
+                    value: v,
+                    label: choiceLabel(f, v),
+                  })),
+                ]}
+              />
             ) : f.type === "json" ? (
               <JSONInput
                 value={own(value, f.key)}
@@ -358,26 +331,28 @@ export function ValueInputs({
                 allowEmpty
                 onChange={(v) => onChange({ ...value, [f.key]: v })}
               />
-            ) : (
-              <input
-                type={
-                  f.type === "integer"
-                    ? "number"
-                    : f.type === "date"
-                      ? "date"
-                      : "text"
-                }
+            ) : f.type === "integer" ? (
+              <NumberInput
                 placeholder={f.default ? "Omit to use default" : "Omit"}
+                value={own(value, f.key)}
+                onChange={(n) =>
+                  onChange({ ...value, [f.key]: n === "" ? undefined : n })
+                }
+              />
+            ) : (
+              // Dates are typed as ISO text; the console has no native date picker.
+              <input
+                placeholder={
+                  (f.type === "date" ? "YYYY-MM-DD, or omit" : "Omit") +
+                  (f.default ? " to use default" : "")
+                }
+                pattern={f.type === "date" ? "\\d{4}-\\d{2}-\\d{2}" : undefined}
+                inputMode={f.type === "date" ? "numeric" : undefined}
                 value={own(value, f.key) ?? ""}
                 onChange={(e) =>
                   onChange({
                     ...value,
-                    [f.key]:
-                      e.target.value === ""
-                        ? undefined
-                        : f.type === "integer"
-                          ? Number(e.target.value)
-                          : e.target.value,
+                    [f.key]: e.target.value === "" ? undefined : e.target.value,
                   })
                 }
               />

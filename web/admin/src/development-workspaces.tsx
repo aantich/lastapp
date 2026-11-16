@@ -3,8 +3,10 @@ import { Plus, RefreshCw, ExternalLink } from "lucide-react";
 import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
-import { status, type Item } from "./console-forms";
+import { status } from "./console-forms";
+import type { Item } from "./api-types";
 import "./development-workspaces.css";
+import { errorMessage } from "./use-action";
 
 export function DevelopmentWorkspaces({
   space,
@@ -26,7 +28,7 @@ export function DevelopmentWorkspaces({
       );
       setReload((x) => x + 1);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorMessage(e));
     }
   }
   return (
@@ -161,7 +163,7 @@ export function DevelopmentBanner({
   const [info, setInfo] = useState<Item>();
   useEffect(() => {
     let alive = true;
-    api("/v1/workspaces/" + workspace)
+    api<Item>("/v1/workspaces/" + workspace)
       .then((v) => {
         if (alive) setInfo(v);
       })

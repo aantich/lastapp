@@ -68,6 +68,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p Principal, raw json.R
 	v, e := s.executeManagement(ctx, p, fn, "POST", "/v1/development/"+in.Action, paths, body, in.Revision)
 	return agentWriteResult(ctx, v, e)
 }
+
 func (s *Server) toolAgentRelease(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentReleaseInput
 	if e := strictAgentInput(raw, &in); e != nil {

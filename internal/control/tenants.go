@@ -36,6 +36,7 @@ func (in planInput) validate() error {
 	}
 	return bad("The default layout must be allowed by this plan.")
 }
+
 func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
@@ -46,6 +47,7 @@ func (s *Server) plans(w http.ResponseWriter, r *http.Request, p Principal) erro
 	}
 	return e
 }
+
 func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in planInput
 	if e := decode(w, r, &in); e != nil {
@@ -69,6 +71,7 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	return result(w, r, s, "plans", "", in.ID, 201)
 }
+
 func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in planInput
 	if e := decode(w, r, &in); e != nil {
@@ -104,6 +107,7 @@ func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	return result(w, r, s, "plans", "", record, 200)
 }
+
 func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
 		return e
@@ -114,6 +118,7 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request, p Principal) erro
 	}
 	return e
 }
+
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		State string `json:"state"`
@@ -187,6 +192,7 @@ func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p Principal) er
 	}
 	return e
 }
+
 func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	if e := s.authorize(r.Context(), s.DB, p, "tenant.read", Resource{Tenant: tenant}, false); e != nil {
@@ -198,6 +204,7 @@ func (s *Server) getTenant(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	return e
 }
+
 func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		ID      string        `json:"id"`
@@ -278,6 +285,7 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	return result(w, r, s, "tenants", "", in.ID, 201)
 }
+
 func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		Name   *string `json:"display_name"`
@@ -338,6 +346,7 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	return result(w, r, s, "tenants", "", record, 200)
 }
+
 func layoutAllowed(policy Row, layout string) error {
 	if layout == "" {
 		return nil
@@ -347,6 +356,7 @@ func layoutAllowed(policy Row, layout string) error {
 	}
 	return problem(403, "plan_restriction", "This database layout is not permitted by the selected plan.")
 }
+
 func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
 	v, e := row(ctx, q, "SELECT p.*,t.state AS tenant_state,t.default_layout AS tenant_default_layout,t.default_shared_database_id FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
 	if e != nil {
@@ -357,6 +367,7 @@ func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
 	}
 	return v, nil
 }
+
 func quota(ctx context.Context, q Queryer, tenant, table, column string, policy Row) error {
 	if policy[column] == nil {
 		return nil
@@ -380,6 +391,7 @@ func quota(ctx context.Context, q Queryer, tenant, table, column string, policy 
 	}
 	return nil
 }
+
 func ensurePlatformAdmin(ctx context.Context, q Queryer) error {
 	var n int
 	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' WHERE g.scope_kind='platform' AND g.role_id=?", SuperRole).Scan(&n)
@@ -391,6 +403,7 @@ func ensurePlatformAdmin(ctx context.Context, q Queryer) error {
 	}
 	return nil
 }
+
 func ensureTenantAdmin(ctx context.Context, q Queryer, tenant string) error {
 	var n int
 	e := q.QueryRowContext(ctx, "SELECT COUNT(DISTINCT g.user_id) FROM access_grants g JOIN users u ON u.id=g.user_id AND u.state='active' JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.state='active' WHERE g.tenant_id=? AND g.role_id=? AND g.space_id IS NULL AND g.app_id IS NULL AND NOT EXISTS (SELECT 1 FROM access_grants pg WHERE pg.user_id=g.user_id AND pg.role_id=?)", tenant, TenantAdminRole, SuperRole).Scan(&n)

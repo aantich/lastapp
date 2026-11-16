@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { api } from "./api";
-type Option = { value: string; label: string };
+import type { Item, Page } from "./api-types";
+import { useListbox, type ListOption as Option } from "./listbox";
+import { ListboxPopup } from "./select";
 export function RemoteSelect({
   path,
   label,
@@ -27,11 +29,9 @@ export function RemoteSelect({
   excludeControl?: boolean;
   excludePlatform?: boolean;
 }) {
-  const id = useId(),
-    root = useRef<HTMLSpanElement>(null),
+  const root = useRef<HTMLSpanElement>(null),
     input = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false),
-    [query, setQuery] = useState(""),
+  const [query, setQuery] = useState(""),
     [page, setPage] = useState(1),
     [options, setOptions] = useState<Option[]>(initial),
     [selected, setSelected] = useState<Option | undefined>(
@@ -39,9 +39,10 @@ export function RemoteSelect({
     ),
     [more, setMore] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [active, setActive] = useState(0);
-  const convert = (items: Record<string, any>[]) =>
+    [error, setError] = useState("");
+  const list = useListbox(options, choose, root),
+    { open, setOpen, setActive } = list;
+  const convert = (items: Item[]) =>
     items
       .filter(
         (x) =>
@@ -83,7 +84,7 @@ export function RemoteSelect({
       return;
     }
     let live = true;
-    api(
+    api<Page>(
       path +
         (path.includes("?") ? "&" : "?") +
         "limit=50&q=" +
@@ -103,7 +104,7 @@ export function RemoteSelect({
     setBusy(true);
     const timer = setTimeout(
       () =>
-        api(
+        api<Page>(
           path +
             (path.includes("?") ? "&" : "?") +
             `page=${page}&limit=50&q=${encodeURIComponent(query)}`,
@@ -147,13 +148,6 @@ export function RemoteSelect({
     excludeControl,
     excludePlatform,
   ]);
-  useEffect(() => {
-    const close = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, []);
   function choose(o: Option) {
     setSelected(o);
     onChange(o.value);
@@ -168,11 +162,9 @@ export function RemoteSelect({
           role="combobox"
           aria-label={label}
           aria-expanded={open}
-          aria-controls={id}
+          aria-controls={list.id}
           aria-autocomplete="list"
-          aria-activedescendant={
-            open && options[active] ? id + "-" + active : undefined
-          }
+          aria-activedescendant={list.activeId}
           required={required && !value}
           autoComplete="off"
           value={
@@ -197,53 +189,18 @@ export function RemoteSelect({
           onBlur={(e) => {
             if (!root.current?.contains(e.relatedTarget)) setOpen(false);
           }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-              e.preventDefault();
-              setOpen(true);
-              setActive((i) =>
-                Math.max(
-                  0,
-                  Math.min(
-                    options.length - 1,
-                    i + (e.key === "ArrowDown" ? 1 : -1),
-                  ),
-                ),
-              );
-            }
-            if (e.key === "Enter" && open) {
-              e.preventDefault();
-              if (options[active]) choose(options[active]);
-            }
-            if (e.key === "Escape" && open) {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-            }
-            if (e.key === "Tab") setOpen(false);
-          }}
+          onKeyDown={list.onKeyDown}
         />
         <ChevronDown size={15} />
       </span>
       {open && (
-        <span className="combobox-popup">
-          <span role="listbox" id={id} aria-label={label}>
-            {options.map((o, i) => (
-              <button
-                type="button"
-                role="option"
-                id={id + "-" + i}
-                key={o.value}
-                aria-selected={value === o.value}
-                className={active === i ? "focused" : ""}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => choose(o)}
-                onMouseMove={() => setActive(i)}
-              >
-                {o.label}
-              </button>
-            ))}
-          </span>
+        <ListboxPopup
+          list={list}
+          label={label}
+          options={options}
+          value={value}
+          choose={choose}
+        >
           {busy && <small>Searching…</small>}
           {!busy && !options.length && !error && <small>No matches</small>}
           {error && <small role="alert">{error}</small>}
@@ -252,13 +209,12 @@ export function RemoteSelect({
               type="button"
               className="text-button"
               disabled={busy}
-              onMouseDown={(e) => e.preventDefault()}
               onClick={() => setPage((p) => p + 1)}
             >
               Load more
             </button>
           )}
-        </span>
+        </ListboxPopup>
       )}
     </span>
   );

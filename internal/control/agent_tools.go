@@ -13,10 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aantich/lastapp/internal/entity"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/aantich/lastapp/internal/entity"
 )
 
 type agentTarget struct {
@@ -191,6 +192,7 @@ func agentInputSchema(t reflect.Type) (*jsonschema.Schema, error) {
 	cached, _ := agentSchemaContracts.LoadOrStore(t, &agentSchemaContract{Schema: schema, Resolved: resolved})
 	return cached.(*agentSchemaContract).Schema, nil
 }
+
 func (s *Server) agentTools() []agentToolSpec {
 	return []agentToolSpec{
 		{"lastapp_workspace", "Create/archive/retry an owned isolated Space workspace, or issue a short-lived PKCE launch code for its App. Creation allocates an empty database on the source Space target within plan and workspace quotas; no production data, assignments, origins or credentials are copied. Poll lastapp_get resource=workspace until ready, then target its backing_space_id with the ordinary entity/role/App tools. Inspect existing entities before creating concepts. For launch approve the exact origin first, keep the verifier locally, and exchange through SDK connectDevelopment. Workspace grants never authorize production deployment. Every mutation needs request_key; archive/retry need expected_revision. Credentials are returned once; an idempotent replay receipt does not recover an expired launch code.", agentType[agentWorkspaceInput](), false, []string{"read"}, s.toolAgentWorkspace},
@@ -220,11 +222,12 @@ func strictAgentInput(raw json.RawMessage, dst any) error {
 		return bad("Invalid or unsupported tool arguments. Read the tool schema.")
 	}
 	var more any
-	if d.Decode(&more) != io.EOF {
+	if !errors.Is(d.Decode(&more), io.EOF) {
 		return bad("Exactly one argument object is required.")
 	}
 	return nil
 }
+
 func requireAgent(g *agentGrant, permissions ...string) error {
 	missing := []string{}
 	for _, permission := range permissions {
@@ -237,6 +240,7 @@ func requireAgent(g *agentGrant, permissions ...string) error {
 	}
 	return nil
 }
+
 func (s *Server) mcpHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
@@ -405,6 +409,7 @@ func (w *operationResponse) Write(b []byte) (int, error) {
 	}
 	return w.body.Write(b)
 }
+
 func (w *operationResponse) Value() (Row, error) {
 	if w.err != nil {
 		return nil, w.err
@@ -415,6 +420,7 @@ func (w *operationResponse) Value() (Row, error) {
 	}
 	return out, nil
 }
+
 func (s *Server) executeManagement(ctx context.Context, p Principal, fn endpoint, method, path string, values map[string]string, body any, revision int64) (Row, error) {
 	b, e := json.Marshal(body)
 	if e != nil {
@@ -437,6 +443,7 @@ func (s *Server) executeManagement(ctx context.Context, p Principal, fn endpoint
 	}
 	return out.Value()
 }
+
 func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTarget, error) {
 	g := p.Agent
 	if target == nil {
@@ -480,6 +487,7 @@ func (s *Server) agentRoot(p Principal, target *agentTarget) (Resource, *agentTa
 	}
 	return res, target, nil
 }
+
 func agentPaths(res Resource, target *agentTarget) map[string]string {
 	v := map[string]string{"tenant": res.Tenant}
 	switch target.Kind {
@@ -492,6 +500,7 @@ func agentPaths(res Resource, target *agentTarget) map[string]string {
 	}
 	return v
 }
+
 func agentScopePath(res Resource, target *agentTarget) string {
 	if target.Kind == "platform" {
 		return "/admin/v1"
@@ -507,6 +516,7 @@ func agentScopePath(res Resource, target *agentTarget) string {
 	}
 	return base
 }
+
 func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, result Row, input any, permissions ...string) (context.Context, error) {
 	if e := id(key); e != nil {
 		return ctx, bad("request_key must be a canonical UUID")
@@ -533,11 +543,12 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 		}
 		return context.WithValue(ctx, agentContextKey{}, a), nil
 	}
-	if e != sql.ErrNoRows {
+	if !errors.Is(e, sql.ErrNoRows) {
 		return ctx, e
 	}
 	return context.WithValue(ctx, agentContextKey{}, a), nil
 }
+
 func agentWriteResult(ctx context.Context, data Row, e error) (any, error) {
 	if errors.Is(e, errAgentReplay) {
 		a := ctx.Value(agentContextKey{}).(*agentExecution)
@@ -661,17 +672,24 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	data, e := s.executeManagement(ctx, p, fn, "POST", agentScopePath(res, target), paths, body, 0)
 	return agentWriteResult(ctx, data, e)
 }
-func compactFields(v any) Row {
-	b, _ := json.Marshal(v)
+
+func compactFields(v any) (Row, error) {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return nil, e
+	}
 	out := Row{}
-	json.Unmarshal(b, &out)
+	if e = json.Unmarshal(b, &out); e != nil {
+		return nil, e
+	}
 	for k, value := range out {
 		if value == nil {
 			delete(out, k)
 		}
 	}
-	return out
+	return out, nil
 }
+
 func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentUpdateInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -733,7 +751,9 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 		if target.Kind != "platform" || in.Plan == nil {
 			return nil, bad("Plan update requires platform scope and the complete plan object.")
 		}
-		body = compactFields(in.Plan)
+		if body, e = compactFields(in.Plan); e != nil {
+			return nil, e
+		}
 		fn = s.updatePlan
 		permissions = []string{"platform.manage"}
 	default:
@@ -752,6 +772,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentLifecycleInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -810,6 +831,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentEntityInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -853,9 +875,11 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 	data, e := s.executeManagement(ctx, p, fn, method, "/v1/entities/"+key, paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func stableAgentID(p Principal, key string) string {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("lastapp:agent:"+p.Agent.ID+":"+key)).String()
 }
+
 func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentPublishInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -875,6 +899,7 @@ func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw js
 	data, e := s.executeManagement(ctx, p, s.entityPublish, "POST", "/v1/entities/"+in.Entity+"/publications", map[string]string{"entity": in.Entity}, Row{}, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentCheckInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -905,7 +930,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v["draft_json"]), "published_version": v["active_version_id"], "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
 	cases := []Row{}
 	for _, c := range in.Cases {
-		body := compactFields(c)
+		body, e := compactFields(c)
+		if e != nil {
+			return nil, e
+		}
 		body["definition"] = in.Definition
 		data, e := s.executeManagement(ctx, p, s.entityTest, "POST", "/v1/entities/"+in.Entity+"/test", paths, body, 0)
 		if e != nil {
@@ -917,6 +945,7 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	result["contract_guidance"] = "Inspect generated contracts with lastapp_get resource=entity and section selectors for saved drafts. Supplied candidates are not persisted."
 	return result, nil
 }
+
 func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentAssignmentInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -966,6 +995,7 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	data, e := s.executeManagement(ctx, p, fn, method, agentScopePath(res, target)+"/role-assignments", paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentMembershipInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -1023,6 +1053,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 	data, e := s.executeManagement(ctx, p, fn, method, path, paths, body, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentAppAccessInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -1041,6 +1072,7 @@ func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.R
 	data, e := s.executeManagement(ctx, p, s.appAccessSave, "PATCH", "/v1/apps/"+in.App+"/data-access", map[string]string{"app": in.App}, in.Access, in.Revision)
 	return agentWriteResult(ctx, data, e)
 }
+
 func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentDatabaseInput
 	if e := strictAgentInput(raw, &in); e != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"time"
 
@@ -18,6 +19,7 @@ func decodeDeployment(v Row) (deploymentPlan, error) {
 	}
 	return plan, e
 }
+
 func (s *Server) deploymentPrincipal(ctx context.Context, q Queryer, v Row) (Principal, error) {
 	p := Principal{ID: str(v["created_by"])}
 	if str(v["agent_grant_id"]) != "" {
@@ -32,6 +34,7 @@ func (s *Server) deploymentPrincipal(ctx context.Context, q Queryer, v Row) (Pri
 	}
 	return p, s.deploymentAuthority(ctx, q, p, Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])})
 }
+
 func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 	jobs, e := rows(ctx, q, "SELECT d.*,sp.database_resource_id FROM release_deployments d JOIN spaces sp ON sp.id=d.space_id WHERE d.state IN ('queued','preparing','publishing') ORDER BY d.created_at LIMIT 1")
 	if e != nil || len(jobs) == 0 {
@@ -250,7 +253,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 	if ae, ok := e.(*APIError); ok {
 		message = ae.Message
 	} else {
-		s.Log.Warn("release deployment failed", diagnostic(e)...)
+		s.logger(ctx).Warn("release deployment failed", diagnostic(e)...)
 	}
 	return s.failDeployment(ctx, v, message)
 }
@@ -290,6 +293,7 @@ func (s *Server) failDeployment(ctx context.Context, job Row, message string) er
 	}
 	return nil
 }
+
 func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, space string, snapshot spaceSnapshot, activate bool) error {
 	if e := s.snapshotAppQuota(ctx, tx, tenant, snapshot); e != nil {
 		return e
@@ -298,7 +302,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 		var parent string
 		query := "SELECT space_id FROM " + table + " WHERE id=?"
 		e := tx.QueryRowContext(ctx, query, id).Scan(&parent)
-		if e == sql.ErrNoRows {
+		if errors.Is(e, sql.ErrNoRows) {
 			return false, nil
 		}
 		if e != nil {
@@ -374,7 +378,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 				return missing()
 			}
 			_, e = tx.ExecContext(ctx, "UPDATE microapp_installations SET display_name=?,artifact_ref=?,navigation_order=?,state=?,revision=revision+1 WHERE id=?", v.Name, nullable(v.Artifact), v.Order, v.State, v.ID)
-		} else if e == sql.ErrNoRows {
+		} else if errors.Is(e, sql.ErrNoRows) {
 			if e = metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 				return e
 			}

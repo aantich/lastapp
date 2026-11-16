@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
-	mariadb "github.com/aantich/go-mariadb"
 	"net"
 	"net/http"
 	"regexp"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	mariadb "github.com/aantich/go-mariadb"
 )
 
 type credentials struct {
@@ -30,8 +31,10 @@ type databaseInput struct {
 	Credentials credentials `json:"credentials"`
 }
 
-const targetColumns = "id,display_name,canonical_host,port,tls_mode,state,managed_enabled,revision,created_at"
-const dbColumns = "id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at"
+const (
+	targetColumns = "id,display_name,canonical_host,port,tls_mode,state,managed_enabled,revision,created_at"
+	dbColumns     = "id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at"
+)
 
 func (s *Server) targets(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
@@ -43,6 +46,7 @@ func (s *Server) targets(w http.ResponseWriter, r *http.Request, p Principal) er
 	}
 	return e
 }
+
 func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if e := s.authorize(r.Context(), s.DB, p, "database.manage", Resource{Tenant: r.PathValue("tenant")}, false); e != nil {
 		return e
@@ -90,6 +94,7 @@ func (s *Server) validateTarget(in *targetInput) error {
 	}
 	return nil
 }
+
 func (s *Server) createTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in targetInput
 	if e := decode(w, r, &in); e != nil {
@@ -124,6 +129,7 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	return result(w, r, s, "database_targets", "", in.ID, 201)
 }
+
 func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		Name        *string      `json:"display_name"`
@@ -189,6 +195,7 @@ func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	return result(w, r, s, "database_targets", "", record, 200)
 }
+
 func (s *Server) databases(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	if e := s.authorize(r.Context(), s.DB, p, "database.read", Resource{Tenant: tenant}, false); e != nil {
@@ -200,6 +207,7 @@ func (s *Server) databases(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	return e
 }
+
 func (s *Server) getDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
 	tenant := r.PathValue("tenant")
 	if e := s.authorize(r.Context(), s.DB, p, "database.read", Resource{Tenant: tenant}, false); e != nil {
@@ -313,6 +321,7 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 	}
 	return audit(ctx, tx, tenant, p.ID, "database.requested", "database", in.ID, request, Row{"management_mode": in.Mode, "layout": in.Layout})
 }
+
 func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in databaseInput
 	if e := decode(w, r, &in); e != nil {
@@ -331,12 +340,15 @@ func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	return result(w, r, s, "database_resources", tenant, in.ID, 202)
 }
+
 func (s *Server) retryDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.changeDatabase(w, r, p, true)
 }
+
 func (s *Server) updateDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.changeDatabase(w, r, p, false)
 }
+
 func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Principal, retry bool) error {
 	var in struct {
 		State       string       `json:"state"`
@@ -420,6 +432,7 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 	}
 	return result(w, r, s, "database_resources", tenant, record, 202)
 }
+
 func (s *Server) targetDB(ctx context.Context, target Row, cred credentials, name string) (*sql.DB, error) {
 	host := str(target["canonical_host"])
 	port := strconv.Itoa(int(integer(target["port"])))

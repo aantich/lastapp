@@ -2,6 +2,7 @@ package control
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -19,6 +20,7 @@ func (s *Server) memberships(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	return e
 }
+
 func (s *Server) addMembership(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		User    string        `json:"user_id"`
@@ -65,7 +67,7 @@ func (s *Server) addMembership(w http.ResponseWriter, r *http.Request, p Princip
 		}
 		var state string
 		if e := tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
-			if e == sql.ErrNoRows {
+			if errors.Is(e, sql.ErrNoRows) {
 				return bad("An active existing user is required.")
 			}
 			return e
@@ -83,6 +85,7 @@ func (s *Server) addMembership(w http.ResponseWriter, r *http.Request, p Princip
 	}
 	return e
 }
+
 func (s *Server) updateMembership(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		State string `json:"state"`
@@ -113,7 +116,9 @@ func (s *Server) updateMembership(w http.ResponseWriter, r *http.Request, p Prin
 		n, _ := res.RowsAffected()
 		if n == 0 {
 			var found int
-			tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=? AND user_id=?", t, u).Scan(&found)
+			if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=? AND user_id=?", t, u).Scan(&found); e != nil {
+				return e
+			}
 			if found == 0 {
 				return missing()
 			}
@@ -133,6 +138,7 @@ func (s *Server) updateMembership(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	return e
 }
+
 func (s *Server) groups(w http.ResponseWriter, r *http.Request, p Principal) error {
 	t := r.PathValue("tenant")
 	sc, e := s.scopes(r.Context(), s.DB, p, t, "team.read")
@@ -147,6 +153,7 @@ func (s *Server) groups(w http.ResponseWriter, r *http.Request, p Principal) err
 	}
 	return e
 }
+
 func teamSQL(sc scopeSet, column string) (string, []any) {
 	if sc.All {
 		return "1=1", nil
@@ -159,6 +166,7 @@ func teamSQL(sc scopeSet, column string) (string, []any) {
 	}
 	return "(" + strings.Join(parts, " OR ") + ")", args
 }
+
 func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in namedInput
 	if e := decode(w, r, &in); e != nil {
@@ -185,6 +193,7 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	return result(w, r, s, "groups", t, in.ID, 201)
 }
+
 func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		Name  *string `json:"display_name"`
@@ -223,12 +232,15 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	return result(w, r, s, "groups", t, record, 200)
 }
+
 func (s *Server) addGroupMember(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.changeGroupMember(w, r, p, true)
 }
+
 func (s *Server) removeGroupMember(w http.ResponseWriter, r *http.Request, p Principal) error {
 	return s.changeGroupMember(w, r, p, false)
 }
+
 func (s *Server) changeGroupMember(w http.ResponseWriter, r *http.Request, p Principal, add bool) error {
 	u := r.PathValue("user")
 	if add {
@@ -302,6 +314,7 @@ func (s *Server) changeGroupMember(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	return e
 }
+
 func (s *Server) groupMembers(w http.ResponseWriter, r *http.Request, p Principal) error {
 	t, g := r.PathValue("tenant"), r.PathValue("id")
 	if e := s.authorize(r.Context(), s.DB, p, "team.manage", Resource{Tenant: t, Team: g}, false); e != nil {
@@ -328,6 +341,7 @@ func (s *Server) getGroup(w http.ResponseWriter, r *http.Request, p Principal) e
 	}
 	return e
 }
+
 func (s *Server) getApp(w http.ResponseWriter, r *http.Request, p Principal) error {
 	t, a := r.PathValue("tenant"), r.PathValue("app")
 	if e := s.authorize(r.Context(), s.DB, p, "app.read", Resource{Tenant: t, App: a}, false); e != nil {

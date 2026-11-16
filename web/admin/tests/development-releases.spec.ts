@@ -4,8 +4,6 @@ import {
   mkdir,
   writeFile,
   symlink,
-  readdir,
-  readFile,
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";

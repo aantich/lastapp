@@ -1,4 +1,60 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const local = fileURLToPath(new URL("../../../.local", import.meta.url));
+
+// Database account host the server provisions with; '%' when MariaDB runs in
+// Docker or CI because published-port connections arrive from a gateway.
+export const accountHost: string = process.env.CI
+  ? "%"
+  : JSON.parse(readFileSync(resolve(local, "config.json"), "utf8"))
+      .runtime_account_host;
+
+// Runs SQL as MariaDB root on the local stack: CI service (TCP, empty
+// password), host mariadbd (socket) or docker-compose.yaml (scripts/dev.py).
+export function rootSQL(sql: string, extra: string[] = []): string {
+  const run = (cmd: string, args: string[], env = process.env) =>
+    execFileSync(cmd, args, { input: sql, encoding: "utf8", env });
+  if (process.env.CI)
+    return run("mariadb", [
+      "--no-defaults",
+      "--protocol=TCP",
+      "--host=127.0.0.1",
+      "--port=33317",
+      "-uroot",
+      ...extra,
+    ]);
+  const socket = resolve(local, "mariadb.sock");
+  if (existsSync(socket))
+    return run("mariadb", [
+      "--no-defaults",
+      "--protocol=SOCKET",
+      `--socket=${socket}`,
+      "-uroot",
+      ...extra,
+    ]);
+  const state = JSON.parse(readFileSync(resolve(local, "state.json"), "utf8"));
+  return run(
+    "docker",
+    [
+      "compose",
+      "-f",
+      resolve(local, "../docker-compose.yaml"),
+      "exec",
+      "-T",
+      "-e",
+      "MYSQL_PWD",
+      "mariadb",
+      "mariadb",
+      "-uroot",
+      ...extra,
+    ],
+    { ...process.env, MYSQL_PWD: state.root_password },
+  );
+}
 export async function login(
   page: Page,
   subject = "operator",
@@ -6,7 +62,7 @@ export async function login(
 ) {
   await page.goto(origin + "/console/");
   await page.getByRole("link", { name: "Continue with SSO" }).click();
-  await page.locator("select[name=subject]").selectOption(subject);
+  await page.locator(`input[name=subject][value="${subject}"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
@@ -48,6 +104,21 @@ export async function choose(
     .getByRole("option");
   await (match ? options.filter({ hasText: match }) : options).first().click();
 }
+// Chooses an option of the console's Select control by value or label.
+export async function pick(field: Locator, option: string) {
+  // The open listbox shares the field's name, so resolve its id first.
+  const id = await field.getAttribute("aria-controls");
+  await field.click();
+  const list = field.page().locator(`[id="${id}"]`);
+  await expect(list).toBeVisible();
+  const byValue = list.locator(`[role="option"][data-value="${option}"]`);
+  await (
+    (await byValue.count())
+      ? byValue
+      : list.getByRole("option", { name: option, exact: true })
+  ).click();
+  await expect(field).toHaveAttribute("aria-expanded", "false");
+}
 export async function selectTenant(page: Page, tenant: string) {
   const field = page.getByRole("combobox", { name: "Tenant", exact: true });
   if (await field.count()) await choose(page, "Tenant", tenant);
@@ -56,7 +127,7 @@ export async function selectTenant(page: Page, tenant: string) {
 export async function post(
   page: Page,
   path: string,
-  data: any,
+  data: unknown,
   method = "POST",
   revision?: number,
 ) {
@@ -91,9 +162,11 @@ export async function fixtureTenant(page: Page, label = "UI workspace") {
     page.request.get("/admin/v1/users?q=outsider").then((r) => r.json()),
   ]);
   const owner = owners.items.find(
-      (u: any) => u.oidc_subject === "tenant-admin",
+      (u: { oidc_subject: string }) => u.oidc_subject === "tenant-admin",
     ),
-    outsider = outsiders.items.find((u: any) => u.oidc_subject === "outsider");
+    outsider = outsiders.items.find(
+      (u: { oidc_subject: string }) => u.oidc_subject === "outsider",
+    );
   const tenant = crypto.randomUUID();
   expect(
     (
@@ -107,4 +180,11 @@ export async function fixtureTenant(page: Page, label = "UI workspace") {
     ).status,
   ).toBe(201);
   return { tenant, owner, outsider, base: "/v1/tenants/" + tenant };
+}
+// Answers the console's ConfirmDialog (it replaced window.confirm()).
+export async function confirmDialog(page: Page, button: string) {
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: button, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 }

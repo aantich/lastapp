@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -47,7 +48,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var extra any
-	if decoder.Decode(&extra) != io.EOF {
+	if !errors.Is(decoder.Decode(&extra), io.EOF) {
 		reject("invalid_client_metadata", "Send exactly one client metadata object.")
 		return
 	}

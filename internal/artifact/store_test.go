@@ -38,13 +38,17 @@ func TestImmutableConfinedBuild(t *testing.T) {
 	}
 	// Even a local filesystem symlink cannot escape the configured root.
 	secret := filepath.Join(t.TempDir(), "secret")
-	os.WriteFile(secret, []byte("secret"), 0600)
-	os.Symlink(secret, filepath.Join(dir, b.Hash, "escape"))
+	if e := os.WriteFile(secret, []byte("secret"), 0o600); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Symlink(secret, filepath.Join(dir, b.Hash, "escape")); e != nil {
+		t.Fatal(e)
+	}
 	if r, e = Read(dir, b.Hash, "escape"); e == nil {
 		r.Close()
 		t.Fatal("symlink escaped artifact root")
 	}
-	if e = os.WriteFile(filepath.Join(dir, b.Hash, "assets/main.js"), []byte("corrupt"), 0600); e != nil {
+	if e = os.WriteFile(filepath.Join(dir, b.Hash, "assets/main.js"), []byte("corrupt"), 0o600); e != nil {
 		t.Fatal(e)
 	}
 	if Check(dir, b) == nil {
