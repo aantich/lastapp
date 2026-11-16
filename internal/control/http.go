@@ -320,14 +320,22 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 	return e
 }
 
-func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (Row, error) {
-	query := "SELECT id,revision,state FROM " + table + " WHERE id=?"
+// lockedRecord is the revision and lifecycle state of a record locked for
+// update.
+type lockedRecord struct {
+	Revision int64
+	State    string
+}
+
+func lockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (lockedRecord, error) {
+	query := "SELECT revision,state FROM " + table + " WHERE id=?"
 	args := []any{record}
 	if tenant != "" {
 		query += " AND tenant_id=?"
 		args = append(args, tenant)
 	}
-	return row(ctx, tx, query+" FOR UPDATE", args...)
+	var v lockedRecord
+	return v, lookup(ctx, tx, query+" FOR UPDATE", args, &v.Revision, &v.State)
 }
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p Principal) error {

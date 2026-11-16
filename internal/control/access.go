@@ -259,7 +259,7 @@ func (m *membership) changeTeamMember(ctx context.Context, a Actor, tenant, team
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		var wasMember int
@@ -323,7 +323,7 @@ func (m *membership) SetTeamMemberState(ctx context.Context, a Actor, tenant, te
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(locked["revision"]), revision); e != nil {
+		if e = checkRevision(locked.Revision, revision); e != nil {
 			return e
 		}
 		before, e := row(ctx, tx, "SELECT user_id,state FROM group_memberships WHERE tenant_id=? AND group_id=? AND user_id=?", tenant, team, user)

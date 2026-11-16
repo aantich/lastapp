@@ -153,7 +153,7 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		sets := []string{"revision=revision+1"}

@@ -220,7 +220,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 				return e
 			}
 		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+		if e = checkRevision(old.Revision, rev); e != nil {
 			return e
 		}
 		_, e = tx.ExecContext(r.Context(), "UPDATE users SET state=?,revision=revision+1 WHERE id=?", in.State, record)
@@ -243,7 +243,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 				return e
 			}
 		}
-		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": old["state"]}, "after": Row{"state": in.State}})
+		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": old.State}, "after": Row{"state": in.State}})
 	})
 	if e != nil {
 		return e
@@ -251,7 +251,33 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 	return result(w, r, s, "users", "", record, 200)
 }
 
-const tenantColumns = "t.id,t.slug,t.display_name,t.state,t.plan_id,t.default_layout,t.default_shared_database_id,t.revision,t.created_at,p.display_name AS plan_name"
+// Tenant is a Tenant with its plan's name. The counts are read only in the
+// collection (tenantItem).
+type Tenant struct {
+	AppCount              *int64    `json:"app_count,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+	DefaultLayout         *string   `json:"default_layout"`
+	DefaultSharedDatabase *string   `json:"default_shared_database_id"`
+	Name                  string    `json:"display_name"`
+	ID                    string    `json:"id"`
+	PlanID                string    `json:"plan_id"`
+	PlanName              string    `json:"plan_name"`
+	Revision              int64     `json:"revision"`
+	Slug                  string    `json:"slug"`
+	SpaceCount            *int64    `json:"space_count,omitempty"`
+	State                 string    `json:"state"`
+}
+
+const tenantColumns = "t.created_at,t.default_layout,t.default_shared_database_id,t.display_name,t.id,t.plan_id,p.display_name AS plan_name,t.revision,t.slug,t.state"
+
+func (t *Tenant) fields() []any {
+	return []any{&t.CreatedAt, &t.DefaultLayout, &t.DefaultSharedDatabase, &t.Name, &t.ID, &t.PlanID, &t.PlanName, &t.Revision, &t.Slug, &t.State}
+}
+
+// tenantItem is a Tenant collection row with its active Space and App counts.
+type tenantItem struct{ Tenant }
+
+func (t *tenantItem) fields() []any { return append(t.Tenant.fields(), &t.SpaceCount, &t.AppCount) }
 
 type tenantCreateInput struct {
 	ID      string        `json:"id"`
@@ -270,18 +296,18 @@ type tenantPatch struct {
 	Layout *string `json:"default_layout"`
 }
 
-func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[tenantItem], error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return Page[Row]{}, e
+		return Page[tenantItem]{}, e
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
+	return pageScan[tenantItem](ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
 }
 
-func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Row, error) {
+func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Tenant, error) {
 	if e := v.run.authorize(ctx, a, "tenant.read", Resource{Tenant: tenant}); e != nil {
-		return nil, e
+		return Tenant{}, e
 	}
-	return row(ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
+	return scanOne[Tenant](ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
 }
 
 // CreateTenant creates a Tenant with its first administrator: an existing
@@ -365,14 +391,15 @@ func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in
 		return Ref{}, revisionRequired()
 	}
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{Tenant: record}, func(tx *sql.Tx) error {
-		old, e := row(ctx, tx, "SELECT id,display_name,state,plan_id,default_layout,revision FROM tenants WHERE id=?", record)
+		var name, state, plan, layout string
+		var current int64
+		e := lookup(ctx, tx, "SELECT display_name,state,plan_id,COALESCE(default_layout,''),revision FROM tenants WHERE id=?", []any{record}, &name, &state, &plan, &layout, &current)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		name, state, plan, layout := str(old["display_name"]), str(old["state"]), str(old["plan_id"]), str(old["default_layout"])
 		if in.Name != nil {
 			name = *in.Name
 			if strings.TrimSpace(name) == "" || len(name) > 160 {
@@ -423,7 +450,7 @@ func (v *inventory) UpdateTenantProfile(ctx context.Context, a Actor, tenant, na
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(before["revision"]), revision); e != nil {
+		if e = checkRevision(before.Revision, revision); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET display_name=?,revision=revision+1 WHERE id=?", name, tenant); e != nil {
