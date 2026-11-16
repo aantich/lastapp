@@ -42,13 +42,22 @@ func agentCallFrom(ctx context.Context) *AgentCall {
 	return a
 }
 
+// errActorAgentMismatch rejects an operation whose Actor does not carry the
+// delegated call already in its context.
+var errActorAgentMismatch = errors.New("operation actor does not carry the agent call of its context")
+
 // withAgentCall exposes a to the live authorization checks, which still read
-// the delegated call from ctx until they take the Actor themselves.
-func withAgentCall(ctx context.Context, a *AgentCall) context.Context {
-	if a == nil || agentCallFrom(ctx) == a {
-		return ctx
+// the delegated call from ctx until they take the Actor themselves. The Actor
+// is the only source: ctx is never a fallback, and an Actor that disagrees
+// with an agent call already in ctx fails rather than skipping its receipt.
+func withAgentCall(ctx context.Context, a *AgentCall) (context.Context, error) {
+	switch current := agentCallFrom(ctx); {
+	case current == a:
+		return ctx, nil
+	case current != nil:
+		return ctx, errActorAgentMismatch
 	}
-	return context.WithValue(ctx, agentContextKey{}, a)
+	return context.WithValue(ctx, agentContextKey{}, a), nil
 }
 
 // actorFrom is the shim for code not yet migrated to explicit actors: it reads
@@ -163,7 +172,10 @@ type runner struct {
 }
 
 func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resource, fn func(*sql.Tx) error) error {
-	ctx = withAgentCall(ctx, a.Agent)
+	ctx, e := withAgentCall(ctx, a.Agent)
+	if e != nil {
+		return e
+	}
 	tx, e := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {
 		return e
@@ -217,7 +229,11 @@ func (r *runner) authorizeTx(ctx context.Context, tx *sql.Tx, a Actor, action st
 // check is the live authorization check on q. mutating selects the stricter
 // membership and platform-control rules of a change, also before its transaction.
 func (r *runner) check(ctx context.Context, q Queryer, a Actor, action string, res Resource, mutating bool) error {
-	return r.access.authorize(withAgentCall(ctx, a.Agent), q, a.Principal, action, res, mutating)
+	ctx, e := withAgentCall(ctx, a.Agent)
+	if e != nil {
+		return e
+	}
+	return r.access.authorize(ctx, q, a.Principal, action, res, mutating)
 }
 
 // operationID is the identifier of the record a's operation creates: the
@@ -231,7 +247,11 @@ func (a Actor) operationID() string {
 
 // scopes returns a's live read scopes in tenant; apply them before paging.
 func (r *runner) scopes(ctx context.Context, a Actor, tenant, action string) (scopeSet, error) {
-	return r.access.scopes(withAgentCall(ctx, a.Agent), r.db, a.Principal, tenant, action)
+	ctx, e := withAgentCall(ctx, a.Agent)
+	if e != nil {
+		return scopeSet{}, e
+	}
+	return r.access.scopes(ctx, r.db, a.Principal, tenant, action)
 }
 
 // ref reads a record's compact result after its mutation committed.

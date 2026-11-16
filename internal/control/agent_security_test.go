@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -444,5 +445,39 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 	v, e = agentWriteResult(context.WithValue(context.Background(), agentContextKey{}, replayed), nil, errAgentReplay)
 	if e != nil || v.(Row)["replayed"] != true || v.(Row)["committed"] != true || !replayed.Committed {
 		t.Fatal("replayed mutation was not reported as committed", v, e)
+	}
+}
+
+// TestActorIsTheAgentSource pins the Actor as the only source of an
+// operation's delegated call: an Actor that omits the agent call already in
+// its context fails instead of running with delegation checks but no receipt.
+func TestActorIsTheAgentSource(t *testing.T) {
+	r := &runner{access: &Server{}}
+	call := &AgentCall{Operation: "lastapp_create", Key: newID()}
+	mcp := context.WithValue(context.Background(), agentContextKey{}, call)
+	for name, a := range map[string]Actor{
+		"missing agent": {Principal: Principal{ID: newID()}, RequestID: newID()},
+		"other agent":   {Principal: Principal{ID: newID()}, RequestID: newID(), Agent: &AgentCall{Operation: "lastapp_create"}},
+	} {
+		if e := r.mutate(mcp, a, "apps.create", Resource{Tenant: newID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, errActorAgentMismatch) {
+			t.Fatal(name, "mutation accepted a mismatched actor", e)
+		}
+		if e := r.authorize(mcp, a, "apps.read", Resource{Tenant: newID()}); !errors.Is(e, errActorAgentMismatch) {
+			t.Fatal(name, "read authorization accepted a mismatched actor", e)
+		}
+		if _, e := r.scopes(mcp, a, newID(), "apps.read"); !errors.Is(e, errActorAgentMismatch) {
+			t.Fatal(name, "scope lookup accepted a mismatched actor", e)
+		}
+	}
+	// The Actor's own call is what the authorization checks see.
+	ctx, e := withAgentCall(context.Background(), call)
+	if e != nil || agentCallFrom(ctx) != call {
+		t.Fatal("actor agent call was not exposed", e)
+	}
+	if ctx, e = withAgentCall(mcp, call); e != nil || agentCallFrom(ctx) != call {
+		t.Fatal("matching actor was rejected", e)
+	}
+	if ctx, e = withAgentCall(context.Background(), nil); e != nil || agentCallFrom(ctx) != nil {
+		t.Fatal("human actor gained an agent call", e)
 	}
 }
