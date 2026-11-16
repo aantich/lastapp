@@ -1,5 +1,34 @@
 # Lastapp verification
 
+## Package split — 16 November 2026
+
+- `internal/control` is split by mechanical moves (one commit per package,
+  type-checked rewrite of references; names exported where needed, otherwise
+  unchanged): `internal/registry` (Queryer, Row, APIError, typed readers,
+  plans/policy/quotas/locks, workspace and App records), `internal/access`
+  (`Checker` with authorize/scopes/member, delegated grant checks, production
+  and workspace guards; Principal, AgentCall, grants), `internal/op` (Actor,
+  Ref, Error/Classify, Runner, audit, receipts, paging, request deadlines),
+  `internal/config`, and the domains `databases`, `roles`, `membership`,
+  `inventory`, `entities`. Control non-test Go 15,951 → 10,825 lines.
+- Two preparatory non-move commits: the authorization methods got their own
+  `Checker` receiver (embedded in `Server`; it held only the MCP audience) and
+  the runner holds that `Checker`. Six local variables were renamed where a new
+  package name would be shadowed. Console request parsing moved back to control.
+- Workspaces/releases/deployments/starters, the MCP adapters (`agent_*`) and
+  `/data/v1` with App sessions stay in control: they are `Server` methods sharing
+  transport state (slots, limiters, cookies, encryption key, pools, mux).
+- `TestNoHTTPLoopback` also scans the operation packages and fails if one
+  imports `net/http` or `internal/control`. Both golden files are unchanged.
+
+Executed checks after each commit: `go build ./...`, `go vet ./...` **PASS**;
+golangci-lint v2.15.0 **0 issues**; schema `--check` and driver verification
+(42 files) **PASS**. `go test -race -count=1 ./...` with the local config
+**PASS** after the op, inventory and final commits (control package 177.2 s,
+68 top-level tests); the `make mcp-test` command **PASS** (37 tests/subtests);
+`make e2e` (`scripts/e2e.py`, disposable MariaDB) **PASS**, 34 Playwright tests.
+`git diff --check` clean.
+
 ## Typed registry reads — 16 November 2026
 
 - The PBKDF2 key derivation honours the request deadline (separate commit).
