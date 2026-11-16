@@ -10,7 +10,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Item = Record<string, any>;
 
-// internal/control/pagination.go: pageInfo, sendPage.
+// internal/op/pagination.go: PageInfo; internal/control/pagination.go: sendPage.
 export type PageInfo = { page: number; limit: number; has_more: boolean };
 export type Page<T = Item> = { items: T[]; pagination?: PageInfo };
 
@@ -26,7 +26,7 @@ export type Me = {
   pagination?: PageInfo;
 };
 
-// internal/control/passwords.go: publicPasswordPolicy.
+// internal/membership/accounts.go: PublicPasswordPolicy.
 export type PasswordPolicy = {
   min_length: number;
   max_length: number;
