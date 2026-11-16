@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import "./style.css";
 import { api, resetSessionRequests, sessionExpiredEvent } from "./api";
@@ -14,6 +15,7 @@ import { AgentConsent } from "./agent-access";
 import { ConfirmHost } from "./confirm-dialog";
 import { consoleURL, isConsolePath } from "./console-url";
 import "./agent-access.css";
+import { queryClient } from "./query";
 function App() {
   const { refresh: refreshConfig } = useConsoleConfig();
   const appearanceControls = useAppearance();
@@ -42,6 +44,8 @@ function App() {
   }
   function endSession() {
     resetSessionRequests();
+    // Cached reads belong to the session that made them.
+    queryClient.clear();
     setAuth("out");
     setMe(null);
     setError("");
@@ -125,9 +129,11 @@ function App() {
 }
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ConsoleConfigProvider>
-      <App />
-      <ConfirmHost />
-    </ConsoleConfigProvider>
+    <QueryClientProvider client={queryClient}>
+      <ConsoleConfigProvider>
+        <App />
+        <ConfirmHost />
+      </ConsoleConfigProvider>
+    </QueryClientProvider>
   </React.StrictMode>,
 );
