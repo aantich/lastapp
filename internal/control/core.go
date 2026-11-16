@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -226,12 +227,37 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	return seedControlCatalog(ctx, db)
 }
 
+// latestMigrationVersion derives the required registry version from the
+// embedded migrations, so adding a migration needs no second edit here.
+func latestMigrationVersion() (int64, error) {
+	names, e := fs.Glob(migrationFiles, "migrations/*.sql")
+	if e != nil {
+		return 0, fmt.Errorf("list registry migrations: %w", e)
+	}
+	var latest int64
+	for _, name := range names {
+		v, e := goose.NumericComponent(name)
+		if e != nil {
+			return 0, fmt.Errorf("registry migration %s: %w", name, e)
+		}
+		latest = max(latest, v)
+	}
+	if latest == 0 {
+		return 0, errors.New("no embedded registry migrations")
+	}
+	return latest, nil
+}
+
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
 	if e != nil {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate: %w", e)
 	}
-	if v != 12 {
+	want, e := latestMigrationVersion()
+	if e != nil {
+		return e
+	}
+	if v != want {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {

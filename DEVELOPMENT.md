@@ -162,8 +162,9 @@ without explicit fixture config are not integration evidence. The browser suite
 uses installed Chrome locally and a Vite server on 5173; CI uses Chromium.
 Rebuild with `make dev` after Go or embedded-console changes before browser testing.
 
-For registry changes, add a forward Goose migration, update the compatibility
-check and runtime grants as needed, then regenerate the SQL document with
+For registry changes, add a forward Goose migration (the startup schema check
+derives its required version from the newest embedded migration), update runtime
+grants as needed, then regenerate the SQL document with
 `python3 design/validate_schema.py --write`. The default validator invocation also
 runs the foundation SQL/API test on the existing local server. It does not test
 every later feature; use the relevant entity/MCP/security suites too. Never edit
