@@ -1,5 +1,33 @@
 # Lastapp verification
 
+## Operation extraction, steps 0–3 — 16 November 2026
+
+- Golden contracts (`internal/control/testdata`) were generated against the
+  unmodified code in a separate worktree: the 16 generated MCP tool schemas plus
+  instructions, and the JSON key/type shape (with error codes and messages) of
+  71 console and MCP responses, including receipts, replays, stale/missing
+  revisions, missing delegated scopes and unsupported update fields. Every
+  later commit leaves both files byte-identical (`TestAgentToolSchemaGolden`,
+  `TestResponseShapeGolden`).
+- `TestLoopbackRatchet` counts `executeManagement` references: 26 before, 25
+  after (shared create/update/lifecycle/list/get call sites remain until their
+  other resources migrate).
+- Direct operation tests as console and agent actors: `TestInventoryOperations`,
+  `TestTenantInventoryOperations`, `TestMembershipOperations` (428/412 revision
+  rules, team revision on member add, denied scopes incl. `needs_authorization`
+  scopes, receipt replay and conflicting request keys, request-ID and
+  grant/client audit attribution, including audits written by not-yet-migrated
+  helpers when the context does not carry the call).
+
+Executed checks after each commit: `go build ./...`, `go vet ./...` **PASS**;
+golangci-lint **0 issues** (web half of `make lint` not run: no `web/admin`
+node_modules in the worktree, no console source changed); schema validator
+`--check` and driver verification (42 files) **PASS**; `git diff --check`
+clean; `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./internal/...`
+**PASS** (final run: 139 passing tests/subtests, control package 144.6 s; only
+`TestPrepareFixture` skipped). Browser e2e (`make integration`) was not run: the
+shared dev stack belongs to another session and no console source changed.
+
 ## Minor Go/docs review fixes — 16 November 2026
 
 - `CheckSchema` derives the required registry version from the newest embedded
