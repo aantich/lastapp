@@ -7,7 +7,7 @@ import { NumberInput } from "./number-input";
 import { useDialogFocus } from "./dialog";
 import { errorMessage } from "./use-action";
 
-type Item = Record<string, any>;
+import type { Item, Page, Redirect } from "./api-types";
 type GrantValues = {
   tenant_id: string;
   scope_kind: string;
@@ -328,8 +328,8 @@ export function AgentConsent({ me }: { me: Item }) {
   useEffect(() => {
     let live = true;
     Promise.all([
-      api(`/v1/agent-access/requests/${encodeURIComponent(request)}`),
-      api("/v1/agent-access/config"),
+      api<Item>(`/v1/agent-access/requests/${encodeURIComponent(request)}`),
+      api<Item>("/v1/agent-access/config"),
     ])
       .then(([i, c]) => {
         if (live) {
@@ -346,7 +346,7 @@ export function AgentConsent({ me }: { me: Item }) {
   }, [request]);
   async function deny() {
     try {
-      const result = await api(`/v1/agent-access/requests/${request}`, "POST", {
+      const result = await api<Redirect>(`/v1/agent-access/requests/${request}`, "POST", {
         deny: true,
       });
       location.assign(result.redirect_url);
@@ -397,7 +397,7 @@ export function AgentConsent({ me }: { me: Item }) {
               }}
               requested={info.scopes.split(" ")}
               submit={async (values) => {
-                const result = await api(
+                const result = await api<Redirect>(
                   `/v1/agent-access/requests/${request}`,
                   "POST",
                   values,
@@ -434,7 +434,7 @@ function AgentGrantDialog({
     <div className="overlay">
       <section
         className="modal agent-edit-modal"
-        ref={ref as any}
+        ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby="agent-dialog-title"
@@ -492,15 +492,15 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
     setLoading(true);
     try {
       const [c, list] = await Promise.all([
-        api("/v1/agent-access/config"),
-        api(
+        api<Item>("/v1/agent-access/config"),
+        api<Page>(
           `/v1/agent-access?page=${page}&limit=20${tenant ? "&tenant_id=" + tenant : ""}`,
         ),
       ]);
       if (request !== generation.current) return;
       setConfig(c);
       setItems(list.items);
-      setMore(list.pagination.has_more);
+      setMore(!!list.pagination?.has_more);
       setLoadFailed(false);
       setError("");
     } catch (e) {

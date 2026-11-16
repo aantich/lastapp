@@ -11,7 +11,7 @@ async function read(page: Page, path: string) {
   expect(r.status()).toBe(200);
   return r.json();
 }
-async function create(page: Page, path: string, data: any) {
+async function create(page: Page, path: string, data: unknown) {
   const r = await post(page, path, data);
   expect(r.status, JSON.stringify(r.body)).toBe(201);
   return r.body;

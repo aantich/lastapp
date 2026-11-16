@@ -4,7 +4,7 @@ import { api } from "../api";
 import { RemoteSelect } from "../remote-select";
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
-import type { Item } from "../console-forms";
+import type { EntityCatalog, Item, Page } from "../api-types";
 import {
   Expression,
   FieldChoices,
@@ -59,7 +59,7 @@ export function EntityDesigner({
   const [items, setItems] = useState<Item[]>([]),
     [record, setRecord] = useState<Item | null>(null),
     [draft, setDraft] = useState<Item | null>(null),
-    [catalog, setCatalog] = useState<Item | null>(null),
+    [catalog, setCatalog] = useState<EntityCatalog | null>(null),
     [tab, setTab] = useState("fields"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -74,22 +74,24 @@ export function EntityDesigner({
   const dirty =
     !!record && JSON.stringify(draft) !== JSON.stringify(record.draft_json);
   const load = () =>
-    api("/v1/spaces/" + space + "/entities").then((v) => setItems(v.items));
+    api<Page>("/v1/spaces/" + space + "/entities").then((v) =>
+      setItems(v.items),
+    );
   useEffect(() => {
     let live = true;
     Promise.all([
-      api("/v1/entity-capabilities"),
-      api("/v1/tenants/" + tenant + "/spaces/" + space + "/roles"),
-      api("/v1/spaces/" + space + "/entities"),
+      api<EntityCatalog>("/v1/entity-capabilities"),
+      api<Page>("/v1/tenants/" + tenant + "/spaces/" + space + "/roles"),
+      api<Page>("/v1/spaces/" + space + "/entities"),
     ])
       .then(([c, r, l]) => {
         if (live) {
           setCatalog(c);
-          setRoles(r.items.filter((x: Item) => x.domain === "data"));
+          setRoles(r.items.filter((x) => x.domain === "data"));
           setItems(l.items);
           const selected = new URLSearchParams(location.search).get("entity");
           if (selected) {
-            api("/v1/entities/" + selected)
+            api<Item>("/v1/entities/" + selected)
               .then((v) => {
                 if (live && v.space_id === space) {
                   setRecord(v);
@@ -129,7 +131,7 @@ export function EntityDesigner({
     if (!record?.pending_version_id) return;
     let live = true;
     const timer = setInterval(() => {
-      api("/v1/entities/" + record.id)
+      api<Item>("/v1/entities/" + record.id)
         .then((v) => {
           if (!live) return;
           setRecord((current) =>
@@ -171,7 +173,7 @@ export function EntityDesigner({
   async function open(id: string) {
     if (dirty && !(await discardChanges())) return;
     await run(async () => {
-      const v = await api("/v1/entities/" + id);
+      const v = await api<Item>("/v1/entities/" + id);
       setRecord(v);
       setDraft(v.draft_json);
       history.replaceState(
@@ -184,7 +186,7 @@ export function EntityDesigner({
     });
   }
   async function save() {
-    const v = await api(
+    const v = await api<Item>(
       "/v1/entities/" + record!.id,
       "PATCH",
       { definition: draft },
@@ -247,7 +249,7 @@ export function EntityDesigner({
             onSubmit={(e) => {
               e.preventDefault();
               void run(async () => {
-                const v = await api(
+                const v = await api<Item>(
                   "/v1/spaces/" + space + "/entities",
                   "POST",
                   {
@@ -542,7 +544,7 @@ export function EntityDesigner({
                         )
                           void run(async () => {
                             const saved = dirty ? await save() : record!;
-                            const v = await api(
+                            const v = await api<Item>(
                               "/v1/entities/" + saved.id,
                               "PATCH",
                               {
@@ -732,7 +734,7 @@ export function EntityDesigner({
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      const v = await api(
+                      const v = await api<Item>(
                         "/v1/entities/" + record!.id + "/validate",
                         "POST",
                         { definition: draft },
@@ -751,13 +753,13 @@ export function EntityDesigner({
                   onClick={() =>
                     void run(async () => {
                       const saved = dirty ? await save() : record!;
-                      await api(
+                      await api<Item>(
                         "/v1/entities/" + saved.id + "/publications",
                         "POST",
                         {},
                         saved.revision,
                       );
-                      const v = await api("/v1/entities/" + saved.id);
+                      const v = await api<Item>("/v1/entities/" + saved.id);
                       setRecord(v);
                       setReview(false);
                     })
@@ -919,7 +921,7 @@ function FieldEditor({
 }: {
   field: Item;
   fields: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   space: string;
   published: boolean;
   save: (v: Item) => void;
@@ -1183,7 +1185,7 @@ function PermissionEditor({
   value: Item;
   definition: Item;
   roles: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   tenant: string;
   save: (v: Item) => void;
 }) {
@@ -1392,7 +1394,7 @@ function RuleEditor({
 }: {
   value: Item;
   fields: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   save: (v: Item) => void;
 }) {
   const [r, set] = useState({ ...value });
@@ -1518,7 +1520,7 @@ function EntityTest({
       onSubmit={(e) => {
         e.preventDefault();
         setError("");
-        api("/v1/entities/" + record.id + "/test", "POST", {
+        api<Item>("/v1/entities/" + record.id + "/test", "POST", {
           definition: draft,
           ...scenario,
         })

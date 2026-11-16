@@ -3,7 +3,8 @@ import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
 import { useAction } from "./use-action";
-import { status, type Item } from "./console-forms";
+import { status } from "./console-forms";
+import type { Item } from "./api-types";
 const spaceManager = "00000000-0000-4000-8000-000000000005",
   appManager = "00000000-0000-4000-8000-000000000006";
 export function AccessControl({
@@ -33,7 +34,7 @@ export function AccessControl({
   useEffect(() => {
     let live = true;
     if (scopeKind === "app")
-      api(path)
+      api<Item>(path)
         .then((v) => {
           if (live) setMeta(v);
         })

@@ -1,22 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-const own = (value: Record<string, any>, key: string) =>
+import type { EntityCatalog, Item } from "../api-types";
+// One expression shape for the SDK and the console (packages/client).
+import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
+const own = (value: Item, key: string) =>
   Object.hasOwn(value, key) ? value[key] : undefined;
-export const choiceLabel = (field: Record<string, any>, key: string) =>
-  typeof own(field.value_labels || {}, key) === "string"
-    ? own(field.value_labels, key)
-    : key;
-import type { Item } from "../console-forms";
+export const choiceLabel = (field: Item, key: string): string => {
+  const label = own(field.value_labels || {}, key);
+  return typeof label === "string" ? label : key;
+};
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
 const booleanOptions = ["true", "false"].map((v) => ({ value: v, label: v }));
-export type Expr = {
-  op?: string;
-  args?: Expr[];
-  field?: string;
-  context?: string;
-  literal?: any;
-  decimal?: string;
-};
 export function Expression({
   value,
   onChange,
@@ -33,7 +27,7 @@ export function Expression({
   value: Expr;
   onChange: (x: Expr) => void;
   fields: Item[];
-  catalog: Item;
+  catalog: EntityCatalog;
   transition?: boolean;
   label?: string;
   depth?: number;
@@ -52,14 +46,13 @@ export function Expression({
           ? "decimal"
           : "literal";
   const providers = (catalog.context_providers || []).filter(
-    (p: Item) =>
-      !contextType || contextType === "text" || p.type === contextType,
+    (p) => !contextType || contextType === "text" || p.type === contextType,
   );
   const args = value.args || [];
   const options = (catalog.operators || []).filter(
-    (o: Item) => formula || o.kind !== "numeric",
+    (o) => formula || o.kind !== "numeric",
   );
-  const operator = options.find((x: Item) => x.key === value.op);
+  const operator = options.find((x) => x.key === value.op);
   const update = (i: number, v: Expr) =>
     onChange({ ...value, args: args.map((a, j) => (j === i ? v : a)) });
   return (
@@ -118,7 +111,7 @@ export function Expression({
             aria-label={label + " context"}
             value={value.context}
             onChange={(context) => onChange({ context })}
-            options={providers.map((p: Item) => ({
+            options={providers.map((p) => ({
               value: p.key,
               label: p.label,
             }))}
@@ -128,16 +121,16 @@ export function Expression({
             aria-label={label + " operator"}
             value={value.op}
             onChange={(key) => {
-              const op = options.find((x: Item) => x.key === key);
+              const op = options.find((x) => x.key === key);
               onChange({
                 op: key,
                 args: Array.from(
-                  { length: op.min_args },
+                  { length: op?.min_args ?? 0 },
                   (_, i) => args[i] || { literal: "" },
                 ),
               });
             }}
-            options={options.map((o: Item) => ({ value: o.key, label: o.key }))}
+            options={options.map((o) => ({ value: o.key, label: o.key }))}
           />
         ) : (
           <>
@@ -200,7 +193,7 @@ export function Expression({
               ) : (
                 <input
                   aria-label={label + " value"}
-                  value={value.decimal ?? value.literal ?? ""}
+                  value={String(value.decimal ?? value.literal ?? "")}
                   inputMode={mode === "decimal" ? "decimal" : undefined}
                   onChange={(e) =>
                     onChange(

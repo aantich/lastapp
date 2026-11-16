@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { api } from "./api";
+import type { Item, Page } from "./api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
 import { ListboxPopup } from "./select";
 export function RemoteSelect({
@@ -41,7 +42,7 @@ export function RemoteSelect({
     [error, setError] = useState("");
   const list = useListbox(options, choose, root),
     { open, setOpen, setActive } = list;
-  const convert = (items: Record<string, any>[]) =>
+  const convert = (items: Item[]) =>
     items
       .filter(
         (x) =>
@@ -83,7 +84,7 @@ export function RemoteSelect({
       return;
     }
     let live = true;
-    api(
+    api<Page>(
       path +
         (path.includes("?") ? "&" : "?") +
         "limit=50&q=" +
@@ -103,7 +104,7 @@ export function RemoteSelect({
     setBusy(true);
     const timer = setTimeout(
       () =>
-        api(
+        api<Page>(
           path +
             (path.includes("?") ? "&" : "?") +
             `page=${page}&limit=50&q=${encodeURIComponent(query)}`,

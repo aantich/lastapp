@@ -10,17 +10,7 @@ import {
 import { api } from "./api";
 import { errorMessage } from "./use-action";
 
-export type PasswordPolicy = {
-  min_length: number;
-  max_length: number;
-  length_hint: string;
-};
-type ConsoleConfig = {
-  development_policy: { max_release_microapps: number };
-  oidc_enabled: boolean;
-  password_policy: PasswordPolicy;
-  role_catalog: { id: string; code: string }[];
-};
+import type { ConsoleConfig } from "./api-types";
 const ConfigContext = createContext<{
   config: ConsoleConfig;
   refresh: () => Promise<void>;
@@ -33,7 +23,7 @@ export function ConsoleConfigProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const current = ++request.current;
     try {
-      const next: ConsoleConfig = await api("/v1/config");
+      const next = await api<ConsoleConfig>("/v1/config");
       const policy = next.password_policy;
       if (
         !policy ||

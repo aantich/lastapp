@@ -10,7 +10,7 @@ import {
   generatePassword,
 } from "./new-password-input";
 import { errorMessage } from "./use-action";
-type Item = Record<string, any>;
+import type { Item } from "./api-types";
 export type Field = {
   key: string;
   label: string;
@@ -20,7 +20,7 @@ export type Field = {
   newPassword?: boolean;
   hint?: string;
   lookup?: string;
-  value?: any;
+  value?: unknown;
   when?: (values: Item) => boolean;
   generate?: boolean;
   advanced?: boolean;
@@ -34,7 +34,7 @@ export type Modal = {
   description?: string;
   fields: Field[];
   initial: Item;
-  save: (v: Item) => Promise<any>;
+  save: (v: Item) => Promise<unknown>;
   submit?: string;
 };
 export function FormModal({

@@ -7,7 +7,7 @@ import { useAppearance } from "./appearance";
 import { LoginScreen, PasswordScreen } from "./login";
 import { TenantWorkspace } from "./tenant-workspace";
 import { PlatformWorkspace } from "./platform-workspace";
-import type { Item } from "./console-forms";
+import type { Me } from "./api-types";
 import { ConsoleConfigProvider, useConsoleConfig } from "./console-config";
 import { AppLaunch } from "./entity-designer/launch";
 import { AgentConsent } from "./agent-access";
@@ -16,11 +16,11 @@ import "./agent-access.css";
 function App() {
   const { refresh: refreshConfig } = useConsoleConfig();
   const appearanceControls = useAppearance();
-  const [me, setMe] = useState<Item | null>(null),
+  const [me, setMe] = useState<Me | null>(null),
     [auth, setAuth] = useState("loading"),
     [error, setError] = useState("");
   async function loadMe() {
-    const who = await api("/v1/me");
+    const who = await api<Me>("/v1/me");
     setMe(who);
     setAuth(who.password_change_required ? "password" : "in");
     if (!who.password_change_required && location.pathname === "/console/") {

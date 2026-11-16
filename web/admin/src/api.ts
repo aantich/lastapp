@@ -10,12 +10,14 @@ let sessionGeneration = 0;
 export function resetSessionRequests() {
   sessionGeneration++;
 }
-export async function api(
+// Response shapes live in api-types.ts. Callers name the shape they read;
+// the default is unknown so an unread response cannot be used untyped.
+export async function api<T = unknown>(
   path: string,
   method = "GET",
-  body?: any,
+  body?: unknown,
   revision?: number,
-) {
+): Promise<T> {
   const started = sessionGeneration;
   const csrf =
     document.cookie
@@ -35,7 +37,9 @@ export async function api(
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  const json = await res.json().catch(() => ({}));
+  const json: { error?: { code?: string; message?: string } } = await res
+    .json()
+    .catch(() => ({}));
   if (
     res.status === 401 &&
     json.error?.code === "unauthenticated" &&
@@ -51,5 +55,5 @@ export async function api(
       res.status,
       json.error?.message || `Request failed (${res.status})`,
     );
-  return json;
+  return json as T;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, Search } from "lucide-react";
 import { api } from "./api";
-type Item = Record<string, any>;
+import type { Item, Page } from "./api-types";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
 type CollectionProps = {
   path: string;
@@ -31,7 +31,7 @@ function ScopedCollection({
     setLoading(true);
     setError("");
     const timer = setTimeout(() => {
-      api(
+      api<Page>(
         path +
           (path.includes("?") ? "&" : "?") +
           `page=${page}&q=${encodeURIComponent(query)}`,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AppWindow,
   FolderOpen,
@@ -9,7 +9,10 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api } from "./api";
-import { DevelopmentWorkspaces, DevelopmentBanner } from "./development-workspaces";
+import {
+  DevelopmentWorkspaces,
+  DevelopmentBanner,
+} from "./development-workspaces";
 import { AppReleases } from "./app-releases";
 import { EntityDesigner } from "./entity-designer/designer";
 import { AppDataAccess } from "./entity-designer/app-access";
@@ -25,12 +28,14 @@ import { RemoteSelect } from "./remote-select";
 import { AccessControl } from "./access-control";
 import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
-import {
-  nameFields,
-  stateOptions,
-  status as badge,
-  type Item,
-} from "./console-forms";
+import { nameFields, stateOptions, status as badge } from "./console-forms";
+import type {
+  Item,
+  Me,
+  Page,
+  TenantCapabilities,
+  TenantOverview,
+} from "./api-types";
 const states = stateOptions;
 const editFields: Field[] = [
   { key: "display_name", label: "Name", required: true },
@@ -70,12 +75,12 @@ export function TenantWorkspace({
   signOut,
   refreshMe,
 }: {
-  me: Item;
+  me: Me;
   appearanceControls: ReturnType<typeof useAppearance>;
   signOut: () => void;
   refreshMe: () => Promise<void>;
 }) {
-  const memberships: Item[] = me.tenants || [],
+  const memberships = me.tenants || [],
     [url, navigate] = useConsoleURL(),
     parts = url.split("/").filter(Boolean);
   const saved = readPreference("lastapp-tenant"),
@@ -84,8 +89,8 @@ export function TenantWorkspace({
       : memberships[0]?.id || "";
   const tenant = parts[1] === "tenants" ? parts[2] || "" : fallback,
     base = "/v1/tenants/" + tenant;
-  const [overview, setOverview] = useState<Item>({}),
-    [caps, setCaps] = useState<Item>({}),
+  const [overview, setOverview] = useState<TenantOverview>({}),
+    [caps, setCaps] = useState<TenantCapabilities>({}),
     [space, setSpace] = useState<Item>({}),
     [app, setApp] = useState<Item>({}),
     [reload, setReload] = useState(0),
@@ -167,7 +172,10 @@ export function TenantWorkspace({
   useEffect(() => {
     if (!tenant) return;
     let live = true;
-    Promise.all([api(base + "/overview"), api(base + "/capabilities")])
+    Promise.all([
+      api<TenantOverview>(base + "/overview"),
+      api<{ permissions: TenantCapabilities }>(base + "/capabilities"),
+    ])
       .then(([o, c]) => {
         if (live) {
           setOverview(o);
@@ -184,7 +192,7 @@ export function TenantWorkspace({
   useEffect(() => {
     if (!tenant || !["space", "app"].includes(route.page)) return;
     let live = true;
-    api(
+    api<Item>(
       base +
         (route.page === "space"
           ? "/spaces/" + route.space
@@ -240,8 +248,8 @@ export function TenantWorkspace({
     const started = contextKey;
     try {
       const [targets, members] = await Promise.all([
-        api(base + "/database-targets"),
-        api(base + "/memberships"),
+        api<Page>(base + "/database-targets"),
+        api<Page>(base + "/memberships"),
       ]);
       if (currentContext.current !== started) return;
       setModal({
@@ -342,9 +350,10 @@ export function TenantWorkspace({
     setModal({
       title: "Create App",
       submit: "Create App",
-      description: route.space === space.id && space.workspace_id
-        ? "Develop this App in your isolated workspace. Production capacity is checked when you deploy."
-        : "The App reuses its Space’s database and definitions.",
+      description:
+        route.space === space.id && space.workspace_id
+          ? "Develop this App in your isolated workspace. Production capacity is checked when you deploy."
+          : "The App reuses its Space’s database and definitions.",
       initial: {
         id: crypto.randomUUID(),
         initial_manager_user_id: me.id,
@@ -415,7 +424,7 @@ export function TenantWorkspace({
   async function addDatabase() {
     const started = contextKey;
     try {
-      const targets = await api(base + "/database-targets");
+      const targets = await api<Page>(base + "/database-targets");
       if (currentContext.current !== started) return;
       setModal({
         title: "Add database",
@@ -506,11 +515,11 @@ export function TenantWorkspace({
     }
   }
 
-  const nameColumn: [string, (r: Item) => any] = [
+  const nameColumn: [string, (r: Item) => ReactNode] = [
       "Name",
       (r) => <strong>{r.display_name}</strong>,
     ],
-    statusColumn: [string, (r: Item) => any] = [
+    statusColumn: [string, (r: Item) => ReactNode] = [
       "Status",
       (r) => badge(r.state),
     ];
@@ -527,7 +536,9 @@ export function TenantWorkspace({
     route.page === "space"
       ? [
           ["apps", "Apps"],
-          ...(!space.workspace_id && scoped("workspace.manage") ? [["development", "Development"]] : []),
+          ...(!space.workspace_id && scoped("workspace.manage")
+            ? [["development", "Development"]]
+            : []),
           ...(scoped("entity.manage") ? [["entities", "Entities"]] : []),
           ...(scoped("authorization.read") ? [["access", "Access"]] : []),
           ["settings", "Settings"],
@@ -582,7 +593,7 @@ export function TenantWorkspace({
           Create Space
         </button>
       )}
-      {((route.page === "apps" && canCreateApp && overview.spaces > 0) ||
+      {((route.page === "apps" && canCreateApp && (overview.spaces ?? 0) > 0) ||
         (route.page === "space" &&
           route.tab === "apps" &&
           scoped("app.manage") &&
@@ -677,7 +688,14 @@ export function TenantWorkspace({
           </button>
         </div>
       )}
-      {detailReady && (route.page === "space" || route.page === "app") && detail.workspace_id && <DevelopmentBanner workspace={detail.workspace_id} openSpace={id=>go("space",{space:id})}/>}
+      {detailReady &&
+        (route.page === "space" || route.page === "app") &&
+        detail.workspace_id && (
+          <DevelopmentBanner
+            workspace={detail.workspace_id}
+            openSpace={(id) => go("space", { space: id })}
+          />
+        )}
       {!!tabs.length && (
         <div className="tabs workspace-tabs">
           {tabs.map(([id, label]) => (
@@ -771,7 +789,12 @@ export function TenantWorkspace({
           )}
           {route.page === "space" && detailReady && (
             <>
-              {route.tab === "development" && !space.workspace_id && <DevelopmentWorkspaces space={space.id} openSpace={id=>go("space",{space:id})}/>}
+              {route.tab === "development" && !space.workspace_id && (
+                <DevelopmentWorkspaces
+                  space={space.id}
+                  openSpace={(id) => go("space", { space: id })}
+                />
+              )}
               {route.tab === "apps" && (
                 <Collection
                   key={space.id + "apps"}
@@ -860,7 +883,17 @@ export function TenantWorkspace({
           )}
           {route.page === "app" && detailReady && (
             <>
-              {route.tab === "releases" && <AppReleases key={app.id} app={app} tenant={tenant} refresh={refresh} openWorkspaces={()=>go("space",{space:app.space_id,tab:"development"})}/>}
+              {route.tab === "releases" && (
+                <AppReleases
+                  key={app.id}
+                  app={app}
+                  tenant={tenant}
+                  refresh={refresh}
+                  openWorkspaces={() =>
+                    go("space", { space: app.space_id, tab: "development" })
+                  }
+                />
+              )}
               {route.tab === "microapps" && (
                 <Collection
                   key={app.id + "microapps"}

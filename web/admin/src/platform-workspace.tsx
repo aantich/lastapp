@@ -1,5 +1,5 @@
 import { useBuiltinRoles } from "./console-config";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Building2,
   Users,
@@ -23,8 +23,8 @@ import {
   nameFields,
   stateOptions,
   status,
-  type Item,
 } from "./console-forms";
+import type { Item, Me, Page, TenantOverview } from "./api-types";
 const nav = [
   { id: "tenants", label: "Tenants", icon: Building2 },
   { id: "users", label: "Users", icon: Users },
@@ -37,7 +37,7 @@ export function PlatformWorkspace({
   signOut,
   refreshMe,
 }: {
-  me: Item;
+  me: Me;
   appearanceControls: ReturnType<typeof useAppearance>;
   signOut: () => void;
   refreshMe: () => Promise<void>;
@@ -49,7 +49,7 @@ export function PlatformWorkspace({
     tenant = page === "tenants" ? parts[3] || "" : "",
     tab = parts[4] || "overview",
     settingsTab = parts[3] || "servers";
-  const [overview, setOverview] = useState<Item>({}),
+  const [overview, setOverview] = useState<TenantOverview>({}),
     [reload, setReload] = useState(0),
     [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState(""),
@@ -70,7 +70,7 @@ export function PlatformWorkspace({
   }, [path]);
   useEffect(() => {
     let live = true;
-    api("/admin/v1/plans")
+    api<Page>("/admin/v1/plans")
       .then((v) => {
         if (live) setPlans(v.items);
       })
@@ -85,7 +85,7 @@ export function PlatformWorkspace({
     setOverview({});
     if (!tenant) return;
     let live = true;
-    api("/v1/tenants/" + tenant + "/overview")
+    api<TenantOverview>("/v1/tenants/" + tenant + "/overview")
       .then((v) => {
         if (live) setOverview(v);
       })
@@ -397,7 +397,7 @@ export function PlatformWorkspace({
     : page === "account"
       ? "My account"
       : nav.find((p) => p.id === page)?.label || "Tenants";
-  const columnsName: [string, (r: Item) => any] = [
+  const columnsName: [string, (r: Item) => ReactNode] = [
     "Name",
     (r) => (
       <>
@@ -406,7 +406,7 @@ export function PlatformWorkspace({
       </>
     ),
   ];
-  const columnsStatus: [string, (r: Item) => any] = [
+  const columnsStatus: [string, (r: Item) => ReactNode] = [
     "Status",
     (r) => status(r.state),
   ];

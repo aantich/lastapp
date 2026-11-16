@@ -1,7 +1,9 @@
+// Mirrors internal/entity/model.go Expr; the console's expression editor reuses it.
 export type Expression = {
   op?: string;
   args?: Expression[];
   field?: string;
+  context?: string;
   literal?: unknown;
   decimal?: string;
 };

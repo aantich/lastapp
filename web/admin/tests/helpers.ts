@@ -127,7 +127,7 @@ export async function selectTenant(page: Page, tenant: string) {
 export async function post(
   page: Page,
   path: string,
-  data: any,
+  data: unknown,
   method = "POST",
   revision?: number,
 ) {
@@ -162,9 +162,11 @@ export async function fixtureTenant(page: Page, label = "UI workspace") {
     page.request.get("/admin/v1/users?q=outsider").then((r) => r.json()),
   ]);
   const owner = owners.items.find(
-      (u: any) => u.oidc_subject === "tenant-admin",
+      (u: { oidc_subject: string }) => u.oidc_subject === "tenant-admin",
     ),
-    outsider = outsiders.items.find((u: any) => u.oidc_subject === "outsider");
+    outsider = outsiders.items.find(
+      (u: { oidc_subject: string }) => u.oidc_subject === "outsider",
+    );
   const tenant = crypto.randomUUID();
   expect(
     (

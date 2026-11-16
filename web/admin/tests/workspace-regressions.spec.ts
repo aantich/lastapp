@@ -74,7 +74,9 @@ test("only platform admins create global credentials; Tenant admins add existing
   await expect(page.getByRole("row").filter({ hasText: email })).toBeVisible();
   const members = (await (await page.request.get(base + "/memberships")).json())
     .items;
-  expect(members.find((m: any) => m.email === email).user_id).toBe(user.id);
+  expect(
+    members.find((m: { email: string }) => m.email === email).user_id,
+  ).toBe(user.id);
 
   // The platform-created credentials work. Delaying a real request with the old
   // session across password rotation must not sign out the new session.
