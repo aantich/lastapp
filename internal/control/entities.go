@@ -215,13 +215,13 @@ func (s *Server) entitySave(w http.ResponseWriter, r *http.Request, p Principal)
 		}
 		state := str(old["state"])
 		if in.State != "" {
-			if !slices.Contains([]string{"active", "archived"}, in.State) {
+			if !slices.Contains([]string{stateActive, stateArchived}, in.State) {
 				return bad("Invalid lifecycle state.")
 			}
 			if v["pending_version_id"] != nil {
 				return conflict("Wait for publishing before archiving.")
 			}
-			if in.State == "archived" {
+			if in.State == stateArchived {
 				refs, e := rows(r.Context(), tx, "SELECT v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' AND e.id<>?", old["space_id"], old["id"])
 				if e != nil {
 					return e
@@ -365,7 +365,7 @@ func (s *Server) entityPublish(w http.ResponseWriter, r *http.Request, p Princip
 		if queued >= 16 {
 			return conflict("Publication queue limit reached. Wait for queued changes to finish.")
 		}
-		if v["state"] != "active" {
+		if v["state"] != stateActive {
 			return conflict("Archived entities cannot publish.")
 		}
 		return s.queueDefinition(r.Context(), tx, p, v, version, nil)

@@ -66,6 +66,28 @@ func TestPublicPasswordPolicy(t *testing.T) {
 	}
 }
 
+// A slow PBKDF2 derivation (race detector, loaded CI) must not exhaust the
+// login's database deadline and turn a correct password into a server error.
+func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
+	s, platform, _, _, _ := foundationFixture(t)
+	email, password := "slow-"+newID()+"@example.test", "Slow derivation 8!"
+	platform.want("POST", "/admin/v1/users", Row{"display_name": "Slow derivation", "email": email, "password": password}, 0, 201)
+	start := time.Now()
+	passwordKey(password, make([]byte, 16), passwordIterations)
+	derivation := time.Since(start)
+	// Each database phase is far shorter than half a derivation; the derivation
+	// itself is longer than this deadline.
+	previous := loginDatabaseTimeout
+	loginDatabaseTimeout = derivation / 2
+	t.Cleanup(func() { loginDatabaseTimeout = previous })
+	passwordSignIn(platform, email, password, 200)
+	passwordSignIn(platform, email, "Wrong derivation 8!", 401)
+	var sessions int
+	if e := s.DB.QueryRow("SELECT COUNT(*) FROM sessions s JOIN local_accounts a ON a.user_id=s.user_id WHERE a.login_email=?", email).Scan(&sessions); e != nil || sessions != 1 {
+		t.Fatal("login did not create exactly one session", sessions, e)
+	}
+}
+
 func passwordSignIn(c testClient, email, password string, want int) testClient {
 	c.t.Helper()
 	b, _ := json.Marshal(Row{"email": email, "password": password})

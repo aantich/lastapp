@@ -388,7 +388,7 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p Principa
 	if e = tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", p.ID).Scan(&activeUser); e != nil {
 		return e
 	}
-	if activeUser != "active" {
+	if activeUser != stateActive {
 		return missing()
 	}
 	v, e := row(r.Context(), tx, "SELECT * FROM agent_oauth_requests WHERE id=? AND resource_uri=? AND consumed=0 AND grant_id IS NULL AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", r.PathValue("request"), s.mcpURL())
@@ -479,7 +479,7 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 		return e
 	}
 	if g.User != p.ID {
-		if in.State != "revoked" || g.Tenant == "" {
+		if in.State != stateRevoked || g.Tenant == "" {
 			return missing()
 		}
 		if e = s.authorize(r.Context(), s.DB, p, "authorization.manage", Resource{Tenant: g.Tenant}, true); e != nil {
@@ -498,7 +498,7 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 	if e = checkRevision(integer(v["revision"]), rev); e != nil {
 		return e
 	}
-	if v["state"] != "active" {
+	if v["state"] != stateActive {
 		return conflict("Revoked grants cannot be restored. Reconnect the agent.")
 	}
 	if g.User != p.ID {
@@ -506,7 +506,7 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p Prin
 			return e
 		}
 	}
-	if in.State == "revoked" {
+	if in.State == stateRevoked {
 		_, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE id=?", g.ID)
 	} else {
 		in.Tenant = g.Tenant
@@ -583,7 +583,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 			oauthError(w, "invalid_grant")
 			return
 		}
-		if v["state"] != "active" {
+		if v["state"] != stateActive {
 			_, e = tx.ExecContext(ctx, "UPDATE agent_token_sessions SET state='revoked' WHERE family_id=?", v["family_id"])
 			if e == nil {
 				e = tx.Commit()

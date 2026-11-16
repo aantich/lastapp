@@ -36,9 +36,13 @@ func configureLogging(development bool) {
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: lastapp serve|migrate|bootstrap|seed-development -config path")
+		fatal("usage: lastapp serve|migrate|bootstrap|seed-development -config path | runtime-grants -database name -host host")
 	}
 	command := os.Args[1]
+	if command == "runtime-grants" {
+		runtimeGrants(os.Args[2:])
+		return
+	}
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
 	config := flags.String("config", ".local/config.json", "server configuration file")
 	issuer := flags.String("issuer", "", "bootstrap identity issuer")
@@ -129,5 +133,22 @@ func main() {
 	}
 	if e != nil {
 		fatal(command+" failed", "error", e)
+	}
+}
+
+// runtimeGrants prints, one per line, the UPDATE,DELETE grants the runtime
+// account needs on the registry. It reads only the embedded migrations, so
+// local tooling can apply them without configuration or a database connection.
+func runtimeGrants(args []string) {
+	flags := flag.NewFlagSet("runtime-grants", flag.ExitOnError)
+	database := flags.String("database", "", "registry database name")
+	host := flags.String("host", "", "runtime account host")
+	_ = flags.Parse(args) // ExitOnError: Parse exits on failure
+	statements, e := control.RuntimeGrantStatements(*database, *host)
+	if e != nil {
+		fatal("runtime-grants failed", "error", e)
+	}
+	for _, statement := range statements {
+		fmt.Println(statement + ";")
 	}
 }

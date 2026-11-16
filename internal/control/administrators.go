@@ -53,7 +53,7 @@ func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, 
 			}
 			return e
 		}
-		if state != "active" {
+		if state != stateActive {
 			return bad("Enable this account before assigning Tenant administration.")
 		}
 		platform, e := isPlatform(r.Context(), tx, in.User)
@@ -72,16 +72,16 @@ func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, 
 			if _, e = tx.ExecContext(r.Context(), "INSERT INTO tenant_memberships(tenant_id,user_id) VALUES (?,?)", t, in.User); e != nil {
 				return e
 			}
-			if e = audit(r.Context(), tx, t, p.ID, "membership.created", "user", in.User, r.Header.Get("X-Request-ID"), Row{"state": "active"}); e != nil {
+			if e = audit(r.Context(), tx, t, p.ID, "membership.created", "user", in.User, r.Header.Get("X-Request-ID"), Row{"state": stateActive}); e != nil {
 				return e
 			}
 		} else if e != nil {
 			return e
-		} else if memberState != "active" {
+		} else if memberState != stateActive {
 			if _, e = tx.ExecContext(r.Context(), "UPDATE tenant_memberships SET state='active',revision=revision+1 WHERE tenant_id=? AND user_id=?", t, in.User); e != nil {
 				return e
 			}
-			if e = audit(r.Context(), tx, t, p.ID, "membership.updated", "user", in.User, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": memberState}, "after": Row{"state": "active"}}); e != nil {
+			if e = audit(r.Context(), tx, t, p.ID, "membership.updated", "user", in.User, r.Header.Get("X-Request-ID"), Row{"before": Row{"state": memberState}, "after": Row{"state": stateActive}}); e != nil {
 				return e
 			}
 		}

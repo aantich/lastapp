@@ -176,7 +176,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 	if e != nil {
 		return e
 	}
-	if v["state"] != "active" {
+	if v["state"] != stateActive {
 		return missing()
 	}
 	if e = s.workspaceGuard(r.Context(), s.DB, p, str(v["space_id"])); e != nil {
@@ -186,7 +186,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 		return e
 	}
 	var sp string
-	if e = s.DB.QueryRowContext(r.Context(), "SELECT state FROM spaces WHERE id=?", v["space_id"]).Scan(&sp); e != nil || sp != "active" {
+	if e = s.DB.QueryRowContext(r.Context(), "SELECT state FROM spaces WHERE id=?", v["space_id"]).Scan(&sp); e != nil || sp != stateActive {
 		return missing()
 	}
 	a, e := accessOf(v)

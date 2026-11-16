@@ -162,7 +162,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, e)
 		return
 	}
-	if state != "active" {
+	if state != stateActive {
 		writeError(w, r, problem(403, "user_disabled", "This user has been disabled."))
 		return
 	}
@@ -236,7 +236,7 @@ func (s *Server) member(ctx context.Context, q Queryer, p Principal, tenant stri
 	if e != nil {
 		return e
 	}
-	if mutating && state != "active" {
+	if mutating && state != stateActive {
 		return problem(403, "tenant_inactive", "This Tenant is suspended or archived.")
 	}
 	return nil

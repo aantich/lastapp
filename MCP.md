@@ -199,9 +199,10 @@ owns consent and tokens; `agent_clients.go` owns registration/retention;
 owns authorized context and canonical agent guides. Shared domain handlers,
 mutation receipts and workers enforce the actual operations.
 
-Run `make mcp-test` against the existing local development MariaDB for protocol,
-OAuth, delegation, isolation, replay, response-limit and worker regressions. Run
-`make integration` for the full backend and console browser suite. See
+Run `make mcp-test` against the existing local development MariaDB for the
+`TestAgent*` protocol, OAuth, delegation, isolation, replay, response-limit and
+agent worker-audit regressions. It does not run the general security suite. Run
+`make integration` for the full backend, security and console browser suite. See
 [VERIFICATION.md](VERIFICATION.md) for actual results and retained failure/rerun
 history. Workspace/release integration tests include a real locally compiled React
 build exercised in Chrome against development and production APIs. This does not

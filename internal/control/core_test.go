@@ -7,7 +7,25 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/pressly/goose/v3"
 )
+
+func TestRequiredSchemaVersionFollowsMigrations(t *testing.T) {
+	goose.SetBaseFS(migrationFiles)
+	all, e := goose.CollectMigrations("migrations", 0, goose.MaxVersion)
+	if e != nil {
+		t.Fatal(e)
+	}
+	last, e := all.Last()
+	if e != nil {
+		t.Fatal(e)
+	}
+	got, e := latestMigrationVersion()
+	if e != nil || got != last.Version {
+		t.Fatalf("required schema version %d (%v), goose latest %d", got, e, last.Version)
+	}
+}
 
 func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 	block, _ := aes.NewCipher(make([]byte, 32))

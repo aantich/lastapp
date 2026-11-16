@@ -126,7 +126,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if in.State != "active" && in.State != "disabled" {
+	if !enabledState(in.State) {
 		return bad("State must be active or disabled.")
 	}
 	rev, e := expectedRevision(r)
@@ -164,7 +164,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 				return e
 			}
 		}
-		if in.State == "disabled" {
+		if in.State == stateDisabled {
 			if _, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE user_id=? AND state='active'", record); e != nil {
 				return e
 			}
@@ -362,7 +362,7 @@ func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
 	if e != nil {
 		return nil, e
 	}
-	if str(v["tenant_state"]) != "active" {
+	if str(v["tenant_state"]) != stateActive {
 		return nil, conflict("The Tenant must be active to allocate resources.")
 	}
 	return v, nil

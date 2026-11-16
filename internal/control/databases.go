@@ -87,9 +87,9 @@ func (s *Server) validateTarget(in *targetInput) error {
 		return bad("TLS must verify the server identity; disabled is allowed only in local development.")
 	}
 	if in.State == "" {
-		in.State = "active"
+		in.State = stateActive
 	}
-	if in.State != "active" && in.State != "disabled" {
+	if !enabledState(in.State) {
 		return bad("Invalid target state.")
 	}
 	return nil
@@ -163,7 +163,7 @@ func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principa
 			args = append(args, *in.Name)
 		}
 		if in.State != nil {
-			if *in.State != "active" && *in.State != "disabled" {
+			if !enabledState(*in.State) {
 				return bad("Invalid state.")
 			}
 			sets = append(sets, "state=?")
@@ -279,7 +279,7 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 	if e != nil {
 		return e
 	}
-	if str(target["state"]) != "active" {
+	if str(target["state"]) != stateActive {
 		return conflict("The database target is disabled.")
 	}
 	var ownership any
@@ -373,12 +373,12 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			return e
 		}
 		state := str(old["state"])
-		if state == "provisioning" || state == "pending" || state == "retired" {
+		if state == "provisioning" || state == "pending" || state == stateRetired {
 			return conflict("Wait for provisioning to finish; retired resources cannot be changed.")
 		}
 		next := "pending"
 		if !retry && in.Credentials == nil {
-			if in.State != "retired" {
+			if in.State != stateRetired {
 				return bad("Only retirement or registered credential replacement is supported.")
 			}
 			var n int
@@ -388,7 +388,7 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			if n > 0 {
 				return conflict("A bound or default database cannot be retired.")
 			}
-			next = "retired"
+			next = stateRetired
 		}
 		if next == "pending" {
 			if e := s.agentDatabaseProvision(r.Context(), tx, p, record, str(old["management_mode"]), str(old["target_id"])); e != nil {

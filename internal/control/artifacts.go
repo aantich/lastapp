@@ -87,7 +87,7 @@ func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal
 	if e != nil {
 		return nil, nil, e
 	}
-	if a["state"] != "active" {
+	if a["state"] != stateActive {
 		return nil, nil, conflict("Restore the App before developing or releasing it.")
 	}
 	w, e := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=? AND state='ready'", a["space_id"])

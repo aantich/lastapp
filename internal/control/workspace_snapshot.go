@@ -354,7 +354,7 @@ func (s *Server) publicationCandidates(ctx context.Context, q Queryer, v Row) (m
 		}
 		ids := map[string]bool{}
 		for _, d := range plan.Snapshot.Entities {
-			if d.State == "active" {
+			if d.State == stateActive {
 				ids[d.ID] = true
 			}
 		}

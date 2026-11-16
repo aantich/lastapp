@@ -96,7 +96,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 			if e != nil {
 				return e
 			}
-			if str(db["state"]) == "retired" {
+			if str(db["state"]) == stateRetired {
 				return conflict("A retired database cannot be bound.")
 			}
 			layout = str(db["layout"])
@@ -122,7 +122,7 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, p Principal
 				if e != nil {
 					return e
 				}
-				if str(db["state"]) == "retired" {
+				if str(db["state"]) == stateRetired {
 					return conflict("The default database is retired.")
 				}
 				if in.Database.Target != "" && in.Database.Target != str(db["target_id"]) {
@@ -213,7 +213,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 		if e != nil {
 			return e
 		}
-		if str(parent["state"]) != "active" {
+		if str(parent["state"]) != stateActive {
 			return conflict("The parent Space must be active.")
 		}
 		policy, e := policyFor(r.Context(), tx, tenant)
@@ -297,7 +297,7 @@ func (s *Server) createMicroapp(w http.ResponseWriter, r *http.Request, p Princi
 		if e != nil {
 			return e
 		}
-		if str(a["state"]) != "active" || str(a["space_state"]) != "active" {
+		if str(a["state"]) != stateActive || str(a["space_state"]) != stateActive {
 			return conflict("The parent App and Space must be active.")
 		}
 		_, e = tx.ExecContext(r.Context(), "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, nullable(in.Artifact), in.Order)
@@ -355,7 +355,7 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 			if e != nil {
 				return e
 			}
-			if str(parent["state"]) != "active" {
+			if str(parent["state"]) != stateActive {
 				return conflict("The parent Space must be active.")
 			}
 		}
@@ -364,7 +364,7 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 			if e != nil {
 				return e
 			}
-			if str(a["state"]) != "active" {
+			if str(a["state"]) != stateActive {
 				return conflict("The parent App must be active.")
 			}
 		}
@@ -381,7 +381,7 @@ func (s *Server) patchInventory(w http.ResponseWriter, r *http.Request, p Princi
 			if !validState(*in.State) {
 				return bad("Invalid state.")
 			}
-			if str(old["state"]) == "archived" && *in.State != "archived" && (table == "apps" || table == "spaces") {
+			if str(old["state"]) == stateArchived && *in.State != stateArchived && (table == "apps" || table == "spaces") {
 				policy, e := policyFor(r.Context(), tx, res.Tenant)
 				if e != nil {
 					return e

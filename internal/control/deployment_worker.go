@@ -100,7 +100,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			}
 			candidates := map[string]bool{}
 			for _, d := range plan.Snapshot.Entities {
-				if d.State == "active" {
+				if d.State == stateActive {
 					candidates[d.ID] = true
 				}
 			}
@@ -246,7 +246,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 	if err := q.QueryRowContext(ctx, "SELECT state FROM release_deployments WHERE id=?", v["id"]).Scan(&currentState); err != nil {
 		return err
 	}
-	if currentState == "active" {
+	if currentState == stateActive {
 		return nil
 	}
 	message := "Deployment preparation failed. The previous client release remains selected. Review backend publications before retrying from a fresh workspace."
@@ -346,7 +346,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 			if v.App != "" {
 				kind, owner = "app", "a:"+v.App
 			}
-			_, e = tx.ExecContext(ctx, "INSERT INTO roles(id,tenant_id,space_id,app_id,owner_key,scope_kind,domain,code,display_name,state) VALUES(?,?,?,?,?,?,'data',?,?,?)", v.ID, tenant, space, nullable(v.App), owner, kind, v.Code, v.Name, stagedState(activate, v.State, "disabled"))
+			_, e = tx.ExecContext(ctx, "INSERT INTO roles(id,tenant_id,space_id,app_id,owner_key,scope_kind,domain,code,display_name,state) VALUES(?,?,?,?,?,?,'data',?,?,?)", v.ID, tenant, space, nullable(v.App), owner, kind, v.Code, v.Name, stagedState(activate, v.State, stateDisabled))
 		}
 		if e != nil {
 			return e
@@ -361,7 +361,7 @@ func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, 
 		if ok {
 			_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET draft_json=?,label=IF(?, ?,label),state=IF(?, ?,state),revision=revision+1 WHERE id=?", b, activate, v.Definition.Label, activate, v.State, v.ID)
 		} else {
-			_, e = tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,state,draft_json) VALUES(?,?,?,?,?,?,?)", v.ID, tenant, space, v.Definition.Key, v.Definition.Label, stagedState(activate, v.State, "archived"), b)
+			_, e = tx.ExecContext(ctx, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,state,draft_json) VALUES(?,?,?,?,?,?,?)", v.ID, tenant, space, v.Definition.Key, v.Definition.Label, stagedState(activate, v.State, stateArchived), b)
 		}
 		if e != nil {
 			return e

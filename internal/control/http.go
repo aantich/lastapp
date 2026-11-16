@@ -70,7 +70,7 @@ func (s *Server) Handler() http.Handler {
 		return nil
 	})
 	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p Principal) error {
-		ts, e := pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+		ts, e := s.myTenants(r, p)
 		if e != nil {
 			return e
 		}
@@ -78,7 +78,7 @@ func (s *Server) Handler() http.Handler {
 		return nil
 	})
 	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p Principal) error {
-		v, e := pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+		v, e := s.myTenants(r, p)
 		if e == nil {
 			sendPage(w, r, v)
 		}
@@ -193,6 +193,12 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		s.mux.ServeHTTP(w, r)
 	}))
+}
+
+// myTenants pages the Tenants where the principal has an active membership.
+// It is the one query behind both /v1/me and /v1/my-tenants.
+func (s *Server) myTenants(r *http.Request, p Principal) ([]Row, error) {
+	return pageRows(r.Context(), s.DB, r, "SELECT t.id,t.slug,t.display_name,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
 }
 
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p Principal) error {

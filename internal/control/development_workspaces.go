@@ -157,7 +157,7 @@ func (s *Server) workspaceOwner(ctx context.Context, q Queryer, p Principal, v R
 	if e := q.QueryRowContext(ctx, "SELECT state FROM spaces WHERE id=?", v["production_space_id"]).Scan(&active); e != nil {
 		return e
 	}
-	if active != "active" {
+	if active != stateActive {
 		return conflict("The production Space is inactive.")
 	}
 	// Losing authority on the source also stops access to its development copies.
@@ -340,7 +340,7 @@ func (s *Server) workspaceState(w http.ResponseWriter, r *http.Request, p Princi
 		if e = checkRevision(integer(v["revision"]), rev); e != nil {
 			return e
 		}
-		state := "archived"
+		state := stateArchived
 		if retry {
 			if v["state"] != "failed" {
 				return conflict("Only failed preparation can be retried.")

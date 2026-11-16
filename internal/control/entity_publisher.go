@@ -491,7 +491,7 @@ func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v Row, d en
 		revision := int64(1)
 		if old := byID[pid]; old != nil {
 			revision = integer(old["security_revision"])
-			if old["state"] != "active" || str(old["security_hash"]) != securityHash {
+			if old["state"] != stateActive || str(old["security_hash"]) != securityHash {
 				revision++
 			}
 		}

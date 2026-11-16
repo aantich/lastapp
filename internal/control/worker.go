@@ -127,10 +127,10 @@ func (s *Server) workerLeader(ctx context.Context) error {
 				continue
 			}
 		}
-		if e == nil && active == "active" {
+		if e == nil && active == stateActive {
 			_, e = tx.ExecContext(ctx, "UPDATE database_resources SET state='provisioning',attempts=attempts+1,revision=revision+1 WHERE id=? AND state='pending'", record)
 		}
-		if e != nil || active != "active" {
+		if e != nil || active != stateActive {
 			tx.Rollback()
 			if e != nil {
 				return e

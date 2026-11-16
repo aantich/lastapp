@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -226,12 +227,37 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	return seedControlCatalog(ctx, db)
 }
 
+// latestMigrationVersion derives the required registry version from the
+// embedded migrations, so adding a migration needs no second edit here.
+func latestMigrationVersion() (int64, error) {
+	names, e := fs.Glob(migrationFiles, "migrations/*.sql")
+	if e != nil {
+		return 0, fmt.Errorf("list registry migrations: %w", e)
+	}
+	var latest int64
+	for _, name := range names {
+		v, e := goose.NumericComponent(name)
+		if e != nil {
+			return 0, fmt.Errorf("registry migration %s: %w", name, e)
+		}
+		latest = max(latest, v)
+	}
+	if latest == 0 {
+		return 0, errors.New("no embedded registry migrations")
+	}
+	return latest, nil
+}
+
 func CheckSchema(ctx context.Context, db *sql.DB) error {
 	v, e := goose.GetDBVersionContext(ctx, db)
 	if e != nil {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate: %w", e)
 	}
-	if v != 12 {
+	want, e := latestMigrationVersion()
+	if e != nil {
+		return e
+	}
+	if v != want {
 		return fmt.Errorf("registry schema missing/incompatible; run lastapp migrate")
 	}
 	if _, e = db.ExecContext(ctx, "SELECT scope_kind,domain FROM roles LIMIT 0"); e != nil {
@@ -261,8 +287,26 @@ func named(slug, name string) error {
 	return nil
 }
 
+// Record lifecycle states shared by registry tables. The migrations' CHECK
+// constraints define which states each table allows; Go comparisons and written
+// values use these names, while static SQL predicates keep the readable literal.
+const (
+	stateActive    = "active"
+	stateDisabled  = "disabled"
+	stateSuspended = "suspended"
+	stateArchived  = "archived"
+	stateRetired   = "retired"
+	stateRevoked   = "revoked"
+)
+
+// enabledState reports whether state is valid for active/disabled records
+// such as users, memberships, groups, roles and database targets.
+func enabledState(state string) bool {
+	return state == stateActive || state == stateDisabled
+}
+
 func validState(state string) bool {
-	return state == "active" || state == "suspended" || state == "archived"
+	return state == stateActive || state == stateSuspended || state == stateArchived
 }
 
 func token(n int) string {
