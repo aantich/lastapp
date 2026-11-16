@@ -160,7 +160,7 @@ Tickets are hashed, scoped, short-lived and checked against current authority;
 identical retries return the existing build, changed-content replay fails.
 
 Current limits are owned by `internal/artifact/store.go` and
-`internal/control/development_policy.go`, exposed by `/v1/config` and MCP context. Builds and releases are capped per development App;
+`internal/registry/policy.go` (served by `internal/control/development_policy.go`), exposed by `/v1/config` and MCP context. Builds and releases are capped per development App;
 workspaces are capped per author/source Space. Archive stops development access
 and previews while retaining storage and deployed releases. Automatic storage
 reclamation is not implemented. Static bundles are public files: secrets and

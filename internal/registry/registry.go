@@ -1,3 +1,6 @@
+// Package registry is the one MariaDB registry adapter: the Queryer, typed
+// records scanned from hand-written SQL, shared policy, quota and lock queries,
+// and the APIError every layer returns.
 package registry
 
 import (

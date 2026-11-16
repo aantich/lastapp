@@ -1,3 +1,5 @@
+// Package roles owns roles, role assignments and recipients, and the audited
+// security snapshots of roles, teams and assignments.
 package roles
 
 import (

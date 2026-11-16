@@ -1,3 +1,4 @@
+// Package inventory owns plans, Tenants, Spaces, Apps and micro-apps.
 package inventory
 
 import (

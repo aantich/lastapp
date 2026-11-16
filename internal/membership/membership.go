@@ -1,3 +1,5 @@
+// Package membership owns Tenant memberships, teams, Tenant administrators
+// and the local-account primitives with the password policy.
 package membership
 
 import (

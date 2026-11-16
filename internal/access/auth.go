@@ -1,3 +1,6 @@
+// Package access holds the live authorization checks: principals, resources,
+// scopes, registry ancestry, delegated agent grants and the production and
+// workspace guards. Authority is always rechecked against the registry.
 package access
 
 import (

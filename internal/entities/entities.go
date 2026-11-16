@@ -1,3 +1,5 @@
+// Package entities owns Space entity drafts, checks and tests, publication
+// requests, and App access and contracts derived from published entities.
 package entities
 
 import (

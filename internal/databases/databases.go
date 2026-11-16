@@ -1,3 +1,5 @@
+// Package databases owns database targets and resources: registration,
+// allocation for Spaces and the credential records the provisioning worker uses.
 package databases
 
 import (

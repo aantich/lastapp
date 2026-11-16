@@ -66,7 +66,7 @@ The `Starter` plan allows one shared managed database, three Spaces and ten Apps
 
 ## Implementation
 
-- `internal/control`: explicit SQL/HTTP handlers, registry role resolution, encrypted database credentials, local/OIDC sessions and provisioning. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
+- `internal/control`: HTTP/MCP transport and wiring, local/OIDC sessions, encrypted database credentials, provisioning workers, workspaces and releases. Domain operations live in `internal/inventory`, `membership`, `roles`, `databases` and `entities`, on top of `internal/op` (actors, mutation runner, errors), `internal/access` (live authorization) and `internal/registry` (typed registry queries); see DEVELOPMENT.md. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
 - `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`, `runtime-grants`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.
