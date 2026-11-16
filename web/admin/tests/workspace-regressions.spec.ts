@@ -277,7 +277,7 @@ test("expired sessions return to login and signing out an expired session succee
   ).toHaveCount(0);
   // Complete another login directly from the recovered UI, without a reload.
   await page.getByRole("link", { name: "Continue with SSO" }).click();
-  await page.locator("select[name=subject]").selectOption("tenant-admin");
+  await page.locator(`input[name=subject][value="tenant-admin"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
