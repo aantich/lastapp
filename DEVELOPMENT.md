@@ -101,6 +101,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Agent context and canonical runtime documentation | `agent_context.go` → `lastapp_context`, `lastapp_describe`, `lastapp://docs/*` |
 | Static releases, coherent security activation and status recovery | `releases.go`, `deployment_worker.go`; `GET /v1/apps/{app}/deployment` |
 | Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
+| Typed registry reads | `registry.go`: `scanAll`/`scanOne`/`pageScan` scan hand-written SQL into record structs whose column list is a const beside each type and whose `fields()` returns the scan destinations; `jsonValue` (`*_json` columns), `flag` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. `row`/`rows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
 | Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes; pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
 
