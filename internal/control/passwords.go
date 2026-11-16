@@ -217,10 +217,14 @@ func (s *Server) BootstrapLocal(ctx context.Context, name, email, password strin
 	return user, tx.Commit()
 }
 
+// loginDatabaseTimeout bounds each database phase of a password login. The
+// PBKDF2 derivation between them cannot observe a context; its cost is bounded
+// by passwordSlots and maxPasswordInputBytes. A deadline spanning it only
+// turned a completed derivation into a 500 when the CPU was slow (for example
+// under the race detector on a loaded test machine).
+var loginDatabaseTimeout = 15 * time.Second
+
 func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	r = r.WithContext(ctx)
 	e := func() error {
 		if !s.allowedOrigin(r.Header.Get("Origin")) {
 			return problem(403, "invalid_origin", "Request origin is not allowed.")
@@ -251,7 +255,9 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		var expected, salt []byte
 		var iterations int
 		var revision int64
-		e = s.DB.QueryRowContext(ctx, "SELECT a.user_id,a.password_hash,a.password_salt,a.password_iterations,a.revision,u.state FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.login_email=?", email).Scan(&user, &expected, &salt, &iterations, &revision, &state)
+		lookup, cancelLookup := context.WithTimeout(r.Context(), loginDatabaseTimeout)
+		e = s.DB.QueryRowContext(lookup, "SELECT a.user_id,a.password_hash,a.password_salt,a.password_iterations,a.revision,u.state FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.login_email=?", email).Scan(&user, &expected, &salt, &iterations, &revision, &state)
+		cancelLookup()
 		if e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
@@ -262,6 +268,8 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		if subtle.ConstantTimeCompare(got, expected) != 1 || user == "" || state != stateActive {
 			return invalidLogin()
 		}
+		ctx, cancel := context.WithTimeout(r.Context(), loginDatabaseTimeout)
+		defer cancel()
 		tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if e != nil {
 			return e
