@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -388,5 +389,60 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	}
 	if _, e := s.resolveAgentClient(ctx, approved); e != nil {
 		t.Fatal("approved client could not reconnect", e)
+	}
+}
+
+// TestAgentOperationResponseLimit pins the MCP response bound on operation
+// results: an over-limit read fails without content, and an over-limit result
+// of a committed mutation still reports the commit and its compact resource so
+// the agent does not retry a mutation that already happened.
+func TestAgentOperationResponseLimit(t *testing.T) {
+	large := Row{"payload": strings.Repeat("x", agentMaxResponse)}
+	isLimit := func(e error) bool {
+		var ae *APIError
+		return errors.As(e, &ae) && ae.Code == "response_limit" && ae.Status == 413
+	}
+	if v, e := agentSized(Row{"id": "small"}, nil); e != nil || v.(Row)["id"] != "small" {
+		t.Fatal("in-limit result was not passed through", v, e)
+	}
+	failed := errors.New("operation failed")
+	if v, e := agentSized(large, failed); v != nil || !errors.Is(e, failed) {
+		t.Fatal("operation error was not returned unchanged", v, e)
+	}
+	// A read has no agent receipt: the over-limit result is an error with no data.
+	v, e := agentSized(large, nil)
+	if v != nil || !isLimit(e) {
+		t.Fatal("over-limit read result was returned", e)
+	}
+	ref := Row{"kind": "app", "id": newID()}
+	call := &AgentCall{Operation: "lastapp_create", Key: newID(), ResultRef: ref}
+	ctx := context.WithValue(context.Background(), agentContextKey{}, call)
+	// The mutation did not commit: the agent sees the limit error and may retry.
+	data, limit := agentSized(large, nil)
+	if v, e := agentWriteResult(ctx, data, limit); v != nil || !isLimit(e) {
+		t.Fatal("uncommitted over-limit mutation reported success", v, e)
+	}
+	// The mutation committed: the reply is the compact committed outcome.
+	call.Committed = true
+	v, e = agentWriteResult(ctx, data, limit)
+	if e != nil {
+		t.Fatal("committed over-limit mutation returned an error an agent would retry", e)
+	}
+	out := v.(Row)
+	if out["committed"] != true || !reflect.DeepEqual(out["resource"], ref) || out["response_error"].(Row)["code"] != "response_limit" {
+		t.Fatal("committed over-limit mutation lost its committed resource", out)
+	}
+	if e = agentFits(out); e != nil {
+		t.Fatal("compact committed reply exceeds the response bound", e)
+	}
+	// Other errors after a commit pass through unchanged.
+	if _, e = agentWriteResult(ctx, nil, failed); !errors.Is(e, failed) {
+		t.Fatal("non-limit error was rewritten", e)
+	}
+	// A replayed request reports the stored receipt and marks the call committed.
+	replayed := &AgentCall{Operation: "lastapp_create", Key: newID(), ResultRef: ref}
+	v, e = agentWriteResult(context.WithValue(context.Background(), agentContextKey{}, replayed), nil, errAgentReplay)
+	if e != nil || v.(Row)["replayed"] != true || v.(Row)["committed"] != true || !replayed.Committed {
+		t.Fatal("replayed mutation was not reported as committed", v, e)
 	}
 }
