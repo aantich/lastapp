@@ -36,7 +36,7 @@ make dev
 
 Data, keys, credentials, process IDs and logs are in ignored `.local/`. The script uses its own MariaDB data directory, refuses unrelated processes on its ports, and rebuilds/restarts the app and issuer while preserving data/keys. This undeployed foundation initializes `lastapp_foundation`; the earlier `lastapp_control` registry remains intact, with its previous configuration saved privately. There is no legacy-grant migration. To start already-built binaries, use `python3 scripts/dev.py --skip-build`.
 
-When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/v24.20.0/bin`; it does not change global Node or Homebrew. `make` also accepts `NODE_BIN=/path/to/node/bin`.
+When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/v24.20.0/bin`; it does not change global Node or Homebrew. `make` uses `node`/`npm` from PATH; pass `NODE_BIN=/path/to/node/bin` to prefer another Node.
 
 ```sh
 make stop                  # stop these local services; preserve data

@@ -141,8 +141,9 @@ development identities. `make dev` builds the embedded console/binaries and
 starts the owned local MariaDB, API and development issuer while preserving data.
 The console is at `http://127.0.0.1:8787/console/`; MCP is `/mcp` on the same origin.
 If Go is run directly in a restricted environment, set
-`GOCACHE="$PWD/.local/go-cache"`. Make targets already do this. Use the project's
-working Node selection (`NODE_BIN` if needed), not a global toolchain replacement.
+`GOCACHE="$PWD/.local/go-cache"`. Make targets already do this. Make targets use
+`node`/`npm` from PATH; pass `NODE_BIN=/path/to/node/bin` to prefer another Node
+rather than replacing the global toolchain.
 
 ```sh
 make test                       # unit/build checks; DB tests may skip

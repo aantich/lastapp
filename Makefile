@@ -1,7 +1,10 @@
 .PHONY: dev stop test integration web build lint fmt
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
-NODE_BIN ?= $(HOME)/.nvm/versions/node/v24.20.0/bin
+# node/npm come from PATH; set NODE_BIN=/path/to/node/bin to prefer another Node.
+NODE_BIN ?=
+ifneq ($(strip $(NODE_BIN)),)
 export PATH := $(NODE_BIN):$(PATH)
+endif
 export GOCACHE := $(CURDIR)/.local/go-cache
 
 dev:
