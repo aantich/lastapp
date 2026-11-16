@@ -297,3 +297,22 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 		t.Fatal("failed Tenant create left an account", e)
 	}
 }
+
+// TestAccountDeadlineRenewsOnlyAfterDerivation pins that only a derived
+// password renews the request deadline; choosing an existing account keeps it.
+func TestAccountDeadlineRenewsOnlyAfterDerivation(t *testing.T) {
+	ctx, cancel := withRequestDeadline(context.Background())
+	defer cancel()
+	original, _ := ctx.Deadline()
+	time.Sleep(10 * time.Millisecond)
+	kept, keep := preparedAccount{Email: "existing@example.test"}.deadline(ctx)
+	defer keep()
+	if deadline, _ := kept.Deadline(); !deadline.Equal(original) {
+		t.Fatal("an account without a derived password renewed the request deadline")
+	}
+	renewed, stop := preparedAccount{Email: "new@example.test", Hash: []byte{1}, Salt: []byte{2}}.deadline(ctx)
+	defer stop()
+	if deadline, _ := renewed.Deadline(); !deadline.After(original) {
+		t.Fatal("a derived password did not renew the request deadline")
+	}
+}

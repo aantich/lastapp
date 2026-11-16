@@ -45,6 +45,16 @@ type preparedAccount struct {
 	Hash, Salt  []byte
 }
 
+// deadline renews the request deadline after prepareAccount derived a
+// password, so the derivation does not consume the database deadline. Without
+// a derivation the request keeps its original deadline.
+func (a preparedAccount) deadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if a.Hash == nil {
+		return ctx, func() {}
+	}
+	return renewDeadline(ctx)
+}
+
 func loginEmail(raw string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(raw))
 	a, e := mail.ParseAddress(email)
