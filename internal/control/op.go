@@ -206,12 +206,27 @@ func (r *runner) mutate(ctx context.Context, a Actor, action string, res Resourc
 
 // authorize is a read-side live authorization check for a.
 func (r *runner) authorize(ctx context.Context, a Actor, action string, res Resource) error {
-	return r.access.authorize(withAgentCall(ctx, a.Agent), r.db, a.Principal, action, res, false)
+	return r.check(ctx, r.db, a, action, res, false)
 }
 
 // authorizeTx rechecks a's mutating authority inside an operation transaction.
 func (r *runner) authorizeTx(ctx context.Context, tx *sql.Tx, a Actor, action string, res Resource) error {
-	return r.access.authorize(withAgentCall(ctx, a.Agent), tx, a.Principal, action, res, true)
+	return r.check(ctx, tx, a, action, res, true)
+}
+
+// check is the live authorization check on q. mutating selects the stricter
+// membership and platform-control rules of a change, also before its transaction.
+func (r *runner) check(ctx context.Context, q Queryer, a Actor, action string, res Resource, mutating bool) error {
+	return r.access.authorize(withAgentCall(ctx, a.Agent), q, a.Principal, action, res, mutating)
+}
+
+// operationID is the identifier of the record a's operation creates: the
+// receipt's reserved result ID for an agent call, a new ID otherwise.
+func (a Actor) operationID() string {
+	if a.Agent != nil {
+		return str(a.Agent.ResultRef["id"])
+	}
+	return newID()
 }
 
 // scopes returns a's live read scopes in tenant; apply them before paging.

@@ -138,7 +138,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	// A new grant to an inactive recipient remains invalid outside a published copy.
 	inactiveDefinition := definition
 	inactiveDefinition.Permissions = definition.Permissions[3:]
-	if s.validateEntityRefs(ctx, s.DB, inactiveDefinition, Row{"id": eid, "tenant_id": tenant, "space_id": space}) == nil {
+	if validateEntityRefs(ctx, s.DB, inactiveDefinition, Row{"id": eid, "tenant_id": tenant, "space_id": space}) == nil {
 		t.Fatal("ordinary publication accepted inactive recipients")
 	}
 	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: newID(), Name: "Private author workspace"}, 0, 200)

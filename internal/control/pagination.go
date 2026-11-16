@@ -158,8 +158,8 @@ func sendPage(w http.ResponseWriter, r *http.Request, v []Row) {
 
 // Only pass already-authorized metadata here. Filtering must precede paging;
 // serialize the resulting page rather than an oversized complete inventory.
-func pageItems(items []Row, values url.Values) ([]Row, pageInfo, error) {
-	info, search, err := pageRequest(values).info()
+func pageItems(items []Row, req PageRequest) ([]Row, pageInfo, error) {
+	info, search, err := req.info()
 	if err != nil {
 		return nil, info, err
 	}

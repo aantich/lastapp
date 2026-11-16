@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -18,6 +19,20 @@ func wantProblem(t *testing.T, e error, status int, code string) {
 }
 
 // agentCall is the delegated call an MCP adapter builds for one mutation.
+// wire is v as an MCP client decodes it.
+func wire(t *testing.T, v any) Row {
+	t.Helper()
+	b, e := json.Marshal(v)
+	if e != nil {
+		t.Fatal(e)
+	}
+	out := Row{}
+	if e = json.Unmarshal(b, &out); e != nil {
+		t.Fatal(e)
+	}
+	return out
+}
+
 func agentCall(p Principal, operation string, input any, permissions ...string) *AgentCall {
 	return &AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: newID(), Hash: entity.Hash(Row{"operation": operation, "input": input}), ResultRef: Row{"type": "test"}}
 }
@@ -384,4 +399,73 @@ func TestStorageOperations(t *testing.T) {
 	call := agentCall(p, "lastapp_database", "provision", "databases.provision")
 	_, e = s.storage.CreateDatabase(ctx, Actor{Principal: p, RequestID: newID(), Agent: call}, tenant, databaseInput{ID: newID(), Mode: "managed", Layout: "shared", Target: denied})
 	wantProblem(t, e, 403, "needs_authorization")
+}
+
+func TestAuthoringOperations(t *testing.T) {
+	s, _, p, _, space, app := agentSpaceFixture(t)
+	ctx := context.Background()
+	human := Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}
+
+	// Console actor: draft lifecycle, revisions and generated views.
+	d := entity.Definition{Format: 1, Key: "ticket", Label: "Ticket", Fields: []entity.Field{{Key: "title", Label: "Title", Type: "text", MaxLength: 100}}, Projection: []string{"title"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}}
+	created, e := s.authoring.CreateEntity(ctx, human, space, entityCreateInput{Definition: d})
+	if e != nil || created["draft_contract"] == nil || integer(created["revision"]) != 1 {
+		t.Fatal("console entity", created, e)
+	}
+	key := str(created["id"])
+	d.Label = "Support ticket"
+	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 2)
+	wantProblem(t, e, 412, "stale_revision")
+	if saved, e := s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 1); e != nil || str(saved["label"]) != d.Label {
+		t.Fatal("console save", saved, e)
+	}
+	if v, e := s.authoring.Entity(ctx, human, key, entityView{Section: "definition"}); e != nil || v["section"] != "definition" {
+		t.Fatal("entity section", v, e)
+	}
+	_, e = s.authoring.Entity(ctx, human, key, entityView{Field: "x"})
+	wantProblem(t, e, 400, "invalid_request")
+	if v, e := s.authoring.ValidateEntity(ctx, human, key, d, "diagnostics"); e != nil || v["schema"] != nil {
+		t.Fatal("validate", v, e)
+	}
+	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]Row)) != 1 {
+		t.Fatal("entities", page, e)
+	}
+	_, e = s.authoring.PublishEntity(ctx, human, key, 0)
+	wantProblem(t, e, 428, "revision_required")
+	queued, e := s.authoring.PublishEntity(ctx, human, key, 2)
+	if e != nil || queued["state"] != "queued" {
+		t.Fatal("publish", queued, e)
+	}
+	if v, e := s.authoring.Publication(ctx, human, key, str(queued["id"])); e != nil || str(v["id"]) != str(queued["id"]) {
+		t.Fatal("publication", v, e)
+	}
+	var n int
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND action IN ('entity.created','entity.saved')", human.RequestID).Scan(&n); e != nil || n != 2 {
+		t.Fatal("console audit attribution", n, e)
+	}
+
+	// App data access and contracts.
+	access, e := s.authoring.AppAccess(ctx, human, app)
+	if e != nil {
+		t.Fatal("app access", e)
+	}
+	_, e = s.authoring.SaveAppAccess(ctx, human, app, entity.AppAccess{Inherit: true}, 0)
+	wantProblem(t, e, 428, "revision_required")
+	if v, e := s.authoring.SaveAppAccess(ctx, human, app, entity.AppAccess{Inherit: true}, integer(access["revision"])); e != nil || integer(v["revision"]) != integer(access["revision"])+1 {
+		t.Fatal("save app access", v, e)
+	}
+	contracts, e := s.authoring.AppContracts(ctx, human, app, contractView{Section: "inventory"})
+	if e != nil || contracts["pagination"] == nil {
+		t.Fatal("app contracts", contracts, e)
+	}
+
+	// Agent actor: publication needs the delegated entities.publish scope.
+	call := agentCall(p, "lastapp_entity_publish", "publish", "entities.publish")
+	_, e = s.authoring.PublishEntity(ctx, Actor{Principal: p, RequestID: newID(), Agent: call}, key, 3)
+	wantProblem(t, e, 403, "needs_authorization")
+	if call.Committed {
+		t.Fatal("rejected publication committed its receipt")
+	}
 }

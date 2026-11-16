@@ -149,7 +149,7 @@ func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p Principal, v
 	if ds := d.Validate(); len(ds) > 0 {
 		return bad(ds[0].Path + ": " + ds[0].Message)
 	}
-	if e = s.validateEntityRefsCandidates(ctx, tx, d, v, candidates); e != nil {
+	if e = validateEntityRefsCandidates(ctx, tx, d, v, candidates); e != nil {
 		return e
 	}
 	if v["pending_version_id"] != nil {

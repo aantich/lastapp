@@ -179,6 +179,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		if e != nil {
 			t.Fatal("valid inventory failed before paging/search", e)
 		}
+		v = wire(t, v)
 		if len(v["items"].([]any)) != 1 {
 			t.Fatal("inventory was not paged", v["pagination"])
 		}
@@ -193,6 +194,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		v = wire(t, v)
 		items := v["items"].([]any)
 		if len(items) != 1 {
 			t.Fatal("missing authorized page", page)
@@ -214,6 +216,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		v = wire(t, v)
 		items := v["items"].([]any)
 		want := 1
 		if query != "" {
@@ -256,8 +259,8 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	if e != nil {
 		t.Fatal("large saved entity cannot be checked", e)
 	}
-	result := checked.(Row)
-	if len(result["diagnostics"].([]any)) != 0 || len(result["cases"].([]Row)) != 1 || result["schema"] != nil || result["typescript"] != nil || str(result["candidate_hash"]) != entity.Hash(d) {
+	result := wire(t, checked)
+	if len(result["diagnostics"].([]any)) != 0 || len(result["cases"].([]any)) != 1 || result["schema"] != nil || result["typescript"] != nil || str(result["candidate_hash"]) != entity.Hash(d) {
 		t.Fatal("check omitted diagnostics/cases or returned heavy contracts")
 	}
 	candidate := d
@@ -267,7 +270,7 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(checked.(Row)["diagnostics"].([]any)) == 0 {
+	if len(wire(t, checked)["diagnostics"].([]any)) == 0 {
 		t.Fatal("candidate validation was skipped")
 	}
 	stored, e := row(context.Background(), s.DB, "SELECT draft_json FROM entity_definitions WHERE id=?", eid)

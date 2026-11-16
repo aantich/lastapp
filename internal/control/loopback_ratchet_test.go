@@ -11,7 +11,7 @@ import (
 // loopback executeManagement (definition, call sites, comments and tests).
 // MCP tools must call operations directly; lower this as domains migrate and
 // never raise it. It reaches 0 when the loopback is deleted.
-const maxLoopbackReferences = 20
+const maxLoopbackReferences = 10
 
 func TestLoopbackRatchet(t *testing.T) {
 	files, e := filepath.Glob("*.go")

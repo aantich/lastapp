@@ -729,23 +729,6 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 	return agentWriteResult(ctx, data, e)
 }
 
-func compactFields(v any) (Row, error) {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return nil, e
-	}
-	out := Row{}
-	if e = json.Unmarshal(b, &out); e != nil {
-		return nil, e
-	}
-	for k, value := range out {
-		if value == nil {
-			delete(out, k)
-		}
-	}
-	return out, nil
-}
-
 func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawMessage) (any, error) {
 	var in agentUpdateInput
 	if e := strictAgentInput(raw, &in); e != nil {
@@ -853,11 +836,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	if e = id(in.ID); e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["id"] = in.ID
 	permissions := []string{"lifecycle.manage", "access.manage"}
-	body := Row{"state": in.State}
-	var fn endpoint
 	var call func(context.Context, Actor) (any, error)
 	switch in.Resource {
 	case "space", "app", "microapp":
@@ -890,13 +869,17 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 		}
 		permissions = append(permissions, "platform.manage")
 	case "entity":
-		v, e := s.entityRow(ctx, s.DB, p, in.ID, "entity.manage")
+		v, e := s.authoring.entityRow(ctx, s.DB, agentActor(ctx, p), in.ID, "entity.manage")
 		if e != nil {
 			return nil, e
 		}
-		body["definition"] = v["draft_json"]
-		paths["entity"] = in.ID
-		fn = s.entitySave
+		call = func(ctx context.Context, a Actor) (any, error) {
+			d, e := defOf(v["draft_json"])
+			if e != nil {
+				return nil, e
+			}
+			return s.authoring.SaveEntity(ctx, a, in.ID, entitySaveInput{Definition: d, State: in.State}, in.Revision)
+		}
 		permissions = append(permissions, "entities.publish")
 	default:
 		return nil, bad("Unsupported lifecycle resource.")
@@ -908,11 +891,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	if call != nil {
-		data, e := agentSized(call(ctx, agentActor(ctx, p)))
-		return agentWriteResult(ctx, data, e)
-	}
-	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -925,10 +904,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		return nil, bad("definition is required.")
 	}
 	key := in.Entity
-	var fn endpoint
-	paths := map[string]string{}
-	body := Row{"definition": in.Definition}
-	method := "PATCH"
+	var call func(context.Context, Actor) (any, error)
 	if key == "" {
 		res, target, e := s.agentRoot(p, in.Target)
 		if e != nil {
@@ -937,11 +913,12 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		if target.Kind != "space" {
 			return nil, bad("New entities require a Space target.")
 		}
-		paths = agentPaths(res, target)
 		key = stableAgentID(p, in.RequestKey)
-		body["id"] = key
-		fn = s.entityCreate
-		method = "POST"
+		create := entityCreateInput{ID: key, Definition: *in.Definition}
+		space := agentPaths(res, target)["space"]
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.authoring.CreateEntity(ctx, a, space, create)
+		}
 	} else {
 		if e := id(key); e != nil {
 			return nil, e
@@ -949,14 +926,16 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p Principal, raw json.
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Existing drafts require expected_revision.")
 		}
-		paths["entity"] = key
-		fn = s.entitySave
+		save := entitySaveInput{Definition: *in.Definition}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.authoring.SaveEntity(ctx, a, key, save, in.Revision)
+		}
 	}
 	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, Row{"type": "entity", "id": key}, in, "entities.draft")
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, method, "/v1/entities/"+key, paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -980,7 +959,7 @@ func (s *Server) toolAgentEntityPublish(ctx context.Context, p Principal, raw js
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, s.entityPublish, "POST", "/v1/entities/"+in.Entity+"/publications", map[string]string{"entity": in.Entity}, Row{}, in.Revision)
+	data, e := agentSized(s.authoring.PublishEntity(ctx, agentActor(ctx, p), in.Entity, in.Revision))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -992,7 +971,8 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	if len(in.Cases) > agentMaxSyntheticCases {
 		return nil, bad("Synthetic case count exceeds the published schema limit.")
 	}
-	v, e := s.entityRow(ctx, s.DB, p, in.Entity, "entity.manage")
+	a := agentActor(ctx, p)
+	v, e := s.authoring.entityRow(ctx, s.DB, a, in.Entity, "entity.manage")
 	if e != nil {
 		return nil, e
 	}
@@ -1003,8 +983,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 		}
 		in.Definition = &d
 	}
-	paths := map[string]string{"entity": in.Entity}
-	result, e := s.executeManagement(ctx, p, s.entityValidate, "POST", "/v1/entities/"+in.Entity+"/validate?view=diagnostics", paths, Row{"definition": in.Definition}, 0)
+	result, e := s.authoring.ValidateEntity(ctx, a, in.Entity, *in.Definition, "diagnostics")
+	if e == nil {
+		e = agentFits(result)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -1014,12 +996,10 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p Principal, raw json
 	result["changes"] = Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v["draft_json"]), "published_version": v["active_version_id"], "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
 	cases := []Row{}
 	for _, c := range in.Cases {
-		body, e := compactFields(c)
-		if e != nil {
-			return nil, e
+		data, e := s.authoring.TestEntity(ctx, a, in.Entity, entityTestInput{Definition: *in.Definition, App: c.App, User: c.User, Operation: c.Operation, Record: c.Record, Values: c.Values})
+		if e == nil {
+			e = agentFits(data)
 		}
-		body["definition"] = in.Definition
-		data, e := s.executeManagement(ctx, p, s.entityTest, "POST", "/v1/entities/"+in.Entity+"/test", paths, body, 0)
 		if e != nil {
 			return nil, e
 		}
@@ -1150,7 +1130,7 @@ func (s *Server) toolAgentAppAccess(ctx context.Context, p Principal, raw json.R
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, s.appAccessSave, "PATCH", "/v1/apps/"+in.App+"/data-access", map[string]string{"app": in.App}, in.Access, in.Revision)
+	data, e := agentSized(s.authoring.SaveAppAccess(ctx, agentActor(ctx, p), in.App, in.Access, in.Revision))
 	return agentWriteResult(ctx, data, e)
 }
 

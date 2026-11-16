@@ -6,9 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -35,130 +33,6 @@ func accessOf(v Row) (entity.AppAccess, error) {
 	b, _ := json.Marshal(v["data_access_json"])
 	e := json.Unmarshal(b, &a)
 	return a, e
-}
-
-func (s *Server) appAccessGet(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
-	if e != nil {
-		return e
-	}
-	if e = s.authorize(r.Context(), s.DB, p, "app.manage", Resource{Tenant: str(v["tenant_id"]), App: str(v["id"])}, true); e != nil {
-		return e
-	}
-	a, e := accessOf(v)
-	if e == nil {
-		send(w, 200, Row{"revision": v["revision"], "access": a})
-	}
-	return e
-}
-
-func (s *Server) appAccessSave(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in entity.AppAccess
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	v, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
-	if e != nil {
-		return e
-	}
-	res := Resource{Tenant: str(v["tenant_id"]), App: str(v["id"])}
-	e = s.mutate(r.Context(), p, "app.manage", res, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		v, e = s.appRow(r.Context(), tx, str(v["id"]))
-		if e != nil {
-			return e
-		}
-		if e = checkRevision(integer(v["revision"]), rev); e != nil {
-			return e
-		}
-		workspace := false
-		var wid sql.NullString
-		if e = tx.QueryRowContext(r.Context(), "SELECT workspace_id FROM spaces WHERE id=?", v["space_id"]).Scan(&wid); e != nil {
-			return e
-		}
-		workspace = wid.Valid
-		old, e := accessOf(v)
-		if e != nil {
-			return e
-		}
-		spaceManager := s.authorize(r.Context(), tx, p, "entity.manage", Resource{Tenant: res.Tenant, Space: str(v["space_id"])}, true) == nil
-		if !spaceManager && (old.Origin != in.Origin || old.Inherit != in.Inherit || entity.Hash(old.Ceiling) != entity.Hash(in.Ceiling)) {
-			return problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
-		}
-		if in.Origin != "" {
-			u, _ := url.Parse(in.Origin)
-			admin, _ := url.Parse(s.Config.PublicURL)
-			loopback := u != nil && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
-			if !validOrigin(in.Origin, false) || u == nil || len(in.Origin) > 500 || u.Scheme != "https" && !((s.Config.Development || workspace) && loopback) || u.Hostname() != strings.ToLower(u.Hostname()) || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(admin.Hostname(), ".")) {
-				return bad("App origin must use a separate host from the console.")
-			}
-		}
-		if len(in.Ceiling)+len(in.Restrictions) > 128 {
-			return bad("Too many App access gates.")
-		}
-		for _, gs := range [][]entity.Gate{in.Ceiling, in.Restrictions} {
-			for _, g := range gs {
-				if e := id(g.Permission); e != nil {
-					return e
-				}
-				pv, e := row(r.Context(), tx, "SELECT p.entity_id,v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, v["space_id"])
-				if e != nil {
-					return bad("Choose an active permission from this Space.")
-				}
-				d, e := defOf(pv["definition_json"])
-				if e != nil {
-					return e
-				}
-				for _, f := range g.Fields {
-					if _, ok := d.Field(f); !ok {
-						return bad("Unknown gate field.")
-					}
-				}
-				if g.When != nil {
-					if e = d.CheckCondition(*g.When, false); e != nil {
-						return bad(e.Error())
-					}
-				}
-				for _, role := range g.Roles {
-					var n int
-					if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND app_id=? AND domain='data' AND state='active'", role, res.Tenant, v["id"]).Scan(&n); e != nil {
-						return e
-					}
-					if n != 1 {
-						return bad("App gates can reference only this App's business roles.")
-					}
-				}
-			}
-		}
-		host := ""
-		if in.Origin != "" && !workspace {
-			parsed, _ := url.Parse(in.Origin)
-			host = strings.ToLower(parsed.Hostname())
-			var occupied int
-			if e = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM apps WHERE origin_host=? AND id<>?", host, v["id"]).Scan(&occupied); e != nil {
-				return e
-			}
-			if occupied > 0 {
-				return conflict("Each App needs a separate host. This host is already approved for another App.")
-			}
-		}
-		b, _ := json.Marshal(in)
-		_, e = tx.ExecContext(r.Context(), "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, nullable(in.Origin), nullable(host), old.Origin, in.Origin, v["id"])
-		if e != nil {
-			return e
-		}
-		if e = projectAppPermissions(r.Context(), tx, str(v["id"]), in); e != nil {
-			return e
-		}
-		return audit(r.Context(), tx, res.Tenant, p.ID, "app.data_access_changed", "app", str(v["id"]), r.Header.Get("X-Request-ID"), Row{})
-	})
-	if e != nil {
-		return e
-	}
-	return s.appAccessGet(w, r, p)
 }
 
 func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) error {
