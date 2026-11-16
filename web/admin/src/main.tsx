@@ -12,6 +12,7 @@ import { ConsoleConfigProvider, useConsoleConfig } from "./console-config";
 import { AppLaunch } from "./entity-designer/launch";
 import { AgentConsent } from "./agent-access";
 import { ConfirmHost } from "./confirm-dialog";
+import { consoleURL, isConsolePath } from "./console-url";
 import "./agent-access.css";
 function App() {
   const { refresh: refreshConfig } = useConsoleConfig();
@@ -23,11 +24,14 @@ function App() {
     const who = await api<Me>("/v1/me");
     setMe(who);
     setAuth(who.password_change_required ? "password" : "in");
-    if (!who.password_change_required && location.pathname === "/console/") {
+    if (
+      !who.password_change_required &&
+      location.pathname === consoleURL.root
+    ) {
       try {
         const back = sessionStorage.getItem("lastapp-return-path");
         sessionStorage.removeItem("lastapp-return-path");
-        if (back?.startsWith("/console/") && !back.startsWith("/console//")) {
+        if (isConsolePath(back)) {
           history.replaceState(null, "", back);
           window.dispatchEvent(new PopStateEvent("popstate"));
         }
@@ -54,7 +58,7 @@ function App() {
     api("/auth/logout", "POST", {})
       .then(() => {
         endSession();
-        history.replaceState(null, "", "/console/");
+        history.replaceState(null, "", consoleURL.root);
         try {
           sessionStorage.removeItem("lastapp-return-path");
         } catch {
@@ -91,8 +95,8 @@ function App() {
     );
   if (auth === "password")
     return <PasswordScreen required done={loadMe} signOut={signOut} />;
-  if (location.pathname === "/console/launch") return <AppLaunch />;
-  if (location.pathname === "/console/agent-consent")
+  if (location.pathname === consoleURL.launch) return <AppLaunch />;
+  if (location.pathname === consoleURL.agentConsent)
     return <AgentConsent me={me!} />;
   return (
     <>

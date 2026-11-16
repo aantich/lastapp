@@ -11,7 +11,7 @@ import {
 import { api } from "./api";
 import { Collection } from "./collection";
 import { ConsoleShell } from "./console-shell";
-import { useConsoleURL } from "./console-url";
+import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
 import { FormModal, type Modal, type Field } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
@@ -44,11 +44,8 @@ export function PlatformWorkspace({
 }) {
   const roles = useBuiltinRoles();
   const [path, navigate] = useConsoleURL(),
-    parts = path.split("/").filter(Boolean),
-    page = parts[2] || "tenants",
-    tenant = page === "tenants" ? parts[3] || "" : "",
-    tab = parts[4] || "overview",
-    settingsTab = parts[3] || "servers";
+    route = parsePlatformURL(path),
+    { page, tenant, tab, settingsTab } = route;
   const [overview, setOverview] = useState<TenantOverview>({}),
     [reload, setReload] = useState(0),
     [modal, setModal] = useState<Modal | null>(null),
@@ -59,12 +56,12 @@ export function PlatformWorkspace({
     onSuccess: refresh,
     onError: setError,
   });
-  function go(page: string) {
-    navigate("/console/platform/" + page);
+  function go(...page: string[]) {
+    navigate(consoleURL.platform(...page));
   }
   useEffect(() => {
-    if (!path.startsWith("/console/platform/"))
-      navigate("/console/platform/tenants", true);
+    if (!path.startsWith(consoleURL.platform()))
+      navigate(consoleURL.platform("tenants"), true);
     setModal(null);
     setError("");
   }, [path]);
@@ -486,9 +483,7 @@ export function PlatformWorkspace({
               <button
                 key={id}
                 className={tab === id ? "active" : ""}
-                onClick={() =>
-                  navigate(`/console/platform/tenants/${tenant}/${id}`)
-                }
+                onClick={() => go("tenants", tenant, id)}
               >
                 {id[0].toUpperCase() + id.slice(1)}
               </button>
@@ -509,11 +504,7 @@ export function PlatformWorkspace({
                 </dl>
                 <button
                   className="primary"
-                  onClick={() =>
-                    navigate(
-                      `/console/platform/tenants/${tenant}/administrators`,
-                    )
-                  }
+                  onClick={() => go("tenants", tenant, "administrators")}
                 >
                   Manage administrators
                 </button>
@@ -572,7 +563,7 @@ export function PlatformWorkspace({
                 </button>
                 <button
                   className="text-button"
-                  onClick={() => go("activity/" + tenant)}
+                  onClick={() => go("activity", tenant)}
                 >
                   View Tenant activity
                 </button>
@@ -594,9 +585,7 @@ export function PlatformWorkspace({
           actions={(r) => (
             <button
               className="text-button"
-              onClick={() =>
-                navigate("/console/platform/tenants/" + r.id + "/overview")
-              }
+              onClick={() => go("tenants", r.id, "overview")}
             >
               Open
             </button>
@@ -676,8 +665,8 @@ export function PlatformWorkspace({
       ) : page === "activity" ? (
         <Collection
           path={
-            parts[3]
-              ? "/v1/tenants/" + parts[3] + "/audit-events"
+            route.id
+              ? "/v1/tenants/" + route.id + "/audit-events"
               : "/admin/v1/audit-events"
           }
           reload={reload}
@@ -705,7 +694,7 @@ export function PlatformWorkspace({
               <button
                 key={id}
                 className={settingsTab === id ? "active" : ""}
-                onClick={() => go("settings/" + id)}
+                onClick={() => go("settings", id)}
               >
                 {label}
               </button>

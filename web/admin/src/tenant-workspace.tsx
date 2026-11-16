@@ -18,7 +18,7 @@ import { EntityDesigner } from "./entity-designer/designer";
 import { AppDataAccess } from "./entity-designer/app-access";
 import { Collection } from "./collection";
 import { ConsoleShell } from "./console-shell";
-import { useConsoleURL } from "./console-url";
+import { consoleURL, parseTenantURL, useConsoleURL } from "./console-url";
 import { FormModal, type Field, type Modal } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
@@ -82,12 +82,12 @@ export function TenantWorkspace({
 }) {
   const memberships = me.tenants || [],
     [url, navigate] = useConsoleURL(),
-    parts = url.split("/").filter(Boolean);
+    parsed = parseTenantURL(url);
   const saved = readPreference("lastapp-tenant"),
     fallback = memberships.some((t) => t.id === saved)
       ? saved
       : memberships[0]?.id || "";
-  const tenant = parts[1] === "tenants" ? parts[2] || "" : fallback,
+  const tenant = parsed.area === "tenants" ? parsed.tenant : fallback,
     base = "/v1/tenants/" + tenant;
   const [overview, setOverview] = useState<TenantOverview>({}),
     [caps, setCaps] = useState<TenantCapabilities>({}),
@@ -97,21 +97,14 @@ export function TenantWorkspace({
     [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState("");
   const route = {
-    page: parts[1] === "account" ? "account" : parts[3] || "apps",
+    page: parsed.page,
+    // An App URL names no Space; take it from the loaded App.
     space:
-      parts[3] === "spaces"
-        ? parts[4] || ""
-        : parts[3] === "apps" && parts[4] && app.id === parts[4]
-          ? app.space_id || ""
-          : "",
-    app: parts[3] === "apps" ? parts[4] || "" : "",
-    tab:
-      parts[3] === "spaces" && parts[4]
-        ? parts[5] || "apps"
-        : parts[3] === "apps" && parts[4]
-          ? parts[5] || "microapps"
-          : parts[4] || "general",
-    team: parts[3] === "people" ? parts[5] || "" : "",
+      parsed.space ||
+      (parsed.app && app.id === parsed.app ? app.space_id || "" : ""),
+    app: parsed.app,
+    tab: parsed.tab,
+    team: parsed.team,
   };
   if (route.page === "spaces" && route.space) route.page = "space";
   if (route.page === "apps" && route.app) route.page = "app";
@@ -132,32 +125,35 @@ export function TenantWorkspace({
   });
   function go(page: string, v: Partial<typeof route> = {}) {
     if (page === "account") {
-      navigate("/console/account");
+      navigate(consoleURL.account);
       return;
     }
-    const root = "/console/tenants/" + tenant;
-    const next =
+    const path =
       page === "space"
-        ? `/spaces/${v.space || route.space}/${v.tab || "apps"}`
+        ? ["spaces", v.space || route.space, v.tab || "apps"]
         : page === "app"
-          ? `/apps/${v.app || route.app}/${v.tab || "microapps"}`
+          ? ["apps", v.app || route.app, v.tab || "microapps"]
           : page === "people"
-            ? `/people/${v.tab || (all("membership.read") ? "members" : "teams")}${v.team ? "/" + v.team : ""}`
+            ? [
+                "people",
+                v.tab || (all("membership.read") ? "members" : "teams"),
+                ...(v.team ? [v.team] : []),
+              ]
             : page === "settings"
-              ? `/settings/${v.tab || "general"}`
-              : "/" + page;
-    navigate(root + next);
+              ? ["settings", v.tab || "general"]
+              : [page];
+    navigate(consoleURL.tenant(tenant, ...path));
   }
   function selectTenant(id: string) {
     if (!id) return;
     savePreference("lastapp-tenant", id);
-    navigate("/console/tenants/" + id + "/apps");
+    navigate(consoleURL.tenant(id, "apps"));
   }
   const openSpace = (r: Item) => go("space", { space: r.id }),
     openApp = (r: Item) => go("app", { app: r.id });
   useEffect(() => {
-    if (parts[1] !== "tenants" && parts[1] !== "account" && tenant)
-      navigate("/console/tenants/" + tenant + "/apps", true);
+    if (parsed.area !== "tenants" && parsed.area !== "account" && tenant)
+      navigate(consoleURL.tenant(tenant, "apps"), true);
   }, [url, tenant]);
   useEffect(() => {
     setModal(null);
