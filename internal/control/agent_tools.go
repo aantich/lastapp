@@ -670,8 +670,9 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "team"
 		key = in.Team.ID
-		fn = s.createGroup
-		body = in.Team
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.members.CreateTeam(ctx, a, res.Tenant, *in.Team)
+		}
 	case in.Role != nil:
 		if target.Kind != "space" && target.Kind != "app" {
 			return nil, bad("Custom roles belong to a Space or App; Tenant/team roles are fixed.")
@@ -778,7 +779,13 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 			return update(ctx, a, res.Tenant, in.ID, patch, in.Revision)
 		}
 	case "team":
-		fn = s.updateGroup
+		patch := teamPatch{Name: in.Name}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
+				return nil, bad("Invalid or unsupported JSON request fields.")
+			}
+			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, patch, in.Revision)
+		}
 	case "role":
 		fn = s.updateRole
 		permissions = []string{"access.manage"}
@@ -861,7 +868,9 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 			return update(ctx, a, res.Tenant, in.ID, metadataPatch{State: &in.State}, in.Revision)
 		}
 	case "team":
-		fn = s.updateGroup
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, teamPatch{State: &in.State}, in.Revision)
+		}
 	case "role":
 		fn = s.updateRole
 	case "database":
@@ -1080,37 +1089,34 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 	if e = id(in.User); e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["user"] = in.User
-	paths["id"] = target.ID
-	body := Row{"user_id": in.User}
-	path := agentScopePath(res, target) + "/memberships"
-	fn := s.addMembership
-	method := "POST"
+	var call func(context.Context, Actor) (any, error)
 	switch in.Action {
 	case "add":
-		if target.Kind == "team" {
-			fn = s.addGroupMember
-			path = agentScopePath(res, target) + "/members"
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if target.Kind == "team" {
+				return s.members.AddTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
+			}
+			return s.members.AddMembership(ctx, a, res.Tenant, accountChoice{User: in.User})
 		}
 	case "set_state":
-		body = Row{"state": in.State}
-		method = "PATCH"
-		fn = s.updateMembership
-		if target.Kind == "team" {
-			fn = s.updateGroupMember
-		}
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Membership/team revision is required.")
+		}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if target.Kind == "team" {
+				return s.members.SetTeamMemberState(ctx, a, res.Tenant, target.ID, in.User, in.State, in.Revision)
+			}
+			return s.members.UpdateMembership(ctx, a, res.Tenant, in.User, in.State, in.Revision)
 		}
 	case "remove":
 		if target.Kind != "team" {
 			return nil, bad("Tenant membership is disable-only.")
 		}
-		fn = s.removeGroupMember
-		method = "DELETE"
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Team revision is required.")
+		}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.members.RemoveTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
 		}
 	default:
 		return nil, bad("Unsupported membership action.")
@@ -1119,7 +1125,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, method, path, paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 

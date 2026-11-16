@@ -32,10 +32,16 @@ func securitySnapshot(ctx context.Context, q Queryer, table, tenant, record stri
 	return v, nil
 }
 
-func auditChange(ctx context.Context, q Queryer, tenant, user, action, table, kind, record, request string, before Row) error {
+// auditChangeAs records a security-relevant change with before/after snapshots.
+func auditChangeAs(ctx context.Context, q Queryer, a Actor, tenant, action, table, kind, record string, before Row) error {
 	after, e := securitySnapshot(ctx, q, table, tenant, record)
 	if e != nil {
 		return e
 	}
-	return audit(ctx, q, tenant, user, action, kind, record, request, Row{"before": before, "after": after})
+	return auditAs(ctx, q, a, tenant, action, kind, record, Row{"before": before, "after": after})
+}
+
+// auditChange is the context shim of auditChangeAs.
+func auditChange(ctx context.Context, q Queryer, tenant, user, action, table, kind, record, request string, before Row) error {
+	return auditChangeAs(ctx, q, Actor{Principal: Principal{ID: user}, RequestID: request, Agent: agentCallFrom(ctx)}, tenant, action, table, kind, record, before)
 }

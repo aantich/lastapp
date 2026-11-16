@@ -209,6 +209,11 @@ func (r *runner) authorize(ctx context.Context, a Actor, action string, res Reso
 	return r.access.authorize(withAgentCall(ctx, a.Agent), r.db, a.Principal, action, res, false)
 }
 
+// authorizeTx rechecks a's mutating authority inside an operation transaction.
+func (r *runner) authorizeTx(ctx context.Context, tx *sql.Tx, a Actor, action string, res Resource) error {
+	return r.access.authorize(withAgentCall(ctx, a.Agent), tx, a.Principal, action, res, true)
+}
+
 // scopes returns a's live read scopes in tenant; apply them before paging.
 func (r *runner) scopes(ctx context.Context, a Actor, tenant, action string) (scopeSet, error) {
 	return r.access.scopes(withAgentCall(ctx, a.Agent), r.db, a.Principal, tenant, action)

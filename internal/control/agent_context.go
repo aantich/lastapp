@@ -170,18 +170,14 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 		}
 		return agentPage(s.inv.Microapps(ctx, agentActor(ctx, p), res.Tenant, app, in.pageRequest()))
 	case "team":
-		fn = s.groups
-		path += "/teams"
+		return agentPage(s.members.Teams(ctx, agentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "tenant_member":
-		fn = s.memberships
-		path += "/memberships"
+		return agentPage(s.members.Memberships(ctx, agentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "team_member":
 		if target.Kind != "team" {
 			return nil, bad("team_member needs a team target.")
 		}
-		paths["id"] = target.ID
-		fn = s.groupMembers
-		path = agentScopePath(res, target) + "/members"
+		return agentPage(s.members.TeamMembers(ctx, agentActor(ctx, p), res.Tenant, target.ID, in.pageRequest()))
 	case "recipient":
 		fn = s.recipientOptions
 		path = agentScopePath(res, target) + "/recipients"
@@ -342,7 +338,7 @@ func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMess
 	case "app":
 		return s.inv.App(ctx, agentActor(ctx, p), res.Tenant, in.ID)
 	case "team":
-		fn = s.getGroup
+		return s.members.Team(ctx, agentActor(ctx, p), res.Tenant, in.ID)
 	case "tenant":
 		if p.Agent.Kind != "platform" && in.ID != res.Tenant {
 			return nil, missing()

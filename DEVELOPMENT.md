@@ -87,7 +87,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Change area | Authoritative source / reuse point |
 | --- | --- |
 | Management routes and console-session wrapper | `internal/control/http.go`; domain handlers in `internal/control` |
-| Operations shared by console and MCP | `op.go`: `Actor`/`AgentCall`, `runner.mutate` (lock, live authorization, production guard, receipt, audit), one error `classify`, `PageRequest`/`Page`; domain services such as `inventory` (`tenants.go`, `inventory.go`). Handlers decode → call the operation → send; MCP adapters call the same operation directly |
+| Operations shared by console and MCP | `op.go`: `Actor`/`AgentCall`, `runner.mutate` (lock, live authorization, production guard, receipt, audit), one error `classify`, `PageRequest`/`Page`; domain services `inventory` (`tenants.go`, `inventory.go`) and `membership` (`access.go`, `administrators.go`). Handlers decode → call the operation → send; MCP adapters call the same operation directly |
 | Fixed role IDs/actions/scope categories | `internal/authz/catalog.go`; `auth.go`, `roles.go` resolve current authority |
 | Password policy and public settings | `internal/control/passwords.go` → `GET /v1/config`; shared frontend controls |
 | Entity document, types, expressions, ACL semantics and limits | `internal/entity`; `GET /v1/entity-capabilities` |

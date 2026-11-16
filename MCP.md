@@ -187,9 +187,10 @@ is enforced on production creation/restoration and deployment.
 Console sessions, App data tokens and MCP tokens are separate. MCP tools invoke
 the same Go management operations as the console; they do not bypass policy via
 direct SQL, network loopback calls or a privileged synthetic user. Migrated
-domains (plans, Tenants, Spaces, Apps and micro-apps so far) are called
-directly with the delegated call as the operation's actor; the remaining tools
-still pass through the in-process handler adapter until their domain migrates. The transport uses
+domains (plans, Tenants, Spaces, Apps, micro-apps, memberships, teams and
+Tenant administrators so far) are called directly with the delegated call as
+the operation's actor; the remaining tools still pass through the in-process
+handler adapter until their domain migrates. The transport uses
 authorization code + S256 PKCE, exact resource binding, rotating refresh tokens
 and token/grant revision checks. Reuse of a rotated refresh token revokes its
 family. Neither tools nor documentation can edit MCP delegations or OAuth clients.

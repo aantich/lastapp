@@ -161,3 +161,86 @@ func TestTenantInventoryOperations(t *testing.T) {
 	_, e = s.inv.Tenants(ctx, agent, PageRequest{})
 	wantProblem(t, e, 404, "not_found")
 }
+
+func TestMembershipOperations(t *testing.T) {
+	s, _, p, tenant, _, _ := agentSecurityFixture(t)
+	ctx := context.Background()
+	human := Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}
+	var operator, joe string
+	for subject, dest := range map[string]*string{"operator": &operator, "outsider": &joe} {
+		if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject=?", subject).Scan(dest); e != nil {
+			t.Fatal(e)
+		}
+	}
+	platform := Actor{Principal: Principal{ID: operator, Platform: true}, RequestID: newID()}
+
+	// Console actor: membership, team and member revisions.
+	if v, e := s.members.AddMembership(ctx, human, tenant, accountChoice{User: joe}); e != nil || v.UserID != joe {
+		t.Fatal("console membership", v, e)
+	}
+	_, e := s.members.UpdateMembership(ctx, human, tenant, joe, stateDisabled, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.members.UpdateMembership(ctx, human, tenant, p.ID, stateDisabled, 1)
+	wantProblem(t, e, 409, "conflict") // the last Tenant administrator stays active
+	team := namedInput{ID: newID(), Slug: "ops", Name: "Ops"}
+	if ref, e := s.members.CreateTeam(ctx, human, tenant, team); e != nil || ref.Revision != 1 {
+		t.Fatal("console team", ref, e)
+	}
+	// Every member change, including add, needs the team's current revision.
+	_, e = s.members.AddTeamMember(ctx, human, tenant, team.ID, joe, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.members.AddTeamMember(ctx, human, tenant, team.ID, joe, 2)
+	wantProblem(t, e, 412, "stale_revision")
+	if _, e = s.members.AddTeamMember(ctx, human, tenant, team.ID, joe, 1); e != nil {
+		t.Fatal("console team member", e)
+	}
+	if _, e = s.members.SetTeamMemberState(ctx, human, tenant, team.ID, joe, stateDisabled, 2); e != nil {
+		t.Fatal("console team member state", e)
+	}
+	page, e := s.members.TeamMembers(ctx, human, tenant, team.ID, PageRequest{})
+	if e != nil || len(page.Items) != 1 || str(page.Items[0]["state"]) != stateDisabled {
+		t.Fatal("console team members", page, e)
+	}
+	var n int
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND tenant_id=?", human.RequestID, tenant).Scan(&n); e != nil || n != 4 {
+		t.Fatal("console audit attribution", n, e)
+	}
+
+	// Denied scope: Tenant administrators are platform operations.
+	_, e = s.members.Administrators(ctx, human, tenant, PageRequest{})
+	wantProblem(t, e, 403, "forbidden")
+	_, e = s.members.AddAdministrator(ctx, human, tenant, accountChoice{User: joe})
+	wantProblem(t, e, 403, "forbidden")
+	if v, e := s.members.AddAdministrator(ctx, platform, tenant, accountChoice{User: joe}); e != nil || v.UserID != joe {
+		t.Fatal("platform administrator", v, e)
+	}
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND action='grant.created' AND actor_user_id=?", platform.RequestID, operator).Scan(&n); e != nil || n != 1 {
+		t.Fatal("administrator grant audit", n, e)
+	}
+
+	// Agent actor: access.manage is required; replay and grant attribution.
+	call := agentCall(p, "lastapp_membership", "remove", "access.manage")
+	_, e = s.members.RemoveTeamMember(ctx, Actor{Principal: p, RequestID: newID(), Agent: call}, tenant, team.ID, joe, 3)
+	wantProblem(t, e, 403, "needs_authorization")
+	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
+		t.Fatal(e)
+	}
+	if p.Agent, e = s.readAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
+		t.Fatal(e)
+	}
+	call = agentCall(p, "lastapp_membership", "remove", "access.manage")
+	agent := Actor{Principal: p, RequestID: newID(), Agent: call}
+	if _, e = s.members.RemoveTeamMember(ctx, agent, tenant, team.ID, joe, 3); e != nil || !call.Committed {
+		t.Fatal("agent remove", e)
+	}
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, p.Agent.ID).Scan(&n); e != nil || n != 1 {
+		t.Fatal("agent audit attribution", n, e)
+	}
+	replay := &AgentCall{Grant: p.Agent, Permission: call.Permission, Operation: call.Operation, Key: call.Key, Hash: call.Hash}
+	if _, e = s.members.RemoveTeamMember(ctx, Actor{Principal: p, RequestID: newID(), Agent: replay}, tenant, team.ID, joe, 4); !errors.Is(e, errAgentReplay) {
+		t.Fatal("replay executed again", e)
+	}
+	if e = s.DB.QueryRow("SELECT revision FROM groups WHERE id=?", team.ID).Scan(&n); e != nil || n != 4 {
+		t.Fatal("team revision after one removal", n, e)
+	}
+}
