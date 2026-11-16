@@ -1,6 +1,8 @@
 import { Component, type ReactNode } from "react";
 import { TriangleAlert } from "lucide-react";
 import { errorMessage } from "./use-action";
+import { queryClient } from "./query";
+import { retryLazyLoads } from "./retryable-lazy";
 
 // Keeps a page's render failure (or a lazily loaded screen that failed to
 // download) inside the console shell, so navigation and sign-out still work.
@@ -23,7 +25,17 @@ export class ErrorBoundary extends Component<
         <p>Try again, or reload the console if the problem continues.</p>
         <button
           className="secondary"
-          onClick={() => this.setState({ error: null })}
+          onClick={() => {
+            // The failed page's reads have no mounted observer now. Drop
+            // their cached data so the retry renders from a fresh request,
+            // not from the response it failed on.
+            void queryClient.resetQueries({
+              queryKey: ["api"],
+              type: "inactive",
+            });
+            retryLazyLoads();
+            this.setState({ error: null });
+          }}
         >
           Try again
         </button>

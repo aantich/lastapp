@@ -1,7 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import {
   login,
   logout,
+  menu,
+  nav,
   fixtureTenant,
   selectTenant,
   post,
@@ -10,7 +12,8 @@ import {
 
 // Console data layer: cached reads poll without overlap and pause behind open
 // forms, editable lists keep their items' identity, and the split pages lay
-// out at desktop and phone widths.
+// out at desktop and phone widths. A page that fails to render, or whose lazy
+// chunk fails to download, stays inside the shell and can be retried.
 
 async function managedSpace(page: Page, base: string, owner: string) {
   const space = crypto.randomUUID();
@@ -168,4 +171,88 @@ test("split Tenant and Platform pages fit desktop and phone widths", async ({
       ).toBe(true);
     }
   }
+});
+
+const fallback = (page: Page) =>
+  page.getByRole("alert").filter({ hasText: "This page could not be shown" });
+
+test("a page that throws while rendering shows the fallback inside a working shell", async ({
+  page,
+}) => {
+  await login(page);
+  const { tenant } = await fixtureTenant(page, "Boundary");
+  await logout(page);
+  await login(page, "tenant-admin");
+  await selectTenant(page, tenant);
+  // A connection without its permission list makes the Agent access panel
+  // throw during render (permissions_json.map).
+  const malformed = (route: Route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: crypto.randomUUID(),
+            client_name: "Malformed client",
+            scope_kind: "tenant",
+            state: "active",
+            permissions_json: null,
+            expires_at: new Date().toISOString(),
+          },
+        ],
+        pagination: { has_more: false },
+      },
+    });
+  await page.route("**/v1/agent-access?*", malformed);
+  await menu(page);
+  await page.getByRole("button", { name: "My account", exact: true }).click();
+  await expect(fallback(page)).toBeVisible();
+  await expect(fallback(page)).toContainText("Cannot read properties of null");
+  // The shell around the failed page still works.
+  await nav(page, "Spaces");
+  await expect(
+    page.getByRole("heading", { name: "Spaces", exact: true, level: 1 }),
+  ).toBeVisible();
+  await expect(fallback(page)).toHaveCount(0);
+  // Returning while the response is still malformed fails the same way...
+  await page.goBack();
+  await expect(fallback(page)).toBeVisible();
+  // ...and "Try again" renders from a fresh request once it is valid.
+  await page.unroute("**/v1/agent-access?*", malformed);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(fallback(page)).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Agent access", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Malformed client")).toHaveCount(0);
+});
+
+test("a failed designer chunk download shows the fallback and retries", async ({
+  page,
+}) => {
+  await login(page);
+  const { tenant, owner, base } = await fixtureTenant(page, "Lazy chunk");
+  await logout(page);
+  await login(page, "tenant-admin");
+  await selectTenant(page, tenant);
+  const space = await managedSpace(page, base, owner.id);
+  let offline = true,
+    requests = 0;
+  await page.route(/\/assets\/designer-[^/]+\.js$/, (route) => {
+    requests++;
+    return offline ? route.abort("internetdisconnected") : route.continue();
+  });
+  await page.goto(`/console/tenants/${tenant}/spaces/${space}/entities`);
+  await expect(fallback(page)).toBeVisible();
+  expect(requests).toBe(1);
+  // The shell is still usable while the designer is unavailable.
+  await page.getByRole("button", { name: "Access", exact: true }).click();
+  await expect(fallback(page)).toHaveCount(0);
+  await page.getByRole("button", { name: "Entities", exact: true }).click();
+  await expect(fallback(page)).toBeVisible();
+  expect(requests).toBe(1);
+  offline = false;
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(fallback(page)).toHaveCount(0);
+  await expect(page.getByLabel("Entity name", { exact: true })).toBeVisible();
+  expect(requests).toBe(2);
 });
