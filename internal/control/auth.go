@@ -16,6 +16,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -240,7 +241,7 @@ func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email str
 		if e != nil {
 			return "", e
 		}
-		if e = audit(ctx, tx, "", uid, "platform.bootstrap", "user", uid, registry.NewID(), registry.Row{}); e != nil {
+		if e = op.Audit(ctx, tx, "", uid, "platform.bootstrap", "user", uid, registry.NewID(), registry.Row{}); e != nil {
 			return "", e
 		}
 	}

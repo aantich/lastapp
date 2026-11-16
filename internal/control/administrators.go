@@ -7,14 +7,15 @@ import (
 	"net/http"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
 // AddAdministrator makes an existing account or a new local account a Tenant
 // administrator: account, membership and authority are one platform operation.
 // Existing credentials are never replaced; no Tenant-authoring authority is added.
-func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant string, in accountChoice) (memberRef, error) {
-	if e := m.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+func (m *membership) AddAdministrator(ctx context.Context, a op.Actor, tenant string, in accountChoice) (memberRef, error) {
+	if e := m.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 		return memberRef{}, e
 	}
 	if (in.User == "") == (in.Account == nil) {
@@ -32,8 +33,8 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 	}
 	ctx, cancel := account.deadline(ctx)
 	defer cancel()
-	e = m.run.mutate(ctx, a, "authorization.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
-		if e := m.run.authorizeTx(ctx, tx, a, "platform.admin", access.Resource{}); e != nil {
+	e = m.run.Mutate(ctx, a, "authorization.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		if e := m.run.AuthorizeTx(ctx, tx, a, "platform.admin", access.Resource{}); e != nil {
 			return e
 		}
 		if in.Account != nil {
@@ -69,7 +70,7 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 			if _, e = tx.ExecContext(ctx, "INSERT INTO tenant_memberships(tenant_id,user_id) VALUES (?,?)", tenant, in.User); e != nil {
 				return e
 			}
-			if e = auditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, registry.Row{"state": registry.StateActive}); e != nil {
+			if e = op.AuditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, registry.Row{"state": registry.StateActive}); e != nil {
 				return e
 			}
 		} else if e != nil {
@@ -78,7 +79,7 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 			if _, e = tx.ExecContext(ctx, "UPDATE tenant_memberships SET state='active',revision=revision+1 WHERE tenant_id=? AND user_id=?", tenant, in.User); e != nil {
 				return e
 			}
-			if e = auditAs(ctx, tx, a, tenant, "membership.updated", "user", in.User, registry.Row{"before": registry.Row{"state": memberState}, "after": registry.Row{"state": registry.StateActive}}); e != nil {
+			if e = op.AuditAs(ctx, tx, a, tenant, "membership.updated", "user", in.User, registry.Row{"before": registry.Row{"state": memberState}, "after": registry.Row{"state": registry.StateActive}}); e != nil {
 				return e
 			}
 		}
@@ -120,11 +121,11 @@ func (v *Administrator) ScanFields() []any {
 	return []any{&v.Name, &v.Email, &v.ID, &v.Revision, &v.State, &v.UserID, &v.UserState}
 }
 
-func (m *membership) Administrators(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Administrator], error) {
-	if e := m.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-		return Page[Administrator]{}, e
+func (m *membership) Administrators(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Administrator], error) {
+	if e := m.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+		return op.Page[Administrator]{}, e
 	}
-	return pageScan[Administrator](ctx, m.db, page, collectionFor("administrators"), "SELECT u.display_name,u.email,g.id,g.revision,m.state,g.user_id,u.state AS user_state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,u.id", tenant, access.TenantAdminRole)
+	return op.PageScan[Administrator](ctx, m.db, page, op.CollectionFor("administrators"), "SELECT u.display_name,u.email,g.id,g.revision,m.state,g.user_id,u.state AS user_state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,u.id", tenant, access.TenantAdminRole)
 }
 
 func (s *Server) addTenantAdministrator(w http.ResponseWriter, r *http.Request, p access.Principal) error {

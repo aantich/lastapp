@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -53,7 +54,7 @@ type developmentLaunchInput struct {
 	Origin    string `json:"origin"`
 }
 
-func (s *Server) Launch(ctx context.Context, actor Actor, app string, in developmentLaunchInput) (registry.Row, error) {
+func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in developmentLaunchInput) (registry.Row, error) {
 	p := actor.Principal
 	if p.Agent == nil {
 		return nil, registry.Bad("Use ordinary browser App sign-in; development launch codes require a delegated agent connection.")
@@ -83,7 +84,7 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 		return nil, registry.Bad("Approve the exact development App origin using app_access_update first.")
 	}
 	code := token(32)
-	e = s.run.mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
+	e = s.run.Mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 		return e
 	})

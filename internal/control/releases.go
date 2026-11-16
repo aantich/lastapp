@@ -12,6 +12,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -100,26 +101,26 @@ var (
 	pinnedVersionRE = regexp.MustCompile(`^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|sha256:[a-f0-9]{64})$`)
 )
 
-func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in releaseCreateInput, revision int64) (Release, error) {
+func (s *Server) CreateRelease(ctx context.Context, actor op.Actor, app string, in releaseCreateInput, revision int64) (Release, error) {
 	p := actor.Principal
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 || registry.ID(in.Build) != nil {
 		return Release{}, registry.Bad("Provide a release name and uploaded build ID.")
 	}
 	rev := revision
 	if rev < 1 {
-		return Release{}, revisionRequired()
+		return Release{}, op.RevisionRequired()
 	}
 	a, ws, e := s.ownedDevelopmentApp(ctx, s.DB, p, app)
 	if e != nil {
 		return Release{}, e
 	}
-	record := actor.operationID()
-	e = s.run.mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+	record := actor.OperationID()
+	e = s.run.Mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		a, e = s.appRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(a.Revision, rev); e != nil {
+		if e = op.CheckRevision(a.Revision, rev); e != nil {
 			return e
 		}
 		var build string
@@ -181,7 +182,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a.TenantID, a.ID, in.Build, ws.ID, in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws.BaseHash); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, registry.Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
+		return op.AuditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, registry.Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
 	})
 	if e != nil {
 		return Release{}, e
@@ -189,16 +190,16 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 	return s.Release(ctx, actor, record)
 }
 
-func (s *Server) Releases(ctx context.Context, actor Actor, app string, page PageRequest) (Page[ReleaseItem], error) {
+func (s *Server) Releases(ctx context.Context, actor op.Actor, app string, page op.PageRequest) (op.Page[ReleaseItem], error) {
 	p := actor.Principal
 	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return Page[ReleaseItem]{}, e
+		return op.Page[ReleaseItem]{}, e
 	}
 	if e = s.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
-		return Page[ReleaseItem]{}, e
+		return op.Page[ReleaseItem]{}, e
 	}
-	vs, e := pageScan[ReleaseItem](ctx, s.DB, page, collectionFor("releases"), "SELECT rel.build_id,rel.created_at,rel.display_name,rel.id,rel.snapshot_hash FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
+	vs, e := op.PageScan[ReleaseItem](ctx, s.DB, page, op.CollectionFor("releases"), "SELECT rel.build_id,rel.created_at,rel.display_name,rel.id,rel.snapshot_hash FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
 	return vs, e
 }
 
@@ -224,7 +225,7 @@ func (s *Server) releaseRow(ctx context.Context, q registry.Queryer, p access.Pr
 	return v, nil
 }
 
-func (s *Server) Release(ctx context.Context, actor Actor, release string) (Release, error) {
+func (s *Server) Release(ctx context.Context, actor op.Actor, release string) (Release, error) {
 	p := actor.Principal
 	v, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
@@ -235,7 +236,7 @@ func (s *Server) Release(ctx context.Context, actor Actor, release string) (Rele
 	return v, nil
 }
 
-func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string, revision int64) (registry.Row, error) {
+func (s *Server) PreviewRelease(ctx context.Context, actor op.Actor, release string, revision int64) (registry.Row, error) {
 	p := actor.Principal
 	rel, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
@@ -247,18 +248,18 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 	}
 	rev := revision
 	if rev < 1 {
-		return nil, revisionRequired()
+		return nil, op.RevisionRequired()
 	}
 	origin := s.appHostedOrigin(a.ID)
 	if origin == "" {
 		return nil, registry.Conflict("Configure the App hosting origin first.")
 	}
-	e = s.run.mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+	e = s.run.Mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		a, e = s.appRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(a.Revision, rev); e != nil {
+		if e = op.CheckRevision(a.Revision, rev); e != nil {
 			return e
 		}
 		// The shared Tenant mutation lock also covers entity/role/App changes.
@@ -287,7 +288,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel.ID, b, origin, old, origin, a.ID); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, registry.Row{"release_id": rel.ID})
+		return op.AuditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, registry.Row{"release_id": rel.ID})
 	})
 	if e != nil {
 		return nil, e
@@ -316,7 +317,7 @@ func (s *Server) deploymentAuthority(ctx context.Context, q registry.Queryer, p 
 	return nil
 }
 
-func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string, revision int64) (registry.Row, error) {
+func (s *Server) DeployRelease(ctx context.Context, actor op.Actor, release string, revision int64) (registry.Row, error) {
 	p := actor.Principal
 	rel, e := s.releaseRow(ctx, s.DB, p, release)
 	if e != nil {
@@ -324,7 +325,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	}
 	rev := revision
 	if rev < 1 {
-		return nil, revisionRequired()
+		return nil, op.RevisionRequired()
 	}
 	res := access.Resource{Tenant: rel.TenantID, Space: rel.ProductionSpace}
 	if e = s.deploymentAuthority(ctx, s.DB, p, res); e != nil {
@@ -333,9 +334,9 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	if e = s.ensureReleaseBuild(ctx, s.DB, rel.ID); e != nil {
 		return nil, e
 	}
-	record := actor.operationID()
+	record := actor.OperationID()
 	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, record)
-	e = s.run.mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
+	e = s.run.Mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
 		a, e := s.appRow(ctx, tx, rel.ProductionApp)
 		if e != nil {
 			if ae, ok := e.(*registry.APIError); !ok || ae.Status != 404 {
@@ -345,7 +346,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 				return registry.Conflict("A new production App starts at expected revision 1.")
 			}
 		} else {
-			if e = checkRevision(a.Revision, rev); e != nil {
+			if e = op.CheckRevision(a.Revision, rev); e != nil {
 				return e
 			}
 			if access.Deref(a.ActiveRelease) == rel.ID {
@@ -393,7 +394,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 		if _, e = tx.ExecContext(ctx, "INSERT INTO release_deployments(id,tenant_id,space_id,release_id,target_app_id,created_by,agent_grant_id,agent_grant_revision,plan_json) VALUES(?,?,?,?,?,?,?,?,?)", record, res.Tenant, res.Space, rel.ID, rel.ProductionApp, p.ID, agentID(p), grantRev, pb); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, registry.Row{"release_id": rel.ID, "snapshot_hash": rel.SnapshotHash})
+		return op.AuditAs(ctx, tx, actor, res.Tenant, "release.deployment_queued", "deployment", record, registry.Row{"release_id": rel.ID, "snapshot_hash": rel.SnapshotHash})
 	})
 	if e != nil {
 		return nil, e
@@ -401,7 +402,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 	return registry.Row{"id": record, "state": "queued", "instruction": "Poll deployment status. Storage preparation can pause changed entity APIs; registry security and client selection activate together. Never assume queued means deployed."}, nil
 }
 
-func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string) (Deployment, error) {
+func (s *Server) Deployment(ctx context.Context, actor op.Actor, deployment string) (Deployment, error) {
 	p := actor.Principal
 	v, e := registry.ScanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
 	if e != nil {
@@ -416,7 +417,7 @@ func (s *Server) Deployment(ctx context.Context, actor Actor, deployment string)
 
 // Recover the durable job after a browser reload or a lost deploy response.
 // A pending sibling deployment also explains a shared Space's mutation fence.
-func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (registry.Row, error) {
+func (s *Server) AppDeployment(ctx context.Context, actor op.Actor, app string) (registry.Row, error) {
 	p := actor.Principal
 	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {

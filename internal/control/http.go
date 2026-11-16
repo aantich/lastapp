@@ -12,6 +12,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	admin "github.com/aantich/lastapp/web/admin"
 )
@@ -50,7 +51,7 @@ func (s *Server) api(pattern string, fn endpoint) {
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := withRequestDeadline(r.Context())
 		defer cancel()
-		ctx = context.WithValue(ctx, pageContextKey{}, &pageInfo{})
+		ctx = context.WithValue(ctx, pageContextKey{}, &op.PageInfo{})
 		r = r.WithContext(ctx)
 		p, e := s.principal(ctx, r)
 		if e == nil {
@@ -327,14 +328,14 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p access.Princ
 	return e
 }
 
-func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page PageRequest) (Page[AuditEvent], error) {
+func (s *Server) Audits(ctx context.Context, actor op.Actor, tenant string, page op.PageRequest) (op.Page[AuditEvent], error) {
 	p := actor.Principal
 	action := "audit.read"
 	if tenant == "" {
 		action = "platform.admin"
 	}
 	if e := s.Authorize(ctx, s.DB, p, action, access.Resource{Tenant: tenant}, false); e != nil {
-		return Page[AuditEvent]{}, e
+		return op.Page[AuditEvent]{}, e
 	}
 	args := []any{}
 	where := "1=1"
@@ -342,17 +343,17 @@ func (s *Server) Audits(ctx context.Context, actor Actor, tenant string, page Pa
 		where = "a.tenant_id=?"
 		args = append(args, tenant)
 	}
-	v, e := pageScan[AuditEvent](ctx, s.DB, page, collectionFor("audit-events"), "SELECT a.action,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+	v, e := op.PageScan[AuditEvent](ctx, s.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 	return v, e
 }
 
 // httpActor is the console caller of an operation.
-func httpActor(r *http.Request, p access.Principal) Actor {
-	return actorFrom(r.Context(), p, r.Header.Get("X-Request-ID"))
+func httpActor(r *http.Request, p access.Principal) op.Actor {
+	return op.ActorFrom(r.Context(), p, r.Header.Get("X-Request-ID"))
 }
 
 // sendRef sends a mutation result with its revision as the ETag.
-func sendRef(w http.ResponseWriter, status int, v Ref) {
+func sendRef(w http.ResponseWriter, status int, v op.Ref) {
 	w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
 	send(w, status, v)
 }
@@ -364,7 +365,7 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 		query += " AND tenant_id=?"
 		args = append(args, tenant)
 	}
-	var v Ref
+	var v op.Ref
 	e := registry.Lookup(r.Context(), s.DB, query, args, &v.ID, &v.Revision)
 	if e == nil {
 		w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))

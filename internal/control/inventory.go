@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -49,9 +50,9 @@ type microappCreateInput struct {
 // Apps and micro-apps. Console handlers and MCP tools both call these methods.
 type inventory struct {
 	db  *sql.DB
-	run *runner
+	run *op.Runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *access.Resource) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databaseInput, policy Policy, workspace *access.Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
@@ -95,18 +96,18 @@ func (v *SpaceItem) ScanFields() []any {
 	return []any{&v.AppCount, &v.CreatedAt, &v.DatabaseLayout, &v.DatabaseName, &v.DatabaseResource, &v.DatabaseState, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.State, &v.TenantID}
 }
 
-func (v *inventory) Spaces(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[SpaceItem], error) {
-	sc, e := v.run.scopes(ctx, a, tenant, "space.read")
+func (v *inventory) Spaces(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[SpaceItem], error) {
+	sc, e := v.run.Scopes(ctx, a, tenant, "space.read")
 	if e != nil {
-		return Page[SpaceItem]{}, e
+		return op.Page[SpaceItem]{}, e
 	}
 	filter, args := access.ScopeSQL(sc, "sp.id", "")
 	args = append([]any{tenant}, args...)
-	return pageScan[SpaceItem](ctx, v.db, page, collectionFor("spaces"), "SELECT (SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count,sp.created_at,sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
+	return op.PageScan[SpaceItem](ctx, v.db, page, op.CollectionFor("spaces"), "SELECT (SELECT COUNT(*) FROM apps a WHERE a.space_id=sp.id AND a.state<>'archived') AS app_count,sp.created_at,sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id FROM spaces sp JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.workspace_id IS NULL AND "+filter+" ORDER BY sp.created_at DESC", args...)
 }
 
-func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (Space, error) {
-	if e := v.run.authorize(ctx, a, "space.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
+func (v *inventory) Space(ctx context.Context, a op.Actor, tenant, space string) (Space, error) {
+	if e := v.run.Authorize(ctx, a, "space.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
 		return Space{}, e
 	}
 	return registry.ScanOne[Space](ctx, v.db, "SELECT sp.database_layout,d.database_name,sp.database_resource_id,d.state AS database_state,sp.display_name,sp.id,sp.revision,sp.slug,sp.state,sp.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space)
@@ -115,14 +116,14 @@ func (v *inventory) Space(ctx context.Context, a Actor, tenant, space string) (S
 // CreateSpace binds a new Space to an existing database or allocates managed
 // storage (reusing the Tenant's default shared database), then assigns its
 // initial manager, in one transaction.
-func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in spaceCreateInput) (Ref, error) {
+func (v *inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, in spaceCreateInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := registry.Named(in.Slug, in.Name); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	e := v.run.mutate(ctx, a, "space.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "space.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		// Detect a retried parent create before allocating any child database.
 		var exists int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM spaces WHERE id=?", in.ID).Scan(&exists); e != nil {
@@ -211,12 +212,12 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 		if e := assignInitialManager(ctx, tx, a, tenant, in.ID, "", in.Manager); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, registry.Row{"database_resource_id": resource})
+		return op.AuditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, registry.Row{"database_resource_id": resource})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "spaces", tenant, in.ID)
+	return v.run.Ref(ctx, "spaces", tenant, in.ID)
 }
 
 // App is an App read with its Tenant and Space names.
@@ -261,47 +262,47 @@ func (v *AppItem) ScanFields() []any {
 
 // Apps pages the Apps a may read in tenant, optionally of one Space. Without a
 // Space filter, development workspace Apps are excluded.
-func (v *inventory) Apps(ctx context.Context, a Actor, tenant, space string, page PageRequest) (Page[AppItem], error) {
-	sc, e := v.run.scopes(ctx, a, tenant, "app.read")
+func (v *inventory) Apps(ctx context.Context, a op.Actor, tenant, space string, page op.PageRequest) (op.Page[AppItem], error) {
+	sc, e := v.run.Scopes(ctx, a, tenant, "app.read")
 	if e != nil {
-		return Page[AppItem]{}, e
+		return op.Page[AppItem]{}, e
 	}
 	filter, args := access.ScopeSQL(sc, "a.space_id", "a.id")
 	args = append([]any{tenant}, args...)
 	query := "SELECT a.compute_mode,a.created_at,a.display_name,a.id,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,sp.workspace_id FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
 	if space != "" {
-		if e = v.run.authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
-			return Page[AppItem]{}, e
+		if e = v.run.Authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
+			return op.Page[AppItem]{}, e
 		}
 		query += " AND a.space_id=?"
 		args = append(args, space)
 	} else {
 		query += " AND sp.workspace_id IS NULL"
 	}
-	return pageScan[AppItem](ctx, v.db, page, collectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
+	return op.PageScan[AppItem](ctx, v.db, page, op.CollectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
 }
 
-func (v *inventory) App(ctx context.Context, a Actor, tenant, app string) (App, error) {
-	if e := v.run.authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, App: app}); e != nil {
+func (v *inventory) App(ctx context.Context, a op.Actor, tenant, app string) (App, error) {
+	if e := v.run.Authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, App: app}); e != nil {
 		return App{}, e
 	}
 	return registry.ScanOne[App](ctx, v.db, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
 }
 
-func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string, in appCreateInput) (Ref, error) {
+func (v *inventory) CreateApp(ctx context.Context, a op.Actor, tenant, space string, in appCreateInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := registry.Named(in.Slug, in.Name); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if in.Compute == "" {
 		in.Compute = "shared"
 	}
 	if in.Compute != "shared" && in.Compute != "dedicated" {
-		return Ref{}, registry.Bad("Invalid compute mode.")
+		return op.Ref{}, registry.Bad("Invalid compute mode.")
 	}
-	e := v.run.mutate(ctx, a, "app.manage", access.Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "app.manage", access.Resource{Tenant: tenant, Space: space}, func(tx *sql.Tx) error {
 		var parent string
 		if e := registry.Lookup(ctx, tx, "SELECT state FROM spaces WHERE id=? AND tenant_id=?", []any{space, tenant}, &parent); e != nil {
 			return e
@@ -326,12 +327,12 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 		if e := assignInitialManager(ctx, tx, a, tenant, space, in.ID, in.Manager); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, registry.Row{"space_id": space})
+		return op.AuditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, registry.Row{"space_id": space})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "apps", tenant, in.ID)
+	return v.run.Ref(ctx, "apps", tenant, in.ID)
 }
 
 func (s *Server) spaces(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -422,52 +423,52 @@ func (m *microappItem) ScanFields() []any {
 
 // Microapps pages the micro-apps a may read in tenant, optionally of one App.
 // Without an App filter, development workspace Apps are excluded.
-func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, page PageRequest) (Page[microappItem], error) {
-	sc, e := v.run.scopes(ctx, a, tenant, "microapp.read")
+func (v *inventory) Microapps(ctx context.Context, a op.Actor, tenant, app string, page op.PageRequest) (op.Page[microappItem], error) {
+	sc, e := v.run.Scopes(ctx, a, tenant, "microapp.read")
 	if e != nil {
-		return Page[microappItem]{}, e
+		return op.Page[microappItem]{}, e
 	}
 	filter, args := access.ScopeSQL(sc, "a.space_id", "m.app_id")
 	args = append([]any{tenant}, args...)
 	query := "SELECT " + microappColumns + ",a.display_name AS app_name,m.created_at,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
 	if app != "" {
-		if e = v.run.authorize(ctx, a, "microapp.read", access.Resource{Tenant: tenant, App: app}); e != nil {
-			return Page[microappItem]{}, e
+		if e = v.run.Authorize(ctx, a, "microapp.read", access.Resource{Tenant: tenant, App: app}); e != nil {
+			return op.Page[microappItem]{}, e
 		}
 		query += " AND m.app_id=?"
 		args = append(args, app)
 	} else {
 		query += " AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)"
 	}
-	return pageScan[microappItem](ctx, v.db, page, collectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
+	return op.PageScan[microappItem](ctx, v.db, page, op.CollectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
 }
 
-func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Microapp, error) {
+func (v *inventory) Microapp(ctx context.Context, a op.Actor, tenant, record string) (Microapp, error) {
 	m, e := registry.ScanOne[Microapp](ctx, v.db, "SELECT "+microappColumns+" FROM microapp_installations m WHERE m.tenant_id=? AND m.id=?", tenant, record)
 	if e != nil {
 		return Microapp{}, e
 	}
-	if e = v.run.authorize(ctx, a, "microapp.read", access.Resource{Tenant: tenant, App: m.AppID}); e != nil {
+	if e = v.run.Authorize(ctx, a, "microapp.read", access.Resource{Tenant: tenant, App: m.AppID}); e != nil {
 		return Microapp{}, e
 	}
 	return m, nil
 }
 
-func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app string, in microappCreateInput) (Ref, error) {
+func (v *inventory) CreateMicroapp(ctx context.Context, a op.Actor, tenant, app string, in microappCreateInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := registry.Named(in.Slug, in.Name); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if len(in.Artifact) > 1024 {
-		return Ref{}, registry.Bad("Artifact reference is too long.")
+		return op.Ref{}, registry.Bad("Artifact reference is too long.")
 	}
 	res := access.Resource{Tenant: tenant, App: app}
 	if e := registry.Lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{app, tenant}, &res.Space); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	e := v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
 		if _, e := policyFor(ctx, tx, tenant); e != nil {
 			return e
 		}
@@ -486,46 +487,46 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app str
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "microapp.created", "microapp", in.ID, registry.Row{"app_id": app})
+		return op.AuditAs(ctx, tx, a, tenant, "microapp.created", "microapp", in.ID, registry.Row{"app_id": app})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "microapp_installations", tenant, in.ID)
+	return v.run.Ref(ctx, "microapp_installations", tenant, in.ID)
 }
 
-func (v *inventory) UpdateSpace(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
+func (v *inventory) UpdateSpace(ctx context.Context, a op.Actor, tenant, record string, in metadataPatch, revision int64) (op.Ref, error) {
 	return v.patch(ctx, a, "spaces", "space.manage", access.Resource{Tenant: tenant, Space: record}, record, in, revision)
 }
 
-func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
+func (v *inventory) UpdateApp(ctx context.Context, a op.Actor, tenant, record string, in metadataPatch, revision int64) (op.Ref, error) {
 	res := access.Resource{Tenant: tenant, App: record}
 	if e := registry.Lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{record, tenant}, &res.Space); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	return v.patch(ctx, a, "apps", "app.manage", res, record, in, revision)
 }
 
-func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
+func (v *inventory) UpdateMicroapp(ctx context.Context, a op.Actor, tenant, record string, in metadataPatch, revision int64) (op.Ref, error) {
 	res := access.Resource{Tenant: tenant}
 	if e := registry.Lookup(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", []any{record, tenant}, &res.Space, &res.App); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	return v.patch(ctx, a, "microapp_installations", "microapp.manage", res, record, in, revision)
 }
 
 // patch changes Space, App or micro-app metadata and lifecycle state under the
 // record's revision. Restoring an archived Space or App rechecks plan quotas.
-func (v *inventory) patch(ctx context.Context, a Actor, table, action string, res access.Resource, record string, in metadataPatch, revision int64) (Ref, error) {
+func (v *inventory) patch(ctx context.Context, a op.Actor, table, action string, res access.Resource, record string, in metadataPatch, revision int64) (op.Ref, error) {
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
-	e := v.run.mutate(ctx, a, action, res, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, action, res, func(tx *sql.Tx) error {
 		old, e := lockRecord(ctx, tx, table, res.Tenant, record)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(old.Revision, revision); e != nil {
+		if e = op.CheckRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		if table != "spaces" {
@@ -619,12 +620,12 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 		if _, e = tx.ExecContext(ctx, "UPDATE "+table+" SET "+strings.Join(sets, ",")+" WHERE id=? AND tenant_id=?", args...); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, res.Tenant, table+".updated", table, record, registry.Row{"state": in.State})
+		return op.AuditAs(ctx, tx, a, res.Tenant, table+".updated", table, record, registry.Row{"state": in.State})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, table, res.Tenant, record)
+	return v.run.Ref(ctx, table, res.Tenant, record)
 }
 
 func (s *Server) microapps(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -661,7 +662,7 @@ func (s *Server) updateMicroapp(w http.ResponseWriter, r *http.Request, p access
 
 // updateInventory is the console adapter of the Space, App and micro-app
 // metadata and lifecycle operations.
-func updateInventory(w http.ResponseWriter, r *http.Request, p access.Principal, update func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error)) error {
+func updateInventory(w http.ResponseWriter, r *http.Request, p access.Principal, update func(context.Context, op.Actor, string, string, metadataPatch, int64) (op.Ref, error)) error {
 	var in metadataPatch
 	if e := decode(w, r, &in); e != nil {
 		return e

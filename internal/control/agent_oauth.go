@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -442,7 +443,7 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p access.P
 			_, e = tx.ExecContext(r.Context(), "UPDATE agent_oauth_requests SET grant_id=?,code_hash=?,expires_at=? WHERE id=?", grant, hash(code), time.Now().UTC().Add(agentCodeLifetime), v.ID)
 		}
 		if e == nil {
-			e = audit(r.Context(), tx, in.Tenant, p.ID, "agent.approved", "agent_grant", grant, r.Header.Get("X-Request-ID"), registry.Row{"client_id": v.ClientID, "scope_kind": in.Kind, "scope_id": in.Scope, "permissions": in.Permissions})
+			e = op.Audit(r.Context(), tx, in.Tenant, p.ID, "agent.approved", "agent_grant", grant, r.Header.Get("X-Request-ID"), registry.Row{"client_id": v.ClientID, "scope_kind": in.Kind, "scope_id": in.Scope, "permissions": in.Permissions})
 		}
 		params.Set("code", code)
 	}
@@ -535,7 +536,7 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p acce
 	if e = registry.Lookup(r.Context(), tx, "SELECT revision,state FROM agent_grants WHERE id=? FOR UPDATE", []any{g.ID}, &current.Revision, &current.State); e != nil {
 		return e
 	}
-	if e = checkRevision(current.Revision, rev); e != nil {
+	if e = op.CheckRevision(current.Revision, rev); e != nil {
 		return e
 	}
 	if current.State != registry.StateActive {
@@ -562,7 +563,7 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p acce
 	if e != nil {
 		return e
 	}
-	if e = audit(r.Context(), tx, g.Tenant, p.ID, "agent.changed", "agent_grant", g.ID, r.Header.Get("X-Request-ID"), registry.Row{"state": in.State, "permissions": in.Permissions}); e != nil {
+	if e = op.Audit(r.Context(), tx, g.Tenant, p.ID, "agent.changed", "agent_grant", g.ID, r.Header.Get("X-Request-ID"), registry.Row{"state": in.State, "permissions": in.Permissions}); e != nil {
 		return e
 	}
 	if e = tx.Commit(); e != nil {

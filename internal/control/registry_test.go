@@ -14,6 +14,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -79,16 +80,16 @@ func (r rawJSON) MarshalJSON() ([]byte, error) { return r, nil }
 func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	s, c, p, tenant, reviewSpace, app := agentSpaceFixture(t)
 	ctx := context.Background()
-	admin := Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
+	admin := op.Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 	limited := registry.Row{"id": registry.NewID(), "code": "limited-" + registry.NewID()[:8], "display_name": "Limited", "allow_shared_database": true, "allow_managed_database": true, "default_layout": "shared", "max_spaces": 2, "max_apps": 0}
 	var operator string
 	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject='operator'", s.Config.OIDCIssuer).Scan(&operator); e != nil {
 		t.Fatal(e)
 	}
 	c.as(operator).want("POST", "/admin/v1/plans", limited, 0, 201)
-	root := Actor{Principal: access.Principal{ID: operator}, RequestID: registry.NewID()}
+	root := op.Actor{Principal: access.Principal{ID: operator}, RequestID: registry.NewID()}
 
-	plans, e := s.inv.Plans(ctx, root, PageRequest{Limit: 200})
+	plans, e := s.inv.Plans(ctx, root, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -110,7 +111,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		}
 		sameJSON(t, s.DB, m, "SELECT id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state,revision FROM microapp_installations WHERE tenant_id=? AND id=?", tenant, in.ID)
 	}
-	microapps, e := s.inv.Microapps(ctx, admin, tenant, app, PageRequest{})
+	microapps, e := s.inv.Microapps(ctx, admin, tenant, app, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -121,7 +122,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	c.as(operator).want("POST", "/admin/v1/tenants", registry.Row{"id": registry.NewID(), "slug": "typed-" + registry.NewID()[:8], "display_name": "Typed", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": p.ID}, 0, 201)
-	tenants, e := s.inv.Tenants(ctx, root, PageRequest{Limit: 200})
+	tenants, e := s.inv.Tenants(ctx, root, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -132,7 +133,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, one, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
-	spaces, e := s.inv.Spaces(ctx, admin, tenant, PageRequest{})
+	spaces, e := s.inv.Spaces(ctx, admin, tenant, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -142,7 +143,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, space, "SELECT sp.id,sp.workspace_id,sp.tenant_id,t.display_name AS tenant_name,sp.slug,sp.display_name,sp.state,sp.revision,sp.database_resource_id,sp.database_layout,d.database_name,d.state AS database_state FROM spaces sp JOIN tenants t ON t.id=sp.tenant_id JOIN database_resources d ON d.id=sp.database_resource_id WHERE sp.tenant_id=? AND sp.id=?", tenant, space.ID)
-	apps, e := s.inv.Apps(ctx, admin, tenant, "", PageRequest{})
+	apps, e := s.inv.Apps(ctx, admin, tenant, "", op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -178,7 +179,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	auditRequest := registry.NewID()
-	if _, e = s.members.UpdateMembership(ctx, Actor{Principal: admin.Principal, RequestID: auditRequest}, tenant, joe, registry.StateDisabled, 1); e != nil {
+	if _, e = s.members.UpdateMembership(ctx, op.Actor{Principal: admin.Principal, RequestID: auditRequest}, tenant, joe, registry.StateDisabled, 1); e != nil {
 		t.Fatal(e)
 	}
 	var details []byte
@@ -189,12 +190,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e = json.Unmarshal(details, &audited); e != nil || string(audited["before"]) != `{"revision":1,"state":"active","user_id":"`+joe+`"}` {
 		t.Fatalf("audited membership before: %s %v", details, e)
 	}
-	members, e := s.members.Memberships(ctx, admin, tenant, PageRequest{})
+	members, e := s.members.Memberships(ctx, admin, tenant, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, members.Items, "SELECT m.user_id,m.state,m.revision,m.created_at,u.display_name,u.email,u.state AS user_state,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,ag.id AS administrator_id,ag.revision AS administrator_revision FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,m.user_id", access.SuperRole, access.TenantAdminRole, tenant)
-	administrators, e := s.members.Administrators(ctx, root, tenant, PageRequest{})
+	administrators, e := s.members.Administrators(ctx, root, tenant, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -209,7 +210,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.members.AddTeamMember(ctx, admin, tenant, team.ID, joe, 1); e != nil {
 		t.Fatal(e)
 	}
-	teams, e := s.members.Teams(ctx, admin, tenant, PageRequest{})
+	teams, e := s.members.Teams(ctx, admin, tenant, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -219,12 +220,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, one3, "SELECT id,slug,display_name,state,revision FROM groups WHERE tenant_id=? AND id=?", tenant, team.ID)
-	teamMembers, e := s.members.TeamMembers(ctx, admin, tenant, team.ID, PageRequest{})
+	teamMembers, e := s.members.TeamMembers(ctx, admin, tenant, team.ID, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, teamMembers.Items, "SELECT gm.user_id,gm.state,u.display_name,u.state AS user_state,tm.state AS tenant_state,ga.id AS administrator_id,ga.revision AS administrator_revision,gr.id AS reviewer_id,gr.revision AS reviewer_revision,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", access.SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team.ID)
-	users, e := s.Users(ctx, root, PageRequest{Limit: 200})
+	users, e := s.Users(ctx, root, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -242,7 +243,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	renamed, request := "Typed role", registry.NewID()
-	if _, e = s.authority.UpdateRole(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, role.ID, rolePatch{Name: &renamed}, 1); e != nil {
+	if _, e = s.authority.UpdateRole(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, scope, res, role.ID, rolePatch{Name: &renamed}, 1); e != nil {
 		t.Fatal(e)
 	}
 	roleSnapshotSQL := "SELECT id,tenant_id,space_id,app_id,scope_kind,domain,code,display_name,state,revision FROM roles WHERE id=?"
@@ -266,11 +267,11 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		}
 	}
 	sameAudit(request, "role.updated", "after", roleSnapshotSQL, registry.Row{"permissions": []string{}}, role.ID)
-	roles, e := s.authority.Roles(ctx, admin, scope, res, PageRequest{Limit: 200})
+	roles, e := s.authority.Roles(ctx, admin, scope, res, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
-	untypedRoles, e := untypedPage(ctx, s.DB, PageRequest{Limit: 200}, collectionFor("roles"), "SELECT id,tenant_id,space_id,app_id,code,display_name,state,revision,scope_kind,domain,(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
+	untypedRoles, e := untypedPage(ctx, s.DB, op.PageRequest{Limit: 200}, op.CollectionFor("roles"), "SELECT id,tenant_id,space_id,app_id,code,display_name,state,revision,scope_kind,domain,(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -292,12 +293,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	sameJSON(t, s.DB, one4, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=?", role.ID)
 	grant := assignmentInput{ID: registry.NewID(), User: joe, Role: role.ID}
 	request = registry.NewID()
-	if _, e = s.authority.Grant(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant); e != nil {
+	if _, e = s.authority.Grant(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant); e != nil {
 		t.Fatal(e)
 	}
 	grantSnapshotSQL := "SELECT id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,revision FROM access_grants WHERE id=?"
 	sameAudit(request, "grant.created", "after", grantSnapshotSQL, nil, grant.ID)
-	assignments, e := s.authority.Assignments(ctx, admin, scope, res, PageRequest{})
+	assignments, e := s.authority.Assignments(ctx, admin, scope, res, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -308,18 +309,18 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, one5, grantSnapshotSQL, grant.ID)
-	recipients, e := s.authority.Recipients(ctx, admin, scope, res, PageRequest{})
+	recipients, e := s.authority.Recipients(ctx, admin, scope, res, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, recipients.Items, "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", tenant, access.SuperRole)
-	teamRecipients, e := s.authority.TeamRecipients(ctx, admin, scope, res, PageRequest{})
+	teamRecipients, e := s.authority.TeamRecipients(ctx, admin, scope, res, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, teamRecipients.Items, "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", tenant)
 	request = registry.NewID()
-	if _, e = s.authority.Revoke(ctx, Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant.ID, 1); e != nil {
+	if _, e = s.authority.Revoke(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant.ID, 1); e != nil {
 		t.Fatal(e)
 	}
 	mine := rawFields(t, c, "/v1/tenants/"+tenant+"/my-role-assignments")
@@ -329,7 +330,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	}
 	teamName := "Typed team"
 	request = registry.NewID()
-	if _, e = s.members.UpdateTeam(ctx, Actor{Principal: admin.Principal, RequestID: request}, tenant, team.ID, teamPatch{Name: &teamName}, 2); e != nil {
+	if _, e = s.members.UpdateTeam(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, tenant, team.ID, teamPatch{Name: &teamName}, 2); e != nil {
 		t.Fatal(e)
 	}
 	sameAudit(request, "group.updated", "after", "SELECT id,display_name,state,revision FROM groups WHERE id=?", nil, team.ID)
@@ -338,13 +339,13 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE database_resources SET last_verified_at=UTC_TIMESTAMP(6),last_error_code='old' WHERE tenant_id=? AND state='ready'", tenant); e != nil {
 		t.Fatal(e)
 	}
-	targets, e := s.storage.Targets(ctx, root, PageRequest{Limit: 200})
+	targets, e := s.storage.Targets(ctx, root, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, targets.Items, "SELECT id,display_name,canonical_host,port,tls_mode,state,managed_enabled,revision,created_at FROM database_targets ORDER BY display_name,id LIMIT 200")
 	for _, managed := range []bool{false, true} {
-		available, e := s.storage.AvailableTargets(ctx, admin, tenant, managed, PageRequest{Limit: 200})
+		available, e := s.storage.AvailableTargets(ctx, admin, tenant, managed, op.PageRequest{Limit: 200})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -355,7 +356,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		sameJSON(t, s.DB, available.Items, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name,id LIMIT 200")
 	}
 	databaseSQL := "SELECT id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at FROM database_resources WHERE tenant_id=?"
-	databases, e := s.storage.Databases(ctx, admin, tenant, PageRequest{})
+	databases, e := s.storage.Databases(ctx, admin, tenant, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -477,7 +478,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil || mustJSON(t, workspace) != mustJSON(t, untypedWorkspace[0]) {
 		t.Fatalf("workspace differs\nwant: %s\ngot:  %s", mustJSON(t, untypedWorkspace[0]), mustJSON(t, workspace))
 	}
-	workspaces, e := s.Workspaces(ctx, admin, reviewSpace, PageRequest{})
+	workspaces, e := s.Workspaces(ctx, admin, reviewSpace, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -498,7 +499,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	platform := rawFields(t, c.as(operator), "/admin/v1/overview")
 	sameRaw(t, s.DB, platform["database_states"], "SELECT state,COUNT(*) AS count FROM database_resources GROUP BY state")
 	sameRaw(t, s.DB, platform["recent_databases"], "SELECT d.id,d.tenant_id,d.database_name,d.state,d.last_error_message,t.display_name AS tenant_name FROM database_resources d JOIN tenants t ON t.id=d.tenant_id ORDER BY d.created_at DESC LIMIT 6")
-	audits, e := s.Audits(ctx, admin, tenant, PageRequest{Limit: 200})
+	audits, e := s.Audits(ctx, admin, tenant, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -545,14 +546,14 @@ func TestRegistryRecordKeysAreSorted(t *testing.T) {
 }
 
 // untypedPage is the Row paging that the typed collections replaced.
-func untypedPage(ctx context.Context, q registry.Queryer, req PageRequest, c collection, query string, args ...any) (Page[registry.Row], error) {
-	info, query, args, e := pageSQL(req, c, query, args)
+func untypedPage(ctx context.Context, q registry.Queryer, req op.PageRequest, c op.Collection, query string, args ...any) (op.Page[registry.Row], error) {
+	info, query, args, e := op.PageSQL(req, c, query, args)
 	if e != nil {
-		return Page[registry.Row]{}, e
+		return op.Page[registry.Row]{}, e
 	}
 	v, e := registry.QueryRows(ctx, q, query, args...)
 	if e != nil {
-		return Page[registry.Row]{}, e
+		return op.Page[registry.Row]{}, e
 	}
-	return pageOf(info, v), nil
+	return op.PageOf(info, v), nil
 }

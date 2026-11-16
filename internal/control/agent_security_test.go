@@ -15,6 +15,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -142,7 +143,7 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	direct, e := s.authority.TeamRecipients(context.Background(), actorFrom(context.Background(), p, registry.NewID()), scope, res, PageRequest{})
+	direct, e := s.authority.TeamRecipients(context.Background(), op.ActorFrom(context.Background(), p, registry.NewID()), scope, res, op.PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -219,7 +220,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 		t.Fatal(e)
 	}
 	// A human takes ownership explicitly; no stale agent binding can strand it.
-	_, e = s.storage.RetryDatabase(ctx, Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}, tenant, first, 3)
+	_, e = s.storage.RetryDatabase(ctx, op.Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}, tenant, first, 3)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -444,7 +445,7 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 	}
 	// A replayed request reports the stored receipt and marks the call committed.
 	replayed := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
-	v, e = agentWriteResult(context.WithValue(context.Background(), access.AgentContextKey{}, replayed), nil, errAgentReplay)
+	v, e = agentWriteResult(context.WithValue(context.Background(), access.AgentContextKey{}, replayed), nil, op.ErrAgentReplay)
 	if e != nil || v.(registry.Row)["replayed"] != true || v.(registry.Row)["committed"] != true || !replayed.Committed {
 		t.Fatal("replayed mutation was not reported as committed", v, e)
 	}
@@ -454,32 +455,32 @@ func TestAgentOperationResponseLimit(t *testing.T) {
 // operation's delegated call: an Actor that omits the agent call already in
 // its context fails instead of running with delegation checks but no receipt.
 func TestActorIsTheAgentSource(t *testing.T) {
-	r := &runner{access: &access.Checker{}}
+	r := &op.Runner{Access: &access.Checker{}}
 	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID()}
 	mcp := context.WithValue(context.Background(), access.AgentContextKey{}, call)
-	for name, a := range map[string]Actor{
+	for name, a := range map[string]op.Actor{
 		"missing agent": {Principal: access.Principal{ID: registry.NewID()}, RequestID: registry.NewID()},
 		"other agent":   {Principal: access.Principal{ID: registry.NewID()}, RequestID: registry.NewID(), Agent: &access.AgentCall{Operation: "lastapp_create"}},
 	} {
-		if e := r.mutate(mcp, a, "apps.create", access.Resource{Tenant: registry.NewID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, errActorAgentMismatch) {
+		if e := r.Mutate(mcp, a, "apps.create", access.Resource{Tenant: registry.NewID()}, func(*sql.Tx) error { t.Fatal(name, "mutation ran"); return nil }); !errors.Is(e, op.ErrActorAgentMismatch) {
 			t.Fatal(name, "mutation accepted a mismatched actor", e)
 		}
-		if e := r.authorize(mcp, a, "apps.read", access.Resource{Tenant: registry.NewID()}); !errors.Is(e, errActorAgentMismatch) {
+		if e := r.Authorize(mcp, a, "apps.read", access.Resource{Tenant: registry.NewID()}); !errors.Is(e, op.ErrActorAgentMismatch) {
 			t.Fatal(name, "read authorization accepted a mismatched actor", e)
 		}
-		if _, e := r.scopes(mcp, a, registry.NewID(), "apps.read"); !errors.Is(e, errActorAgentMismatch) {
+		if _, e := r.Scopes(mcp, a, registry.NewID(), "apps.read"); !errors.Is(e, op.ErrActorAgentMismatch) {
 			t.Fatal(name, "scope lookup accepted a mismatched actor", e)
 		}
 	}
 	// The Actor's own call is what the authorization checks see.
-	ctx, e := withAgentCall(context.Background(), call)
+	ctx, e := op.WithAgentCall(context.Background(), call)
 	if e != nil || access.AgentCallFrom(ctx) != call {
 		t.Fatal("actor agent call was not exposed", e)
 	}
-	if ctx, e = withAgentCall(mcp, call); e != nil || access.AgentCallFrom(ctx) != call {
+	if ctx, e = op.WithAgentCall(mcp, call); e != nil || access.AgentCallFrom(ctx) != call {
 		t.Fatal("matching actor was rejected", e)
 	}
-	if ctx, e = withAgentCall(context.Background(), nil); e != nil || access.AgentCallFrom(ctx) != nil {
+	if ctx, e = op.WithAgentCall(context.Background(), nil); e != nil || access.AgentCallFrom(ctx) != nil {
 		t.Fatal("human actor gained an agent call", e)
 	}
 }

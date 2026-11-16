@@ -11,6 +11,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -107,7 +108,7 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		if e = s.storage.allocate(ctx, tx, actorFrom(ctx, access.Principal{ID: owner}, registry.NewID()), tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
+		if e = s.storage.allocate(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: owner}, registry.NewID()), tenant, databaseInput{ID: resource, Mode: "managed", Layout: "shared", Target: "20000000-0000-4000-8000-000000000001"}, policy, nil); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET default_shared_database_id=? WHERE id=?", resource, tenant); e != nil {
@@ -116,14 +117,14 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES (?,?,'crm','CRM',?,'shared')", space, tenant, resource); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, actorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, "", owner); e != nil {
+		if e = assignInitialManager(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, "", owner); e != nil {
 			return e
 		}
 		for _, a := range []struct{ id, slug, name string }{{app, "deal-review", "Deal review"}, {second, "forecasting", "Forecasting"}} {
 			if _, e = tx.ExecContext(ctx, "INSERT INTO apps(id,tenant_id,space_id,slug,display_name) VALUES (?,?,?,?,?)", a.id, tenant, space, a.slug, a.name); e != nil {
 				return e
 			}
-			if e = assignInitialManager(ctx, tx, actorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, a.id, owner); e != nil {
+			if e = assignInitialManager(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, a.id, owner); e != nil {
 				return e
 			}
 		}
@@ -133,6 +134,6 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,group_id,space_id,role_id,role_owner_key) VALUES (?,?,'space','data',?,?,?,?)", registry.NewID(), tenant, marketing, space, role, "s:"+space); e != nil {
 			return e
 		}
-		return audit(ctx, tx, tenant, operator, "development.seeded", "tenant", tenant, registry.NewID(), registry.Row{"space_id": space, "app_ids": []string{app, second}, "team_ids": []string{marketing, engineering}})
+		return op.Audit(ctx, tx, tenant, operator, "development.seeded", "tenant", tenant, registry.NewID(), registry.Row{"space_id": space, "app_ids": []string{app, second}, "team_ids": []string{marketing, engineering}})
 	})
 }

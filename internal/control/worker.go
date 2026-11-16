@@ -14,6 +14,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -94,7 +95,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			continue
 		}
 		record, tenant := job.ID, job.TenantID
-		jobCtx := agentAuditContext(ctx, job.AgentGrant, job.AgentClient)
+		jobCtx := op.AgentAuditContext(ctx, job.AgentGrant, job.AgentClient)
 		lastTenant = tenant
 		tx, e := conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if e != nil {
@@ -120,7 +121,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 					tx.Rollback()
 					return e
 				}
-				if e = audit(jobCtx, tx, tenant, job.AgentUser, "database.failed", "database", record, registry.NewID(), registry.Row{"error_code": "agent_access_revoked"}); e != nil {
+				if e = op.Audit(jobCtx, tx, tenant, job.AgentUser, "database.failed", "database", record, registry.NewID(), registry.Row{"error_code": "agent_access_revoked"}); e != nil {
 					tx.Rollback()
 					return e
 				}
@@ -157,7 +158,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET state=?,last_error_code=?,last_error_message=?,last_verified_at=IF(?='ready',UTC_TIMESTAMP(6),last_verified_at),revision=revision+1 WHERE id=? AND state='provisioning'", state, registry.Nullable(code), registry.Nullable(message), state, record); e == nil {
-			e = audit(jobCtx, tx, tenant, job.AgentUser, "database."+state, "database", record, registry.NewID(), registry.Row{"error_code": code})
+			e = op.Audit(jobCtx, tx, tenant, job.AgentUser, "database."+state, "database", record, registry.NewID(), registry.Row{"error_code": code})
 		}
 		if e != nil {
 			tx.Rollback()

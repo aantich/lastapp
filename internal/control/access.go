@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -17,7 +18,7 @@ import (
 // administrators. Console handlers and MCP tools both call these methods.
 type membership struct {
 	db  *sql.DB
-	run *runner
+	run *op.Runner
 	// Collaborator of a domain not yet extracted, passed explicitly.
 	prepareAccount func(accountInput) (preparedAccount, error)
 }
@@ -113,26 +114,26 @@ type grantRef struct {
 
 func (v *grantRef) ScanFields() []any { return []any{&v.ID, &v.RoleID} }
 
-func (m *membership) Memberships(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Membership], error) {
-	if e := m.run.authorize(ctx, a, "membership.read", access.Resource{Tenant: tenant}); e != nil {
-		return Page[Membership]{}, e
+func (m *membership) Memberships(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Membership], error) {
+	if e := m.run.Authorize(ctx, a, "membership.read", access.Resource{Tenant: tenant}); e != nil {
+		return op.Page[Membership]{}, e
 	}
-	return pageScan[Membership](ctx, m.db, page, collectionFor("memberships"), "SELECT ag.id AS administrator_id,ag.revision AS administrator_revision,m.created_at,u.display_name,u.email,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,m.revision,m.state,m.user_id,u.state AS user_state FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,u.id", access.SuperRole, access.TenantAdminRole, tenant)
+	return op.PageScan[Membership](ctx, m.db, page, op.CollectionFor("memberships"), "SELECT ag.id AS administrator_id,ag.revision AS administrator_revision,m.created_at,u.display_name,u.email,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,m.revision,m.state,m.user_id,u.state AS user_state FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,u.id", access.SuperRole, access.TenantAdminRole, tenant)
 }
 
 // AddMembership adds an active existing user, or a local account, to tenant.
 // Supplying a new password additionally requires platform administration.
-func (m *membership) AddMembership(ctx context.Context, a Actor, tenant string, in accountChoice) (memberRef, error) {
+func (m *membership) AddMembership(ctx context.Context, a op.Actor, tenant string, in accountChoice) (memberRef, error) {
 	if (in.User == "") == (in.Account == nil) {
 		return memberRef{}, registry.Bad("Select an existing user or supply an account.")
 	}
 	var account preparedAccount
 	if in.Account != nil {
-		if e := m.run.authorize(ctx, a, "membership.manage", access.Resource{Tenant: tenant}); e != nil {
+		if e := m.run.Authorize(ctx, a, "membership.manage", access.Resource{Tenant: tenant}); e != nil {
 			return memberRef{}, e
 		}
 		if in.Account.Password != "" {
-			if e := m.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+			if e := m.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 				return memberRef{}, e
 			}
 		}
@@ -146,7 +147,7 @@ func (m *membership) AddMembership(ctx context.Context, a Actor, tenant string, 
 	}
 	ctx, cancel := account.deadline(ctx)
 	defer cancel()
-	e := m.run.mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := m.run.Mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		if e := metadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
 			return e
 		}
@@ -173,7 +174,7 @@ func (m *membership) AddMembership(ctx context.Context, a Actor, tenant string, 
 		if _, e := tx.ExecContext(ctx, "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", tenant, in.User); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, registry.Row{"before": nil, "after": registry.Row{"user_id": in.User, "state": registry.StateActive}})
+		return op.AuditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, registry.Row{"before": nil, "after": registry.Row{"user_id": in.User, "state": registry.StateActive}})
 	})
 	if e != nil {
 		return memberRef{}, e
@@ -184,20 +185,20 @@ func (m *membership) AddMembership(ctx context.Context, a Actor, tenant string, 
 // UpdateMembership enables or disables a Tenant membership under its
 // revision, keeping an active Tenant administrator. Disabling revokes the
 // user's agent delegations in the Tenant.
-func (m *membership) UpdateMembership(ctx context.Context, a Actor, tenant, user, state string, revision int64) (done, error) {
+func (m *membership) UpdateMembership(ctx context.Context, a op.Actor, tenant, user, state string, revision int64) (done, error) {
 	if !registry.EnabledState(state) {
 		return done{}, registry.Bad("Invalid membership state.")
 	}
 	if revision < 1 {
-		return done{}, revisionRequired()
+		return done{}, op.RevisionRequired()
 	}
-	e := m.run.mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := m.run.Mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		var before memberState
 		e := registry.Lookup(ctx, tx, "SELECT user_id,state,revision FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", []any{tenant, user}, &before.UserID, &before.State, &before.Revision)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(before.Revision, revision); e != nil {
+		if e = op.CheckRevision(before.Revision, revision); e != nil {
 			return e
 		}
 		res, e := tx.ExecContext(ctx, "UPDATE tenant_memberships SET state=?,revision=revision+1 WHERE tenant_id=? AND user_id=?", state, tenant, user)
@@ -222,7 +223,7 @@ func (m *membership) UpdateMembership(ctx context.Context, a Actor, tenant, user
 				return e
 			}
 		}
-		return auditAs(ctx, tx, a, tenant, "membership.updated", "user", user, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state, "revision": revision + 1}})
+		return op.AuditAs(ctx, tx, a, tenant, "membership.updated", "user", user, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state, "revision": revision + 1}})
 	})
 	if e != nil {
 		return done{}, e
@@ -230,14 +231,14 @@ func (m *membership) UpdateMembership(ctx context.Context, a Actor, tenant, user
 	return done{OK: true}, nil
 }
 
-func (m *membership) Teams(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Team], error) {
-	sc, e := m.run.scopes(ctx, a, tenant, "team.read")
+func (m *membership) Teams(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Team], error) {
+	sc, e := m.run.Scopes(ctx, a, tenant, "team.read")
 	if e != nil {
-		return Page[Team]{}, e
+		return op.Page[Team]{}, e
 	}
 	filter, args := teamSQL(sc, "g.id")
 	args = append([]any{tenant}, args...)
-	return pageScan[Team](ctx, m.db, page, collectionFor("teams"), "SELECT "+teamColumns+" FROM groups g WHERE g.tenant_id=? AND "+filter+" ORDER BY g.display_name,g.id", args...)
+	return op.PageScan[Team](ctx, m.db, page, op.CollectionFor("teams"), "SELECT "+teamColumns+" FROM groups g WHERE g.tenant_id=? AND "+filter+" ORDER BY g.display_name,g.id", args...)
 }
 
 func teamSQL(sc access.ScopeSet, column string) (string, []any) {
@@ -253,45 +254,45 @@ func teamSQL(sc access.ScopeSet, column string) (string, []any) {
 	return "(" + strings.Join(parts, " OR ") + ")", args
 }
 
-func (m *membership) Team(ctx context.Context, a Actor, tenant, team string) (Team, error) {
-	if e := m.run.authorize(ctx, a, "team.read", access.Resource{Tenant: tenant, Team: team}); e != nil {
+func (m *membership) Team(ctx context.Context, a op.Actor, tenant, team string) (Team, error) {
+	if e := m.run.Authorize(ctx, a, "team.read", access.Resource{Tenant: tenant, Team: team}); e != nil {
 		return Team{}, e
 	}
 	return registry.ScanOne[Team](ctx, m.db, "SELECT "+teamColumns+" FROM groups g WHERE g.tenant_id=? AND g.id=?", tenant, team)
 }
 
-func (m *membership) CreateTeam(ctx context.Context, a Actor, tenant string, in namedInput) (Ref, error) {
+func (m *membership) CreateTeam(ctx context.Context, a op.Actor, tenant string, in namedInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := registry.Named(in.Slug, in.Name); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	e := m.run.mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		if e := metadataQuota(ctx, tx, tenant, "groups"); e != nil {
 			return e
 		}
 		if _, e := tx.ExecContext(ctx, "INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", in.ID, tenant, in.Slug, in.Name); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "group.created", "group", in.ID, registry.Row{"before": nil, "after": registry.Row{"display_name": in.Name, "state": registry.StateActive}})
+		return op.AuditAs(ctx, tx, a, tenant, "group.created", "group", in.ID, registry.Row{"before": nil, "after": registry.Row{"display_name": in.Name, "state": registry.StateActive}})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return m.run.ref(ctx, "groups", tenant, in.ID)
+	return m.run.Ref(ctx, "groups", tenant, in.ID)
 }
 
-func (m *membership) UpdateTeam(ctx context.Context, a Actor, tenant, team string, in teamPatch, revision int64) (Ref, error) {
+func (m *membership) UpdateTeam(ctx context.Context, a op.Actor, tenant, team string, in teamPatch, revision int64) (op.Ref, error) {
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
-	e := m.run.mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
+	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
 		old, e := teamSnapshotOf(ctx, tx, tenant, team)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(old.Revision, revision); e != nil {
+		if e = op.CheckRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160) {
@@ -306,35 +307,35 @@ func (m *membership) UpdateTeam(ctx context.Context, a Actor, tenant, team strin
 		return auditChangeAs(ctx, tx, a, tenant, "group.updated", "groups", "group", team, old)
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return m.run.ref(ctx, "groups", tenant, team)
+	return m.run.Ref(ctx, "groups", tenant, team)
 }
 
-func (m *membership) AddTeamMember(ctx context.Context, a Actor, tenant, team, user string, revision int64) (done, error) {
+func (m *membership) AddTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (done, error) {
 	return m.changeTeamMember(ctx, a, tenant, team, user, revision, true)
 }
 
 // RemoveTeamMember also deletes the user's team-scoped role assignments.
-func (m *membership) RemoveTeamMember(ctx context.Context, a Actor, tenant, team, user string, revision int64) (done, error) {
+func (m *membership) RemoveTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (done, error) {
 	return m.changeTeamMember(ctx, a, tenant, team, user, revision, false)
 }
 
 // changeTeamMember adds or removes a member under the team's revision, which
 // every membership change advances.
-func (m *membership) changeTeamMember(ctx context.Context, a Actor, tenant, team, user string, revision int64, add bool) (done, error) {
+func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64, add bool) (done, error) {
 	if e := registry.ID(user); e != nil {
 		return done{}, e
 	}
 	if revision < 1 {
-		return done{}, revisionRequired()
+		return done{}, op.RevisionRequired()
 	}
-	e := m.run.mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
+	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
 		old, e := lockRecord(ctx, tx, "groups", tenant, team)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(old.Revision, revision); e != nil {
+		if e = op.CheckRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		var wasMember int
@@ -358,7 +359,7 @@ func (m *membership) changeTeamMember(ctx context.Context, a Actor, tenant, team
 				return e
 			}
 			if len(removed) > 0 {
-				if e = auditAs(ctx, tx, a, tenant, "team.roles.revoked_on_leave", "group", team, registry.Row{"user_id": user, "assignments": removed}); e != nil {
+				if e = op.AuditAs(ctx, tx, a, tenant, "team.roles.revoked_on_leave", "group", team, registry.Row{"user_id": user, "assignments": removed}); e != nil {
 					return e
 				}
 			}
@@ -376,7 +377,7 @@ func (m *membership) changeTeamMember(ctx context.Context, a Actor, tenant, team
 		if _, e = tx.ExecContext(ctx, "UPDATE groups SET revision=revision+1 WHERE id=?", team); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "group.members_changed", "group", team, registry.Row{"before": registry.Row{"user_id": user, "member": wasMember > 0}, "after": registry.Row{"user_id": user, "member": add}})
+		return op.AuditAs(ctx, tx, a, tenant, "group.members_changed", "group", team, registry.Row{"before": registry.Row{"user_id": user, "member": wasMember > 0}, "after": registry.Row{"user_id": user, "member": add}})
 	})
 	if e != nil {
 		return done{}, e
@@ -386,19 +387,19 @@ func (m *membership) changeTeamMember(ctx context.Context, a Actor, tenant, team
 
 // SetTeamMemberState enables or disables a team member under the team's
 // revision. Enabling requires an active Tenant member.
-func (m *membership) SetTeamMemberState(ctx context.Context, a Actor, tenant, team, user, state string, revision int64) (done, error) {
+func (m *membership) SetTeamMemberState(ctx context.Context, a op.Actor, tenant, team, user, state string, revision int64) (done, error) {
 	if !registry.EnabledState(state) {
 		return done{}, registry.Bad("Invalid membership state.")
 	}
 	if revision < 1 {
-		return done{}, revisionRequired()
+		return done{}, op.RevisionRequired()
 	}
-	e := m.run.mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
+	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
 		locked, e := lockRecord(ctx, tx, "groups", tenant, team)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(locked.Revision, revision); e != nil {
+		if e = op.CheckRevision(locked.Revision, revision); e != nil {
 			return e
 		}
 		var before teamMemberState
@@ -417,7 +418,7 @@ func (m *membership) SetTeamMemberState(ctx context.Context, a Actor, tenant, te
 		if _, e = tx.ExecContext(ctx, "UPDATE groups SET revision=revision+1 WHERE id=?", team); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "team.membership.updated", "group", team, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state}})
+		return op.AuditAs(ctx, tx, a, tenant, "team.membership.updated", "group", team, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state}})
 	})
 	if e != nil {
 		return done{}, e
@@ -426,15 +427,15 @@ func (m *membership) SetTeamMemberState(ctx context.Context, a Actor, tenant, te
 }
 
 // TeamMembers requires team management authority, not only team read.
-func (m *membership) TeamMembers(ctx context.Context, a Actor, tenant, team string, page PageRequest) (Page[TeamMember], error) {
-	if e := m.run.authorize(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}); e != nil {
-		return Page[TeamMember]{}, e
+func (m *membership) TeamMembers(ctx context.Context, a op.Actor, tenant, team string, page op.PageRequest) (op.Page[TeamMember], error) {
+	if e := m.run.Authorize(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}); e != nil {
+		return op.Page[TeamMember]{}, e
 	}
 	var found string
 	if e := registry.Lookup(ctx, m.db, "SELECT id FROM groups WHERE tenant_id=? AND id=?", []any{tenant, team}, &found); e != nil {
-		return Page[TeamMember]{}, e
+		return op.Page[TeamMember]{}, e
 	}
-	return pageScan[TeamMember](ctx, m.db, page, collectionFor("members"), "SELECT ga.id AS administrator_id,ga.revision AS administrator_revision,u.display_name,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,gr.id AS reviewer_id,gr.revision AS reviewer_revision,gm.state,tm.state AS tenant_state,gm.user_id,u.state AS user_state FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", access.SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team)
+	return op.PageScan[TeamMember](ctx, m.db, page, op.CollectionFor("members"), "SELECT ga.id AS administrator_id,ga.revision AS administrator_revision,u.display_name,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,gr.id AS reviewer_id,gr.revision AS reviewer_revision,gm.state,tm.state AS tenant_state,gm.user_id,u.state AS user_state FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", access.SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team)
 }
 
 func (s *Server) memberships(w http.ResponseWriter, r *http.Request, p access.Principal) error {

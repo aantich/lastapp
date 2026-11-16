@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -32,7 +33,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p access.Principal, raw
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	permission := "workspaces.write"
 	switch in.Action {
 	case "create":
@@ -40,12 +41,12 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p access.Principal, raw
 			return nil, registry.Bad("create needs production space_id.")
 		}
 		create := workspaceCreateInput{ID: stableAgentID(p, in.RequestKey), Name: in.Name}
-		call = func(ctx context.Context, a Actor) (any, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
+		call = func(ctx context.Context, a op.Actor) (any, error) { return s.CreateWorkspace(ctx, a, in.Space, create) }
 	case "archive", "retry":
 		if registry.ID(in.Workspace) != nil || in.Revision < 1 {
 			return nil, registry.Bad("workspace_id and expected_revision are required.")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.changeWorkspace(ctx, a, in.Workspace, in.Action == "retry", in.Revision)
 		}
 	case "launch":
@@ -53,7 +54,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p access.Principal, raw
 			return nil, registry.Bad("launch needs a workspace app_id and launch parameters.")
 		}
 		permission = "workspaces.test"
-		call = func(ctx context.Context, a Actor) (any, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
+		call = func(ctx context.Context, a op.Actor) (any, error) { return s.Launch(ctx, a, in.App, *in.Launch) }
 	default:
 		return nil, registry.Bad("action is create, archive, retry or launch.")
 	}
@@ -61,7 +62,7 @@ func (s *Server) toolAgentWorkspace(ctx context.Context, p access.Principal, raw
 	if e != nil {
 		return nil, e
 	}
-	v, e := agentSized(call(ctx, agentActor(ctx, p)))
+	v, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, v, e)
 }
 
@@ -70,24 +71,24 @@ func (s *Server) toolAgentRelease(ctx context.Context, p access.Principal, raw j
 	if e := strictAgentInput(raw, &in); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	permission := "releases.write"
 	switch in.Action {
 	case "upload_ticket":
-		call = func(ctx context.Context, a Actor) (any, error) { return s.UploadTicket(ctx, a, in.App) }
+		call = func(ctx context.Context, a op.Actor) (any, error) { return s.UploadTicket(ctx, a, in.App) }
 	case "capture":
 		if in.Capture == nil {
 			return nil, registry.Bad("capture parameters required.")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.CreateRelease(ctx, a, in.App, *in.Capture, in.Revision)
 		}
 	case "preview":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.PreviewRelease(ctx, a, in.Release, in.Revision)
 		}
 	case "deploy":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.DeployRelease(ctx, a, in.Release, in.Revision)
 		}
 		permission = "production.deploy"
@@ -110,6 +111,6 @@ func (s *Server) toolAgentRelease(ctx context.Context, p access.Principal, raw j
 	if e != nil {
 		return nil, e
 	}
-	v, e := agentSized(call(ctx, agentActor(ctx, p)))
+	v, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, v, e)
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -105,7 +106,7 @@ func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p 
 	return a, w, nil
 }
 
-func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (registry.Row, error) {
+func (s *Server) UploadTicket(ctx context.Context, actor op.Actor, app string) (registry.Row, error) {
 	p := actor.Principal
 	if s.artifactDirectory() == "" {
 		return nil, registry.Conflict("Configure persistent artifact storage first.")
@@ -120,7 +121,7 @@ func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (reg
 		}
 	}
 	secret := token(32)
-	e = s.run.mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+	e = s.run.Mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		var n int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM artifact_uploads WHERE user_id=? AND expires_at>UTC_TIMESTAMP(6) AND build_id IS NULL", p.ID).Scan(&n); e != nil {
 			return e
@@ -296,8 +297,8 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if _, e = tx.ExecContext(ctx, "UPDATE artifact_uploads SET build_id=? WHERE token_hash=?", build, hash(raw)); e != nil {
 			return e
 		}
-		ctx = agentAuditContext(ctx, v.AgentGrant, "")
-		if e = audit(ctx, tx, v.TenantID, p.ID, "build.uploaded", "app", v.AppID, r.Header.Get("X-Request-ID"), registry.Row{"build_id": build, "content_hash": b.Hash, "size_bytes": b.Size}); e != nil {
+		ctx = op.AgentAuditContext(ctx, v.AgentGrant, "")
+		if e = op.Audit(ctx, tx, v.TenantID, p.ID, "build.uploaded", "app", v.AppID, r.Header.Get("X-Request-ID"), registry.Row{"build_id": build, "content_hash": b.Hash, "size_bytes": b.Size}); e != nil {
 			return e
 		}
 		if e = tx.Commit(); e != nil {
@@ -311,16 +312,16 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) Builds(ctx context.Context, actor Actor, app string, page PageRequest) (Page[Build], error) {
+func (s *Server) Builds(ctx context.Context, actor op.Actor, app string, page op.PageRequest) (op.Page[Build], error) {
 	p := actor.Principal
 	a, e := s.appRow(ctx, s.DB, app)
 	if e != nil {
-		return Page[Build]{}, e
+		return op.Page[Build]{}, e
 	}
 	if e = s.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
-		return Page[Build]{}, e
+		return op.Page[Build]{}, e
 	}
-	vs, e := pageScan[Build](ctx, s.DB, page, collectionFor("builds"), "SELECT content_hash,created_at,entrypoint,id,size_bytes FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a.ID)
+	vs, e := op.PageScan[Build](ctx, s.DB, page, op.CollectionFor("builds"), "SELECT content_hash,created_at,entrypoint,id,size_bytes FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a.ID)
 	return vs, e
 }
 

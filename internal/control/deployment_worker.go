@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -61,7 +62,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 	}
 	v := jobs[0]
 	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, v.ID)
-	ctx = agentAuditContext(ctx, v.AgentGrant, "")
+	ctx = op.AgentAuditContext(ctx, v.AgentGrant, "")
 	attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	run := func() error {
@@ -255,7 +256,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 		if _, e = tx.ExecContext(attempt, "UPDATE release_deployments SET state='active',finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=?", v.ID); e != nil {
 			return e
 		}
-		if e = audit(attempt, tx, v.TenantID, p.ID, "release.deployed", "deployment", v.ID, registry.NewID(), registry.Row{"release_id": v.ReleaseID, "app_id": v.TargetApp}); e != nil {
+		if e = op.Audit(attempt, tx, v.TenantID, p.ID, "release.deployed", "deployment", v.ID, registry.NewID(), registry.Row{"release_id": v.ReleaseID, "app_id": v.TargetApp}); e != nil {
 			return e
 		}
 		return tx.Commit()
@@ -304,7 +305,7 @@ func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message
 	if _, err = tx.ExecContext(ctx, "UPDATE release_deployments SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state IN ('queued','preparing','publishing')", message, job.ID); err != nil {
 		return err
 	}
-	if err = audit(ctx, tx, job.TenantID, job.CreatedBy, "release.deployment_failed", "deployment", job.ID, registry.NewID(), registry.Row{"error_message": message}); err != nil {
+	if err = op.Audit(ctx, tx, job.TenantID, job.CreatedBy, "release.deployment_failed", "deployment", job.ID, registry.NewID(), registry.Row{"error_message": message}); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {

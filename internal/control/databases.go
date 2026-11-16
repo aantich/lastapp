@@ -17,6 +17,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -116,7 +117,7 @@ func targetEndpoint(ctx context.Context, q registry.Queryer, target string) (dat
 // queued work and rechecks its authorizer separately.
 type storage struct {
 	db           *sql.DB
-	run          *runner
+	run          *op.Runner
 	seal         func(purpose, record, tenant string, value any) ([]byte, error)
 	config       *Config
 	registryName string
@@ -136,23 +137,23 @@ type databaseChange struct {
 	Credentials *credentials `json:"credentials"`
 }
 
-func (v *storage) Targets(ctx context.Context, a Actor, page PageRequest) (Page[Target], error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-		return Page[Target]{}, e
+func (v *storage) Targets(ctx context.Context, a op.Actor, page op.PageRequest) (op.Page[Target], error) {
+	if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+		return op.Page[Target]{}, e
 	}
-	return pageScan[Target](ctx, v.db, page, collectionFor("database-targets"), "SELECT canonical_host,created_at,display_name,id,managed_enabled,port,revision,state,tls_mode FROM database_targets ORDER BY display_name")
+	return op.PageScan[Target](ctx, v.db, page, op.CollectionFor("database-targets"), "SELECT canonical_host,created_at,display_name,id,managed_enabled,port,revision,state,tls_mode FROM database_targets ORDER BY display_name")
 }
 
 // AvailableTargets lists the active targets a Tenant may allocate on.
-func (v *storage) AvailableTargets(ctx context.Context, a Actor, tenant string, managed bool, page PageRequest) (Page[AvailableTarget], error) {
-	if e := v.run.authorize(ctx, a, "database.manage", access.Resource{Tenant: tenant}); e != nil {
-		return Page[AvailableTarget]{}, e
+func (v *storage) AvailableTargets(ctx context.Context, a op.Actor, tenant string, managed bool, page op.PageRequest) (op.Page[AvailableTarget], error) {
+	if e := v.run.Authorize(ctx, a, "database.manage", access.Resource{Tenant: tenant}); e != nil {
+		return op.Page[AvailableTarget]{}, e
 	}
 	filter := ""
 	if managed {
 		filter = " AND managed_enabled=1"
 	}
-	return pageScan[AvailableTarget](ctx, v.db, page, collectionFor("database-targets"), "SELECT display_name,id,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
+	return op.PageScan[AvailableTarget](ctx, v.db, page, op.CollectionFor("database-targets"), "SELECT display_name,id,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
 }
 
 type targetInput struct {
@@ -188,17 +189,17 @@ func (v *storage) validateTarget(in *targetInput) error {
 	return nil
 }
 
-func (v *storage) CreateTarget(ctx context.Context, a Actor, in targetInput) (Ref, error) {
+func (v *storage) CreateTarget(ctx context.Context, a op.Actor, in targetInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := v.validateTarget(&in); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if in.Managed && (in.Credentials == nil || in.Credentials.Username == "" || in.Credentials.Password == "") {
-		return Ref{}, registry.Bad("Managed targets require provisioning credentials.")
+		return op.Ref{}, registry.Bad("Managed targets require provisioning credentials.")
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		var enc any
 		if in.Credentials != nil {
 			b, e := v.seal("target", in.ID, "", in.Credentials)
@@ -211,24 +212,24 @@ func (v *storage) CreateTarget(ctx context.Context, a Actor, in targetInput) (Re
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, "", "target.created", "database_target", in.ID, registry.Row{})
+		return op.AuditAs(ctx, tx, a, "", "target.created", "database_target", in.ID, registry.Row{})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "database_targets", "", in.ID)
+	return v.run.Ref(ctx, "database_targets", "", in.ID)
 }
 
-func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in targetPatch, revision int64) (Ref, error) {
+func (v *storage) UpdateTarget(ctx context.Context, a op.Actor, record string, in targetPatch, revision int64) (op.Ref, error) {
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		old, e := lockRecord(ctx, tx, "database_targets", "", record)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(old.Revision, revision); e != nil {
+		if e = op.CheckRevision(old.Revision, revision); e != nil {
 			return e
 		}
 		sets := []string{"revision=revision+1"}
@@ -266,23 +267,23 @@ func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in t
 		if _, e = tx.ExecContext(ctx, "UPDATE database_targets SET "+strings.Join(sets, ",")+" WHERE id=?", args...); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, "", "target.updated", "database_target", record, registry.Row{})
+		return op.AuditAs(ctx, tx, a, "", "target.updated", "database_target", record, registry.Row{})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "database_targets", "", record)
+	return v.run.Ref(ctx, "database_targets", "", record)
 }
 
-func (v *storage) Databases(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Database], error) {
-	if e := v.run.authorize(ctx, a, "database.read", access.Resource{Tenant: tenant}); e != nil {
-		return Page[Database]{}, e
+func (v *storage) Databases(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Database], error) {
+	if e := v.run.Authorize(ctx, a, "database.read", access.Resource{Tenant: tenant}); e != nil {
+		return op.Page[Database]{}, e
 	}
-	return pageScan[Database](ctx, v.db, page, collectionFor("database-resources"), "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
+	return op.PageScan[Database](ctx, v.db, page, op.CollectionFor("database-resources"), "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
 }
 
-func (v *storage) Database(ctx context.Context, a Actor, tenant, record string) (Database, error) {
-	if e := v.run.authorize(ctx, a, "database.read", access.Resource{Tenant: tenant}); e != nil {
+func (v *storage) Database(ctx context.Context, a op.Actor, tenant, record string) (Database, error) {
+	if e := v.run.Authorize(ctx, a, "database.read", access.Resource{Tenant: tenant}); e != nil {
 		return Database{}, e
 	}
 	return registry.ScanOne[Database](ctx, v.db, "SELECT "+databaseColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, record)
@@ -311,12 +312,12 @@ func agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p access.Principal,
 // allocate requests a database resource inside the caller's transaction. A
 // workspace allocation is authorized by workspace.manage on its scope and is
 // not counted against an agent's database allocation.
-func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *access.Resource) error {
+func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databaseInput, policy Policy, workspace *access.Resource) error {
 	action, res := "database.manage", access.Resource{Tenant: tenant}
 	if workspace != nil {
 		action, res = "workspace.manage", *workspace
 	}
-	if e := v.run.authorizeTx(ctx, tx, a, action, res); e != nil {
+	if e := v.run.AuthorizeTx(ctx, tx, a, action, res); e != nil {
 		return e
 	}
 	if e := registry.ID(in.ID); e != nil {
@@ -392,12 +393,12 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 			return e
 		}
 	}
-	return auditAs(ctx, tx, a, tenant, "database.requested", "database", in.ID, registry.Row{"management_mode": in.Mode, "layout": in.Layout})
+	return op.AuditAs(ctx, tx, a, tenant, "database.requested", "database", in.ID, registry.Row{"management_mode": in.Mode, "layout": in.Layout})
 }
 
 // CreateDatabase queues a managed allocation or registers an existing database.
-func (v *storage) CreateDatabase(ctx context.Context, a Actor, tenant string, in databaseInput) (Ref, error) {
-	e := v.run.mutate(ctx, a, "database.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+func (v *storage) CreateDatabase(ctx context.Context, a op.Actor, tenant string, in databaseInput) (op.Ref, error) {
+	e := v.run.Mutate(ctx, a, "database.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		policy, e := policyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
@@ -405,34 +406,34 @@ func (v *storage) CreateDatabase(ctx context.Context, a Actor, tenant string, in
 		return v.allocate(ctx, tx, a, tenant, in, policy, nil)
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "database_resources", tenant, in.ID)
+	return v.run.Ref(ctx, "database_resources", tenant, in.ID)
 }
 
 // RetryDatabase requeues a failed or ready resource under its revision.
-func (v *storage) RetryDatabase(ctx context.Context, a Actor, tenant, record string, revision int64) (Ref, error) {
+func (v *storage) RetryDatabase(ctx context.Context, a op.Actor, tenant, record string, revision int64) (op.Ref, error) {
 	return v.changeDatabase(ctx, a, tenant, record, databaseChange{}, true, revision)
 }
 
 // UpdateDatabase retires a resource or replaces registered credentials.
-func (v *storage) UpdateDatabase(ctx context.Context, a Actor, tenant, record string, in databaseChange, revision int64) (Ref, error) {
+func (v *storage) UpdateDatabase(ctx context.Context, a op.Actor, tenant, record string, in databaseChange, revision int64) (op.Ref, error) {
 	return v.changeDatabase(ctx, a, tenant, record, in, false, revision)
 }
 
-func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record string, in databaseChange, retry bool, revision int64) (Ref, error) {
+func (v *storage) changeDatabase(ctx context.Context, a op.Actor, tenant, record string, in databaseChange, retry bool, revision int64) (op.Ref, error) {
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
 	p := a.Principal
-	e := v.run.mutate(ctx, a, "database.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "database.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		var current int64
 		var state, mode, target string
 		e := registry.Lookup(ctx, tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", []any{tenant, record}, &current, &state, &mode, &target)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current, revision); e != nil {
+		if e = op.CheckRevision(current, revision); e != nil {
 			return e
 		}
 		if state == "provisioning" || state == "pending" || state == registry.StateRetired {
@@ -487,12 +488,12 @@ func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record st
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "database."+next, "database", record, registry.Row{})
+		return op.AuditAs(ctx, tx, a, tenant, "database."+next, "database", record, registry.Row{})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "database_resources", tenant, record)
+	return v.run.Ref(ctx, "database_resources", tenant, record)
 }
 
 func (s *Server) targets(w http.ResponseWriter, r *http.Request, p access.Principal) error {

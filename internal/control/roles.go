@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -55,7 +56,7 @@ func scopeOf(t, team, space, app string) (authz.Scope, access.Resource, error) {
 // handlers and MCP tools both call these methods.
 type authority struct {
 	db  *sql.DB
-	run *runner
+	run *op.Runner
 }
 
 type (
@@ -202,11 +203,11 @@ func activeTenantUser(ctx context.Context, q registry.Queryer, t, user string) e
 
 // Roles pages the roles defined at scope: fixed platform-defined roles with
 // their control permissions, and custom roles with their data permissions.
-func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[roleItem], error) {
-	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
-		return Page[roleItem]{}, e
+func (v *authority) Roles(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, page op.PageRequest) (op.Page[roleItem], error) {
+	if e := v.run.Authorize(ctx, a, "authorization.read", res); e != nil {
+		return op.Page[roleItem]{}, e
 	}
-	out, e := pageScan[roleItem](ctx, v.db, page, collectionFor("roles"), "SELECT "+roleColumns+",(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
+	out, e := op.PageScan[roleItem](ctx, v.db, page, op.CollectionFor("roles"), "SELECT "+roleColumns+",(domain='control') AS protected FROM roles WHERE scope_kind=? AND (owner_key='builtin' OR owner_key=?) ORDER BY domain,display_name,id", scope.Kind, scope.OwnerKey())
 	if e != nil {
 		return out, e
 	}
@@ -218,7 +219,7 @@ func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res a
 		} else {
 			links, err := registry.ScanAll[rolePermission](ctx, v.db, "SELECT p.code,p.description,p.entity_id,p.id FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=? AND p.domain='data' AND p.state='active'", role.ID)
 			if err != nil {
-				return Page[roleItem]{}, err
+				return op.Page[roleItem]{}, err
 			}
 			role.DataPermissions = &links
 		}
@@ -228,8 +229,8 @@ func (v *authority) Roles(ctx context.Context, a Actor, scope authz.Scope, res a
 }
 
 // Role reads one role visible at scope; res carries the trusted ancestry.
-func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string) (Role, error) {
-	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
+func (v *authority) Role(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, record string) (Role, error) {
+	if e := v.run.Authorize(ctx, a, "authorization.read", res); e != nil {
 		return Role{}, e
 	}
 	return registry.ScanOne[Role](ctx, v.db, "SELECT "+roleColumns+" FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", record, scope.Kind, scope.OwnerKey())
@@ -237,23 +238,23 @@ func (v *authority) Role(ctx context.Context, a Actor, scope authz.Scope, res ac
 
 // CreateRole adds a custom business role to a Space or App; Tenant and team
 // roles are fixed.
-func (v *authority) CreateRole(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, in roleInput) (Ref, error) {
+func (v *authority) CreateRole(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, in roleInput) (op.Ref, error) {
 	if scope.Kind != authz.Space && scope.Kind != authz.App {
-		return Ref{}, registry.Bad("Tenant and team roles are fixed.")
+		return op.Ref{}, registry.Bad("Tenant and team roles are fixed.")
 	}
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := registry.Named(in.Code, in.Name); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if in.State == "" {
 		in.State = registry.StateActive
 	}
 	if !registry.EnabledState(in.State) {
-		return Ref{}, registry.Bad("Invalid role state.")
+		return op.Ref{}, registry.Bad("Invalid role state.")
 	}
-	e := v.run.mutate(ctx, a, "authorization.manage", res, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "authorization.manage", res, func(tx *sql.Tx) error {
 		if e := metadataQuota(ctx, tx, scope.Tenant, "roles"); e != nil {
 			return e
 		}
@@ -280,23 +281,23 @@ func (v *authority) CreateRole(ctx context.Context, a Actor, scope authz.Scope, 
 		return auditChangeAs(ctx, tx, a, scope.Tenant, "role.created", "roles", "role", in.ID, nil)
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "roles", scope.Tenant, in.ID)
+	return v.run.Ref(ctx, "roles", scope.Tenant, in.ID)
 }
 
 // UpdateRole renames or enables/disables a custom role under its revision.
-func (v *authority) UpdateRole(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string, in rolePatch, revision int64) (Ref, error) {
+func (v *authority) UpdateRole(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, record string, in rolePatch, revision int64) (op.Ref, error) {
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
 	if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160) {
-		return Ref{}, registry.Bad("Invalid name.")
+		return op.Ref{}, registry.Bad("Invalid name.")
 	}
 	if in.State != nil && !registry.EnabledState(*in.State) {
-		return Ref{}, registry.Bad("Invalid state.")
+		return op.Ref{}, registry.Bad("Invalid state.")
 	}
-	e := v.run.mutate(ctx, a, "authorization.manage", res, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "authorization.manage", res, func(tx *sql.Tx) error {
 		var domain string
 		var current int64
 		e := registry.Lookup(ctx, tx, "SELECT domain,revision FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?) FOR UPDATE", []any{record, scope.Kind, scope.OwnerKey()}, &domain, &current)
@@ -306,7 +307,7 @@ func (v *authority) UpdateRole(ctx context.Context, a Actor, scope authz.Scope, 
 		if domain == authz.Control {
 			return registry.Problem(403, "protected_role", "Platform-defined roles cannot be edited.")
 		}
-		if e = checkRevision(current, revision); e != nil {
+		if e = op.CheckRevision(current, revision); e != nil {
 			return e
 		}
 		before, e := roleSnapshot(ctx, tx, scope.Tenant, record)
@@ -319,9 +320,9 @@ func (v *authority) UpdateRole(ctx context.Context, a Actor, scope authz.Scope, 
 		return auditChangeAs(ctx, tx, a, scope.Tenant, "role.updated", "roles", "role", record, before)
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "roles", scope.Tenant, record)
+	return v.run.Ref(ctx, "roles", scope.Tenant, record)
 }
 
 func assignmentFilter(scope authz.Scope) (string, []any) {
@@ -352,18 +353,18 @@ func assignmentAction(scope authz.Scope, manage bool) string {
 	return "authorization.read"
 }
 
-func (v *authority) Assignments(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[AssignmentItem], error) {
-	if e := v.run.authorize(ctx, a, assignmentAction(scope, false), res); e != nil {
-		return Page[AssignmentItem]{}, e
+func (v *authority) Assignments(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, page op.PageRequest) (op.Page[AssignmentItem], error) {
+	if e := v.run.Authorize(ctx, a, assignmentAction(scope, false), res); e != nil {
+		return op.Page[AssignmentItem]{}, e
 	}
 	where, args := assignmentFilter(scope)
-	return pageScan[AssignmentItem](ctx, v.db, page, collectionFor("role-assignments"), `SELECT ro.display_name AS access_name,g.app_id,g.created_at,g.domain,g.group_id,g.id,COALESCE(u.display_name,gr.display_name) AS principal_name,g.revision,g.role_id,ro.state AS role_state,g.scope_kind,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name,g.scope_team_id,g.space_id,g.user_id FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
+	return op.PageScan[AssignmentItem](ctx, v.db, page, op.CollectionFor("role-assignments"), `SELECT ro.display_name AS access_name,g.app_id,g.created_at,g.domain,g.group_id,g.id,COALESCE(u.display_name,gr.display_name) AS principal_name,g.revision,g.role_id,ro.state AS role_state,g.scope_kind,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name,g.scope_team_id,g.space_id,g.user_id FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
 }
 
 // Assignment reads one assignment at scope after an authorization.read check
 // on res, the trusted ancestry of the requested target.
-func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string) (Assignment, error) {
-	if e := v.run.authorize(ctx, a, "authorization.read", res); e != nil {
+func (v *authority) Assignment(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, record string) (Assignment, error) {
+	if e := v.run.Authorize(ctx, a, "authorization.read", res); e != nil {
 		return Assignment{}, e
 	}
 	filter, args := assignmentFilter(scope)
@@ -373,12 +374,12 @@ func (v *authority) Assignment(ctx context.Context, a Actor, scope authz.Scope, 
 
 // assignmentAuthority is the role-specific authority to grant or revoke: fixed
 // administrative roles need authority above the scope they confer.
-func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor, scope authz.Scope, res access.Resource, role string) error {
+func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a op.Actor, scope authz.Scope, res access.Resource, role string) error {
 	switch role {
 	case authz.SuperRole:
-		return v.run.authorizeTx(ctx, tx, a, "platform.admin", access.Resource{})
+		return v.run.AuthorizeTx(ctx, tx, a, "platform.admin", access.Resource{})
 	case authz.TenantAdminRole, authz.SpaceManagerRole:
-		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", access.Resource{Tenant: scope.Tenant})
+		return v.run.AuthorizeTx(ctx, tx, a, "authorization.manage", access.Resource{Tenant: scope.Tenant})
 	case authz.AppManagerRole:
 		space := res.Space
 		if space == "" {
@@ -386,30 +387,30 @@ func (v *authority) assignmentAuthority(ctx context.Context, tx *sql.Tx, a Actor
 				return e
 			}
 		}
-		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", access.Resource{Tenant: scope.Tenant, Space: space})
+		return v.run.AuthorizeTx(ctx, tx, a, "authorization.manage", access.Resource{Tenant: scope.Tenant, Space: space})
 	default:
-		return v.run.authorizeTx(ctx, tx, a, "authorization.manage", res)
+		return v.run.AuthorizeTx(ctx, tx, a, "authorization.manage", res)
 	}
 }
 
 // Grant assigns an existing active role at scope to one user or team.
-func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, in assignmentInput) (Ref, error) {
+func (v *authority) Grant(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, in assignmentInput) (op.Ref, error) {
 	for _, value := range []string{in.ID, in.Role} {
 		if e := registry.ID(value); e != nil {
-			return Ref{}, e
+			return op.Ref{}, e
 		}
 	}
 	if (in.User == "") == (in.Group == "") {
-		return Ref{}, registry.Bad("Select one user or team recipient.")
+		return op.Ref{}, registry.Bad("Select one user or team recipient.")
 	}
 	for _, value := range []string{in.User, in.Group} {
 		if value != "" {
 			if e := registry.ID(value); e != nil {
-				return Ref{}, e
+				return op.Ref{}, e
 			}
 		}
 	}
-	e := v.run.mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
 		var domain, owner, state string
 		e := registry.Lookup(ctx, tx, "SELECT domain,owner_key,state FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", []any{in.Role, scope.Kind, scope.OwnerKey()}, &domain, &owner, &state)
 		if e != nil {
@@ -472,9 +473,9 @@ func (v *authority) Grant(ctx context.Context, a Actor, scope authz.Scope, res a
 		return auditChangeAs(ctx, tx, a, scope.Tenant, "grant.created", "access_grants", "access_grant", in.ID, nil)
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "access_grants", scope.Tenant, in.ID)
+	return v.run.Ref(ctx, "access_grants", scope.Tenant, in.ID)
 }
 
 // The recipient user row must already be locked, including during bootstrap.
@@ -491,11 +492,11 @@ func platformCandidate(ctx context.Context, q registry.Queryer, user string) err
 
 // Revoke deletes an assignment under its revision, keeping at least one
 // platform and one Tenant administrator.
-func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, record string, revision int64) (done, error) {
+func (v *authority) Revoke(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, record string, revision int64) (done, error) {
 	if revision < 1 {
-		return done{}, revisionRequired()
+		return done{}, op.RevisionRequired()
 	}
-	e := v.run.mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
 		where, args := assignmentFilter(scope)
 		args = append(args, record)
 		var role string
@@ -511,7 +512,7 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 		if e = v.assignmentAuthority(ctx, tx, a, scope, res, role); e != nil {
 			return e
 		}
-		if e = checkRevision(current, revision); e != nil {
+		if e = op.CheckRevision(current, revision); e != nil {
 			return e
 		}
 		before, e := assignmentSnapshot(ctx, tx, scope.Tenant, record)
@@ -531,7 +532,7 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 				return e
 			}
 		}
-		return auditAs(ctx, tx, a, scope.Tenant, "grant.deleted", "access_grant", record, registry.Row{"before": before, "after": nil})
+		return op.AuditAs(ctx, tx, a, scope.Tenant, "grant.deleted", "access_grant", record, registry.Row{"before": before, "after": nil})
 	})
 	if e != nil {
 		return done{}, e
@@ -541,31 +542,31 @@ func (v *authority) Revoke(ctx context.Context, a Actor, scope authz.Scope, res 
 
 // Recipients lets scope managers search eligible users or active teams without
 // reading the global user directory or gaining membership authority.
-func (v *authority) Recipients(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[Recipient], error) {
+func (v *authority) Recipients(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, page op.PageRequest) (op.Page[Recipient], error) {
 	if e := v.recipientScope(ctx, a, scope, res); e != nil {
-		return Page[Recipient]{}, e
+		return op.Page[Recipient]{}, e
 	}
-	return pageScan[Recipient](ctx, v.db, page, collectionFor("recipients"), "SELECT u.display_name,u.email,u.id,u.id AS user_id FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, access.SuperRole)
+	return op.PageScan[Recipient](ctx, v.db, page, op.CollectionFor("recipients"), "SELECT u.display_name,u.email,u.id,u.id AS user_id FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, access.SuperRole)
 }
 
 // TeamRecipients is Recipients for active teams.
-func (v *authority) TeamRecipients(ctx context.Context, a Actor, scope authz.Scope, res access.Resource, page PageRequest) (Page[Named], error) {
+func (v *authority) TeamRecipients(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, page op.PageRequest) (op.Page[Named], error) {
 	if e := v.recipientScope(ctx, a, scope, res); e != nil {
-		return Page[Named]{}, e
+		return op.Page[Named]{}, e
 	}
-	return pageScan[Named](ctx, v.db, page, collectionFor("team-recipients"), "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
+	return op.PageScan[Named](ctx, v.db, page, op.CollectionFor("team-recipients"), "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
 }
 
-func (v *authority) recipientScope(ctx context.Context, a Actor, scope authz.Scope, res access.Resource) error {
+func (v *authority) recipientScope(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource) error {
 	if scope.Kind == authz.Platform {
 		return registry.Bad("A Tenant scope is required.")
 	}
-	return v.run.authorize(ctx, a, "authorization.manage", res)
+	return v.run.Authorize(ctx, a, "authorization.manage", res)
 }
 
 // assignInitialManager gives a new Space or App its manager inside the
 // creating transaction.
-func assignInitialManager(ctx context.Context, tx *sql.Tx, a Actor, tenant, space, app, user string) error {
+func assignInitialManager(ctx context.Context, tx *sql.Tx, a op.Actor, tenant, space, app, user string) error {
 	if e := metadataQuota(ctx, tx, tenant, "access_grants"); e != nil {
 		return e
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -79,7 +80,7 @@ type Server struct {
 	mux                    *http.ServeMux
 	auth                   *oidcAuth
 	Log                    *slog.Logger
-	run                    *runner
+	run                    *op.Runner
 	inv                    *inventory
 	members                *membership
 	authority              *authority
@@ -197,7 +198,7 @@ func Open(c Config) (*Server, error) {
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
-	s.run = &runner{db: db, access: s.Checker}
+	s.run = &op.Runner{DB: db, Access: s.Checker}
 	s.authoring = &authoring{db: db, run: s.run, config: &s.Config, queue: s.queueDefinition, actorContext: s.actorContext}
 	s.storage = &storage{db: db, run: s.run, seal: s.seal, config: &s.Config, registryName: cfg.DBName}
 	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.allocate, prepareAccount: s.prepareAccount}
@@ -329,7 +330,7 @@ func send(w http.ResponseWriter, status int, value any) {
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
-	o := classify(err)
+	o := op.Classify(err)
 	if o.Unmapped {
 		fields := []any{"operation", r.Method + " " + r.Pattern}
 		if rid := r.Header.Get("X-Request-ID"); rid != requestIDFrom(r.Context()) {
@@ -341,14 +342,14 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if o.Status == 429 {
 		w.Header().Set("Retry-After", "1")
 	}
-	send(w, o.Status, registry.Row{"error": o.payload(r.Header.Get("X-Request-ID"))})
+	send(w, o.Status, registry.Row{"error": o.Payload(r.Header.Get("X-Request-ID"))})
 }
 
 func expectedRevision(r *http.Request) (int64, error) {
 	v := strings.Trim(r.Header.Get("If-Match"), `"`)
 	n, e := strconv.ParseInt(v, 10, 64)
 	if e != nil || n < 1 {
-		return 0, revisionRequired()
+		return 0, op.RevisionRequired()
 	}
 	return n, nil
 }
@@ -359,20 +360,8 @@ func ifMatch(r *http.Request) int64 {
 	return n
 }
 
-func checkRevision(got, want int64) error {
-	if got != want {
-		return registry.Problem(412, "stale_revision", "This resource changed. Refresh before saving.")
-	}
-	return nil
-}
-
-// audit is the context shim of auditAs for code not yet migrated to actors.
-func audit(ctx context.Context, q registry.Queryer, tenant, user, action, kind, record, request string, details any) error {
-	return auditAs(ctx, q, Actor{Principal: access.Principal{ID: user}, RequestID: request, Agent: access.AgentCallFrom(ctx)}, tenant, action, kind, record, details)
-}
-
 // mutate is the context shim of runner.mutate for handlers not yet migrated
 // to operations with an explicit Actor.
 func (s *Server) mutate(ctx context.Context, p access.Principal, action string, res access.Resource, request string, fn func(*sql.Tx) error) error {
-	return s.run.mutate(ctx, actorFrom(ctx, p, request), action, res, fn)
+	return s.run.Mutate(ctx, op.ActorFrom(ctx, p, request), action, res, fn)
 }

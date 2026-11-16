@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -65,10 +66,10 @@ func securitySnapshot(ctx context.Context, q registry.Queryer, table, tenant, re
 }
 
 // auditChangeAs records a security-relevant change with before/after snapshots.
-func auditChangeAs(ctx context.Context, q registry.Queryer, a Actor, tenant, action, table, kind, record string, before any) error {
+func auditChangeAs(ctx context.Context, q registry.Queryer, a op.Actor, tenant, action, table, kind, record string, before any) error {
 	after, e := securitySnapshot(ctx, q, table, tenant, record)
 	if e != nil {
 		return e
 	}
-	return auditAs(ctx, q, a, tenant, action, kind, record, registry.Row{"before": before, "after": after})
+	return op.AuditAs(ctx, q, a, tenant, action, kind, record, registry.Row{"before": before, "after": after})
 }

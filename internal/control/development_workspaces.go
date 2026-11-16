@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -188,18 +189,18 @@ func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p access.
 	return v, s.WorkspaceOwner(ctx, q, p, v)
 }
 
-func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page PageRequest) (Page[WorkspaceItem], error) {
+func (s *Server) Workspaces(ctx context.Context, actor op.Actor, space string, page op.PageRequest) (op.Page[WorkspaceItem], error) {
 	p := actor.Principal
 	var tenant string
 	var parent *string
 	if e := registry.Lookup(ctx, s.DB, "SELECT tenant_id,workspace_id FROM spaces WHERE id=?", []any{space}, &tenant, &parent); e != nil {
-		return Page[WorkspaceItem]{}, e
+		return op.Page[WorkspaceItem]{}, e
 	}
 	if parent != nil {
-		return Page[WorkspaceItem]{}, registry.Bad("Select the production Space.")
+		return op.Page[WorkspaceItem]{}, registry.Bad("Select the production Space.")
 	}
 	if e := s.Authorize(ctx, s.DB, p, "workspace.manage", access.Resource{Tenant: tenant, Space: space}, true); e != nil {
-		return Page[WorkspaceItem]{}, e
+		return op.Page[WorkspaceItem]{}, e
 	}
 	query := "SELECT backing_space_id,created_at,display_name,error_message,id,owner_agent_grant_id,production_space_id,revision,state FROM development_workspaces WHERE production_space_id=? AND owner_user_id=?"
 	args := []any{space, p.ID}
@@ -207,10 +208,10 @@ func (s *Server) Workspaces(ctx context.Context, actor Actor, space string, page
 		query += " AND owner_agent_grant_id=?"
 		args = append(args, p.Agent.ID)
 	}
-	return pageScan[WorkspaceItem](ctx, s.DB, page, collectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
+	return op.PageScan[WorkspaceItem](ctx, s.DB, page, op.CollectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
 }
 
-func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (registry.Workspace, error) {
+func (s *Server) Workspace(ctx context.Context, actor op.Actor, workspace string) (registry.Workspace, error) {
 	p := actor.Principal
 	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
@@ -221,10 +222,10 @@ func (s *Server) Workspace(ctx context.Context, actor Actor, workspace string) (
 	return v, e
 }
 
-func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string, in workspaceCreateInput) (registry.Workspace, error) {
+func (s *Server) CreateWorkspace(ctx context.Context, actor op.Actor, space string, in workspaceCreateInput) (registry.Workspace, error) {
 	p := actor.Principal
 	if in.ID == "" {
-		in.ID = actor.operationID()
+		in.ID = actor.OperationID()
 	}
 	if e := registry.ID(in.ID); e != nil {
 		return registry.Workspace{}, e
@@ -240,7 +241,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 	if parent != nil {
 		return registry.Workspace{}, registry.Bad("Workspaces cannot contain workspaces.")
 	}
-	e := s.run.mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
+	e := s.run.Mutate(ctx, actor, "workspace.manage", res, func(tx *sql.Tx) error {
 		var owned, total int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(owner_user_id=?),0) FROM development_workspaces WHERE production_space_id=? AND state<>'archived'", p.ID, res.Space).Scan(&total, &owned); e != nil {
 			return e
@@ -290,7 +291,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor Actor, space string,
 		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID, p.ID); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, registry.Row{"production_space_id": res.Space, "backing_space_id": backing})
+		return op.AuditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, registry.Row{"production_space_id": res.Space, "backing_space_id": backing})
 	})
 	if e != nil {
 		return registry.Workspace{}, e
@@ -303,7 +304,7 @@ type entityVersionRef struct{ Entity, Version string }
 
 func (v *entityVersionRef) ScanFields() []any { return []any{&v.Entity, &v.Version} }
 
-func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace string, retry bool, revision int64) (registry.Workspace, error) {
+func (s *Server) changeWorkspace(ctx context.Context, actor op.Actor, workspace string, retry bool, revision int64) (registry.Workspace, error) {
 	p := actor.Principal
 	v, e := s.workspaceRow(ctx, s.DB, p, workspace)
 	if e != nil {
@@ -311,14 +312,14 @@ func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace str
 	}
 	rev := revision
 	if rev < 1 {
-		return registry.Workspace{}, revisionRequired()
+		return registry.Workspace{}, op.RevisionRequired()
 	}
-	e = s.run.mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, func(tx *sql.Tx) error {
+	e = s.run.Mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, func(tx *sql.Tx) error {
 		v, e = s.workspaceRow(ctx, tx, p, workspace)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(v.Revision, rev); e != nil {
+		if e = op.CheckRevision(v.Revision, rev); e != nil {
 			return e
 		}
 		state := registry.StateArchived
@@ -352,7 +353,7 @@ func (s *Server) changeWorkspace(ctx context.Context, actor Actor, workspace str
 				return e
 			}
 		}
-		return auditAs(ctx, tx, actor, v.TenantID, "workspace."+state, "workspace", v.ID, registry.Row{})
+		return op.AuditAs(ctx, tx, actor, v.TenantID, "workspace."+state, "workspace", v.ID, registry.Row{})
 	})
 	if e != nil {
 		return registry.Workspace{}, e

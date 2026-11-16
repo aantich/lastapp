@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -187,7 +188,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 		if e != nil {
 			return e
 		}
-		return audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), registry.Row{"display_name": account.Name, "email": account.Email})
+		return op.Audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), registry.Row{"display_name": account.Name, "email": account.Email})
 	})
 	if e == nil {
 		send(w, 201, registry.Row{"id": user, "display_name": account.Name, "email": account.Email, "state": registry.StateActive})
@@ -225,7 +226,7 @@ func (s *Server) BootstrapLocal(ctx context.Context, name, email, password strin
 		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), user, access.SuperRole); e != nil {
 			return "", e
 		}
-		if e = audit(ctx, tx, "", user, "platform.bootstrap", "user", user, registry.NewID(), registry.Row{}); e != nil {
+		if e = op.Audit(ctx, tx, "", user, "platform.bootstrap", "user", user, registry.NewID(), registry.Row{}); e != nil {
 			return "", e
 		}
 	}
@@ -372,7 +373,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 	if e = tx.QueryRowContext(ctx, "SELECT revision FROM local_accounts WHERE user_id=? FOR UPDATE", p.ID).Scan(&current); e != nil {
 		return e
 	}
-	if e = checkRevision(current, revision); e != nil {
+	if e = op.CheckRevision(current, revision); e != nil {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, "UPDATE local_accounts SET password_hash=?,password_salt=?,password_iterations=?,must_change_password=0,revision=revision+1 WHERE user_id=?", next, salt, passwordIterations, p.ID); e != nil {
@@ -388,7 +389,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 	if e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, "", p.ID, "user.password_changed", "user", p.ID, r.Header.Get("X-Request-ID"), registry.Row{}); e != nil {
+	if e = op.Audit(ctx, tx, "", p.ID, "user.password_changed", "user", p.ID, r.Header.Get("X-Request-ID"), registry.Row{}); e != nil {
 		return e
 	}
 	if e = tx.Commit(); e != nil {

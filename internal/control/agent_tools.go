@@ -18,6 +18,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -313,13 +314,13 @@ func (s *Server) mcpHandler() http.Handler {
 				if e == nil {
 					result["data"] = data
 				} else {
-					o := classify(e)
+					o := op.Classify(e)
 					rid := registry.NewID()
 					if o.Unmapped {
 						fields := []any{"operation", "mcp " + current.Name, "operation_request_id", rid}
 						requestLogger(call).Error("request failed", append(fields, diagnostic(e)...)...)
 					}
-					result["error"] = o.payload(rid)
+					result["error"] = o.Payload(rid)
 					if o.Code == "needs_authorization" {
 						if o.Authority != nil {
 							result["required_scopes"] = o.Authority.Missing
@@ -471,7 +472,7 @@ func (s *Server) beginAgentWrite(ctx context.Context, p access.Principal, key st
 }
 
 // inventoryUpdate selects the Space, App or micro-app metadata operation.
-func (s *Server) inventoryUpdate(resource string) func(context.Context, Actor, string, string, metadataPatch, int64) (Ref, error) {
+func (s *Server) inventoryUpdate(resource string) func(context.Context, op.Actor, string, string, metadataPatch, int64) (op.Ref, error) {
 	switch resource {
 	case "space":
 		return s.inv.UpdateSpace
@@ -506,7 +507,7 @@ func agentSized[T any](v T, e error) (any, error) {
 }
 
 func agentWriteResult(ctx context.Context, data any, e error) (any, error) {
-	if errors.Is(e, errAgentReplay) {
+	if errors.Is(e, op.ErrAgentReplay) {
 		a := access.AgentCallFrom(ctx)
 		a.Committed = true
 		return registry.Row{"replayed": true, "committed": true, "resource": a.ResultRef, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
@@ -541,7 +542,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		return nil, registry.Bad("Supply exactly one resource object.")
 	}
 	kind, key := "", ""
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	permissions := []string{"resources.write"}
 	switch {
 	case in.Space != nil:
@@ -556,7 +557,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		if in.Space.Manager != p.ID {
 			permissions = append(permissions, "access.manage")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.inv.CreateSpace(ctx, a, res.Tenant, *in.Space)
 		}
 	case in.App != nil:
@@ -571,7 +572,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		if in.App.Manager != p.ID {
 			permissions = append(permissions, "access.manage")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.inv.CreateApp(ctx, a, res.Tenant, target.ID, *in.App)
 		}
 	case in.Microapp != nil:
@@ -580,7 +581,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		}
 		kind = "microapp"
 		key = in.Microapp.ID
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.inv.CreateMicroapp(ctx, a, res.Tenant, target.ID, *in.Microapp)
 		}
 	case in.Team != nil:
@@ -589,7 +590,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		}
 		kind = "team"
 		key = in.Team.ID
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.members.CreateTeam(ctx, a, res.Tenant, *in.Team)
 		}
 	case in.Role != nil:
@@ -599,7 +600,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		kind = "role"
 		key = in.Role.ID
 		role := roleInput{ID: in.Role.ID, Code: in.Role.Code, Name: in.Role.Name}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			scope, sr, e := agentScope(res, target)
 			if e != nil {
 				return nil, e
@@ -614,7 +615,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		kind = "tenant"
 		key = in.Tenant.ID
 		tenant := tenantCreateInput{ID: in.Tenant.ID, Slug: in.Tenant.Slug, Name: in.Tenant.Name, Plan: in.Tenant.Plan, Admin: in.Tenant.Admin, Layout: in.Tenant.Layout}
-		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreateTenant(ctx, a, tenant) }
+		call = func(ctx context.Context, a op.Actor) (any, error) { return s.inv.CreateTenant(ctx, a, tenant) }
 		permissions = []string{"platform.manage"}
 	case in.Plan != nil:
 		if target.Kind != "platform" {
@@ -622,7 +623,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		}
 		kind = "plan"
 		key = in.Plan.ID
-		call = func(ctx context.Context, a Actor) (any, error) { return s.inv.CreatePlan(ctx, a, *in.Plan) }
+		call = func(ctx context.Context, a op.Actor) (any, error) { return s.inv.CreatePlan(ctx, a, *in.Plan) }
 		permissions = []string{"platform.manage"}
 	}
 	if e = registry.ID(key); e != nil {
@@ -632,7 +633,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(call(ctx, agentActor(ctx, p)))
+	data, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -649,12 +650,12 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 		return nil, e
 	}
 	permissions := []string{"resources.write"}
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	switch in.Resource {
 	case "space", "app", "microapp":
 		update := s.inventoryUpdate(in.Resource)
 		patch := metadataPatch{Name: in.Name, Compute: in.Compute, Artifact: in.Artifact, Order: in.Order}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if in.PlanID != nil || in.Layout != nil {
 				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 			}
@@ -662,7 +663,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 		}
 	case "team":
 		patch := teamPatch{Name: in.Name}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
 				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 			}
@@ -670,7 +671,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 		}
 	case "role":
 		patch := rolePatch{Name: in.Name}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
 				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 			}
@@ -684,7 +685,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 	case "tenant":
 		if p.Agent.Kind == "platform" {
 			patch := tenantPatch{Name: in.Name, Plan: in.PlanID, Layout: in.Layout}
-			call = func(ctx context.Context, a Actor) (any, error) {
+			call = func(ctx context.Context, a op.Actor) (any, error) {
 				if in.Compute != nil || in.Artifact != nil || in.Order != nil {
 					return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 				}
@@ -695,7 +696,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 			if in.ID != res.Tenant {
 				return nil, registry.Missing()
 			}
-			call = func(ctx context.Context, a Actor) (any, error) {
+			call = func(ctx context.Context, a op.Actor) (any, error) {
 				if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
 					return nil, registry.Bad("Invalid or unsupported JSON request fields.")
 				}
@@ -710,7 +711,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 		if target.Kind != "platform" || in.Plan == nil {
 			return nil, registry.Bad("Plan update requires platform scope and the complete plan object.")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.inv.UpdatePlan(ctx, a, in.ID, *in.Plan, in.Revision)
 		}
 		permissions = []string{"platform.manage"}
@@ -727,7 +728,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(call(ctx, agentActor(ctx, p)))
+	data, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -744,19 +745,19 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 		return nil, e
 	}
 	permissions := []string{"lifecycle.manage", "access.manage"}
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	switch in.Resource {
 	case "space", "app", "microapp":
 		update := s.inventoryUpdate(in.Resource)
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return update(ctx, a, res.Tenant, in.ID, metadataPatch{State: &in.State}, in.Revision)
 		}
 	case "team":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, teamPatch{State: &in.State}, in.Revision)
 		}
 	case "role":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			scope, sr, e := agentScope(res, target)
 			if e != nil {
 				return nil, e
@@ -764,23 +765,23 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, rolePatch{State: &in.State}, in.Revision)
 		}
 	case "database":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.storage.UpdateDatabase(ctx, a, res.Tenant, in.ID, databaseChange{State: in.State}, in.Revision)
 		}
 	case "tenant":
 		if target.Kind != "platform" {
 			return nil, registry.Bad("Tenant lifecycle requires platform scope.")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.inv.UpdateTenant(ctx, a, in.ID, tenantPatch{State: &in.State}, in.Revision)
 		}
 		permissions = append(permissions, "platform.manage")
 	case "entity":
-		v, e := s.authoring.entityRow(ctx, s.DB, agentActor(ctx, p), in.ID, "entity.manage")
+		v, e := s.authoring.entityRow(ctx, s.DB, op.AgentActor(ctx, p), in.ID, "entity.manage")
 		if e != nil {
 			return nil, e
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			d, e := v.draft()
 			if e != nil {
 				return nil, e
@@ -798,7 +799,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(call(ctx, agentActor(ctx, p)))
+	data, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -811,7 +812,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, ra
 		return nil, registry.Bad("definition is required.")
 	}
 	key := in.Entity
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	if key == "" {
 		res, target, e := s.agentRoot(p, in.Target)
 		if e != nil {
@@ -823,7 +824,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, ra
 		key = stableAgentID(p, in.RequestKey)
 		create := entityCreateInput{ID: key, Definition: *in.Definition}
 		space := agentPaths(res, target)["space"]
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.authoring.CreateEntity(ctx, a, space, create)
 		}
 	} else {
@@ -834,7 +835,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, ra
 			return nil, registry.Problem(428, "revision_required", "Existing drafts require expected_revision.")
 		}
 		save := entitySaveInput{Definition: *in.Definition}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.authoring.SaveEntity(ctx, a, key, save, in.Revision)
 		}
 	}
@@ -842,7 +843,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, ra
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(call(ctx, agentActor(ctx, p)))
+	data, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -866,7 +867,7 @@ func (s *Server) toolAgentEntityPublish(ctx context.Context, p access.Principal,
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(s.authoring.PublishEntity(ctx, agentActor(ctx, p), in.Entity, in.Revision))
+	data, e := agentSized(s.authoring.PublishEntity(ctx, op.AgentActor(ctx, p), in.Entity, in.Revision))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -878,7 +879,7 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p access.Principal, r
 	if len(in.Cases) > agentMaxSyntheticCases {
 		return nil, registry.Bad("Synthetic case count exceeds the published schema limit.")
 	}
-	a := agentActor(ctx, p)
+	a := op.AgentActor(ctx, p)
 	v, e := s.authoring.entityRow(ctx, s.DB, a, in.Entity, "entity.manage")
 	if e != nil {
 		return nil, e
@@ -926,21 +927,21 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p access.Principal, ra
 	if e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor, authz.Scope, access.Resource) (any, error)
+	var call func(context.Context, op.Actor, authz.Scope, access.Resource) (any, error)
 	switch in.Action {
 	case "grant":
 		if (in.User == "") == (in.Team == "") {
 			return nil, registry.Bad("Choose exactly one user_id or team_id recipient.")
 		}
 		grant := assignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
-		call = func(ctx context.Context, a Actor, scope authz.Scope, sr access.Resource) (any, error) {
+		call = func(ctx context.Context, a op.Actor, scope authz.Scope, sr access.Resource) (any, error) {
 			return s.authority.Grant(ctx, a, scope, sr, grant)
 		}
 	case "revoke":
 		if in.Revision < 1 {
 			return nil, registry.Problem(428, "revision_required", "Revocation requires expected_revision.")
 		}
-		call = func(ctx context.Context, a Actor, scope authz.Scope, sr access.Resource) (any, error) {
+		call = func(ctx context.Context, a op.Actor, scope authz.Scope, sr access.Resource) (any, error) {
 			return s.authority.Revoke(ctx, a, scope, sr, in.ID, in.Revision)
 		}
 	default:
@@ -962,7 +963,7 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p access.Principal, ra
 		if e != nil {
 			return nil, e
 		}
-		return call(ctx, agentActor(ctx, p), scope, sr)
+		return call(ctx, op.AgentActor(ctx, p), scope, sr)
 	}())
 	return agentWriteResult(ctx, data, e)
 }
@@ -982,10 +983,10 @@ func (s *Server) toolAgentMembership(ctx context.Context, p access.Principal, ra
 	if e = registry.ID(in.User); e != nil {
 		return nil, e
 	}
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	switch in.Action {
 	case "add":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if target.Kind == "team" {
 				return s.members.AddTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
 			}
@@ -995,7 +996,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p access.Principal, ra
 		if in.Revision < 1 {
 			return nil, registry.Problem(428, "revision_required", "Membership/team revision is required.")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if target.Kind == "team" {
 				return s.members.SetTeamMemberState(ctx, a, res.Tenant, target.ID, in.User, in.State, in.Revision)
 			}
@@ -1008,7 +1009,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p access.Principal, ra
 		if in.Revision < 1 {
 			return nil, registry.Problem(428, "revision_required", "Team revision is required.")
 		}
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.members.RemoveTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
 		}
 	default:
@@ -1018,7 +1019,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p access.Principal, ra
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(call(ctx, agentActor(ctx, p)))
+	data, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -1037,7 +1038,7 @@ func (s *Server) toolAgentAppAccess(ctx context.Context, p access.Principal, raw
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(s.authoring.SaveAppAccess(ctx, agentActor(ctx, p), in.App, in.Access, in.Revision))
+	data, e := agentSized(s.authoring.SaveAppAccess(ctx, op.AgentActor(ctx, p), in.App, in.Access, in.Revision))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -1053,13 +1054,15 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p access.Principal, raw 
 		return nil, registry.Bad("Provisioning requires a Tenant-scoped connection.")
 	}
 	tenant := p.Agent.Tenant
-	var call func(context.Context, Actor) (any, error)
+	var call func(context.Context, op.Actor) (any, error)
 	switch in.Action {
 	case "provision":
 		db := databaseInput{ID: in.ID, Mode: "managed", Layout: in.Layout, Target: in.TargetID}
-		call = func(ctx context.Context, a Actor) (any, error) { return s.storage.CreateDatabase(ctx, a, tenant, db) }
+		call = func(ctx context.Context, a op.Actor) (any, error) {
+			return s.storage.CreateDatabase(ctx, a, tenant, db)
+		}
 	case "retry":
-		call = func(ctx context.Context, a Actor) (any, error) {
+		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.storage.RetryDatabase(ctx, a, tenant, in.ID, in.Revision)
 		}
 		if in.Revision < 1 {
@@ -1072,6 +1075,6 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p access.Principal, raw 
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := agentSized(call(ctx, agentActor(ctx, p)))
+	data, e := agentSized(call(ctx, op.AgentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }

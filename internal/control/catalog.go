@@ -9,6 +9,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -66,7 +67,7 @@ func (s *Server) myRoles(w http.ResponseWriter, r *http.Request, p access.Princi
 	if e = s.Member(r.Context(), tx, p, t, false); e != nil {
 		return e
 	}
-	roles, e := pageScan[access.EffectiveAssignment](r.Context(), tx, pageRequest(r.URL.Query()), collectionFor("my-role-assignments"), access.EffectiveAssignmentSQL, p.ID, t)
+	roles, e := op.PageScan[access.EffectiveAssignment](r.Context(), tx, pageRequest(r.URL.Query()), op.CollectionFor("my-role-assignments"), access.EffectiveAssignmentSQL, p.ID, t)
 	if e != nil {
 		return e
 	}

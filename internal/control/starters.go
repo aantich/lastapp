@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	clientsdk "github.com/aantich/lastapp/packages/client"
 	"github.com/aantich/lastapp/packages/starter"
@@ -37,7 +38,7 @@ func starterVersions() (map[string]string, error) {
 	return out, nil
 }
 
-func (s *Server) Starter(ctx context.Context, actor Actor, app string) (registry.Row, error) {
+func (s *Server) Starter(ctx context.Context, actor op.Actor, app string) (registry.Row, error) {
 	p := actor.Principal
 	a, ws, e := s.ownedDevelopmentApp(ctx, s.DB, p, app)
 	if e != nil {

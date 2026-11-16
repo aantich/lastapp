@@ -13,6 +13,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -82,7 +83,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 		}
 		return false, e
 	}
-	ctx = agentAuditContext(ctx, access.Deref(v.AgentGrant), agentClient)
+	ctx = op.AgentAuditContext(ctx, access.Deref(v.AgentGrant), agentClient)
 	// Only a missing row means "no workspace". Any other read error fails
 	// closed: a workspace job must not skip its owner's authority recheck.
 	var workspace *registry.Workspace
@@ -146,7 +147,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 			if _, err = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=NULL,revision=revision+1 WHERE id=? AND pending_version_id=?", v.EntityID, v.ID); err != nil {
 				return true, err
 			}
-			if err = audit(ctx, tx, v.TenantID, v.CreatedBy, "entity.publication_failed", "entity", v.EntityID, registry.NewID(), registry.Row{"version": v.ID, "error_code": "agent_access_revoked"}); err != nil {
+			if err = op.Audit(ctx, tx, v.TenantID, v.CreatedBy, "entity.publication_failed", "entity", v.EntityID, registry.NewID(), registry.Row{"version": v.ID, "error_code": "agent_access_revoked"}); err != nil {
 				return true, err
 			}
 			return true, tx.Commit()
@@ -193,7 +194,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 	if err != nil {
 		return true, err
 	}
-	if err = audit(ctx, tx, v.TenantID, v.CreatedBy, "entity.publication_failed", "entity", v.EntityID, registry.NewID(), registry.Row{"version": v.ID}); err != nil {
+	if err = op.Audit(ctx, tx, v.TenantID, v.CreatedBy, "entity.publication_failed", "entity", v.EntityID, registry.NewID(), registry.Row{"version": v.ID}); err != nil {
 		return true, err
 	}
 	return true, tx.Commit()
@@ -647,7 +648,7 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entity
 		if _, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET active_version_id=?,revision=revision+1 WHERE id=?", version, entityID); e != nil {
 			return e
 		}
-		if e = audit(ctx, tx, tenant, v.CreatedBy, "entity.published", "entity", entityID, registry.NewID(), registry.Row{"version": version, "hash": entity.Hash(d)}); e != nil {
+		if e = op.Audit(ctx, tx, tenant, v.CreatedBy, "entity.published", "entity", entityID, registry.NewID(), registry.Row{"version": version, "hash": entity.Hash(d)}); e != nil {
 			return e
 		}
 	}

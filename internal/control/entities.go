@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -257,7 +258,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p acc
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current, rev); e != nil {
+		if e = op.CheckRevision(current, rev); e != nil {
 			return e
 		}
 		if mode != "registered" {
@@ -271,7 +272,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p acc
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, tenant, p.ID, "database.schema_credentials_changed", "database", record, r.Header.Get("X-Request-ID"), registry.Row{})
+		return op.Audit(r.Context(), tx, tenant, p.ID, "database.schema_credentials_changed", "database", record, r.Header.Get("X-Request-ID"), registry.Row{})
 	})
 	if e != nil {
 		return e
@@ -329,7 +330,7 @@ func fieldInventory(fields []entity.Field) []registry.Row {
 // MCP tools both call these methods.
 type authoring struct {
 	db           *sql.DB
-	run          *runner
+	run          *op.Runner
 	config       *Config
 	queue        func(ctx context.Context, tx *sql.Tx, p access.Principal, v EntityDefinition, version string, candidates map[string]bool) error
 	actorContext func(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error)
@@ -361,28 +362,28 @@ type (
 	// field, and the page of the inventory section.
 	contractView struct {
 		Entity, Section, Field, Version string
-		Page                            PageRequest
+		Page                            op.PageRequest
 	}
 )
 
 // entityRow reads an entity and checks action on its Space with the
 // stricter mutating rules, as every entity operation does.
-func (v *authoring) entityRow(ctx context.Context, q registry.Queryer, a Actor, key, action string) (EntityDefinition, error) {
+func (v *authoring) entityRow(ctx context.Context, q registry.Queryer, a op.Actor, key, action string) (EntityDefinition, error) {
 	out, e := registry.ScanOne[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=?", key)
 	if e != nil {
 		return out, e
 	}
-	e = v.run.check(ctx, q, a, action, access.Resource{Tenant: out.TenantID, Space: out.SpaceID}, true)
+	e = v.run.Check(ctx, q, a, action, access.Resource{Tenant: out.TenantID, Space: out.SpaceID}, true)
 	return out, e
 }
 
 // authoringSpace reads an active Space whose entities a may manage.
-func (v *authoring) authoringSpace(ctx context.Context, a Actor, space string) (access.Resource, error) {
+func (v *authoring) authoringSpace(ctx context.Context, a op.Actor, space string) (access.Resource, error) {
 	res := access.Resource{Space: space}
 	if e := registry.Lookup(ctx, v.db, "SELECT tenant_id FROM spaces WHERE id=? AND state='active'", []any{space}, &res.Tenant); e != nil {
 		return res, e
 	}
-	return res, v.run.check(ctx, v.db, a, "entity.manage", res, true)
+	return res, v.run.Check(ctx, v.db, a, "entity.manage", res, true)
 }
 
 func defOf(v any) (entity.Definition, error) {
@@ -393,7 +394,7 @@ func defOf(v any) (entity.Definition, error) {
 	return entity.Decode(b)
 }
 
-func (v *authoring) Entities(ctx context.Context, a Actor, space string) (registry.Row, error) {
+func (v *authoring) Entities(ctx context.Context, a op.Actor, space string) (registry.Row, error) {
 	sp, e := v.authoringSpace(ctx, a, space)
 	if e != nil {
 		return nil, e
@@ -406,7 +407,7 @@ func (v *authoring) Entities(ctx context.Context, a Actor, space string) (regist
 }
 
 // CreateEntity adds a draft to a Space and returns its authoring view.
-func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in entityCreateInput) (EntityDefinition, error) {
+func (v *authoring) CreateEntity(ctx context.Context, a op.Actor, space string, in entityCreateInput) (EntityDefinition, error) {
 	if in.ID == "" {
 		in.ID = registry.NewID()
 	}
@@ -425,7 +426,7 @@ func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in 
 		return EntityDefinition{}, registry.Bad("Definition exceeds its encoded-size limit.")
 	}
 	tenant := sp.Tenant
-	e = v.run.mutate(ctx, a, "entity.manage", sp, func(tx *sql.Tx) error {
+	e = v.run.Mutate(ctx, a, "entity.manage", sp, func(tx *sql.Tx) error {
 		var n int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_definitions WHERE space_id=?", sp.Space).Scan(&n); e != nil {
 			return e
@@ -437,7 +438,7 @@ func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in 
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "entity.created", "entity", in.ID, registry.Row{})
+		return op.AuditAs(ctx, tx, a, tenant, "entity.created", "entity", in.ID, registry.Row{})
 	})
 	if e != nil {
 		return EntityDefinition{}, e
@@ -447,7 +448,7 @@ func (v *authoring) CreateEntity(ctx context.Context, a Actor, space string, in 
 
 // Entity is the authoring view of a draft with its generated contracts and
 // recent publications, or one selected section of it.
-func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entityView) (any, error) {
+func (v *authoring) Entity(ctx context.Context, a op.Actor, key string, view entityView) (any, error) {
 	out, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return nil, e
@@ -487,7 +488,7 @@ func (v *authoring) Entity(ctx context.Context, a Actor, key string, view entity
 }
 
 // detailOf reads the full authoring view of an entity.
-func (v *authoring) detailOf(ctx context.Context, a Actor, key string) (EntityDefinition, error) {
+func (v *authoring) detailOf(ctx context.Context, a op.Actor, key string) (EntityDefinition, error) {
 	out, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return out, e
@@ -527,9 +528,9 @@ func (v *authoring) entityDetail(ctx context.Context, out EntityDefinition) (Ent
 
 // SaveEntity replaces a draft, optionally archiving or reactivating it, and
 // returns its authoring view.
-func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in entitySaveInput, revision int64) (EntityDefinition, error) {
+func (v *authoring) SaveEntity(ctx context.Context, a op.Actor, key string, in entitySaveInput, revision int64) (EntityDefinition, error) {
 	if revision < 1 {
-		return EntityDefinition{}, revisionRequired()
+		return EntityDefinition{}, op.RevisionRequired()
 	}
 	old, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
@@ -543,14 +544,14 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 		return EntityDefinition{}, registry.Bad("Definition exceeds its encoded-size limit.")
 	}
 	tenant := old.TenantID
-	e = v.run.mutate(ctx, a, "entity.manage", access.Resource{Tenant: tenant, Space: old.SpaceID}, func(tx *sql.Tx) error {
+	e = v.run.Mutate(ctx, a, "entity.manage", access.Resource{Tenant: tenant, Space: old.SpaceID}, func(tx *sql.Tx) error {
 		var current int64
 		var pending *string
 		e := registry.Lookup(ctx, tx, "SELECT revision,pending_version_id FROM entity_definitions WHERE id=? FOR UPDATE", []any{old.ID}, &current, &pending)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current, revision); e != nil {
+		if e = op.CheckRevision(current, revision); e != nil {
 			return e
 		}
 		state := old.State
@@ -584,7 +585,7 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "entity.saved", "entity", old.ID, registry.Row{"state": state})
+		return op.AuditAs(ctx, tx, a, tenant, "entity.saved", "entity", old.ID, registry.Row{"state": state})
 	})
 	if e != nil {
 		return EntityDefinition{}, e
@@ -594,7 +595,7 @@ func (v *authoring) SaveEntity(ctx context.Context, a Actor, key string, in enti
 
 // ValidateEntity checks a candidate definition without saving it. The
 // diagnostics view omits the generated schema and TypeScript.
-func (v *authoring) ValidateEntity(ctx context.Context, a Actor, key string, d entity.Definition, view string) (registry.Row, error) {
+func (v *authoring) ValidateEntity(ctx context.Context, a op.Actor, key string, d entity.Definition, view string) (registry.Row, error) {
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return nil, e
@@ -614,21 +615,21 @@ func (v *authoring) ValidateEntity(ctx context.Context, a Actor, key string, d e
 }
 
 // PublishEntity queues the saved draft for the publication worker.
-func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revision int64) (registry.Row, error) {
+func (v *authoring) PublishEntity(ctx context.Context, a op.Actor, key string, revision int64) (registry.Row, error) {
 	if revision < 1 {
-		return nil, revisionRequired()
+		return nil, op.RevisionRequired()
 	}
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.publish")
 	if e != nil {
 		return nil, e
 	}
-	version := a.operationID()
-	e = v.run.mutate(ctx, a, "entity.publish", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, func(tx *sql.Tx) error {
+	version := a.OperationID()
+	e = v.run.Mutate(ctx, a, "entity.publish", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, func(tx *sql.Tx) error {
 		current, e = registry.ScanOne[EntityDefinition](ctx, tx, "SELECT "+entityColumns+" FROM entity_definitions WHERE id=? FOR UPDATE", current.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current.Revision, revision); e != nil {
+		if e = op.CheckRevision(current.Revision, revision); e != nil {
 			return e
 		}
 		if current.PendingVersion != nil {
@@ -652,7 +653,7 @@ func (v *authoring) PublishEntity(ctx context.Context, a Actor, key string, revi
 	return registry.Row{"id": version, "state": "queued"}, nil
 }
 
-func (v *authoring) Publication(ctx context.Context, a Actor, key, version string) (Publication, error) {
+func (v *authoring) Publication(ctx context.Context, a op.Actor, key, version string) (Publication, error) {
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return Publication{}, e
@@ -662,7 +663,7 @@ func (v *authoring) Publication(ctx context.Context, a Actor, key, version strin
 
 // TestEntity evaluates one synthetic case against a candidate definition
 // for a real Tenant member, without live uniqueness, references or shares.
-func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in entityTestInput) (registry.Row, error) {
+func (v *authoring) TestEntity(ctx context.Context, a op.Actor, key string, in entityTestInput) (registry.Row, error) {
 	current, e := v.entityRow(ctx, v.db, a, key, "entity.manage")
 	if e != nil {
 		return nil, e
@@ -735,19 +736,19 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 
 // AppContracts are the published entity contracts an App may use: its
 // access ceiling narrows fields and permissions unless a is a Space manager.
-func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view contractView) (registry.Row, error) {
+func (v *authoring) AppContracts(ctx context.Context, a op.Actor, app string, view contractView) (registry.Row, error) {
 	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
+	if e = v.run.Check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
 	appAccess, e := accessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
-	manager := v.run.check(ctx, v.db, a, "entity.manage", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
+	manager := v.run.Check(ctx, v.db, a, "entity.manage", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
 	vs, e := registry.ScanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
 	if e != nil {
 		return nil, e
@@ -838,8 +839,8 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 	}
 	response := registry.Row{"app_id": current.ID, "space_id": current.SpaceID, "app_revision": current.Revision, "entities": out, "roles": roles}
 	if view.Section == "inventory" {
-		var page pageInfo
-		out, page, e = pageItems(out, view.Page)
+		var page op.PageInfo
+		out, page, e = op.PageItems(out, view.Page)
 		if e != nil {
 			return nil, e
 		}
@@ -849,12 +850,12 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 }
 
 // AppAccess is an App's data-access policy with its revision.
-func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (registry.Row, error) {
+func (v *authoring) AppAccess(ctx context.Context, a op.Actor, app string) (registry.Row, error) {
 	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
+	if e = v.run.Check(ctx, v.db, a, "app.manage", access.Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
 	access, e := accessOf(current.Access)
@@ -866,21 +867,21 @@ func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (registr
 
 // SaveAppAccess replaces an App's origin, ceiling and restrictions. Only a
 // Space manager may change the origin or widen the ceiling.
-func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in entity.AppAccess, revision int64) (registry.Row, error) {
+func (v *authoring) SaveAppAccess(ctx context.Context, a op.Actor, app string, in entity.AppAccess, revision int64) (registry.Row, error) {
 	if revision < 1 {
-		return nil, revisionRequired()
+		return nil, op.RevisionRequired()
 	}
 	current, e := registry.ScanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
 	res := access.Resource{Tenant: current.TenantID, App: current.ID}
-	e = v.run.mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
+	e = v.run.Mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
 		current, e = registry.ScanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current.Revision, revision); e != nil {
+		if e = op.CheckRevision(current.Revision, revision); e != nil {
 			return e
 		}
 		var wid sql.NullString
@@ -892,7 +893,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 		if e != nil {
 			return e
 		}
-		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", access.Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
+		spaceManager := v.run.AuthorizeTx(ctx, tx, a, "entity.manage", access.Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
 		if !spaceManager && (old.Origin != in.Origin || old.Inherit != in.Inherit || entity.Hash(old.Ceiling) != entity.Hash(in.Ceiling)) {
 			return registry.Problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
 		}
@@ -961,7 +962,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 		if e = projectAppPermissions(ctx, tx, current.ID, in); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", current.ID, registry.Row{})
+		return op.AuditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", current.ID, registry.Row{})
 	})
 	if e != nil {
 		return nil, e

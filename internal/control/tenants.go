@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -86,55 +87,55 @@ func (in planInput) validate() error {
 	return registry.Bad("The default layout must be allowed by this plan.")
 }
 
-func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Plan], error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-		return Page[Plan]{}, e
+func (v *inventory) Plans(ctx context.Context, a op.Actor, page op.PageRequest) (op.Page[Plan], error) {
+	if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+		return op.Page[Plan]{}, e
 	}
-	return pageScan[Plan](ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+	return op.PageScan[Plan](ctx, v.db, page, op.CollectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
 }
 
-func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Plan, error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+func (v *inventory) Plan(ctx context.Context, a op.Actor, record string) (Plan, error) {
+	if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 		return Plan{}, e
 	}
 	return registry.ScanOne[Plan](ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
 }
 
-func (v *inventory) CreatePlan(ctx context.Context, a Actor, in planInput) (Ref, error) {
+func (v *inventory) CreatePlan(ctx context.Context, a op.Actor, in planInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if e := in.validate(); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, "INSERT INTO plans (id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", in.ID, in.Code, in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases)
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, "", "plan.created", "plan", in.ID, registry.Row{"code": in.Code})
+		return op.AuditAs(ctx, tx, a, "", "plan.created", "plan", in.ID, registry.Row{"code": in.Code})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "plans", "", in.ID)
+	return v.run.Ref(ctx, "plans", "", in.ID)
 }
 
-func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in planInput, revision int64) (Ref, error) {
+func (v *inventory) UpdatePlan(ctx context.Context, a op.Actor, record string, in planInput, revision int64) (op.Ref, error) {
 	if e := in.validate(); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		var current int64
 		var code string
 		e := registry.Lookup(ctx, tx, "SELECT revision,code FROM plans WHERE id=? FOR UPDATE", []any{record}, &current, &code)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current, revision); e != nil {
+		if e = op.CheckRevision(current, revision); e != nil {
 			return e
 		}
 		if code != in.Code {
@@ -144,12 +145,12 @@ func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in p
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, "", "plan.updated", "plan", record, registry.Row{"affects": "future allocations"})
+		return op.AuditAs(ctx, tx, a, "", "plan.updated", "plan", record, registry.Row{"affects": "future allocations"})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "plans", "", record)
+	return v.run.Ref(ctx, "plans", "", record)
 }
 
 func (s *Server) plans(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -203,12 +204,12 @@ func (v *User) ScanFields() []any {
 	return []any{&v.CreatedAt, &v.Name, &v.Email, &v.ID, &v.OIDCIssuer, &v.OIDCSubject, &v.PlatformAdmin, &v.PlatformAssignmentID, &v.PlatformAssignmentRevision, &v.Revision, &v.State}
 }
 
-func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[User], error) {
+func (s *Server) Users(ctx context.Context, actor op.Actor, page op.PageRequest) (op.Page[User], error) {
 	p := actor.Principal
 	if e := s.Authorize(ctx, s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
-		return Page[User]{}, e
+		return op.Page[User]{}, e
 	}
-	return pageScan[User](ctx, s.DB, page, collectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", access.SuperRole, access.SuperRole, access.SuperRole)
+	return op.PageScan[User](ctx, s.DB, page, op.CollectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", access.SuperRole, access.SuperRole, access.SuperRole)
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -241,7 +242,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Pri
 				return e
 			}
 		}
-		if e = checkRevision(old.Revision, rev); e != nil {
+		if e = op.CheckRevision(old.Revision, rev); e != nil {
 			return e
 		}
 		_, e = tx.ExecContext(r.Context(), "UPDATE users SET state=?,revision=revision+1 WHERE id=?", in.State, record)
@@ -264,7 +265,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Pri
 				return e
 			}
 		}
-		return audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), registry.Row{"before": registry.Row{"state": old.State}, "after": registry.Row{"state": in.State}})
+		return op.Audit(r.Context(), tx, "", p.ID, "user.updated", "user", record, r.Header.Get("X-Request-ID"), registry.Row{"before": registry.Row{"state": old.State}, "after": registry.Row{"state": in.State}})
 	})
 	if e != nil {
 		return e
@@ -319,15 +320,15 @@ type tenantPatch struct {
 	Layout *string `json:"default_layout"`
 }
 
-func (v *inventory) Tenants(ctx context.Context, a Actor, page PageRequest) (Page[tenantItem], error) {
-	if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-		return Page[tenantItem]{}, e
+func (v *inventory) Tenants(ctx context.Context, a op.Actor, page op.PageRequest) (op.Page[tenantItem], error) {
+	if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+		return op.Page[tenantItem]{}, e
 	}
-	return pageScan[tenantItem](ctx, v.db, page, collectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
+	return op.PageScan[tenantItem](ctx, v.db, page, op.CollectionFor("tenants"), "SELECT "+tenantColumns+",(SELECT COUNT(*) FROM spaces sp WHERE sp.tenant_id=t.id AND sp.state<>'archived') AS space_count,(SELECT COUNT(*) FROM apps a WHERE a.tenant_id=t.id AND a.state<>'archived') AS app_count FROM tenants t JOIN plans p ON p.id=t.plan_id ORDER BY t.created_at DESC")
 }
 
-func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Tenant, error) {
-	if e := v.run.authorize(ctx, a, "tenant.read", access.Resource{Tenant: tenant}); e != nil {
+func (v *inventory) Tenant(ctx context.Context, a op.Actor, tenant string) (Tenant, error) {
+	if e := v.run.Authorize(ctx, a, "tenant.read", access.Resource{Tenant: tenant}); e != nil {
 		return Tenant{}, e
 	}
 	return registry.ScanOne[Tenant](ctx, v.db, "SELECT "+tenantColumns+" FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
@@ -335,34 +336,34 @@ func (v *inventory) Tenant(ctx context.Context, a Actor, tenant string) (Tenant,
 
 // CreateTenant creates a Tenant with its first administrator: an existing
 // account or a new local account. Platform administrators cannot be chosen.
-func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateInput) (Ref, error) {
+func (v *inventory) CreateTenant(ctx context.Context, a op.Actor, in tenantCreateInput) (op.Ref, error) {
 	for _, value := range []string{in.ID, in.Plan} {
 		if e := registry.ID(value); e != nil {
-			return Ref{}, e
+			return op.Ref{}, e
 		}
 	}
 	if e := registry.Named(in.Slug, in.Name); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	if (in.Admin == "") == (in.Account == nil) {
-		return Ref{}, registry.Bad("Select an existing administrator or supply a new administrator account.")
+		return op.Ref{}, registry.Bad("Select an existing administrator or supply a new administrator account.")
 	}
 	var account preparedAccount
 	if in.Account != nil {
-		if e := v.run.authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
-			return Ref{}, e
+		if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+			return op.Ref{}, e
 		}
 		var e error
 		account, e = v.prepareAccount(*in.Account)
 		if e != nil {
-			return Ref{}, e
+			return op.Ref{}, e
 		}
 	} else if e := registry.ID(in.Admin); e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
 	ctx, cancel := account.deadline(ctx)
 	defer cancel()
-	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		if in.Account != nil {
 			var e error
 			in.Admin, e = localAccount(ctx, tx, account, true)
@@ -398,28 +399,28 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 		if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", registry.NewID(), in.ID, in.Admin, access.TenantAdminRole); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, in.ID, "tenant.created", "tenant", in.ID, registry.Row{"initial_admin_user_id": in.Admin})
+		return op.AuditAs(ctx, tx, a, in.ID, "tenant.created", "tenant", in.ID, registry.Row{"initial_admin_user_id": in.Admin})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "tenants", "", in.ID)
+	return v.run.Ref(ctx, "tenants", "", in.ID)
 }
 
 // UpdateTenant is the platform operation on a Tenant's name, lifecycle state,
 // plan and default database layout.
-func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in tenantPatch, revision int64) (Ref, error) {
+func (v *inventory) UpdateTenant(ctx context.Context, a op.Actor, record string, in tenantPatch, revision int64) (op.Ref, error) {
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "platform.admin", access.Resource{Tenant: record}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{Tenant: record}, func(tx *sql.Tx) error {
 		var name, state, plan, layout string
 		var current int64
 		e := registry.Lookup(ctx, tx, "SELECT display_name,state,plan_id,COALESCE(default_layout,''),revision FROM tenants WHERE id=?", []any{record}, &name, &state, &plan, &layout, &current)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(current, revision); e != nil {
+		if e = op.CheckRevision(current, revision); e != nil {
 			return e
 		}
 		if in.Name != nil {
@@ -451,39 +452,39 @@ func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in
 		if e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, record, "tenant.updated", "tenant", record, registry.Row{"state": state, "plan_id": plan})
+		return op.AuditAs(ctx, tx, a, record, "tenant.updated", "tenant", record, registry.Row{"state": state, "plan_id": plan})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "tenants", "", record)
+	return v.run.Ref(ctx, "tenants", "", record)
 }
 
 // UpdateTenantProfile is the Tenant administrator's company-name change.
-func (v *inventory) UpdateTenantProfile(ctx context.Context, a Actor, tenant, name string, revision int64) (Ref, error) {
+func (v *inventory) UpdateTenantProfile(ctx context.Context, a op.Actor, tenant, name string, revision int64) (op.Ref, error) {
 	if strings.TrimSpace(name) == "" || len(name) > 160 {
-		return Ref{}, registry.Bad("Enter a company name (maximum 160 bytes).")
+		return op.Ref{}, registry.Bad("Enter a company name (maximum 160 bytes).")
 	}
 	if revision < 1 {
-		return Ref{}, revisionRequired()
+		return op.Ref{}, op.RevisionRequired()
 	}
-	e := v.run.mutate(ctx, a, "tenant.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+	e := v.run.Mutate(ctx, a, "tenant.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		before, e := lockRecord(ctx, tx, "tenants", "", tenant)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(before.Revision, revision); e != nil {
+		if e = op.CheckRevision(before.Revision, revision); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE tenants SET display_name=?,revision=revision+1 WHERE id=?", name, tenant); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, tenant, "tenant.profile_updated", "tenant", tenant, registry.Row{"display_name": name})
+		return op.AuditAs(ctx, tx, a, tenant, "tenant.profile_updated", "tenant", tenant, registry.Row{"display_name": name})
 	})
 	if e != nil {
-		return Ref{}, e
+		return op.Ref{}, e
 	}
-	return v.run.ref(ctx, "tenants", "", tenant)
+	return v.run.Ref(ctx, "tenants", "", tenant)
 }
 
 func (s *Server) tenants(w http.ResponseWriter, r *http.Request, p access.Principal) error {

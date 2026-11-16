@@ -1,10 +1,6 @@
 package control
 
 import (
-	"context"
-	"database/sql"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -85,7 +81,6 @@ const (
 	agentMaxDatabases             = 20
 	agentMaxTargets               = 32
 	agentMaxConnections           = 100
-	agentMaxReceipts              = 10000
 	agentMaxConcurrent            = 16
 	agentMaxTokenRotations        = 4096
 	agentMaxSyntheticCases        = 10
@@ -98,65 +93,6 @@ const (
 	agentMaxClientRedirects       = 16
 	agentMaxClientMetadata        = 65536
 )
-
-// Audit identity is metadata, never an authorization credential. Workers carry
-// it from persisted jobs, including after revocation or recovery.
-type (
-	agentAuditKey      struct{}
-	agentAuditIdentity struct{ Grant, Client string }
-)
-
-func agentAuditContext(ctx context.Context, grant, client string) context.Context {
-	if grant == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, agentAuditKey{}, agentAuditIdentity{Grant: grant, Client: client})
-}
-
-var errAgentReplay = errors.New("agent operation already committed")
-
-func agentMutationBegin(ctx context.Context, tx *sql.Tx, a *access.AgentCall) error {
-	if a == nil {
-		return nil
-	}
-	if a.Key == "" {
-		return registry.Bad("request_key is required for every mutation")
-	}
-	var previous string
-	e := tx.QueryRowContext(ctx, "SELECT input_hash FROM agent_operation_receipts WHERE grant_id=? AND request_key=? FOR UPDATE", a.Grant.ID, a.Key).Scan(&previous)
-	if e == nil {
-		if previous != a.Hash {
-			return registry.Conflict("request_key was already used for different arguments")
-		}
-		return errAgentReplay
-	}
-	if !errors.Is(e, sql.ErrNoRows) {
-		return e
-	}
-	var n int
-	if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_operation_receipts WHERE grant_id=?", a.Grant.ID).Scan(&n); e != nil {
-		return e
-	}
-	if n >= agentMaxReceipts {
-		return registry.Problem(403, "agent_limit", "This connection has reached its operation limit. Approve a new connection.")
-	}
-	return nil
-}
-
-func agentMutationFinish(ctx context.Context, tx *sql.Tx, a *access.AgentCall) error {
-	if a == nil {
-		return nil
-	}
-	b, e := json.Marshal(a.ResultRef)
-	if e != nil {
-		return e
-	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO agent_operation_receipts(grant_id,request_key,input_hash,operation,result_json) VALUES(?,?,?,?,?)", a.Grant.ID, a.Key, a.Hash, a.Operation, b)
-	if e == nil {
-		_, e = tx.ExecContext(ctx, "UPDATE agent_grants SET last_used_at=UTC_TIMESTAMP(6) WHERE id=?", a.Grant.ID)
-	}
-	return e
-}
 
 func (s *Server) agentPrincipal(r *http.Request) (access.Principal, error) {
 	var p access.Principal
