@@ -6,6 +6,20 @@ import { execFileSync } from "node:child_process";
 import { login, logout, fixtureTenant, post } from "./helpers";
 import { apiOrigin } from "./stack";
 
+// The starter App's data client, which the SDK exposes on window.
+declare global {
+  interface Window {
+    lastapp: {
+      appID: string;
+      create(entity: string, values: Record<string, unknown>): Promise<unknown>;
+      query(
+        entity: string,
+        options: { include_count: boolean },
+      ): Promise<{ count: number }>;
+    };
+  }
+}
+
 test("full production capacity still permits creating an App in a workspace", async ({
   page,
 }) => {
@@ -142,14 +156,14 @@ test("local React build uses workspace APIs, then the same files deploy to produ
     .getByRole("dialog")
     .getByRole("button", { name: "Create workspace", exact: true })
     .click();
-  let workspace: any;
+  let workspace: { state?: string; backing_space_id?: string } = {};
   await expect
     .poll(
       async () => {
         const list = await (
           await page.request.get(`/v1/spaces/${space}/workspaces`)
         ).json();
-        workspace = list.items[0];
+        workspace = list.items[0] ?? {};
         return workspace?.state;
       },
       { timeout: 45000 },
@@ -337,11 +351,11 @@ test("local React build uses workspace APIs, then the same files deploy to produ
     }
     await connect(preview);
     await preview.evaluate(async () => {
-      const client = (window as any).lastapp;
+      const client = window.lastapp;
       await client.create("deal", { name: "Workspace fixture" });
     });
     const count = await preview.evaluate(async () => {
-      const result = await (window as any).lastapp.query("deal", {
+      const result = await window.lastapp.query("deal", {
         include_count: true,
       });
       return result.count;
@@ -402,7 +416,7 @@ test("local React build uses workspace APIs, then the same files deploy to produ
     await connect(production);
     expect(
       await production.evaluate(async () => {
-        const client = (window as any).lastapp;
+        const client = window.lastapp;
         const result = await client.query("deal", { include_count: true });
         return { count: result.count, app: client.appID };
       }),

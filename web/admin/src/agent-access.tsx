@@ -1,13 +1,15 @@
-import { useEffect, useState, useRef } from "react";
+import { useState } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
 import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
 import { NumberInput } from "./number-input";
 import { useDialogFocus } from "./dialog";
-import { errorMessage } from "./use-action";
+import { errorMessage, useAction } from "./use-action";
+import { refreshQueries, useApiQuery } from "./query";
 
 import type { Item, Page, Redirect } from "./api-types";
+const agentConfigPath = "/v1/agent-access/config";
 type GrantValues = {
   tenant_id: string;
   scope_kind: string;
@@ -321,34 +323,28 @@ function AgentGrantForm({
 }
 
 export function AgentConsent({ me }: { me: Item }) {
-  const [info, setInfo] = useState<Item | null>(null),
-    [config, setConfig] = useState<Item | null>(null),
-    [error, setError] = useState("");
+  const [actionError, setError] = useState("");
   const request = new URLSearchParams(location.search).get("request") || "";
-  useEffect(() => {
-    let live = true;
-    Promise.all([
-      api<Item>(`/v1/agent-access/requests/${encodeURIComponent(request)}`),
-      api<Item>("/v1/agent-access/config"),
-    ])
-      .then(([i, c]) => {
-        if (live) {
-          setInfo(i);
-          setConfig(c);
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [request]);
+  const infoQuery = useApiQuery<Item>(
+      `/v1/agent-access/requests/${encodeURIComponent(request)}`,
+    ),
+    configQuery = useApiQuery<Item>(agentConfigPath);
+  const info = infoQuery.data,
+    config = configQuery.data,
+    error =
+      actionError ||
+      infoQuery.error?.message ||
+      configQuery.error?.message ||
+      "";
   async function deny() {
     try {
-      const result = await api<Redirect>(`/v1/agent-access/requests/${request}`, "POST", {
-        deny: true,
-      });
+      const result = await api<Redirect>(
+        `/v1/agent-access/requests/${request}`,
+        "POST",
+        {
+          deny: true,
+        },
+      );
       location.assign(result.redirect_url);
     } catch (e) {
       setError(errorMessage(e));
@@ -476,48 +472,31 @@ function AgentGrantDialog({
   );
 }
 export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
-  const [config, setConfig] = useState<Item | null>(null),
-    [items, setItems] = useState<Item[]>([]),
-    [page, setPage] = useState(1),
-    [more, setMore] = useState(false),
-    [error, setError] = useState(""),
+  const [page, setPage] = useState(1),
+    [actionError, setError] = useState(""),
     [editing, setEditing] = useState<Item | null>(null),
-    [loading, setLoading] = useState(true),
-    [loadFailed, setLoadFailed] = useState(false),
-    [busy, setBusy] = useState(""),
+    [revoking, setRevoking] = useState(""),
     [copied, setCopied] = useState(false);
-  const generation = useRef(0);
-  async function load() {
-    const request = ++generation.current;
-    setLoading(true);
-    try {
-      const [c, list] = await Promise.all([
-        api<Item>("/v1/agent-access/config"),
-        api<Page>(
-          `/v1/agent-access?page=${page}&limit=20${tenant ? "&tenant_id=" + tenant : ""}`,
-        ),
-      ]);
-      if (request !== generation.current) return;
-      setConfig(c);
-      setItems(list.items);
-      setMore(!!list.pagination?.has_more);
-      setLoadFailed(false);
-      setError("");
-    } catch (e) {
-      if (request === generation.current) {
-        setLoadFailed(true);
-        setError(errorMessage(e));
-      }
-    } finally {
-      if (request === generation.current) setLoading(false);
-    }
+  const configQuery = useApiQuery<Item>(agentConfigPath),
+    listQuery = useApiQuery<Page>(
+      `/v1/agent-access?page=${page}&limit=20${tenant ? "&tenant_id=" + tenant : ""}`,
+    );
+  const revoke = useAction(page, { onSuccess: () => {}, onError: setError });
+  const config = configQuery.data,
+    loading = configQuery.isPending || listQuery.isPending,
+    loadFailed = !!(configQuery.error || listQuery.error),
+    items = listQuery.data?.items || [],
+    more = !!listQuery.data?.pagination?.has_more,
+    error =
+      actionError ||
+      configQuery.error?.message ||
+      listQuery.error?.message ||
+      "";
+  function load() {
+    setError("");
+    void configQuery.refetch();
+    void listQuery.refetch();
   }
-  useEffect(() => {
-    load();
-    return () => {
-      generation.current++;
-    };
-  }, [page, tenant]);
   return (
     <section className="panel workspace-section agent-access">
       <div className="settings-heading">
@@ -529,7 +508,11 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
               : "Review the clients acting on your behalf and revoke them when finished."}
           </p>
         </div>
-        <button className="secondary" disabled={loading} onClick={load}>
+        <button
+          className="secondary"
+          disabled={configQuery.isFetching || listQuery.isFetching}
+          onClick={load}
+        >
           Refresh connections
         </button>
       </div>
@@ -618,22 +601,17 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
                     )}
                     <button
                       className="danger"
-                      disabled={busy === grant.id}
-                      onClick={async () => {
-                        setBusy(grant.id);
-                        try {
-                          await api(
+                      disabled={revoke.busy && revoking === grant.id}
+                      onClick={() => {
+                        setRevoking(grant.id);
+                        void revoke.run(() =>
+                          api(
                             `/v1/agent-access/${grant.id}`,
                             "PATCH",
                             { state: "revoked" },
                             grant.revision,
-                          );
-                          await load();
-                        } catch (e) {
-                          setError(errorMessage(e));
-                        } finally {
-                          setBusy("");
-                        }
+                          ),
+                        );
                       }}
                     >
                       Revoke access
@@ -673,7 +651,7 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
           close={() => setEditing(null)}
           done={() => {
             setEditing(null);
-            load();
+            void refreshQueries();
           }}
         />
       )}

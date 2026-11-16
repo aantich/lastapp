@@ -1,15 +1,26 @@
-import { useEffect, useId, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useId,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 export type ListOption = { value: string; label: string; disabled?: boolean };
 // Shared open/active/keyboard state for every popup list in the console
 // (Select and RemoteSelect). The popup itself is rendered by ListboxPopup
-// inside `root`; pointer presses outside `root` close it.
+// inside `root`; pointer presses outside `root` close it. A list whose
+// options depend on being open (RemoteSelect loads them only then) owns the
+// open state and passes it in.
 export function useListbox<T extends ListOption>(
   options: T[],
   choose: (option: T) => void,
   root: RefObject<HTMLElement | null>,
+  openState?: [boolean, Dispatch<SetStateAction<boolean>>],
 ) {
   const id = useId();
-  const [open, setOpen] = useState(false),
+  const ownOpen = useState(false),
+    [open, setOpen] = openState || ownOpen,
     [active, setActive] = useState(0);
   useEffect(() => {
     if (!open) return;
@@ -18,7 +29,7 @@ export function useListbox<T extends ListOption>(
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
-  }, [open, root]);
+  }, [open, root, setOpen]);
   useEffect(() => {
     if (open)
       document

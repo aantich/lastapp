@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Layers3, LoaderCircle, ArrowUpRight, LogOut } from "lucide-react";
 import { api } from "./api";
-import { useConsoleConfig } from "./console-config";
-import { NewPasswordInput, usePasswordPolicy } from "./new-password-input";
+import { useConsoleConfig, usePasswordPolicy } from "./console-config";
+import { NewPasswordInput } from "./new-password-input";
 import { errorMessage } from "./use-action";
 
 export function LoginScreen({ done }: { done: () => Promise<void> }) {
