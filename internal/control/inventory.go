@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type namedInput struct {
@@ -307,35 +308,65 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request, p Principal) 
 	return e
 }
 
+// Microapp is an installed micro-app. AppName, CreatedAt and SpaceID are read
+// only in collections (microappItem).
+type Microapp struct {
+	AppID     string     `json:"app_id"`
+	AppName   *string    `json:"app_name,omitempty"`
+	Artifact  *string    `json:"artifact_ref"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Name      string     `json:"display_name"`
+	ID        string     `json:"id"`
+	Order     int64      `json:"navigation_order"`
+	Revision  int64      `json:"revision"`
+	Slug      string     `json:"slug"`
+	SpaceID   *string    `json:"space_id,omitempty"`
+	State     string     `json:"state"`
+	TenantID  string     `json:"tenant_id"`
+}
+
+const microappColumns = "m.app_id,m.artifact_ref,m.display_name,m.id,m.navigation_order,m.revision,m.slug,m.state,m.tenant_id"
+
+func (m *Microapp) fields() []any {
+	return []any{&m.AppID, &m.Artifact, &m.Name, &m.ID, &m.Order, &m.Revision, &m.Slug, &m.State, &m.TenantID}
+}
+
+// microappItem is a micro-app collection row: with its App's name and Space.
+type microappItem struct{ Microapp }
+
+func (m *microappItem) fields() []any {
+	return append(m.Microapp.fields(), &m.AppName, &m.CreatedAt, &m.SpaceID)
+}
+
 // Microapps pages the micro-apps a may read in tenant, optionally of one App.
 // Without an App filter, development workspace Apps are excluded.
-func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, page PageRequest) (Page[Row], error) {
+func (v *inventory) Microapps(ctx context.Context, a Actor, tenant, app string, page PageRequest) (Page[microappItem], error) {
 	sc, e := v.run.scopes(ctx, a, tenant, "microapp.read")
 	if e != nil {
-		return Page[Row]{}, e
+		return Page[microappItem]{}, e
 	}
 	filter, args := scopeSQL(sc, "a.space_id", "m.app_id")
 	args = append([]any{tenant}, args...)
-	query := "SELECT m.id,m.tenant_id,m.app_id,m.slug,m.display_name,m.artifact_ref,m.navigation_order,m.state,m.revision,m.created_at,a.display_name AS app_name,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
+	query := "SELECT " + microappColumns + ",a.display_name AS app_name,m.created_at,a.space_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND " + filter
 	if app != "" {
 		if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: app}); e != nil {
-			return Page[Row]{}, e
+			return Page[microappItem]{}, e
 		}
 		query += " AND m.app_id=?"
 		args = append(args, app)
 	} else {
 		query += " AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)"
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
+	return pageScan[microappItem](ctx, v.db, page, collectionFor("microapps"), query+" ORDER BY m.navigation_order,m.created_at DESC", args...)
 }
 
-func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Row, error) {
-	m, e := row(ctx, v.db, "SELECT id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order,state,revision FROM microapp_installations WHERE tenant_id=? AND id=?", tenant, record)
+func (v *inventory) Microapp(ctx context.Context, a Actor, tenant, record string) (Microapp, error) {
+	m, e := scanOne[Microapp](ctx, v.db, "SELECT "+microappColumns+" FROM microapp_installations m WHERE m.tenant_id=? AND m.id=?", tenant, record)
 	if e != nil {
-		return nil, e
+		return Microapp{}, e
 	}
-	if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: str(m["app_id"])}); e != nil {
-		return nil, e
+	if e = v.run.authorize(ctx, a, "microapp.read", Resource{Tenant: tenant, App: m.AppID}); e != nil {
+		return Microapp{}, e
 	}
 	return m, nil
 }
@@ -350,23 +381,23 @@ func (v *inventory) CreateMicroapp(ctx context.Context, a Actor, tenant, app str
 	if len(in.Artifact) > 1024 {
 		return Ref{}, bad("Artifact reference is too long.")
 	}
-	parent, e := row(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", app, tenant)
-	if e != nil {
+	res := Resource{Tenant: tenant, App: app}
+	if e := lookup(ctx, v.db, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", []any{app, tenant}, &res.Space); e != nil {
 		return Ref{}, e
 	}
-	res := Resource{Tenant: tenant, Space: str(parent["space_id"]), App: app}
-	e = v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "microapp.manage", res, func(tx *sql.Tx) error {
 		if _, e := policyFor(ctx, tx, tenant); e != nil {
 			return e
 		}
 		if e := metadataQuota(ctx, tx, tenant, "microapp_installations"); e != nil {
 			return e
 		}
-		parent, e := row(ctx, tx, "SELECT a.state,sp.state AS space_state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", app, tenant)
+		var appState, spaceState string
+		e := lookup(ctx, tx, "SELECT a.state,sp.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.id=? AND a.tenant_id=?", []any{app, tenant}, &appState, &spaceState)
 		if e != nil {
 			return e
 		}
-		if str(parent["state"]) != stateActive || str(parent["space_state"]) != stateActive {
+		if appState != stateActive || spaceState != stateActive {
 			return conflict("The parent App and Space must be active.")
 		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO microapp_installations (id,tenant_id,app_id,slug,display_name,artifact_ref,navigation_order) VALUES (?,?,?,?,?,?,?)", in.ID, tenant, app, in.Slug, in.Name, nullable(in.Artifact), in.Order)
@@ -394,11 +425,11 @@ func (v *inventory) UpdateApp(ctx context.Context, a Actor, tenant, record strin
 }
 
 func (v *inventory) UpdateMicroapp(ctx context.Context, a Actor, tenant, record string, in metadataPatch, revision int64) (Ref, error) {
-	parent, e := row(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", record, tenant)
-	if e != nil {
+	res := Resource{Tenant: tenant}
+	if e := lookup(ctx, v.db, "SELECT a.space_id,m.app_id FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.id=? AND m.tenant_id=?", []any{record, tenant}, &res.Space, &res.App); e != nil {
 		return Ref{}, e
 	}
-	return v.patch(ctx, a, "microapp_installations", "microapp.manage", Resource{Tenant: tenant, Space: str(parent["space_id"]), App: str(parent["app_id"])}, record, in, revision)
+	return v.patch(ctx, a, "microapp_installations", "microapp.manage", res, record, in, revision)
 }
 
 // patch changes Space, App or micro-app metadata and lifecycle state under the
