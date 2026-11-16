@@ -288,16 +288,16 @@ func (s *Server) workspaceJob(ctx context.Context, q Queryer) error {
 			}
 		}
 		if ready {
-			apps, err := rows(ctx, tx, "SELECT id,data_access_json FROM apps WHERE space_id=?", v["backing_space_id"])
+			apps, err := scanAll[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=?", v["backing_space_id"])
 			if err != nil {
 				return err
 			}
 			for _, a := range apps {
-				access, err := accessOf(a)
+				access, err := accessOf(a.Access)
 				if err != nil {
 					return err
 				}
-				if err = projectAppPermissions(ctx, tx, str(a["id"]), access); err != nil {
+				if err = projectAppPermissions(ctx, tx, a.ID, access); err != nil {
 					return err
 				}
 			}

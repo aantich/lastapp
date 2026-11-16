@@ -82,23 +82,23 @@ func (s *Server) releaseRoutes() {
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }
 
-func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal, app string) (Row, Row, error) {
+func (s *Server) ownedDevelopmentApp(ctx context.Context, q Queryer, p Principal, app string) (appRecord, Row, error) {
 	a, e := s.appRow(ctx, q, app)
 	if e != nil {
-		return nil, nil, e
+		return appRecord{}, nil, e
 	}
-	if a["state"] != stateActive {
-		return nil, nil, conflict("Restore the App before developing or releasing it.")
+	if a.State != stateActive {
+		return appRecord{}, nil, conflict("Restore the App before developing or releasing it.")
 	}
-	w, e := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=? AND state='ready'", a["space_id"])
+	w, e := row(ctx, q, "SELECT * FROM development_workspaces WHERE backing_space_id=? AND state='ready'", a.SpaceID)
 	if e != nil {
-		return nil, nil, missing()
+		return appRecord{}, nil, missing()
 	}
 	if e = s.workspaceOwner(ctx, q, p, w); e != nil {
-		return nil, nil, e
+		return appRecord{}, nil, e
 	}
-	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: app}, true); e != nil {
-		return nil, nil, e
+	if e = s.authorize(ctx, q, p, "release.manage", Resource{Tenant: a.TenantID, App: app}, true); e != nil {
+		return appRecord{}, nil, e
 	}
 	return a, w, nil
 }
@@ -118,7 +118,7 @@ func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (Row
 		}
 	}
 	secret := token(32)
-	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, func(tx *sql.Tx) error {
+	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
 		var n int
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM artifact_uploads WHERE user_id=? AND expires_at>UTC_TIMESTAMP(6) AND build_id IS NULL", p.ID).Scan(&n); e != nil {
 			return e
@@ -130,7 +130,7 @@ func (s *Server) UploadTicket(ctx context.Context, actor Actor, app string) (Row
 		if p.Agent != nil {
 			rev = p.Agent.Revision
 		}
-		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a["tenant_id"], a["id"], p.ID, agentID(p), rev, time.Now().Add(uploadTicketLifetime))
+		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a.TenantID, a.ID, p.ID, agentID(p), rev, time.Now().Add(uploadTicketLifetime))
 		return e
 	})
 	if e != nil {
@@ -272,10 +272,10 @@ func (s *Server) Builds(ctx context.Context, actor Actor, app string, page PageR
 	if e != nil {
 		return Page[Row]{}, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return Page[Row]{}, e
 	}
-	vs, e := pageQuery(ctx, s.DB, page, collectionFor("builds"), "SELECT id,content_hash,entrypoint,size_bytes,created_at FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a["id"])
+	vs, e := pageQuery(ctx, s.DB, page, collectionFor("builds"), "SELECT id,content_hash,entrypoint,size_bytes,created_at FROM app_builds WHERE app_id=? ORDER BY created_at DESC,id", a.ID)
 	return vs, e
 }
 
@@ -307,23 +307,24 @@ func (s *Server) serveAppHost(w http.ResponseWriter, r *http.Request) bool {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	a, e := row(ctx, s.DB, "SELECT a.*,sp.workspace_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' JOIN tenants t ON t.id=a.tenant_id AND t.state='active' LEFT JOIN development_workspaces ws ON ws.id=sp.workspace_id WHERE a.id=? AND a.state='active' AND (sp.workspace_id IS NULL OR ws.state='ready')", app)
+	var workspace, release *string
+	e := lookup(ctx, s.DB, "SELECT sp.workspace_id,a.active_release_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' JOIN tenants t ON t.id=a.tenant_id AND t.state='active' LEFT JOIN development_workspaces ws ON ws.id=sp.workspace_id WHERE a.id=? AND a.state='active' AND (sp.workspace_id IS NULL OR ws.state='ready')", []any{app}, &workspace, &release)
 	if e != nil {
 		http.NotFound(w, r)
 		return true
 	}
 	if r.URL.Path == "/_lastapp/config.json" {
-		send(w, 200, Row{"apiOrigin": s.Config.PublicURL, "appID": app, "environment": map[bool]string{true: "development", false: "production"}[a["workspace_id"] != nil]})
+		send(w, 200, Row{"apiOrigin": s.Config.PublicURL, "appID": app, "environment": map[bool]string{true: "development", false: "production"}[workspace != nil]})
 		return true
 	}
-	if a["active_release_id"] == nil {
+	if release == nil {
 		http.NotFound(w, r)
 		return true
 	}
 	prefix := "/_lastapp/builds/"
 	var build Row
 	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-		build, e = row(ctx, s.DB, "SELECT b.id,b.entrypoint FROM app_releases r JOIN app_builds b ON b.id=r.build_id WHERE r.id=?", a["active_release_id"])
+		build, e = row(ctx, s.DB, "SELECT b.id,b.entrypoint FROM app_releases r JOIN app_builds b ON b.id=r.build_id WHERE r.id=?", *release)
 		if e != nil {
 			http.NotFound(w, r)
 			return true

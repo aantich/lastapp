@@ -734,19 +734,19 @@ func (v *authoring) TestEntity(ctx context.Context, a Actor, key string, in enti
 // AppContracts are the published entity contracts an App may use: its
 // access ceiling narrows fields and permissions unless a is a Space manager.
 func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view contractView) (Row, error) {
-	current, e := row(ctx, v.db, "SELECT * FROM apps WHERE id=?", app)
+	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: str(current["tenant_id"]), App: str(current["id"])}, true); e != nil {
+	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	access, e := accessOf(current)
+	access, e := accessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
-	manager := v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: str(current["tenant_id"]), Space: str(current["space_id"])}, true) == nil
-	vs, e := scanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current["space_id"])
+	manager := v.run.check(ctx, v.db, a, "entity.manage", Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
+	vs, e := scanAll[publishedEntity](ctx, v.db, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
 	if e != nil {
 		return nil, e
 	}
@@ -830,11 +830,11 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 		}
 		out = append(out, Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
-	roles, e := scanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current["id"])
+	roles, e := scanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
 	if e != nil {
 		return nil, e
 	}
-	response := Row{"app_id": current["id"], "space_id": current["space_id"], "app_revision": current["revision"], "entities": out, "roles": roles}
+	response := Row{"app_id": current.ID, "space_id": current.SpaceID, "app_revision": current.Revision, "entities": out, "roles": roles}
 	if view.Section == "inventory" {
 		var page pageInfo
 		out, page, e = pageItems(out, view.Page)
@@ -848,18 +848,18 @@ func (v *authoring) AppContracts(ctx context.Context, a Actor, app string, view 
 
 // AppAccess is an App's data-access policy with its revision.
 func (v *authoring) AppAccess(ctx context.Context, a Actor, app string) (Row, error) {
-	current, e := row(ctx, v.db, "SELECT * FROM apps WHERE id=?", app)
+	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: str(current["tenant_id"]), App: str(current["id"])}, true); e != nil {
+	if e = v.run.check(ctx, v.db, a, "app.manage", Resource{Tenant: current.TenantID, App: current.ID}, true); e != nil {
 		return nil, e
 	}
-	access, e := accessOf(current)
+	access, e := accessOf(current.Access)
 	if e != nil {
 		return nil, e
 	}
-	return Row{"revision": current["revision"], "access": access}, nil
+	return Row{"revision": current.Revision, "access": access}, nil
 }
 
 // SaveAppAccess replaces an App's origin, ceiling and restrictions. Only a
@@ -868,29 +868,29 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 	if revision < 1 {
 		return nil, revisionRequired()
 	}
-	current, e := row(ctx, v.db, "SELECT * FROM apps WHERE id=?", app)
+	current, e := scanOne[appRecord](ctx, v.db, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
 	if e != nil {
 		return nil, e
 	}
-	res := Resource{Tenant: str(current["tenant_id"]), App: str(current["id"])}
+	res := Resource{Tenant: current.TenantID, App: current.ID}
 	e = v.run.mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
-		current, e = row(ctx, tx, "SELECT * FROM apps WHERE id=?", str(current["id"]))
+		current, e = scanOne[appRecord](ctx, tx, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", current.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(current["revision"]), revision); e != nil {
+		if e = checkRevision(current.Revision, revision); e != nil {
 			return e
 		}
 		var wid sql.NullString
-		if e = tx.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE id=?", current["space_id"]).Scan(&wid); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT workspace_id FROM spaces WHERE id=?", current.SpaceID).Scan(&wid); e != nil {
 			return e
 		}
 		workspace := wid.Valid
-		old, e := accessOf(current)
+		old, e := accessOf(current.Access)
 		if e != nil {
 			return e
 		}
-		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", Resource{Tenant: res.Tenant, Space: str(current["space_id"])}) == nil
+		spaceManager := v.run.authorizeTx(ctx, tx, a, "entity.manage", Resource{Tenant: res.Tenant, Space: current.SpaceID}) == nil
 		if !spaceManager && (old.Origin != in.Origin || old.Inherit != in.Inherit || entity.Hash(old.Ceiling) != entity.Hash(in.Ceiling)) {
 			return problem(403, "space_approval_required", "A Space manager must approve the origin and access ceiling.")
 		}
@@ -910,7 +910,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 				if e := id(g.Permission); e != nil {
 					return e
 				}
-				pv, e := scanOne[storedDefinition](ctx, tx, "SELECT v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, current["space_id"])
+				pv, e := scanOne[storedDefinition](ctx, tx, "SELECT v.definition_json FROM permissions p JOIN entity_versions v ON v.id=p.version_id WHERE p.id=? AND p.tenant_id=? AND p.space_id=? AND p.state='active' AND p.domain='data'", g.Permission, res.Tenant, current.SpaceID)
 				if e != nil {
 					return bad("Choose an active permission from this Space.")
 				}
@@ -930,7 +930,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 				}
 				for _, role := range g.Roles {
 					var n int
-					if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND app_id=? AND domain='data' AND state='active'", role, res.Tenant, current["id"]).Scan(&n); e != nil {
+					if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id=? AND tenant_id=? AND app_id=? AND domain='data' AND state='active'", role, res.Tenant, current.ID).Scan(&n); e != nil {
 						return e
 					}
 					if n != 1 {
@@ -944,7 +944,7 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 			parsed, _ := url.Parse(in.Origin)
 			host = strings.ToLower(parsed.Hostname())
 			var occupied int
-			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE origin_host=? AND id<>?", host, current["id"]).Scan(&occupied); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE origin_host=? AND id<>?", host, current.ID).Scan(&occupied); e != nil {
 				return e
 			}
 			if occupied > 0 {
@@ -952,14 +952,14 @@ func (v *authoring) SaveAppAccess(ctx context.Context, a Actor, app string, in e
 			}
 		}
 		b, _ := json.Marshal(in)
-		_, e = tx.ExecContext(ctx, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, nullable(in.Origin), nullable(host), old.Origin, in.Origin, current["id"])
+		_, e = tx.ExecContext(ctx, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", b, nullable(in.Origin), nullable(host), old.Origin, in.Origin, current.ID)
 		if e != nil {
 			return e
 		}
-		if e = projectAppPermissions(ctx, tx, str(current["id"]), in); e != nil {
+		if e = projectAppPermissions(ctx, tx, current.ID, in); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", str(current["id"]), Row{})
+		return auditAs(ctx, tx, a, res.Tenant, "app.data_access_changed", "app", current.ID, Row{})
 	})
 	if e != nil {
 		return nil, e

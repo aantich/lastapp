@@ -200,7 +200,7 @@ func (s *Server) deploymentJob(ctx context.Context, q Queryer) error {
 			if e != nil {
 				return e
 			}
-			old, e := accessOf(current)
+			old, e := accessOf(current.Access)
 			if e != nil {
 				return e
 			}

@@ -66,13 +66,13 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 		return nil, e
 	}
 	var wid string
-	if e = s.DB.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v["space_id"]).Scan(&wid); e != nil {
+	if e = s.DB.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v.SpaceID).Scan(&wid); e != nil {
 		return nil, missing()
 	}
 	if _, e = s.workspaceRow(ctx, s.DB, p, wid); e != nil {
 		return nil, e
 	}
-	a, e := accessOf(v)
+	a, e := accessOf(v.Access)
 	if e != nil {
 		return nil, e
 	}
@@ -80,8 +80,8 @@ func (s *Server) Launch(ctx context.Context, actor Actor, app string, in develop
 		return nil, bad("Approve the exact development App origin using app_access_update first.")
 	}
 	code := token(32)
-	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, func(tx *sql.Tx) error {
-		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v["tenant_id"], v["space_id"], v["id"], in.Origin, v["origin_generation"], in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
+	e = s.run.mutate(ctx, actor, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
+		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 		return e
 	})
 	if e != nil {

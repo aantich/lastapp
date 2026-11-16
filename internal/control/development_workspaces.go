@@ -66,6 +66,14 @@ type snapshotMicroapp struct {
 	State    string `json:"state"`
 }
 
+func (v *snapshotRole) fields() []any {
+	return []any{&v.Revision, &v.ID, &v.App, &v.Code, &v.Name, &v.State}
+}
+
+func (v *snapshotMicroapp) fields() []any {
+	return []any{&v.Revision, &v.ID, &v.App, &v.Slug, &v.Name, &v.Artifact, &v.Order, &v.State}
+}
+
 func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSnapshot, error) {
 	var definitionBytes int64
 	if e := q.QueryRowContext(ctx, "SELECT COALESCE(SUM(OCTET_LENGTH(v.definition_json)),0) FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=?", space).Scan(&definitionBytes); e != nil {
@@ -78,45 +86,46 @@ func (s *Server) snapshot(ctx context.Context, q Queryer, space string) (spaceSn
 	if e := q.QueryRowContext(ctx, "SELECT revision FROM spaces WHERE id=?", space).Scan(&out.Revision); e != nil {
 		return out, e
 	}
-	vs, e := rows(ctx, q, "SELECT e.id,e.revision,e.state,e.pending_version_id,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? ORDER BY e.id", space)
+	var pending *string
+	var definition jsonValue
+	var captured snapshotEntity
+	r, e := q.QueryContext(ctx, "SELECT e.id,e.revision,e.state,e.pending_version_id,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? ORDER BY e.id", space)
 	if e != nil {
 		return out, e
 	}
-	for _, v := range vs {
-		if v["pending_version_id"] != nil {
-			return out, conflict("Wait for entity publications to finish before capturing a workspace or release.")
-		}
-		d, e := defOf(v["definition_json"])
-		if e != nil {
+	defer r.Close()
+	for r.Next() {
+		if e = r.Scan(&captured.ID, &captured.Revision, &captured.State, &pending, &definition); e != nil {
 			return out, e
 		}
-		out.Entities = append(out.Entities, snapshotEntity{integer(v["revision"]), str(v["id"]), str(v["state"]), d})
+		if pending != nil {
+			return out, conflict("Wait for entity publications to finish before capturing a workspace or release.")
+		}
+		if captured.Definition, e = defOf(definition.value()); e != nil {
+			return out, e
+		}
+		out.Entities = append(out.Entities, captured)
 	}
-	vs, e = rows(ctx, q, "SELECT id,revision,app_id,code,display_name,state FROM roles WHERE space_id=? AND domain='data' ORDER BY id", space)
+	if e = r.Err(); e != nil {
+		return out, e
+	}
+	if out.Roles, e = scanAll[snapshotRole](ctx, q, "SELECT revision,id,COALESCE(app_id,''),code,display_name,state FROM roles WHERE space_id=? AND domain='data' ORDER BY id", space); e != nil {
+		return out, e
+	}
+	apps, e := scanAll[appRecord](ctx, q, "SELECT "+appRecordColumns+" FROM apps WHERE space_id=? ORDER BY id", space)
 	if e != nil {
 		return out, e
 	}
-	for _, v := range vs {
-		out.Roles = append(out.Roles, snapshotRole{integer(v["revision"]), str(v["id"]), str(v["app_id"]), str(v["code"]), str(v["display_name"]), str(v["state"])})
-	}
-	vs, e = rows(ctx, q, "SELECT * FROM apps WHERE space_id=? ORDER BY id", space)
-	if e != nil {
-		return out, e
-	}
-	for _, v := range vs {
-		a, e := accessOf(v)
+	for _, v := range apps {
+		a, e := accessOf(v.Access)
 		if e != nil {
 			return out, e
 		}
 		a.Origin = ""
-		out.Apps = append(out.Apps, snapshotApp{integer(v["revision"]), str(v["id"]), str(v["slug"]), str(v["display_name"]), str(v["state"]), a})
+		out.Apps = append(out.Apps, snapshotApp{v.Revision, v.ID, v.Slug, v.Name, v.State, a})
 	}
-	vs, e = rows(ctx, q, "SELECT m.* FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE a.space_id=? ORDER BY m.id", space)
-	if e != nil {
+	if out.Microapps, e = scanAll[snapshotMicroapp](ctx, q, "SELECT m.revision,m.id,m.app_id,m.slug,m.display_name,COALESCE(m.artifact_ref,''),m.navigation_order,m.state FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE a.space_id=? ORDER BY m.id", space); e != nil {
 		return out, e
-	}
-	for _, v := range vs {
-		out.Microapps = append(out.Microapps, snapshotMicroapp{integer(v["revision"]), str(v["id"]), str(v["app_id"]), str(v["slug"]), str(v["display_name"]), str(v["artifact_ref"]), integer(v["navigation_order"]), str(v["state"])})
 	}
 	encoded, _ := json.Marshal(out)
 	if len(encoded) > maxSpaceSnapshotBytes {

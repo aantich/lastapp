@@ -441,6 +441,16 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, permissions, "SELECT id,entity_id,version_id,code,description,state FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
+
+	// The full App record.
+	if _, e = s.DB.Exec("UPDATE apps SET approved_origin='https://typed.example',origin_host='typed.example' WHERE id=?", app); e != nil {
+		t.Fatal(e)
+	}
+	record, e := s.appRow(ctx, s.DB, app)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, record, "SELECT * FROM apps WHERE id=?", app)
 }
 
 func mustJSON(t *testing.T, v any) string {

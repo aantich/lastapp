@@ -24,13 +24,38 @@ var (
 	pkceRE     = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
-func (s *Server) appRow(ctx context.Context, q Queryer, app string) (Row, error) {
-	return row(ctx, q, "SELECT * FROM apps WHERE id=?", app)
+// appRecord is an App's registry row.
+type appRecord struct {
+	ActiveRelease    *string   `json:"active_release_id"`
+	Origin           *string   `json:"approved_origin"`
+	Compute          string    `json:"compute_mode"`
+	CreatedAt        time.Time `json:"created_at"`
+	Access           jsonValue `json:"data_access_json"`
+	Name             string    `json:"display_name"`
+	ID               string    `json:"id"`
+	OriginGeneration int64     `json:"origin_generation"`
+	OriginHost       *string   `json:"origin_host"`
+	Revision         int64     `json:"revision"`
+	Slug             string    `json:"slug"`
+	SpaceID          string    `json:"space_id"`
+	State            string    `json:"state"`
+	TenantID         string    `json:"tenant_id"`
 }
 
-func accessOf(v Row) (entity.AppAccess, error) {
+const appRecordColumns = "active_release_id,approved_origin,compute_mode,created_at,data_access_json,display_name,id,origin_generation,origin_host,revision,slug,space_id,state,tenant_id"
+
+func (v *appRecord) fields() []any {
+	return []any{&v.ActiveRelease, &v.Origin, &v.Compute, &v.CreatedAt, &v.Access, &v.Name, &v.ID, &v.OriginGeneration, &v.OriginHost, &v.Revision, &v.Slug, &v.SpaceID, &v.State, &v.TenantID}
+}
+
+func (s *Server) appRow(ctx context.Context, q Queryer, app string) (appRecord, error) {
+	return scanOne[appRecord](ctx, q, "SELECT "+appRecordColumns+" FROM apps WHERE id=?", app)
+}
+
+// accessOf decodes an App's data_access_json policy.
+func accessOf(v jsonValue) (entity.AppAccess, error) {
 	var a entity.AppAccess
-	b, _ := json.Marshal(v["data_access_json"])
+	b, _ := json.Marshal(v)
 	e := json.Unmarshal(b, &a)
 	return a, e
 }
@@ -50,20 +75,20 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 	if e != nil {
 		return e
 	}
-	if v["state"] != stateActive {
+	if v.State != stateActive {
 		return missing()
 	}
-	if e = s.workspaceGuard(r.Context(), s.DB, p, str(v["space_id"])); e != nil {
+	if e = s.workspaceGuard(r.Context(), s.DB, p, v.SpaceID); e != nil {
 		return e
 	}
-	if e = s.member(r.Context(), s.DB, p, str(v["tenant_id"]), true); e != nil {
+	if e = s.member(r.Context(), s.DB, p, v.TenantID, true); e != nil {
 		return e
 	}
 	var sp string
-	if e = s.DB.QueryRowContext(r.Context(), "SELECT state FROM spaces WHERE id=?", v["space_id"]).Scan(&sp); e != nil || sp != stateActive {
+	if e = s.DB.QueryRowContext(r.Context(), "SELECT state FROM spaces WHERE id=?", v.SpaceID).Scan(&sp); e != nil || sp != stateActive {
 		return missing()
 	}
-	a, e := accessOf(v)
+	a, e := accessOf(v.Access)
 	if e != nil {
 		return e
 	}
@@ -75,7 +100,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p Principal) 
 		return e
 	}
 	code := token(32)
-	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), hash(cookie.Value), v["tenant_id"], v["space_id"], v["id"], a.Origin, v["origin_generation"], in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
+	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), hash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 	if e != nil {
 		return e
 	}
@@ -169,23 +194,25 @@ func projectAppPermissions(ctx context.Context, tx *sql.Tx, app string, a entity
 }
 
 func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p Principal) error {
-	v, e := row(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", r.PathValue("app"))
+	var appID, name, space, spaceName, tenant string
+	var access jsonValue
+	e := lookup(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", []any{r.PathValue("app")}, &appID, &name, &access, &space, &spaceName, &tenant)
 	if e != nil {
 		return e
 	}
-	if e = s.workspaceGuard(r.Context(), s.DB, p, str(v["space_id"])); e != nil {
+	if e = s.workspaceGuard(r.Context(), s.DB, p, space); e != nil {
 		return e
 	}
-	if e = s.member(r.Context(), s.DB, p, str(v["tenant_id"]), true); e != nil {
+	if e = s.member(r.Context(), s.DB, p, tenant, true); e != nil {
 		return e
 	}
-	a, e := accessOf(v)
+	a, e := accessOf(access)
 	if e != nil {
 		return e
 	}
 	if a.Origin == "" {
 		return conflict("A Space manager must approve this App's origin.")
 	}
-	send(w, 200, Row{"id": v["id"], "name": v["display_name"], "space": v["space_name"], "origin": a.Origin})
+	send(w, 200, Row{"id": appID, "name": name, "space": spaceName, "origin": a.Origin})
 	return nil
 }

@@ -52,28 +52,28 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		return nil, e
 	}
 	record := actor.operationID()
-	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, func(tx *sql.Tx) error {
-		a, e = s.appRow(ctx, tx, str(a["id"]))
+	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+		a, e = s.appRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(a["revision"]), rev); e != nil {
+		if e = checkRevision(a.Revision, rev); e != nil {
 			return e
 		}
-		if _, e = row(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", in.Build, a["id"]); e != nil {
+		if _, e = row(ctx, tx, "SELECT id FROM app_builds WHERE id=? AND app_id=?", in.Build, a.ID); e != nil {
 			return e
 		}
 		var count int
-		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_releases WHERE app_id=?", a["id"]).Scan(&count); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM app_releases WHERE app_id=?", a.ID).Scan(&count); e != nil {
 			return e
 		}
 		if count >= maxAppReleases {
 			return conflict("Release limit reached. Start a fresh workspace.")
 		}
-		if e = s.ensureSnapshotReady(ctx, tx, str(a["space_id"])); e != nil {
+		if e = s.ensureSnapshotReady(ctx, tx, a.SpaceID); e != nil {
 			return e
 		}
-		base, e := s.snapshot(ctx, tx, str(a["space_id"]))
+		base, e := s.snapshot(ctx, tx, a.SpaceID)
 		if e != nil {
 			return e
 		}
@@ -82,7 +82,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		}
 		needed := map[string]bool{}
 		for _, v := range base.Microapps {
-			if v.App == str(a["id"]) && v.State == stateActive {
+			if v.App == a.ID && v.State == stateActive {
 				needed[v.Slug] = true
 				if !pinnedVersionRE.MatchString(in.Manifest.Microapps[v.Slug]) {
 					return bad("Pin a version for each active micro-app in this App.")
@@ -119,10 +119,10 @@ func (s *Server) CreateRelease(ctx context.Context, actor Actor, app string, in 
 		production := remapSnapshot(base, ids)
 		snapshotJSON, _ := json.Marshal(production)
 		manifestJSON, _ := json.Marshal(in.Manifest)
-		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a["tenant_id"], a["id"], in.Build, ws["id"], in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws["base_hash"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO app_releases(id,tenant_id,app_id,build_id,workspace_id,display_name,manifest_json,snapshot_json,snapshot_hash,created_by,base_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)", record, a.TenantID, a.ID, in.Build, ws["id"], in.Name, manifestJSON, snapshotJSON, snapshotContractHash(production), p.ID, ws["base_hash"]); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, str(a["tenant_id"]), "release.created", "release", record, Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
+		return auditAs(ctx, tx, actor, a.TenantID, "release.created", "release", record, Row{"build_id": in.Build, "snapshot_hash": snapshotContractHash(production)})
 	})
 	if e != nil {
 		return nil, e
@@ -136,10 +136,10 @@ func (s *Server) Releases(ctx context.Context, actor Actor, app string, page Pag
 	if e != nil {
 		return Page[Row]{}, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return Page[Row]{}, e
 	}
-	vs, e := pageQuery(ctx, s.DB, page, collectionFor("releases"), "SELECT rel.id,rel.display_name,rel.build_id,rel.snapshot_hash,rel.created_at FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a["id"], a["id"])
+	vs, e := pageQuery(ctx, s.DB, page, collectionFor("releases"), "SELECT rel.id,rel.display_name,rel.build_id,rel.snapshot_hash,rel.created_at FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
 	return vs, e
 }
 
@@ -190,24 +190,24 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 	if rev < 1 {
 		return nil, revisionRequired()
 	}
-	origin := s.appHostedOrigin(str(a["id"]))
+	origin := s.appHostedOrigin(a.ID)
 	if origin == "" {
 		return nil, conflict("Configure the App hosting origin first.")
 	}
-	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, func(tx *sql.Tx) error {
-		a, e = s.appRow(ctx, tx, str(a["id"]))
+	e = s.run.mutate(ctx, actor, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
+		a, e = s.appRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(a["revision"]), rev); e != nil {
+		if e = checkRevision(a.Revision, rev); e != nil {
 			return e
 		}
 		// The shared Tenant mutation lock also covers entity/role/App changes.
 		// Validate the complete snapshot under that lock, not in an earlier read.
-		if e = s.ensureSnapshotReady(ctx, tx, str(a["space_id"])); e != nil {
+		if e = s.ensureSnapshotReady(ctx, tx, a.SpaceID); e != nil {
 			return e
 		}
-		currentSnapshot, err := s.snapshot(ctx, tx, str(a["space_id"]))
+		currentSnapshot, err := s.snapshot(ctx, tx, a.SpaceID)
 		if err != nil {
 			return err
 		}
@@ -222,17 +222,17 @@ func (s *Server) PreviewRelease(ctx context.Context, actor Actor, release string
 		if snapshotContractHash(remapSnapshot(currentSnapshot, ids)) != str(rel["snapshot_hash"]) {
 			return conflict("Workspace configuration changed after this release was captured. Capture and test a fresh release.")
 		}
-		access, e := accessOf(a)
+		access, e := accessOf(a.Access)
 		if e != nil {
 			return e
 		}
 		old := access.Origin
 		access.Origin = origin
 		b, _ := json.Marshal(access)
-		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel["id"], b, origin, old, origin, a["id"]); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE apps SET active_release_id=?,data_access_json=?,approved_origin=?,origin_host=NULL,origin_generation=origin_generation+IF(?<>?,1,0),revision=revision+1 WHERE id=?", rel["id"], b, origin, old, origin, a.ID); e != nil {
 			return e
 		}
-		return auditAs(ctx, tx, actor, str(a["tenant_id"]), "release.preview_activated", "app", str(a["id"]), Row{"release_id": rel["id"]})
+		return auditAs(ctx, tx, actor, a.TenantID, "release.preview_activated", "app", a.ID, Row{"release_id": rel["id"]})
 	})
 	if e != nil {
 		return nil, e
@@ -290,10 +290,10 @@ func (s *Server) DeployRelease(ctx context.Context, actor Actor, release string,
 				return conflict("A new production App starts at expected revision 1.")
 			}
 		} else {
-			if e = checkRevision(integer(a["revision"]), rev); e != nil {
+			if e = checkRevision(a.Revision, rev); e != nil {
 				return e
 			}
-			if str(a["active_release_id"]) == str(rel["id"]) {
+			if deref(a.ActiveRelease) == str(rel["id"]) {
 				return conflict("This release is already active in production.")
 			}
 		}
@@ -367,10 +367,10 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Ro
 	if e != nil {
 		return nil, e
 	}
-	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: str(a["tenant_id"]), App: str(a["id"])}, false); e != nil {
+	if e = s.authorize(ctx, s.DB, p, "release.manage", Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return nil, e
 	}
-	space := str(a["space_id"])
+	space := a.SpaceID
 	var production string
 	e = s.DB.QueryRowContext(ctx, "SELECT production_space_id FROM development_workspaces WHERE backing_space_id=?", space).Scan(&production)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
@@ -382,7 +382,7 @@ func (s *Server) AppDeployment(ctx context.Context, actor Actor, app string) (Ro
 	vs, e := rows(ctx, s.DB, `SELECT `+deploymentStatusColumns+`
  FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id
  WHERE d.tenant_id=? AND d.space_id=? AND (d.state IN ('queued','preparing','publishing') OR d.target_app_id=? OR rel.app_id=?)
- ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a["tenant_id"], space, a["id"], a["id"])
+ ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a.TenantID, space, a.ID, a.ID)
 	if e != nil {
 		return nil, e
 	}
