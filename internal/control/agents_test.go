@@ -193,6 +193,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	session, grant, access, refresh := connect(permissions, "space", space)
 	otherEndpoint := &Server{DB: s.DB, Config: s.Config, agentTokenSlots: make(chan struct{}, agentTokenConcurrent)}
 	otherEndpoint.Config.PublicURL = "http://127.0.0.1:8999"
+	otherEndpoint.Checker = &Checker{Audience: otherEndpoint.mcpURL()}
 	foreignRequest := httptest.NewRequest("POST", otherEndpoint.mcpURL(), strings.NewReader(`{}`))
 	foreignRequest.Header.Set("Authorization", "Bearer "+access)
 	if _, e := otherEndpoint.agentPrincipal(foreignRequest); e == nil {

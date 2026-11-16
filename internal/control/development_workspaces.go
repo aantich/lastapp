@@ -226,7 +226,7 @@ func (s *Server) workspaceRow(ctx context.Context, q registry.Queryer, p Princip
 	return v, s.workspaceOwner(ctx, q, p, v)
 }
 
-func (s *Server) workspaceOwner(ctx context.Context, q registry.Queryer, p Principal, v Workspace) error {
+func (s *Checker) workspaceOwner(ctx context.Context, q registry.Queryer, p Principal, v Workspace) error {
 	if v.Owner != p.ID {
 		return registry.Missing()
 	}
@@ -254,7 +254,7 @@ func (s *Server) workspaceOwner(ctx context.Context, q registry.Queryer, p Princ
 	return s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.ProductionSpace}, true)
 }
 
-func (s *Server) workspaceGuard(ctx context.Context, q registry.Queryer, p Principal, space string) error {
+func (s *Checker) workspaceGuard(ctx context.Context, q registry.Queryer, p Principal, space string) error {
 	if space == "" {
 		return nil
 	}
@@ -451,7 +451,7 @@ func lockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
 	return tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&v)
 }
 
-func (s *Server) productionMutationGuard(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource) error {
+func (s *Checker) productionMutationGuard(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource) error {
 	if res.App != "" {
 		if e := q.QueryRowContext(ctx, "SELECT space_id FROM apps WHERE id=? AND tenant_id=?", res.App, res.Tenant).Scan(&res.Space); e != nil {
 			return e

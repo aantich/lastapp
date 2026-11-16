@@ -26,6 +26,14 @@ type Principal struct {
 	PasswordChangeRequired bool
 	Agent                  *agentGrant
 }
+
+// Checker holds the live authorization checks shared by every operation:
+// identity, membership and registry ancestry, delegated grants and the
+// production and workspace guards.
+type Checker struct {
+	// Audience is the MCP resource URI that every delegated grant must name.
+	Audience string
+}
 type (
 	Resource struct{ Tenant, Team, Space, App string }
 	oidcAuth struct {
@@ -228,7 +236,7 @@ func isPlatform(ctx context.Context, q registry.Queryer, user string) (bool, err
 	return n > 0, e
 }
 
-func (s *Server) member(ctx context.Context, q registry.Queryer, p Principal, tenant string, mutating bool) error {
+func (s *Checker) member(ctx context.Context, q registry.Queryer, p Principal, tenant string, mutating bool) error {
 	var state string
 	e := q.QueryRowContext(ctx, "SELECT t.state FROM tenants t JOIN tenant_memberships m ON m.tenant_id=t.id JOIN users u ON u.id=m.user_id WHERE t.id=? AND m.user_id=? AND m.state='active' AND u.state='active'", tenant, p.ID).Scan(&state)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -243,7 +251,7 @@ func (s *Server) member(ctx context.Context, q registry.Queryer, p Principal, te
 	return nil
 }
 
-func (s *Server) scopes(ctx context.Context, q registry.Queryer, p Principal, tenant, action string) (scopeSet, error) {
+func (s *Checker) scopes(ctx context.Context, q registry.Queryer, p Principal, tenant, action string) (scopeSet, error) {
 	if p.Agent != nil {
 		if e := s.checkAgent(ctx, q, p, Resource{Tenant: tenant}, false); e != nil {
 			return scopeSet{}, e
@@ -316,7 +324,7 @@ func effectiveAssignments(ctx context.Context, q registry.Queryer, user, tenant 
 	return registry.ScanAll[EffectiveAssignment](ctx, q, effectiveAssignmentSQL, user, tenant)
 }
 
-func (s *Server) effectiveScopes(ctx context.Context, q registry.Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
+func (s *Checker) effectiveScopes(ctx context.Context, q registry.Queryer, p Principal, tenant string) (map[string]scopeSet, error) {
 	global, e := isPlatform(ctx, q, p.ID)
 	if e != nil {
 		return nil, e
@@ -374,7 +382,7 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
-func (s *Server) authorize(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource, mutating bool) error {
+func (s *Checker) authorize(ctx context.Context, q registry.Queryer, p Principal, action string, res Resource, mutating bool) error {
 	if !controlAction(action) {
 		return registry.Problem(403, "unknown_action", "Unsupported control-plane action.")
 	}

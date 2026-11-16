@@ -148,7 +148,7 @@ func agentHas(g *agentGrant, permission string) bool {
 	return g != nil && slices.Contains(g.Permissions, permission)
 }
 
-func (s *Server) checkAgent(ctx context.Context, q registry.Queryer, p Principal, res Resource, exact bool) error {
+func (s *Checker) checkAgent(ctx context.Context, q registry.Queryer, p Principal, res Resource, exact bool) error {
 	g := p.Agent
 	if g == nil {
 		return nil
@@ -156,7 +156,7 @@ func (s *Server) checkAgent(ctx context.Context, q registry.Queryer, p Principal
 	var revision int64
 	e := q.QueryRowContext(ctx, `SELECT g.revision FROM agent_grants g JOIN users u ON u.id=g.user_id AND u.state='active'
  LEFT JOIN local_accounts l ON l.user_id=u.id WHERE g.id=? AND g.user_id=? AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)
- AND COALESCE(l.must_change_password,0)=0 AND g.audience_uri=? LOCK IN SHARE MODE`, g.ID, p.ID, s.mcpURL()).Scan(&revision)
+ AND COALESCE(l.must_change_password,0)=0 AND g.audience_uri=? LOCK IN SHARE MODE`, g.ID, p.ID, s.Audience).Scan(&revision)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
@@ -198,7 +198,7 @@ func (s *Server) checkAgent(ctx context.Context, q registry.Queryer, p Principal
 	return registry.Missing()
 }
 
-func (s *Server) agentScope(ctx context.Context, q registry.Queryer, p Principal, sc scopeSet) scopeSet {
+func (s *Checker) agentScope(ctx context.Context, q registry.Queryer, p Principal, sc scopeSet) scopeSet {
 	g := p.Agent
 	if g == nil || g.Kind == "tenant" || g.Kind == "platform" {
 		return sc
@@ -277,7 +277,7 @@ func agentMutationFinish(ctx context.Context, tx *sql.Tx, a *AgentCall) error {
 	return e
 }
 
-func (s *Server) agentJobAllowed(ctx context.Context, q registry.Queryer, grant, user string, res Resource, permission string, targets ...string) error {
+func (s *Checker) agentJobAllowed(ctx context.Context, q registry.Queryer, grant, user string, res Resource, permission string, targets ...string) error {
 	if grant == "" {
 		return nil
 	}
@@ -306,7 +306,7 @@ func (s *Server) agentJobAllowed(ctx context.Context, q registry.Queryer, grant,
 	return s.authorize(ctx, q, p, action, res, true)
 }
 
-func (s *Server) readAgentGrant(ctx context.Context, q registry.Queryer, key string) (*agentGrant, error) {
+func (s *Checker) readAgentGrant(ctx context.Context, q registry.Queryer, key string) (*agentGrant, error) {
 	g, e := scanAgentGrant(ctx, q, "SELECT "+agentGrantColumns+" FROM agent_grants g WHERE g.id=?", []any{key})
 	if e != nil {
 		return nil, e
