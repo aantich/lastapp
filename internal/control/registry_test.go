@@ -101,7 +101,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	sameJSON(t, s.DB, plan, "SELECT id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at FROM plans WHERE id=?", limited["id"])
 
 	for i, artifact := range []string{"", "https://example.test/a.js"} {
-		in := microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "typed-" + registry.NewID()[:8], Name: "Typed"}, Artifact: artifact, Order: i}
+		in := microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "typed-" + registry.NewID()[:8], Name: "Typed"}, Artifact: artifact, Order: i}
 		if _, e = s.inv.CreateMicroapp(ctx, admin, tenant, app, in); e != nil {
 			t.Fatal(e)
 		}
@@ -203,7 +203,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.members.UpdateMembership(ctx, admin, tenant, joe, registry.StateActive, 2); e != nil {
 		t.Fatal(e)
 	}
-	team := namedInput{ID: registry.NewID(), Slug: "typed", Name: "Typed"}
+	team := op.NamedInput{ID: registry.NewID(), Slug: "typed", Name: "Typed"}
 	if _, e = s.members.CreateTeam(ctx, admin, tenant, team); e != nil {
 		t.Fatal(e)
 	}

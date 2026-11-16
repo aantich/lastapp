@@ -341,3 +341,13 @@ func agentMutationFinish(ctx context.Context, tx *sql.Tx, a *access.AgentCall) e
 	}
 	return e
 }
+
+type Done struct {
+	OK bool `json:"ok"`
+}
+
+type NamedInput struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"display_name"`
+}

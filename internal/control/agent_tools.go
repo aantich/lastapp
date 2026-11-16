@@ -47,7 +47,7 @@ type agentRoleInput struct {
 	Name string `json:"display_name"`
 }
 type agentTenantInput struct {
-	namedInput
+	op.NamedInput
 	Plan   string `json:"plan_id"`
 	Layout string `json:"default_layout"`
 	Admin  string `json:"initial_admin_user_id"`
@@ -58,7 +58,7 @@ type agentCreateInput struct {
 	Space      *spaceCreateInput    `json:"space,omitempty"`
 	App        *appCreateInput      `json:"app,omitempty"`
 	Microapp   *microappCreateInput `json:"microapp,omitempty"`
-	Team       *namedInput          `json:"team,omitempty"`
+	Team       *op.NamedInput       `json:"team,omitempty"`
 	Role       *agentRoleInput      `json:"role,omitempty"`
 	Tenant     *agentTenantInput    `json:"tenant,omitempty"`
 	Plan       *planInput           `json:"plan,omitempty"`
@@ -232,7 +232,7 @@ func strictAgentInput(raw json.RawMessage, dst any) error {
 
 func (s *Server) mcpHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := withRequestDeadline(r.Context())
+		ctx, cancel := op.WithRequestDeadline(r.Context())
 		defer cancel()
 		r = r.WithContext(ctx)
 		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {

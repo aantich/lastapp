@@ -476,9 +476,9 @@ func platformCandidate(ctx context.Context, q registry.Queryer, user string) err
 
 // Revoke deletes an assignment under its revision, keeping at least one
 // platform and one Tenant administrator.
-func (v *authority) Revoke(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, record string, revision int64) (done, error) {
+func (v *authority) Revoke(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, record string, revision int64) (op.Done, error) {
 	if revision < 1 {
-		return done{}, op.RevisionRequired()
+		return op.Done{}, op.RevisionRequired()
 	}
 	e := v.run.Mutate(ctx, a, assignmentAction(scope, true), res, func(tx *sql.Tx) error {
 		where, args := assignmentFilter(scope)
@@ -519,9 +519,9 @@ func (v *authority) Revoke(ctx context.Context, a op.Actor, scope authz.Scope, r
 		return op.AuditAs(ctx, tx, a, scope.Tenant, "grant.deleted", "access_grant", record, registry.Row{"before": before, "after": nil})
 	})
 	if e != nil {
-		return done{}, e
+		return op.Done{}, e
 	}
-	return done{OK: true}, nil
+	return op.Done{OK: true}, nil
 }
 
 // Recipients lets scope managers search eligible users or active teams without

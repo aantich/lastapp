@@ -56,7 +56,7 @@ func (a preparedAccount) deadline(ctx context.Context) (context.Context, context
 	if a.Hash == nil {
 		return ctx, func() {}
 	}
-	return renewDeadline(ctx)
+	return op.RenewDeadline(ctx)
 }
 
 func loginEmail(raw string) (string, error) {
@@ -179,7 +179,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 	if e != nil {
 		return e
 	}
-	ctx, cancel := renewDeadline(r.Context())
+	ctx, cancel := op.RenewDeadline(r.Context())
 	defer cancel()
 	var user string
 	e = s.mutate(ctx, p, "platform.admin", access.Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
@@ -355,7 +355,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 		return e
 	}
 	next := passwordKey(in.Next, salt, passwordIterations)
-	ctx, cancel := renewDeadline(r.Context())
+	ctx, cancel := op.RenewDeadline(r.Context())
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {

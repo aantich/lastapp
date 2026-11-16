@@ -13,11 +13,6 @@ import (
 	"github.com/aantich/lastapp/internal/registry"
 )
 
-type namedInput struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-	Name string `json:"display_name"`
-}
 type metadataPatch struct {
 	Name     *string `json:"display_name"`
 	State    *string `json:"state"`
@@ -26,7 +21,7 @@ type metadataPatch struct {
 	Order    *int    `json:"navigation_order"`
 }
 type spaceCreateInput struct {
-	namedInput
+	op.NamedInput
 	Manager  string `json:"initial_manager_user_id,omitempty"`
 	Database struct {
 		Resource string `json:"resource_id,omitempty"`
@@ -36,12 +31,12 @@ type spaceCreateInput struct {
 	} `json:"database"`
 }
 type appCreateInput struct {
-	namedInput
+	op.NamedInput
 	Manager string `json:"initial_manager_user_id,omitempty"`
 	Compute string `json:"compute_mode,omitempty"`
 }
 type microappCreateInput struct {
-	namedInput
+	op.NamedInput
 	Artifact string `json:"artifact_ref,omitempty"`
 	Order    int    `json:"navigation_order,omitempty"`
 }

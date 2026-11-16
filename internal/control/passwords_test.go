@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -98,9 +99,9 @@ func TestRequestDeadlineExcludesPasswordDerivation(t *testing.T) {
 	start := time.Now()
 	passwordKey("Slow derivation 8!", make([]byte, 16), passwordIterations)
 	derivation := time.Since(start)
-	previous := requestTimeout
-	requestTimeout = derivation / 2
-	t.Cleanup(func() { requestTimeout = previous })
+	previous := op.RequestTimeout
+	op.RequestTimeout = derivation / 2
+	t.Cleanup(func() { op.RequestTimeout = previous })
 	account := func(label string) registry.Row {
 		return registry.Row{"display_name": "Slow " + label, "email": "slow-" + label + "-" + registry.NewID() + "@example.test", "password": "Slow derivation 8!"}
 	}
@@ -304,7 +305,7 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 // TestAccountDeadlineRenewsOnlyAfterDerivation pins that only a derived
 // password renews the request deadline; choosing an existing account keeps it.
 func TestAccountDeadlineRenewsOnlyAfterDerivation(t *testing.T) {
-	ctx, cancel := withRequestDeadline(context.Background())
+	ctx, cancel := op.WithRequestDeadline(context.Background())
 	defer cancel()
 	original, _ := ctx.Deadline()
 	time.Sleep(10 * time.Millisecond)

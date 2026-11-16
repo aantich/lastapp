@@ -46,7 +46,7 @@ func TestInventoryOperations(t *testing.T) {
 	human := op.Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
 
 	// Console actor: create, revision rules and audit attribution.
-	in := microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Order: 2}
+	in := microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Order: 2}
 	ref, e := s.inv.CreateMicroapp(ctx, human, tenant, app, in)
 	if e != nil || ref.ID != in.ID || ref.Revision != 1 {
 		t.Fatal("console create", ref, e)
@@ -75,13 +75,13 @@ func TestInventoryOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='outsider'").Scan(&outsider); e != nil {
 		t.Fatal(e)
 	}
-	_, e = s.inv.CreateMicroapp(ctx, op.Actor{Principal: access.Principal{ID: outsider}, RequestID: registry.NewID()}, tenant, app, microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "denied", Name: "Denied"}})
+	_, e = s.inv.CreateMicroapp(ctx, op.Actor{Principal: access.Principal{ID: outsider}, RequestID: registry.NewID()}, tenant, app, microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "denied", Name: "Denied"}})
 	wantProblem(t, e, 404, "not_found")
 	_, e = s.inv.Plans(ctx, human, op.PageRequest{})
 	wantProblem(t, e, 403, "forbidden")
 
 	// Agent actor: receipt, replay, conflicting reuse and grant attribution.
-	agentIn := microappCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "agent", Name: "Agent"}}
+	agentIn := microappCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "agent", Name: "Agent"}}
 	call := agentCall(p, "lastapp_create", agentIn, "resources.write")
 	agent := op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}
 	if _, e = s.inv.CreateMicroapp(ctx, agent, tenant, app, agentIn); e != nil || !call.Committed {
@@ -138,7 +138,7 @@ func TestTenantInventoryOperations(t *testing.T) {
 	if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'ops_metadata_only','registered','shared','ready',X'00')", resource, tenant.ID, target); e != nil {
 		t.Fatal(e)
 	}
-	space := spaceCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
+	space := spaceCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
 	space.Database.Resource = resource
 	if _, e = s.inv.CreateSpace(ctx, human, tenant.ID, space); e != nil {
 		t.Fatal("console space", e)
@@ -157,7 +157,7 @@ func TestTenantInventoryOperations(t *testing.T) {
 		t.Fatal(e)
 	}
 	p := access.Principal{ID: owner, Agent: g}
-	app := appCreateInput{namedInput: namedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
+	app := appCreateInput{NamedInput: op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}, Manager: owner}
 	call := agentCall(p, "lastapp_create", app, "resources.write")
 	agent := op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}
 	if _, e = s.inv.CreateApp(ctx, agent, tenant.ID, space.ID, app); e != nil || !call.Committed {
@@ -201,7 +201,7 @@ func TestMembershipOperations(t *testing.T) {
 	wantProblem(t, e, 428, "revision_required")
 	_, e = s.members.UpdateMembership(ctx, human, tenant, p.ID, registry.StateDisabled, 1)
 	wantProblem(t, e, 409, "conflict") // the last Tenant administrator stays active
-	team := namedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}
+	team := op.NamedInput{ID: registry.NewID(), Slug: "ops", Name: "Ops"}
 	if ref, e := s.members.CreateTeam(ctx, human, tenant, team); e != nil || ref.Revision != 1 {
 		t.Fatal("console team", ref, e)
 	}

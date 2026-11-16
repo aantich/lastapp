@@ -33,9 +33,6 @@ type (
 	memberRef struct {
 		UserID string `json:"user_id"`
 	}
-	done struct {
-		OK bool `json:"ok"`
-	}
 	teamPatch struct {
 		Name  *string `json:"display_name"`
 		State *string `json:"state"`
@@ -185,12 +182,12 @@ func (m *membership) AddMembership(ctx context.Context, a op.Actor, tenant strin
 // UpdateMembership enables or disables a Tenant membership under its
 // revision, keeping an active Tenant administrator. Disabling revokes the
 // user's agent delegations in the Tenant.
-func (m *membership) UpdateMembership(ctx context.Context, a op.Actor, tenant, user, state string, revision int64) (done, error) {
+func (m *membership) UpdateMembership(ctx context.Context, a op.Actor, tenant, user, state string, revision int64) (op.Done, error) {
 	if !registry.EnabledState(state) {
-		return done{}, registry.Bad("Invalid membership state.")
+		return op.Done{}, registry.Bad("Invalid membership state.")
 	}
 	if revision < 1 {
-		return done{}, op.RevisionRequired()
+		return op.Done{}, op.RevisionRequired()
 	}
 	e := m.run.Mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		var before memberState
@@ -226,9 +223,9 @@ func (m *membership) UpdateMembership(ctx context.Context, a op.Actor, tenant, u
 		return op.AuditAs(ctx, tx, a, tenant, "membership.updated", "user", user, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state, "revision": revision + 1}})
 	})
 	if e != nil {
-		return done{}, e
+		return op.Done{}, e
 	}
-	return done{OK: true}, nil
+	return op.Done{OK: true}, nil
 }
 
 func (m *membership) Teams(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Team], error) {
@@ -261,7 +258,7 @@ func (m *membership) Team(ctx context.Context, a op.Actor, tenant, team string) 
 	return registry.ScanOne[Team](ctx, m.db, "SELECT "+teamColumns+" FROM groups g WHERE g.tenant_id=? AND g.id=?", tenant, team)
 }
 
-func (m *membership) CreateTeam(ctx context.Context, a op.Actor, tenant string, in namedInput) (op.Ref, error) {
+func (m *membership) CreateTeam(ctx context.Context, a op.Actor, tenant string, in op.NamedInput) (op.Ref, error) {
 	if e := registry.ID(in.ID); e != nil {
 		return op.Ref{}, e
 	}
@@ -312,23 +309,23 @@ func (m *membership) UpdateTeam(ctx context.Context, a op.Actor, tenant, team st
 	return m.run.Ref(ctx, "groups", tenant, team)
 }
 
-func (m *membership) AddTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (done, error) {
+func (m *membership) AddTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (op.Done, error) {
 	return m.changeTeamMember(ctx, a, tenant, team, user, revision, true)
 }
 
 // RemoveTeamMember also deletes the user's team-scoped role assignments.
-func (m *membership) RemoveTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (done, error) {
+func (m *membership) RemoveTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (op.Done, error) {
 	return m.changeTeamMember(ctx, a, tenant, team, user, revision, false)
 }
 
 // changeTeamMember adds or removes a member under the team's revision, which
 // every membership change advances.
-func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64, add bool) (done, error) {
+func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64, add bool) (op.Done, error) {
 	if e := registry.ID(user); e != nil {
-		return done{}, e
+		return op.Done{}, e
 	}
 	if revision < 1 {
-		return done{}, op.RevisionRequired()
+		return op.Done{}, op.RevisionRequired()
 	}
 	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
 		old, e := registry.LockRecord(ctx, tx, "groups", tenant, team)
@@ -380,19 +377,19 @@ func (m *membership) changeTeamMember(ctx context.Context, a op.Actor, tenant, t
 		return op.AuditAs(ctx, tx, a, tenant, "group.members_changed", "group", team, registry.Row{"before": registry.Row{"user_id": user, "member": wasMember > 0}, "after": registry.Row{"user_id": user, "member": add}})
 	})
 	if e != nil {
-		return done{}, e
+		return op.Done{}, e
 	}
-	return done{OK: true}, nil
+	return op.Done{OK: true}, nil
 }
 
 // SetTeamMemberState enables or disables a team member under the team's
 // revision. Enabling requires an active Tenant member.
-func (m *membership) SetTeamMemberState(ctx context.Context, a op.Actor, tenant, team, user, state string, revision int64) (done, error) {
+func (m *membership) SetTeamMemberState(ctx context.Context, a op.Actor, tenant, team, user, state string, revision int64) (op.Done, error) {
 	if !registry.EnabledState(state) {
-		return done{}, registry.Bad("Invalid membership state.")
+		return op.Done{}, registry.Bad("Invalid membership state.")
 	}
 	if revision < 1 {
-		return done{}, op.RevisionRequired()
+		return op.Done{}, op.RevisionRequired()
 	}
 	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
 		locked, e := registry.LockRecord(ctx, tx, "groups", tenant, team)
@@ -421,9 +418,9 @@ func (m *membership) SetTeamMemberState(ctx context.Context, a op.Actor, tenant,
 		return op.AuditAs(ctx, tx, a, tenant, "team.membership.updated", "group", team, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state}})
 	})
 	if e != nil {
-		return done{}, e
+		return op.Done{}, e
 	}
-	return done{OK: true}, nil
+	return op.Done{OK: true}, nil
 }
 
 // TeamMembers requires team management authority, not only team read.
@@ -489,7 +486,7 @@ func (s *Server) getGroup(w http.ResponseWriter, r *http.Request, p access.Princ
 }
 
 func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	var in namedInput
+	var in op.NamedInput
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
