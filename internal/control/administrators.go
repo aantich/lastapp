@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-
-	"github.com/aantich/lastapp/internal/authz"
 )
 
 // AddAdministrator makes an existing account or a new local account a Tenant
@@ -124,31 +122,6 @@ func (s *Server) tenantAdministrators(w http.ResponseWriter, r *http.Request, p 
 	v, e := s.members.Administrators(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
 	if e == nil {
 		send(w, 200, v)
-	}
-	return e
-}
-
-// Scope managers can search eligible recipients without reading the global user
-// directory or receiving broader membership-management authority.
-func (s *Server) recipientOptions(w http.ResponseWriter, r *http.Request, p Principal) error {
-	scope, res, e := requestScope(r)
-	if e != nil {
-		return e
-	}
-	if scope.Kind == authz.Platform {
-		return bad("A Tenant scope is required.")
-	}
-	if e = s.authorize(r.Context(), s.DB, p, "authorization.manage", res, false); e != nil {
-		return e
-	}
-	var v []Row
-	if r.URL.Query().Get("type") == "team" {
-		v, e = pageRows(r.Context(), s.DB, r, "SELECT id,display_name FROM groups WHERE tenant_id=? AND state='active' ORDER BY display_name,id", scope.Tenant)
-	} else {
-		v, e = pageRows(r.Context(), s.DB, r, "SELECT u.id,u.id AS user_id,u.display_name,u.email FROM users u JOIN tenant_memberships m ON m.user_id=u.id WHERE m.tenant_id=? AND m.state='active' AND u.state='active' AND NOT EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) ORDER BY u.display_name,u.id", scope.Tenant, SuperRole)
-	}
-	if e == nil {
-		sendPage(w, r, v)
 	}
 	return e
 }

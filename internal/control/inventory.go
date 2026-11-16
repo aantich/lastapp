@@ -47,7 +47,7 @@ type inventory struct {
 	db  *sql.DB
 	run *runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, p Principal, tenant string, in databaseInput, policy Row, request string) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Row, workspace *Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
@@ -154,7 +154,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 				}
 				resource = newID()
 				dbIn := databaseInput{ID: resource, Mode: "managed", Layout: layout, Target: in.Database.Target}
-				if e = v.allocateDatabase(ctx, tx, a.Principal, tenant, dbIn, policy, a.RequestID); e != nil {
+				if e = v.allocateDatabase(ctx, tx, a, tenant, dbIn, policy, nil); e != nil {
 					return e
 				}
 				if layout == "shared" {
@@ -168,7 +168,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 		if e != nil {
 			return e
 		}
-		if e := assignInitialManager(ctx, tx, a.Principal, tenant, in.ID, "", in.Manager, a.RequestID); e != nil {
+		if e := assignInitialManager(ctx, tx, a, tenant, in.ID, "", in.Manager); e != nil {
 			return e
 		}
 		return auditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, Row{"database_resource_id": resource})
@@ -245,7 +245,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 		if e != nil {
 			return e
 		}
-		if e := assignInitialManager(ctx, tx, a.Principal, tenant, space, in.ID, in.Manager, a.RequestID); e != nil {
+		if e := assignInitialManager(ctx, tx, a, tenant, space, in.ID, in.Manager); e != nil {
 			return e
 		}
 		return auditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, Row{"space_id": space})

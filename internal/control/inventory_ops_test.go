@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
 )
 
@@ -243,4 +244,144 @@ func TestMembershipOperations(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT revision FROM groups WHERE id=?", team.ID).Scan(&n); e != nil || n != 4 {
 		t.Fatal("team revision after one removal", n, e)
 	}
+}
+
+func TestAuthorityOperations(t *testing.T) {
+	s, _, p, tenant, space, _ := agentSpaceFixture(t)
+	ctx := context.Background()
+	human := Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}
+	scope, res, e := scopeOf(tenant, "", space, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+
+	// Console actor: custom role, revisions and the fixed-role guard.
+	role := roleInput{ID: newID(), Code: "reviewer", Name: "Reviewer"}
+	ref, e := s.authority.CreateRole(ctx, human, scope, res, role)
+	if e != nil || ref.Revision != 1 {
+		t.Fatal("console role", ref, e)
+	}
+	tenantScope, tenantRes, _ := scopeOf(tenant, "", "", "")
+	_, e = s.authority.CreateRole(ctx, human, tenantScope, tenantRes, roleInput{ID: newID(), Code: "x", Name: "X"})
+	wantProblem(t, e, 400, "invalid_request")
+	name := "Lead reviewer"
+	_, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, rolePatch{Name: &name}, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, rolePatch{Name: &name}, 2)
+	wantProblem(t, e, 412, "stale_revision")
+	if ref, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, rolePatch{Name: &name}, 1); e != nil || ref.Revision != 2 {
+		t.Fatal("console role update", ref, e)
+	}
+	_, e = s.authority.UpdateRole(ctx, human, scope, res, authz.SpaceManagerRole, rolePatch{Name: &name}, 1)
+	wantProblem(t, e, 403, "protected_role")
+
+	// Grant and revoke the custom role; the audit carries the console request.
+	grant := assignmentInput{ID: newID(), User: p.ID, Role: role.ID}
+	if ref, e = s.authority.Grant(ctx, human, scope, res, grant); e != nil || ref.Revision != 1 {
+		t.Fatal("console grant", ref, e)
+	}
+	page, e := s.authority.Assignments(ctx, human, scope, res, PageRequest{})
+	if e != nil || len(page.Items) != 2 {
+		t.Fatal("console assignments", page, e)
+	}
+	if v, e := s.authority.Assignment(ctx, human, scope, res, grant.ID); e != nil || str(v["role_id"]) != role.ID {
+		t.Fatal("console assignment", v, e)
+	}
+	_, e = s.authority.Revoke(ctx, human, scope, res, grant.ID, 0)
+	wantProblem(t, e, 428, "revision_required")
+	if _, e = s.authority.Revoke(ctx, human, scope, res, grant.ID, 1); e != nil {
+		t.Fatal("console revoke", e)
+	}
+	var n int
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND action IN ('role.created','role.updated','grant.created','grant.deleted')", human.RequestID).Scan(&n); e != nil || n != 4 {
+		t.Fatal("console audit attribution", n, e)
+	}
+
+	// Agent actor: access.manage is required and the receipt records the grant.
+	call := agentCall(p, "lastapp_assignment", "grant", "access.manage")
+	_, e = s.authority.Grant(ctx, Actor{Principal: p, RequestID: newID(), Agent: call}, scope, res, assignmentInput{ID: newID(), User: p.ID, Role: role.ID})
+	wantProblem(t, e, 403, "needs_authorization")
+	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\",\"production.deploy\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
+		t.Fatal(e)
+	}
+	if p.Agent, e = s.readAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
+		t.Fatal(e)
+	}
+	call = agentCall(p, "lastapp_assignment", "grant", "access.manage")
+	agent := Actor{Principal: p, RequestID: newID(), Agent: call}
+	team := assignmentInput{ID: newID(), User: p.ID, Role: role.ID}
+	if _, e = s.authority.Grant(ctx, agent, scope, res, team); e != nil || !call.Committed {
+		t.Fatal("agent grant", e)
+	}
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND JSON_VALUE(details_json,'$.agent_grant_id')=?", agent.RequestID, p.Agent.ID).Scan(&n); e != nil || n != 1 {
+		t.Fatal("agent audit attribution", n, e)
+	}
+	recipients, e := s.authority.Recipients(ctx, agent, scope, res, false, PageRequest{})
+	if e != nil || len(recipients.Items) == 0 {
+		t.Fatal("agent recipients", recipients, e)
+	}
+	_, e = s.authority.Recipients(ctx, agent, authz.Scope{Kind: authz.Platform}, Resource{}, false, PageRequest{})
+	wantProblem(t, e, 400, "invalid_request")
+}
+
+func TestStorageOperations(t *testing.T) {
+	s, _, p, tenant, allowed, denied := agentSecurityFixture(t)
+	ctx := context.Background()
+	human := Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}
+	var operator string
+	if e := s.DB.QueryRow("SELECT id FROM users WHERE oidc_subject='operator'").Scan(&operator); e != nil {
+		t.Fatal(e)
+	}
+	platform := Actor{Principal: Principal{ID: operator, Platform: true}, RequestID: newID()}
+
+	// Targets are platform inventory; a Tenant sees only active targets.
+	_, e := s.storage.Targets(ctx, human, PageRequest{})
+	wantProblem(t, e, 403, "forbidden")
+	name := "Renamed target"
+	_, e = s.storage.UpdateTarget(ctx, platform, denied, targetPatch{Name: &name}, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.storage.UpdateTarget(ctx, platform, denied, targetPatch{Name: &name}, 2)
+	wantProblem(t, e, 412, "stale_revision")
+	disabled := stateDisabled
+	if ref, e := s.storage.UpdateTarget(ctx, platform, denied, targetPatch{State: &disabled}, 1); e != nil || ref.Revision != 2 {
+		t.Fatal("platform target update", ref, e)
+	}
+	available, e := s.storage.AvailableTargets(ctx, human, tenant, true, PageRequest{})
+	if e != nil || len(available.Items) != 1 || str(available.Items[0]["id"]) != allowed {
+		t.Fatal("available targets", available, e)
+	}
+	_, e = s.storage.CreateTarget(ctx, platform, targetInput{ID: newID(), Name: "Bad", Host: "db.example", Port: 3306, TLS: "none"})
+	wantProblem(t, e, 400, "invalid_request")
+
+	// Resources: registration, reads, revisions and the retirement guard.
+	record := newID()
+	in := databaseInput{ID: record, Mode: "registered", Layout: "shared", Target: allowed, Database: "review_registered", Credentials: credentials{Username: "u", Password: "p"}}
+	if ref, e := s.storage.CreateDatabase(ctx, human, tenant, in); e != nil || ref.ID != record {
+		t.Fatal("register database", ref, e)
+	}
+	if v, e := s.storage.Database(ctx, human, tenant, record); e != nil || str(v["state"]) != "pending" {
+		t.Fatal("database", v, e)
+	}
+	if page, e := s.storage.Databases(ctx, human, tenant, PageRequest{}); e != nil || len(page.Items) == 0 {
+		t.Fatal("databases", page, e)
+	}
+	_, e = s.storage.UpdateDatabase(ctx, human, tenant, record, databaseChange{State: stateRetired}, 0)
+	wantProblem(t, e, 428, "revision_required")
+	_, e = s.storage.UpdateDatabase(ctx, human, tenant, record, databaseChange{State: stateRetired}, 1)
+	wantProblem(t, e, 409, "conflict") // still pending
+	if _, e = s.DB.Exec("UPDATE database_resources SET state='failed' WHERE id=?", record); e != nil {
+		t.Fatal(e)
+	}
+	if ref, e := s.storage.UpdateDatabase(ctx, human, tenant, record, databaseChange{State: stateRetired}, 1); e != nil || ref.Revision != 2 {
+		t.Fatal("retire database", ref, e)
+	}
+	var n int
+	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND action IN ('database.requested','database.retired')", human.RequestID).Scan(&n); e != nil || n != 2 {
+		t.Fatal("console audit attribution", n, e)
+	}
+
+	// Agent actor: managed provisioning is limited to approved targets.
+	call := agentCall(p, "lastapp_database", "provision", "databases.provision")
+	_, e = s.storage.CreateDatabase(ctx, Actor{Principal: p, RequestID: newID(), Agent: call}, tenant, databaseInput{ID: newID(), Mode: "managed", Layout: "shared", Target: denied})
+	wantProblem(t, e, 403, "needs_authorization")
 }

@@ -178,28 +178,25 @@ func (s *Server) agentList(ctx context.Context, p Principal, in agentReadInput) 
 			return nil, bad("team_member needs a team target.")
 		}
 		return agentPage(s.members.TeamMembers(ctx, agentActor(ctx, p), res.Tenant, target.ID, in.pageRequest()))
-	case "recipient":
-		fn = s.recipientOptions
-		path = agentScopePath(res, target) + "/recipients"
-		if in.RecipientType != "" {
-			path += "?type=" + in.RecipientType
+	case "recipient", "role", "role_assignment":
+		scope, sr, e := agentScope(res, target)
+		if e != nil {
+			return nil, e
 		}
-	case "role":
-		fn = s.roles
-		path = agentScopePath(res, target) + "/roles"
-	case "role_assignment":
-		fn = s.grants
-		path = agentScopePath(res, target) + "/role-assignments"
+		switch in.Resource {
+		case "recipient":
+			return agentPage(s.authority.Recipients(ctx, agentActor(ctx, p), scope, sr, in.RecipientType == "team", in.pageRequest()))
+		case "role":
+			return agentPage(s.authority.Roles(ctx, agentActor(ctx, p), scope, sr, in.pageRequest()))
+		}
+		return agentPage(s.authority.Assignments(ctx, agentActor(ctx, p), scope, sr, in.pageRequest()))
 	case "database":
-		fn = s.databases
-		path += "/database-resources"
+		return agentPage(s.storage.Databases(ctx, agentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "database_target":
-		fn = s.availableTargets
-		path += "/database-targets"
 		if target.Kind == "platform" {
-			fn = s.targets
-			path = "/admin/v1/database-targets"
+			return agentPage(s.storage.Targets(ctx, agentActor(ctx, p), in.pageRequest()))
 		}
+		return agentPage(s.storage.AvailableTargets(ctx, agentActor(ctx, p), res.Tenant, false, in.pageRequest()))
 	case "audit_event":
 		fn = s.audits
 		path += "/audit-events"
@@ -345,7 +342,7 @@ func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMess
 		}
 		return s.inv.Tenant(ctx, agentActor(ctx, p), in.ID)
 	case "database":
-		fn = s.getDatabase
+		return s.storage.Database(ctx, agentActor(ctx, p), res.Tenant, in.ID)
 	case "app_access":
 		paths["app"] = in.ID
 		fn = s.appAccessGet
@@ -390,26 +387,14 @@ func (s *Server) toolAgentGet(ctx context.Context, p Principal, raw json.RawMess
 	case "microapp":
 		return s.inv.Microapp(ctx, agentActor(ctx, p), res.Tenant, in.ID)
 	case "role", "role_assignment":
-		if e = s.authorize(ctx, s.DB, p, "authorization.read", res, false); e != nil {
-			return nil, e
+		scope, err := authzScope(res, target)
+		if err != nil {
+			return nil, err
 		}
-		var v Row
 		if in.Resource == "role" {
-			scope, err := authzScope(res, target)
-			if err != nil {
-				return nil, err
-			}
-			v, e = row(ctx, s.DB, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=? AND scope_kind=? AND (owner_key='builtin' OR owner_key=?)", in.ID, scope.Kind, scope.OwnerKey())
-		} else {
-			scope, err := authzScope(res, target)
-			if err != nil {
-				return nil, err
-			}
-			filter, args := assignmentFilter(scope)
-			args = append(args, in.ID)
-			v, e = row(ctx, s.DB, "SELECT id,tenant_id,scope_kind,domain,user_id,group_id,scope_team_id,space_id,app_id,role_id,revision FROM access_grants g WHERE "+filter+" AND g.id=?", args...)
+			return s.authority.Role(ctx, agentActor(ctx, p), scope, res, in.ID)
 		}
-		return v, e
+		return s.authority.Assignment(ctx, agentActor(ctx, p), scope, res, in.ID)
 	case "plan":
 		return s.inv.Plan(ctx, agentActor(ctx, p), in.ID)
 	default:

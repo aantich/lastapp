@@ -36,30 +36,48 @@ const (
 	dbColumns     = "id,tenant_id,target_id,database_name,management_mode,layout,state,attempts,last_error_code,last_error_message,last_verified_at,revision,created_at"
 )
 
-func (s *Server) targets(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return e
-	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+targetColumns+" FROM database_targets ORDER BY display_name")
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+// storage owns database targets and Tenant database resources. Console
+// handlers and MCP tools both call these methods; the worker applies the
+// queued work and rechecks its authorizer separately.
+type storage struct {
+	db           *sql.DB
+	run          *runner
+	seal         func(purpose, record, tenant string, value any) ([]byte, error)
+	config       *Config
+	registryName string
 }
 
-func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p Principal) error {
-	if e := s.authorize(r.Context(), s.DB, p, "database.manage", Resource{Tenant: r.PathValue("tenant")}, false); e != nil {
-		return e
+type targetPatch struct {
+	Name        *string      `json:"display_name"`
+	State       *string      `json:"state"`
+	Managed     *bool        `json:"managed_enabled"`
+	Credentials *credentials `json:"credentials"`
+}
+
+// databaseChange is a registered credential replacement or retirement; a
+// retry carries neither.
+type databaseChange struct {
+	State       string       `json:"state"`
+	Credentials *credentials `json:"credentials"`
+}
+
+func (v *storage) Targets(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
+		return Page[Row]{}, e
+	}
+	return pageQuery(ctx, v.db, page, collectionFor("database-targets"), "SELECT "+targetColumns+" FROM database_targets ORDER BY display_name")
+}
+
+// AvailableTargets lists the active targets a Tenant may allocate on.
+func (v *storage) AvailableTargets(ctx context.Context, a Actor, tenant string, managed bool, page PageRequest) (Page[Row], error) {
+	if e := v.run.authorize(ctx, a, "database.manage", Resource{Tenant: tenant}); e != nil {
+		return Page[Row]{}, e
 	}
 	filter := ""
-	if r.URL.Query().Get("managed") == "true" {
+	if managed {
 		filter = " AND managed_enabled=1"
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+	return pageQuery(ctx, v.db, page, collectionFor("database-targets"), "SELECT id,display_name,managed_enabled FROM database_targets WHERE state='active'"+filter+" ORDER BY display_name")
 }
 
 type targetInput struct {
@@ -75,7 +93,7 @@ type targetInput struct {
 
 var hostRE = regexp.MustCompile(`^[a-zA-Z0-9.:\-]+$`)
 
-func (s *Server) validateTarget(in *targetInput) error {
+func (v *storage) validateTarget(in *targetInput) error {
 	in.Host = strings.ToLower(strings.TrimSuffix(in.Host, "."))
 	if !hostRE.MatchString(in.Host) || len(in.Host) > 253 || in.Port < 1 || in.Port > 65535 {
 		return bad("Invalid database endpoint.")
@@ -83,7 +101,7 @@ func (s *Server) validateTarget(in *targetInput) error {
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 160 {
 		return bad("Invalid target name.")
 	}
-	if in.TLS != "verify_identity" && !(in.TLS == "disabled" && s.Config.Development) {
+	if in.TLS != "verify_identity" && !(in.TLS == "disabled" && v.config.Development) {
 		return bad("TLS must verify the server identity; disabled is allowed only in local development.")
 	}
 	if in.State == "" {
@@ -95,62 +113,47 @@ func (s *Server) validateTarget(in *targetInput) error {
 	return nil
 }
 
-func (s *Server) createTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in targetInput
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
+func (v *storage) CreateTarget(ctx context.Context, a Actor, in targetInput) (Ref, error) {
 	if e := id(in.ID); e != nil {
-		return e
+		return Ref{}, e
 	}
-	if e := s.validateTarget(&in); e != nil {
-		return e
+	if e := v.validateTarget(&in); e != nil {
+		return Ref{}, e
 	}
 	if in.Managed && (in.Credentials == nil || in.Credentials.Username == "" || in.Credentials.Password == "") {
-		return bad("Managed targets require provisioning credentials.")
+		return Ref{}, bad("Managed targets require provisioning credentials.")
 	}
-	e := s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
 		var enc any
 		if in.Credentials != nil {
-			b, e := s.seal("target", in.ID, "", in.Credentials)
+			b, e := v.seal("target", in.ID, "", in.Credentials)
 			if e != nil {
 				return e
 			}
 			enc = b
 		}
-		_, e := tx.ExecContext(r.Context(), "INSERT INTO database_targets (id,display_name,canonical_host,port,tls_mode,state,managed_enabled,provisioning_credentials_enc) VALUES (?,?,?,?,?,?,?,?)", in.ID, in.Name, in.Host, in.Port, in.TLS, in.State, in.Managed, enc)
+		_, e := tx.ExecContext(ctx, "INSERT INTO database_targets (id,display_name,canonical_host,port,tls_mode,state,managed_enabled,provisioning_credentials_enc) VALUES (?,?,?,?,?,?,?,?)", in.ID, in.Name, in.Host, in.Port, in.TLS, in.State, in.Managed, enc)
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, "", p.ID, "target.created", "database_target", in.ID, r.Header.Get("X-Request-ID"), Row{})
+		return auditAs(ctx, tx, a, "", "target.created", "database_target", in.ID, Row{})
 	})
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return result(w, r, s, "database_targets", "", in.ID, 201)
+	return v.run.ref(ctx, "database_targets", "", in.ID)
 }
 
-func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in struct {
-		Name        *string      `json:"display_name"`
-		State       *string      `json:"state"`
-		Managed     *bool        `json:"managed_enabled"`
-		Credentials *credentials `json:"credentials"`
+func (v *storage) UpdateTarget(ctx context.Context, a Actor, record string, in targetPatch, revision int64) (Ref, error) {
+	if revision < 1 {
+		return Ref{}, revisionRequired()
 	}
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	record := r.PathValue("id")
-	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := lockRecord(r.Context(), tx, "database_targets", "", record)
+	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
+		old, e := lockRecord(ctx, tx, "database_targets", "", record)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+		if e = checkRevision(integer(old["revision"]), revision); e != nil {
 			return e
 		}
 		sets := []string{"revision=revision+1"}
@@ -177,7 +180,7 @@ func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principa
 			if in.Credentials.Username == "" || in.Credentials.Password == "" {
 				return bad("Credentials cannot be empty.")
 			}
-			b, e := s.seal("target", record, "", in.Credentials)
+			b, e := v.seal("target", record, "", in.Credentials)
 			if e != nil {
 				return e
 			}
@@ -185,44 +188,34 @@ func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principa
 			args = append(args, b)
 		}
 		args = append(args, record)
-		if _, e = tx.ExecContext(r.Context(), "UPDATE database_targets SET "+strings.Join(sets, ",")+" WHERE id=?", args...); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE database_targets SET "+strings.Join(sets, ",")+" WHERE id=?", args...); e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, "", p.ID, "target.updated", "database_target", record, r.Header.Get("X-Request-ID"), Row{})
+		return auditAs(ctx, tx, a, "", "target.updated", "database_target", record, Row{})
 	})
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return result(w, r, s, "database_targets", "", record, 200)
+	return v.run.ref(ctx, "database_targets", "", record)
 }
 
-func (s *Server) databases(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
-	if e := s.authorize(r.Context(), s.DB, p, "database.read", Resource{Tenant: tenant}, false); e != nil {
-		return e
+func (v *storage) Databases(ctx context.Context, a Actor, tenant string, page PageRequest) (Page[Row], error) {
+	if e := v.run.authorize(ctx, a, "database.read", Resource{Tenant: tenant}); e != nil {
+		return Page[Row]{}, e
 	}
-	v, e := pageRows(r.Context(), s.DB, r, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
-	if e == nil {
-		sendPage(w, r, v)
-	}
-	return e
+	return pageQuery(ctx, v.db, page, collectionFor("database-resources"), "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? ORDER BY created_at DESC", tenant)
 }
 
-func (s *Server) getDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
-	tenant := r.PathValue("tenant")
-	if e := s.authorize(r.Context(), s.DB, p, "database.read", Resource{Tenant: tenant}, false); e != nil {
-		return e
+func (v *storage) Database(ctx context.Context, a Actor, tenant, record string) (Row, error) {
+	if e := v.run.authorize(ctx, a, "database.read", Resource{Tenant: tenant}); e != nil {
+		return nil, e
 	}
-	v, e := row(r.Context(), s.DB, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, r.PathValue("id"))
-	if e == nil {
-		send(w, 200, v)
-	}
-	return e
+	return row(ctx, v.db, "SELECT "+dbColumns+" FROM database_resources WHERE tenant_id=? AND id=?", tenant, record)
 }
 
 // The Tenant mutation lock serializes allocation counts, including retries that
 // claim an existing resource. Retrying the same resource does not use a new slot.
-func (s *Server) agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Principal, resource, mode, target string) error {
+func agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Principal, resource, mode, target string) error {
 	if p.Agent == nil {
 		return nil
 	}
@@ -240,13 +233,15 @@ func (s *Server) agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Princ
 	return nil
 }
 
-func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, tenant string, in databaseInput, policy Row, request string) error {
-	allocation, workspaceAllocation := ctx.Value(workspaceAllocationKey{}).(Resource)
+// allocate requests a database resource inside the caller's transaction. A
+// workspace allocation is authorized by workspace.manage on its scope and is
+// not counted against an agent's database allocation.
+func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Row, workspace *Resource) error {
 	action, res := "database.manage", Resource{Tenant: tenant}
-	if workspaceAllocation {
-		action, res = "workspace.manage", allocation
+	if workspace != nil {
+		action, res = "workspace.manage", *workspace
 	}
-	if e := s.authorize(ctx, tx, p, action, res, true); e != nil {
+	if e := v.run.authorizeTx(ctx, tx, a, action, res); e != nil {
 		return e
 	}
 	if e := id(in.ID); e != nil {
@@ -255,8 +250,9 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 	if e := id(in.Target); e != nil {
 		return e
 	}
-	if !workspaceAllocation {
-		if e := s.agentDatabaseProvision(ctx, tx, p, in.ID, in.Mode, in.Target); e != nil {
+	p := a.Principal
+	if workspace == nil {
+		if e := agentDatabaseProvision(ctx, tx, p, in.ID, in.Mode, in.Target); e != nil {
 			return e
 		}
 	}
@@ -289,7 +285,7 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 			return bad("Target does not support managed creation.")
 		}
 		in.Database = "la_" + strings.ReplaceAll(in.ID, "-", "")
-		cred = credentials{Username: in.Database, Password: token(32), AccountHost: s.Config.RuntimeAccountHost}
+		cred = credentials{Username: in.Database, Password: token(32), AccountHost: v.config.RuntimeAccountHost}
 		if cred.AccountHost == "" {
 			return bad("Runtime database account host is not configured.")
 		}
@@ -299,14 +295,14 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 		}
 		ownership = b
 	} else {
-		if !regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`).MatchString(in.Database) || strings.EqualFold(in.Database, s.registryName) {
+		if !regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`).MatchString(in.Database) || strings.EqualFold(in.Database, v.registryName) {
 			return bad("Invalid or protected database name.")
 		}
 		if cred.Username == "" || cred.Password == "" {
 			return bad("Existing database credentials are required.")
 		}
 	}
-	enc, e := s.seal("database", in.ID, tenant, cred)
+	enc, e := v.seal("database", in.ID, tenant, cred)
 	if e != nil {
 		return e
 	}
@@ -319,57 +315,45 @@ func (s *Server) allocateDatabase(ctx context.Context, tx *sql.Tx, p Principal, 
 			return e
 		}
 	}
-	return audit(ctx, tx, tenant, p.ID, "database.requested", "database", in.ID, request, Row{"management_mode": in.Mode, "layout": in.Layout})
+	return auditAs(ctx, tx, a, tenant, "database.requested", "database", in.ID, Row{"management_mode": in.Mode, "layout": in.Layout})
 }
 
-func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
-	var in databaseInput
-	if e := decode(w, r, &in); e != nil {
-		return e
-	}
-	tenant := r.PathValue("tenant")
-	e := s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		policy, e := policyFor(r.Context(), tx, tenant)
+// CreateDatabase queues a managed allocation or registers an existing database.
+func (v *storage) CreateDatabase(ctx context.Context, a Actor, tenant string, in databaseInput) (Ref, error) {
+	e := v.run.mutate(ctx, a, "database.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		policy, e := policyFor(ctx, tx, tenant)
 		if e != nil {
 			return e
 		}
-		return s.allocateDatabase(r.Context(), tx, p, tenant, in, policy, r.Header.Get("X-Request-ID"))
+		return v.allocate(ctx, tx, a, tenant, in, policy, nil)
 	})
 	if e != nil {
-		return e
+		return Ref{}, e
 	}
-	return result(w, r, s, "database_resources", tenant, in.ID, 202)
+	return v.run.ref(ctx, "database_resources", tenant, in.ID)
 }
 
-func (s *Server) retryDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
-	return s.changeDatabase(w, r, p, true)
+// RetryDatabase requeues a failed or ready resource under its revision.
+func (v *storage) RetryDatabase(ctx context.Context, a Actor, tenant, record string, revision int64) (Ref, error) {
+	return v.changeDatabase(ctx, a, tenant, record, databaseChange{}, true, revision)
 }
 
-func (s *Server) updateDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
-	return s.changeDatabase(w, r, p, false)
+// UpdateDatabase retires a resource or replaces registered credentials.
+func (v *storage) UpdateDatabase(ctx context.Context, a Actor, tenant, record string, in databaseChange, revision int64) (Ref, error) {
+	return v.changeDatabase(ctx, a, tenant, record, in, false, revision)
 }
 
-func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Principal, retry bool) error {
-	var in struct {
-		State       string       `json:"state"`
-		Credentials *credentials `json:"credentials"`
+func (v *storage) changeDatabase(ctx context.Context, a Actor, tenant, record string, in databaseChange, retry bool, revision int64) (Ref, error) {
+	if revision < 1 {
+		return Ref{}, revisionRequired()
 	}
-	if !retry {
-		if e := decode(w, r, &in); e != nil {
-			return e
-		}
-	}
-	rev, e := expectedRevision(r)
-	if e != nil {
-		return e
-	}
-	tenant, record := r.PathValue("tenant"), r.PathValue("id")
-	e = s.mutate(r.Context(), p, "database.manage", Resource{Tenant: tenant}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
-		old, e := row(r.Context(), tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
+	p := a.Principal
+	e := v.run.mutate(ctx, a, "database.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		old, e := row(ctx, tx, "SELECT revision,state,management_mode,target_id FROM database_resources WHERE tenant_id=? AND id=? FOR UPDATE", tenant, record)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), rev); e != nil {
+		if e = checkRevision(integer(old["revision"]), revision); e != nil {
 			return e
 		}
 		state := str(old["state"])
@@ -382,7 +366,7 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 				return bad("Only retirement or registered credential replacement is supported.")
 			}
 			var n int
-			if e = tx.QueryRowContext(r.Context(), "SELECT (SELECT COUNT(*) FROM spaces WHERE database_resource_id=?)+(SELECT COUNT(*) FROM tenants WHERE default_shared_database_id=?)", record, record).Scan(&n); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM spaces WHERE database_resource_id=?)+(SELECT COUNT(*) FROM tenants WHERE default_shared_database_id=?)", record, record).Scan(&n); e != nil {
 				return e
 			}
 			if n > 0 {
@@ -391,10 +375,10 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			next = stateRetired
 		}
 		if next == "pending" {
-			if e := s.agentDatabaseProvision(r.Context(), tx, p, record, str(old["management_mode"]), str(old["target_id"])); e != nil {
+			if e := agentDatabaseProvision(ctx, tx, p, record, str(old["management_mode"]), str(old["target_id"])); e != nil {
 				return e
 			}
-			if e := pendingDatabaseQuota(r.Context(), tx, tenant); e != nil {
+			if e := pendingDatabaseQuota(ctx, tx, tenant); e != nil {
 				return e
 			}
 		}
@@ -402,11 +386,11 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			if str(old["management_mode"]) != "registered" || in.Credentials.Username == "" || in.Credentials.Password == "" {
 				return bad("Only registered database credentials can be replaced.")
 			}
-			enc, e := s.seal("database", record, tenant, in.Credentials)
+			enc, e := v.seal("database", record, tenant, in.Credentials)
 			if e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET runtime_credentials_enc=?,credential_generation=credential_generation+1 WHERE id=?", enc, record); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET runtime_credentials_enc=?,credential_generation=credential_generation+1 WHERE id=?", enc, record); e != nil {
 				return e
 			}
 		}
@@ -417,20 +401,108 @@ func (s *Server) changeDatabase(w http.ResponseWriter, r *http.Request, p Princi
 			}
 			// Requeued work belongs to its current authorizer. A human retry
 			// explicitly takes ownership from any old, possibly revoked grant.
-			if _, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET agent_grant_id=?,agent_user_id=? WHERE id=?", grant, user, record); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE database_resources SET agent_grant_id=?,agent_user_id=? WHERE id=?", grant, user, record); e != nil {
 				return e
 			}
 		}
-		_, e = tx.ExecContext(r.Context(), "UPDATE database_resources SET state=?,last_error_code=NULL,last_error_message=NULL,revision=revision+1 WHERE id=?", next, record)
+		_, e = tx.ExecContext(ctx, "UPDATE database_resources SET state=?,last_error_code=NULL,last_error_message=NULL,revision=revision+1 WHERE id=?", next, record)
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, tenant, p.ID, "database."+next, "database", record, r.Header.Get("X-Request-ID"), Row{})
+		return auditAs(ctx, tx, a, tenant, "database."+next, "database", record, Row{})
 	})
 	if e != nil {
+		return Ref{}, e
+	}
+	return v.run.ref(ctx, "database_resources", tenant, record)
+}
+
+func (s *Server) targets(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.storage.Targets(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.storage.AvailableTargets(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.URL.Query().Get("managed") == "true", pageRequest(r.URL.Query()))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) createTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in targetInput
+	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	return result(w, r, s, "database_resources", tenant, record, 202)
+	v, e := s.storage.CreateTarget(r.Context(), httpActor(r, p), in)
+	if e == nil {
+		sendRef(w, 201, v)
+	}
+	return e
+}
+
+func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in targetPatch
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.storage.UpdateTarget(r.Context(), httpActor(r, p), r.PathValue("id"), in, ifMatch(r))
+	if e == nil {
+		sendRef(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) databases(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.storage.Databases(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) getDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.storage.Database(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"))
+	if e == nil {
+		send(w, 200, v)
+	}
+	return e
+}
+
+func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in databaseInput
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.storage.CreateDatabase(r.Context(), httpActor(r, p), r.PathValue("tenant"), in)
+	if e == nil {
+		sendRef(w, 202, v)
+	}
+	return e
+}
+
+func (s *Server) retryDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	v, e := s.storage.RetryDatabase(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"), ifMatch(r))
+	if e == nil {
+		sendRef(w, 202, v)
+	}
+	return e
+}
+
+func (s *Server) updateDatabase(w http.ResponseWriter, r *http.Request, p Principal) error {
+	var in databaseChange
+	if e := decode(w, r, &in); e != nil {
+		return e
+	}
+	v, e := s.storage.UpdateDatabase(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"), in, ifMatch(r))
+	if e == nil {
+		sendRef(w, 202, v)
+	}
+	return e
 }
 
 func (s *Server) targetDB(ctx context.Context, target Row, cred credentials, name string) (*sql.DB, error) {

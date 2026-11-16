@@ -134,7 +134,11 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	}
 	p.Agent = g
 	// Team discovery uses the same shared, scoped API as the console.
-	direct, e := s.executeManagement(context.Background(), p, s.recipientOptions, "GET", "/v1/tenants/"+tenant+"/spaces/"+space+"/recipients?type=team", map[string]string{"tenant": tenant, "space": space}, nil, 0)
+	scope, res, e := scopeOf(tenant, "", space, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	direct, e := s.authority.Recipients(context.Background(), actorFrom(context.Background(), p, newID()), scope, res, true, PageRequest{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -211,7 +215,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 		t.Fatal(e)
 	}
 	// A human takes ownership explicitly; no stale agent binding can strand it.
-	_, e = s.executeManagement(ctx, Principal{ID: p.ID}, s.retryDatabase, "POST", "/retry", map[string]string{"tenant": tenant, "id": first}, nil, 3)
+	_, e = s.storage.RetryDatabase(ctx, Actor{Principal: Principal{ID: p.ID}, RequestID: newID()}, tenant, first, 3)
 	if e != nil {
 		t.Fatal(e)
 	}

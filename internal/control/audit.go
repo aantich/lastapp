@@ -40,8 +40,3 @@ func auditChangeAs(ctx context.Context, q Queryer, a Actor, tenant, action, tabl
 	}
 	return auditAs(ctx, q, a, tenant, action, kind, record, Row{"before": before, "after": after})
 }
-
-// auditChange is the context shim of auditChangeAs.
-func auditChange(ctx context.Context, q Queryer, tenant, user, action, table, kind, record, request string, before Row) error {
-	return auditChangeAs(ctx, q, Actor{Principal: Principal{ID: user}, RequestID: request, Agent: agentCallFrom(ctx)}, tenant, action, table, kind, record, before)
-}

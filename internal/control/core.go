@@ -87,6 +87,8 @@ type Server struct {
 	run                    *runner
 	inv                    *inventory
 	members                *membership
+	authority              *authority
+	storage                *storage
 }
 type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -217,8 +219,10 @@ func Open(c Config) (*Server, error) {
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.run = &runner{db: db, access: s}
-	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.allocateDatabase, prepareAccount: s.prepareAccount}
+	s.storage = &storage{db: db, run: s.run, seal: s.seal, config: &s.Config, registryName: cfg.DBName}
+	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.allocate, prepareAccount: s.prepareAccount}
 	s.members = &membership{db: db, run: s.run, prepareAccount: s.prepareAccount}
+	s.authority = &authority{db: db, run: s.run}
 	return s, nil
 }
 

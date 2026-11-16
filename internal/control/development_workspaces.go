@@ -17,9 +17,8 @@ const (
 )
 
 type (
-	workspaceAllocationKey struct{}
-	workspaceOperationKey  struct{}
-	workspaceCreateInput   struct {
+	workspaceOperationKey struct{}
+	workspaceCreateInput  struct {
 		ID   string `json:"id"`
 		Name string `json:"display_name"`
 	}
@@ -283,8 +282,8 @@ func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Princ
 			return e
 		}
 		backing, resource := newID(), newID()
-		ctx := context.WithValue(r.Context(), workspaceAllocationKey{}, res)
-		if e = s.allocateDatabase(ctx, tx, p, res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: str(source["database_layout"]), Target: str(source["target_id"])}, policy, r.Header.Get("X-Request-ID")); e != nil {
+		ctx := r.Context()
+		if e = s.storage.allocate(ctx, tx, actorFrom(ctx, p, r.Header.Get("X-Request-ID")), res.Tenant, databaseInput{ID: resource, Mode: "managed", Layout: str(source["database_layout"]), Target: str(source["target_id"])}, policy, &res); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES(?,?,?,?,?,?)", backing, res.Tenant, "dev-"+strings.ReplaceAll(in.ID, "-", ""), in.Name, resource, source["database_layout"]); e != nil {
@@ -300,7 +299,7 @@ func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p Princ
 		if _, e = tx.ExecContext(ctx, "UPDATE spaces SET workspace_id=? WHERE id=?", in.ID, backing); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, p, res.Tenant, backing, "", p.ID, r.Header.Get("X-Request-ID")); e != nil {
+		if e = assignInitialManager(ctx, tx, actorFrom(ctx, p, r.Header.Get("X-Request-ID")), res.Tenant, backing, "", p.ID); e != nil {
 			return e
 		}
 		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID, p.ID); e != nil {

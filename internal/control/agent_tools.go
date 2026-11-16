@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/entity"
 )
 
@@ -500,6 +501,13 @@ func agentPaths(res Resource, target *agentTarget) map[string]string {
 	return v
 }
 
+// agentScope is the role/assignment scope of a normalized agent target, the
+// one the matching console route would select.
+func agentScope(res Resource, target *agentTarget) (authz.Scope, Resource, error) {
+	paths := agentPaths(res, target)
+	return scopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
+}
+
 func agentScopePath(res Resource, target *agentTarget) string {
 	if target.Kind == "platform" {
 		return "/admin/v1"
@@ -679,8 +687,14 @@ func (s *Server) toolAgentCreate(ctx context.Context, p Principal, raw json.RawM
 		}
 		kind = "role"
 		key = in.Role.ID
-		fn = s.createRole
-		body = in.Role
+		role := roleInput{ID: in.Role.ID, Code: in.Role.Code, Name: in.Role.Name}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			scope, sr, e := agentScope(res, target)
+			if e != nil {
+				return nil, e
+			}
+			return s.authority.CreateRole(ctx, a, scope, sr, role)
+		}
 		permissions = []string{"access.manage"}
 	case in.Tenant != nil:
 		if target.Kind != "platform" {
@@ -744,30 +758,8 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	if e = id(in.ID); e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["id"] = in.ID
 	permissions := []string{"resources.write"}
-	var fn endpoint
 	var call func(context.Context, Actor) (any, error)
-	body := Row{}
-	if in.Name != nil {
-		body["display_name"] = *in.Name
-	}
-	if in.Compute != nil {
-		body["compute_mode"] = *in.Compute
-	}
-	if in.Artifact != nil {
-		body["artifact_ref"] = *in.Artifact
-	}
-	if in.Order != nil {
-		body["navigation_order"] = *in.Order
-	}
-	if in.PlanID != nil {
-		body["plan_id"] = *in.PlanID
-	}
-	if in.Layout != nil {
-		body["default_layout"] = *in.Layout
-	}
 	switch in.Resource {
 	case "space", "app", "microapp":
 		update := s.inventoryUpdate(in.Resource)
@@ -787,7 +779,17 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, patch, in.Revision)
 		}
 	case "role":
-		fn = s.updateRole
+		patch := rolePatch{Name: in.Name}
+		call = func(ctx context.Context, a Actor) (any, error) {
+			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
+				return nil, bad("Invalid or unsupported JSON request fields.")
+			}
+			scope, sr, e := agentScope(res, target)
+			if e != nil {
+				return nil, e
+			}
+			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, patch, in.Revision)
+		}
 		permissions = []string{"access.manage"}
 	case "tenant":
 		if p.Agent.Kind == "platform" {
@@ -835,11 +837,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p Principal, raw json.RawM
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	if call != nil {
-		data, e := agentSized(call(ctx, agentActor(ctx, p)))
-		return agentWriteResult(ctx, data, e)
-	}
-	data, e := s.executeManagement(ctx, p, fn, "PATCH", agentScopePath(res, target), paths, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -872,9 +870,17 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p Principal, raw json.R
 			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, teamPatch{State: &in.State}, in.Revision)
 		}
 	case "role":
-		fn = s.updateRole
+		call = func(ctx context.Context, a Actor) (any, error) {
+			scope, sr, e := agentScope(res, target)
+			if e != nil {
+				return nil, e
+			}
+			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, rolePatch{State: &in.State}, in.Revision)
+		}
 	case "database":
-		fn = s.updateDatabase
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.storage.UpdateDatabase(ctx, a, res.Tenant, in.ID, databaseChange{State: in.State}, in.Revision)
+		}
 	case "tenant":
 		if target.Kind != "platform" {
 			return nil, bad("Tenant lifecycle requires platform scope.")
@@ -1033,28 +1039,22 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return nil, e
 	}
-	paths := agentPaths(res, target)
-	paths["id"] = in.ID
-	var fn endpoint
-	method := "POST"
-	body := Row{}
+	var call func(context.Context, Actor, authz.Scope, Resource) (any, error)
 	switch in.Action {
 	case "grant":
 		if (in.User == "") == (in.Team == "") {
 			return nil, bad("Choose exactly one user_id or team_id recipient.")
 		}
-		fn = s.createGrant
-		body = Row{"id": in.ID, "role_id": in.Role}
-		if in.User != "" {
-			body["user_id"] = in.User
-		} else {
-			body["group_id"] = in.Team
+		grant := assignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
+		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
+			return s.authority.Grant(ctx, a, scope, sr, grant)
 		}
 	case "revoke":
-		fn = s.deleteGrant
-		method = "DELETE"
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Revocation requires expected_revision.")
+		}
+		call = func(ctx context.Context, a Actor, scope authz.Scope, sr Resource) (any, error) {
+			return s.authority.Revoke(ctx, a, scope, sr, in.ID, in.Revision)
 		}
 	default:
 		return nil, bad("Action must be grant or revoke.")
@@ -1070,7 +1070,13 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p Principal, raw json.
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, method, agentScopePath(res, target)+"/role-assignments", paths, body, in.Revision)
+	data, e := agentSized(func() (any, error) {
+		scope, sr, e := agentScope(res, target)
+		if e != nil {
+			return nil, e
+		}
+		return call(ctx, agentActor(ctx, p), scope, sr)
+	}())
 	return agentWriteResult(ctx, data, e)
 }
 
@@ -1159,14 +1165,16 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.Ra
 	if p.Agent.Kind != "tenant" {
 		return nil, bad("Provisioning requires a Tenant-scoped connection.")
 	}
-	var fn endpoint
-	body := Row{}
+	tenant := p.Agent.Tenant
+	var call func(context.Context, Actor) (any, error)
 	switch in.Action {
 	case "provision":
-		fn = s.createDatabase
-		body = Row{"id": in.ID, "management_mode": "managed", "layout": in.Layout, "target_id": in.TargetID}
+		db := databaseInput{ID: in.ID, Mode: "managed", Layout: in.Layout, Target: in.TargetID}
+		call = func(ctx context.Context, a Actor) (any, error) { return s.storage.CreateDatabase(ctx, a, tenant, db) }
 	case "retry":
-		fn = s.retryDatabase
+		call = func(ctx context.Context, a Actor) (any, error) {
+			return s.storage.RetryDatabase(ctx, a, tenant, in.ID, in.Revision)
+		}
 		if in.Revision < 1 {
 			return nil, problem(428, "revision_required", "Retry requires expected_revision.")
 		}
@@ -1177,6 +1185,6 @@ func (s *Server) toolAgentDatabase(ctx context.Context, p Principal, raw json.Ra
 	if e != nil {
 		return agentWriteResult(ctx, nil, e)
 	}
-	data, e := s.executeManagement(ctx, p, fn, "POST", "/v1/tenants/"+p.Agent.Tenant+"/database-resources", map[string]string{"tenant": p.Agent.Tenant, "id": in.ID}, body, in.Revision)
+	data, e := agentSized(call(ctx, agentActor(ctx, p)))
 	return agentWriteResult(ctx, data, e)
 }
