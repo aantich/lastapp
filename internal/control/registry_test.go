@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/aantich/lastapp/internal/authz"
 )
 
 // sameJSON requires that got, an operation's typed registry result, marshals
@@ -159,4 +161,66 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	sameRaw(t, s.DB, overview["tenant"], "SELECT t.id,t.slug,t.display_name,t.state,t.revision,t.plan_id,CASE WHEN t.default_layout='shared' AND p.allow_shared_database=1 THEN 'shared' WHEN t.default_layout='dedicated' AND p.allow_dedicated_database=1 THEN 'dedicated' ELSE p.default_layout END AS default_layout,p.display_name AS plan_name,p.max_spaces,p.max_apps,p.max_databases,p.allow_shared_database,p.allow_dedicated_database,p.allow_managed_database,p.allow_registered_database,p.allow_dedicated_compute FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
 	sameRaw(t, s.DB, overview["recent_apps"], "SELECT a.id,a.space_id,a.display_name,a.state,sp.display_name AS space_name FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) ORDER BY a.created_at DESC,a.id LIMIT 6", tenant)
 	sameRaw(t, s.DB, overview["attention"], "SELECT id,database_name,state,last_error_message FROM database_resources WHERE tenant_id=? AND state IN ('pending','provisioning','failed') ORDER BY created_at DESC LIMIT 6", tenant)
+
+	// Memberships, administrators, teams, team members and users; audited
+	// prior states keep their JSON.
+	var joe string
+	if e = s.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject='outsider'", s.Config.OIDCIssuer).Scan(&joe); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.members.AddMembership(ctx, admin, tenant, accountChoice{User: joe}); e != nil {
+		t.Fatal(e)
+	}
+	auditRequest := newID()
+	if _, e = s.members.UpdateMembership(ctx, Actor{Principal: admin.Principal, RequestID: auditRequest}, tenant, joe, stateDisabled, 1); e != nil {
+		t.Fatal(e)
+	}
+	var details []byte
+	if e = s.DB.QueryRow("SELECT details_json FROM audit_events WHERE request_id=? AND action='membership.updated'", auditRequest).Scan(&details); e != nil {
+		t.Fatal(e)
+	}
+	var audited map[string]json.RawMessage
+	if e = json.Unmarshal(details, &audited); e != nil || string(audited["before"]) != `{"revision":1,"state":"active","user_id":"`+joe+`"}` {
+		t.Fatalf("audited membership before: %s %v", details, e)
+	}
+	members, e := s.members.Memberships(ctx, admin, tenant, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, members.Items, "SELECT m.user_id,m.state,m.revision,m.created_at,u.display_name,u.email,u.state AS user_state,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,ag.id AS administrator_id,ag.revision AS administrator_revision FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,m.user_id", SuperRole, TenantAdminRole, tenant)
+	administrators, e := s.members.Administrators(ctx, root, tenant, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, administrators.Items, "SELECT g.id,g.user_id,g.revision,u.display_name,u.email,u.state AS user_state,m.state FROM access_grants g JOIN users u ON u.id=g.user_id JOIN tenant_memberships m ON m.tenant_id=g.tenant_id AND m.user_id=g.user_id WHERE g.tenant_id=? AND g.role_id=? ORDER BY u.display_name,g.id", tenant, TenantAdminRole)
+	if _, e = s.members.UpdateMembership(ctx, admin, tenant, joe, stateActive, 2); e != nil {
+		t.Fatal(e)
+	}
+	team := namedInput{ID: newID(), Slug: "typed", Name: "Typed"}
+	if _, e = s.members.CreateTeam(ctx, admin, tenant, team); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.members.AddTeamMember(ctx, admin, tenant, team.ID, joe, 1); e != nil {
+		t.Fatal(e)
+	}
+	teams, e := s.members.Teams(ctx, admin, tenant, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, teams.Items, "SELECT g.id,g.slug,g.display_name,g.state,g.revision FROM groups g WHERE g.tenant_id=? ORDER BY g.display_name,g.id", tenant)
+	one3, e := s.members.Team(ctx, admin, tenant, team.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, one3, "SELECT id,slug,display_name,state,revision FROM groups WHERE tenant_id=? AND id=?", tenant, team.ID)
+	teamMembers, e := s.members.TeamMembers(ctx, admin, tenant, team.ID, PageRequest{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, teamMembers.Items, "SELECT gm.user_id,gm.state,u.display_name,u.state AS user_state,tm.state AS tenant_state,ga.id AS administrator_id,ga.revision AS administrator_revision,gr.id AS reviewer_id,gr.revision AS reviewer_revision,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team.ID)
+	users, e := s.Users(ctx, root, PageRequest{Limit: 200})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sameJSON(t, s.DB, users.Items, "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id LIMIT 200", SuperRole, SuperRole, SuperRole)
 }

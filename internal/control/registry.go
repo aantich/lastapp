@@ -69,6 +69,24 @@ func (f bit) MarshalJSON() ([]byte, error) {
 	return []byte("0"), nil
 }
 
+// scanStrings runs a one-column query and returns its values.
+func scanStrings(ctx context.Context, q Queryer, query string, args ...any) ([]string, error) {
+	r, e := q.QueryContext(ctx, query, args...)
+	if e != nil {
+		return nil, e
+	}
+	defer r.Close()
+	out := []string{}
+	for r.Next() {
+		var v string
+		if e = r.Scan(&v); e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, r.Err()
+}
+
 // lookup scans one row of query into dest; no row is missing() (404).
 func lookup(ctx context.Context, q Queryer, query string, args []any, dest ...any) error {
 	e := q.QueryRowContext(ctx, query, args...).Scan(dest...)

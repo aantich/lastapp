@@ -214,7 +214,7 @@ func TestMembershipOperations(t *testing.T) {
 		t.Fatal("console team member state", e)
 	}
 	page, e := s.members.TeamMembers(ctx, human, tenant, team.ID, PageRequest{})
-	if e != nil || len(page.Items) != 1 || str(page.Items[0]["state"]) != stateDisabled {
+	if e != nil || len(page.Items) != 1 || page.Items[0].State != stateDisabled {
 		t.Fatal("console team members", page, e)
 	}
 	var n int

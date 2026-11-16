@@ -181,13 +181,31 @@ func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p Principal)
 	return e
 }
 
-func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[Row], error) {
+// User is a global account with its platform administrator assignment.
+type User struct {
+	CreatedAt                  time.Time `json:"created_at"`
+	Name                       string    `json:"display_name"`
+	Email                      *string   `json:"email"`
+	ID                         string    `json:"id"`
+	OIDCIssuer                 string    `json:"oidc_issuer"`
+	OIDCSubject                string    `json:"oidc_subject"`
+	PlatformAdmin              bit       `json:"platform_admin"`
+	PlatformAssignmentID       *string   `json:"platform_assignment_id"`
+	PlatformAssignmentRevision *int64    `json:"platform_assignment_revision"`
+	Revision                   int64     `json:"revision"`
+	State                      string    `json:"state"`
+}
+
+func (v *User) fields() []any {
+	return []any{&v.CreatedAt, &v.Name, &v.Email, &v.ID, &v.OIDCIssuer, &v.OIDCSubject, &v.PlatformAdmin, &v.PlatformAssignmentID, &v.PlatformAssignmentRevision, &v.Revision, &v.State}
+}
+
+func (s *Server) Users(ctx context.Context, actor Actor, page PageRequest) (Page[User], error) {
 	p := actor.Principal
 	if e := s.authorize(ctx, s.DB, p, "platform.admin", Resource{}, false); e != nil {
-		return Page[Row]{}, e
+		return Page[User]{}, e
 	}
-	v, e := pageQuery(ctx, s.DB, page, collectionFor("users"), "SELECT id,display_name,email,oidc_issuer,oidc_subject,state,revision,created_at,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
-	return v, e
+	return pageScan[User](ctx, s.DB, page, collectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", SuperRole, SuperRole, SuperRole)
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal) error {
@@ -210,13 +228,13 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 		if e != nil {
 			return e
 		}
-		ts, e := rows(r.Context(), tx, "SELECT tenant_id FROM tenant_memberships WHERE user_id=? ORDER BY tenant_id", record)
+		ts, e := scanStrings(r.Context(), tx, "SELECT tenant_id FROM tenant_memberships WHERE user_id=? ORDER BY tenant_id", record)
 		if e != nil {
 			return e
 		}
 		for _, t := range ts {
 			var v string
-			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t["tenant_id"]).Scan(&v); e != nil {
+			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t).Scan(&v); e != nil {
 				return e
 			}
 		}
@@ -231,7 +249,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p Principal)
 			return e
 		}
 		for _, t := range ts {
-			if e = ensureTenantAdmin(r.Context(), tx, str(t["tenant_id"])); e != nil {
+			if e = ensureTenantAdmin(r.Context(), tx, t); e != nil {
 				return e
 			}
 		}
