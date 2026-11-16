@@ -21,6 +21,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 type agentTarget struct {
@@ -437,7 +438,7 @@ func agentPaths(res access.Resource, target *agentTarget) map[string]string {
 // one the matching console route would select.
 func agentScope(res access.Resource, target *agentTarget) (authz.Scope, access.Resource, error) {
 	paths := agentPaths(res, target)
-	return scopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
+	return roles.ScopeOf(paths["tenant"], paths["team"], paths["space"], paths["app"])
 }
 
 func (s *Server) beginAgentWrite(ctx context.Context, p access.Principal, key string, result registry.Row, input any, permissions ...string) (context.Context, error) {
@@ -600,7 +601,7 @@ func (s *Server) toolAgentCreate(ctx context.Context, p access.Principal, raw js
 		}
 		kind = "role"
 		key = in.Role.ID
-		role := roleInput{ID: in.Role.ID, Code: in.Role.Code, Name: in.Role.Name}
+		role := roles.RoleInput{ID: in.Role.ID, Code: in.Role.Code, Name: in.Role.Name}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			scope, sr, e := agentScope(res, target)
 			if e != nil {
@@ -671,7 +672,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, patch, in.Revision)
 		}
 	case "role":
-		patch := rolePatch{Name: in.Name}
+		patch := roles.RolePatch{Name: in.Name}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
 				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
@@ -763,7 +764,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 			if e != nil {
 				return nil, e
 			}
-			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, rolePatch{State: &in.State}, in.Revision)
+			return s.authority.UpdateRole(ctx, a, scope, sr, in.ID, roles.RolePatch{State: &in.State}, in.Revision)
 		}
 	case "database":
 		call = func(ctx context.Context, a op.Actor) (any, error) {
@@ -934,7 +935,7 @@ func (s *Server) toolAgentAssignment(ctx context.Context, p access.Principal, ra
 		if (in.User == "") == (in.Team == "") {
 			return nil, registry.Bad("Choose exactly one user_id or team_id recipient.")
 		}
-		grant := assignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
+		grant := roles.AssignmentInput{ID: in.ID, Role: in.Role, User: in.User, Group: in.Team}
 		call = func(ctx context.Context, a op.Actor, scope authz.Scope, sr access.Resource) (any, error) {
 			return s.authority.Grant(ctx, a, scope, sr, grant)
 		}

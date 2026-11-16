@@ -12,6 +12,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 type metadataPatch struct {
@@ -205,7 +206,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 		if e != nil {
 			return e
 		}
-		if e := assignInitialManager(ctx, tx, a, tenant, in.ID, "", in.Manager); e != nil {
+		if e := roles.AssignInitialManager(ctx, tx, a, tenant, in.ID, "", in.Manager); e != nil {
 			return e
 		}
 		return op.AuditAs(ctx, tx, a, tenant, "space.created", "space", in.ID, registry.Row{"database_resource_id": resource})
@@ -320,7 +321,7 @@ func (v *inventory) CreateApp(ctx context.Context, a op.Actor, tenant, space str
 		if e != nil {
 			return e
 		}
-		if e := assignInitialManager(ctx, tx, a, tenant, space, in.ID, in.Manager); e != nil {
+		if e := roles.AssignInitialManager(ctx, tx, a, tenant, space, in.ID, in.Manager); e != nil {
 			return e
 		}
 		return op.AuditAs(ctx, tx, a, tenant, "app.created", "app", in.ID, registry.Row{"space_id": space})

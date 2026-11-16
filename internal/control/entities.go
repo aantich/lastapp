@@ -17,6 +17,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 func (s *Server) entityRoutes() {
@@ -835,7 +836,7 @@ func (v *authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 		}
 		out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": registry.Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
-	roles, e := registry.ScanAll[Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
+	roles, e := registry.ScanAll[roles.Named](ctx, v.db, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
 	if e != nil {
 		return nil, e
 	}

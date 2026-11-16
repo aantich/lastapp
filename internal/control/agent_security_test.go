@@ -18,6 +18,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // Regression fixtures use metadata-only database resources and never run a worker.
@@ -140,7 +141,7 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	}
 	p.Agent = g
 	// Team discovery uses the same shared, scoped API as the console.
-	scope, res, e := scopeOf(tenant, "", space, "")
+	scope, res, e := roles.ScopeOf(tenant, "", space, "")
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // membership owns Tenant memberships, teams and their members, and Tenant
@@ -285,7 +286,7 @@ func (m *membership) UpdateTeam(ctx context.Context, a op.Actor, tenant, team st
 		return op.Ref{}, op.RevisionRequired()
 	}
 	e := m.run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
-		old, e := teamSnapshotOf(ctx, tx, tenant, team)
+		old, e := roles.TeamSnapshotOf(ctx, tx, tenant, team)
 		if e != nil {
 			return e
 		}
@@ -301,7 +302,7 @@ func (m *membership) UpdateTeam(ctx context.Context, a op.Actor, tenant, team st
 		if _, e = tx.ExecContext(ctx, "UPDATE groups SET display_name=COALESCE(?,display_name),state=COALESCE(?,state),revision=revision+1 WHERE id=? AND tenant_id=?", in.Name, in.State, team, tenant); e != nil {
 			return e
 		}
-		return auditChangeAs(ctx, tx, a, tenant, "group.updated", "groups", "group", team, old)
+		return roles.AuditChangeAs(ctx, tx, a, tenant, "group.updated", "groups", "group", team, old)
 	})
 	if e != nil {
 		return op.Ref{}, e

@@ -13,6 +13,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 const (
@@ -286,7 +287,7 @@ func (s *Server) CreateWorkspace(ctx context.Context, actor op.Actor, space stri
 		if _, e = tx.ExecContext(ctx, "UPDATE spaces SET workspace_id=? WHERE id=?", in.ID, backing); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, actor, res.Tenant, backing, "", p.ID); e != nil {
+		if e = roles.AssignInitialManager(ctx, tx, actor, res.Tenant, backing, "", p.ID); e != nil {
 			return e
 		}
 		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID, p.ID); e != nil {

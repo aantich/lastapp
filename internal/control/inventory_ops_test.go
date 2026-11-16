@@ -12,6 +12,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 func wantProblem(t *testing.T, e error, status int, code string) {
@@ -269,33 +270,33 @@ func TestAuthorityOperations(t *testing.T) {
 	s, _, p, tenant, space, _ := agentSpaceFixture(t)
 	ctx := context.Background()
 	human := op.Actor{Principal: access.Principal{ID: p.ID}, RequestID: registry.NewID()}
-	scope, res, e := scopeOf(tenant, "", space, "")
+	scope, res, e := roles.ScopeOf(tenant, "", space, "")
 	if e != nil {
 		t.Fatal(e)
 	}
 
 	// Console actor: custom role, revisions and the fixed-role guard.
-	role := roleInput{ID: registry.NewID(), Code: "reviewer", Name: "Reviewer"}
+	role := roles.RoleInput{ID: registry.NewID(), Code: "reviewer", Name: "Reviewer"}
 	ref, e := s.authority.CreateRole(ctx, human, scope, res, role)
 	if e != nil || ref.Revision != 1 {
 		t.Fatal("console role", ref, e)
 	}
-	tenantScope, tenantRes, _ := scopeOf(tenant, "", "", "")
-	_, e = s.authority.CreateRole(ctx, human, tenantScope, tenantRes, roleInput{ID: registry.NewID(), Code: "x", Name: "X"})
+	tenantScope, tenantRes, _ := roles.ScopeOf(tenant, "", "", "")
+	_, e = s.authority.CreateRole(ctx, human, tenantScope, tenantRes, roles.RoleInput{ID: registry.NewID(), Code: "x", Name: "X"})
 	wantProblem(t, e, 400, "invalid_request")
 	name := "Lead reviewer"
-	_, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, rolePatch{Name: &name}, 0)
+	_, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, roles.RolePatch{Name: &name}, 0)
 	wantProblem(t, e, 428, "revision_required")
-	_, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, rolePatch{Name: &name}, 2)
+	_, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, roles.RolePatch{Name: &name}, 2)
 	wantProblem(t, e, 412, "stale_revision")
-	if ref, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, rolePatch{Name: &name}, 1); e != nil || ref.Revision != 2 {
+	if ref, e = s.authority.UpdateRole(ctx, human, scope, res, role.ID, roles.RolePatch{Name: &name}, 1); e != nil || ref.Revision != 2 {
 		t.Fatal("console role update", ref, e)
 	}
-	_, e = s.authority.UpdateRole(ctx, human, scope, res, authz.SpaceManagerRole, rolePatch{Name: &name}, 1)
+	_, e = s.authority.UpdateRole(ctx, human, scope, res, authz.SpaceManagerRole, roles.RolePatch{Name: &name}, 1)
 	wantProblem(t, e, 403, "protected_role")
 
 	// Grant and revoke the custom role; the audit carries the console request.
-	grant := assignmentInput{ID: registry.NewID(), User: p.ID, Role: role.ID}
+	grant := roles.AssignmentInput{ID: registry.NewID(), User: p.ID, Role: role.ID}
 	if ref, e = s.authority.Grant(ctx, human, scope, res, grant); e != nil || ref.Revision != 1 {
 		t.Fatal("console grant", ref, e)
 	}
@@ -318,7 +319,7 @@ func TestAuthorityOperations(t *testing.T) {
 
 	// Agent actor: access.manage is required and the receipt records the grant.
 	call := agentCall(p, "lastapp_assignment", "grant", "access.manage")
-	_, e = s.authority.Grant(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}, scope, res, assignmentInput{ID: registry.NewID(), User: p.ID, Role: role.ID})
+	_, e = s.authority.Grant(ctx, op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}, scope, res, roles.AssignmentInput{ID: registry.NewID(), User: p.ID, Role: role.ID})
 	wantProblem(t, e, 403, "needs_authorization")
 	if _, e = s.DB.Exec("UPDATE agent_grants SET permissions_json='[\"read\",\"access.manage\",\"production.deploy\"]',revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
@@ -328,7 +329,7 @@ func TestAuthorityOperations(t *testing.T) {
 	}
 	call = agentCall(p, "lastapp_assignment", "grant", "access.manage")
 	agent := op.Actor{Principal: p, RequestID: registry.NewID(), Agent: call}
-	team := assignmentInput{ID: registry.NewID(), User: p.ID, Role: role.ID}
+	team := roles.AssignmentInput{ID: registry.NewID(), User: p.ID, Role: role.ID}
 	if _, e = s.authority.Grant(ctx, agent, scope, res, team); e != nil || !call.Committed {
 		t.Fatal("agent grant", e)
 	}

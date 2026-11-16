@@ -14,6 +14,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // SeedDevelopment is an explicit CLI-only fixture operation. It is never an HTTP route.
@@ -118,14 +119,14 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO spaces(id,tenant_id,slug,display_name,database_resource_id,database_layout) VALUES (?,?,'crm','CRM',?,'shared')", space, tenant, resource); e != nil {
 			return e
 		}
-		if e = assignInitialManager(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, "", owner); e != nil {
+		if e = roles.AssignInitialManager(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, "", owner); e != nil {
 			return e
 		}
 		for _, a := range []struct{ id, slug, name string }{{app, "deal-review", "Deal review"}, {second, "forecasting", "Forecasting"}} {
 			if _, e = tx.ExecContext(ctx, "INSERT INTO apps(id,tenant_id,space_id,slug,display_name) VALUES (?,?,?,?,?)", a.id, tenant, space, a.slug, a.name); e != nil {
 				return e
 			}
-			if e = assignInitialManager(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, a.id, owner); e != nil {
+			if e = roles.AssignInitialManager(ctx, tx, op.ActorFrom(ctx, access.Principal{ID: operator}, registry.NewID()), tenant, space, a.id, owner); e != nil {
 				return e
 			}
 		}

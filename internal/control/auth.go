@@ -18,6 +18,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 type (
@@ -234,7 +235,7 @@ func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email str
 		return "", e
 	}
 	if !ok {
-		if e = platformCandidate(ctx, tx, uid); e != nil {
+		if e = roles.PlatformCandidate(ctx, tx, uid); e != nil {
 			return "", e
 		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO access_grants (id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,'platform','control',?,?,'builtin')", registry.NewID(), uid, access.SuperRole)

@@ -17,6 +17,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // sameJSON requires that got, an operation's typed registry result, marshals
@@ -235,16 +236,16 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	// Roles, assignments, recipients, effective assignments and the audited
 	// security snapshots.
 	spaceID := spaces.Items[0].ID
-	scope, res, e := scopeOf(tenant, "", spaceID, "")
+	scope, res, e := roles.ScopeOf(tenant, "", spaceID, "")
 	if e != nil {
 		t.Fatal(e)
 	}
-	role := roleInput{ID: registry.NewID(), Code: "typed", Name: "Typed"}
+	role := roles.RoleInput{ID: registry.NewID(), Code: "typed", Name: "Typed"}
 	if _, e = s.authority.CreateRole(ctx, admin, scope, res, role); e != nil {
 		t.Fatal(e)
 	}
 	renamed, request := "Typed role", registry.NewID()
-	if _, e = s.authority.UpdateRole(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, scope, res, role.ID, rolePatch{Name: &renamed}, 1); e != nil {
+	if _, e = s.authority.UpdateRole(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, scope, res, role.ID, roles.RolePatch{Name: &renamed}, 1); e != nil {
 		t.Fatal(e)
 	}
 	roleSnapshotSQL := "SELECT id,tenant_id,space_id,app_id,scope_kind,domain,code,display_name,state,revision FROM roles WHERE id=?"
@@ -268,7 +269,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		}
 	}
 	sameAudit(request, "role.updated", "after", roleSnapshotSQL, registry.Row{"permissions": []string{}}, role.ID)
-	roles, e := s.authority.Roles(ctx, admin, scope, res, op.PageRequest{Limit: 200})
+	rolePage, e := s.authority.Roles(ctx, admin, scope, res, op.PageRequest{Limit: 200})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -284,7 +285,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 			v["data_permissions"] = []registry.Row{}
 		}
 	}
-	if want, got := mustJSON(t, untypedRoles), mustJSON(t, roles); want != got {
+	if want, got := mustJSON(t, untypedRoles), mustJSON(t, rolePage); want != got {
 		t.Fatalf("roles differ\nwant %s\ngot  %s", want, got)
 	}
 	one4, e := s.authority.Role(ctx, admin, scope, res, role.ID)
@@ -292,7 +293,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		t.Fatal(e)
 	}
 	sameJSON(t, s.DB, one4, "SELECT id,tenant_id,scope_kind,domain,space_id,app_id,code,display_name,state,revision FROM roles WHERE id=?", role.ID)
-	grant := assignmentInput{ID: registry.NewID(), User: joe, Role: role.ID}
+	grant := roles.AssignmentInput{ID: registry.NewID(), User: joe, Role: role.ID}
 	request = registry.NewID()
 	if _, e = s.authority.Grant(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, scope, res, grant); e != nil {
 		t.Fatal(e)
@@ -303,7 +304,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	where, args := assignmentFilter(scope)
+	where, args := roles.AssignmentFilter(scope)
 	sameJSON(t, s.DB, assignments.Items, `SELECT g.id,g.scope_kind,g.domain,g.user_id,g.group_id,g.scope_team_id,g.space_id,g.app_id,g.role_id,g.revision,g.created_at,COALESCE(u.display_name,gr.display_name) AS principal_name,ro.display_name AS access_name,ro.state AS role_state,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
 	one5, e := s.authority.Assignment(ctx, admin, scope, res, grant.ID)
 	if e != nil {
@@ -538,7 +539,7 @@ func jsonKeys(t reflect.Type) []string {
 // members must therefore be declared in sorted order (snapshot records keep
 // their own documented order and are not Row replacements).
 func TestRegistryRecordKeysAreSorted(t *testing.T) {
-	for _, v := range []any{registry.Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, Membership{}, Team{}, TeamMember{}, Administrator{}, User{}, Role{}, roleItem{}, rolePermission{}, Assignment{}, AssignmentItem{}, Recipient{}, Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
+	for _, v := range []any{registry.Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, Membership{}, Team{}, TeamMember{}, Administrator{}, User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
 		keys := jsonKeys(reflect.TypeOf(v))
 		if len(keys) == 0 || !slices.IsSorted(keys) {
 			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)

@@ -9,6 +9,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // AddAdministrator makes an existing account or a new local account a Tenant
@@ -95,7 +96,7 @@ func (m *membership) AddAdministrator(ctx context.Context, a op.Actor, tenant st
 			if _, e = tx.ExecContext(ctx, "INSERT INTO access_grants(id,tenant_id,scope_kind,domain,user_id,role_id,role_owner_key) VALUES (?,?,'tenant','control',?,?,'builtin')", grant, tenant, in.User, access.TenantAdminRole); e != nil {
 				return e
 			}
-			return auditChangeAs(ctx, tx, a, tenant, "grant.created", "access_grants", "access_grant", grant, nil)
+			return roles.AuditChangeAs(ctx, tx, a, tenant, "grant.created", "access_grants", "access_grant", grant, nil)
 		}
 		return nil
 	})

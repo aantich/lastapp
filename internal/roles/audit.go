@@ -1,4 +1,4 @@
-package control
+package roles
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func roleSnapshot(ctx context.Context, q registry.Queryer, tenant, record string
 	return v, e
 }
 
-func teamSnapshotOf(ctx context.Context, q registry.Queryer, tenant, record string) (teamSnapshot, error) {
+func TeamSnapshotOf(ctx context.Context, q registry.Queryer, tenant, record string) (teamSnapshot, error) {
 	where, args := snapshotWhere(tenant, record)
 	return registry.ScanOne[teamSnapshot](ctx, q, "SELECT display_name,id,revision,state FROM groups"+where, args...)
 }
@@ -58,15 +58,15 @@ func securitySnapshot(ctx context.Context, q registry.Queryer, table, tenant, re
 	case "roles":
 		return roleSnapshot(ctx, q, tenant, record)
 	case "groups":
-		return teamSnapshotOf(ctx, q, tenant, record)
+		return TeamSnapshotOf(ctx, q, tenant, record)
 	case "access_grants":
 		return assignmentSnapshot(ctx, q, tenant, record)
 	}
 	return nil, fmt.Errorf("no security snapshot for %s", table)
 }
 
-// auditChangeAs records a security-relevant change with before/after snapshots.
-func auditChangeAs(ctx context.Context, q registry.Queryer, a op.Actor, tenant, action, table, kind, record string, before any) error {
+// AuditChangeAs records a security-relevant change with before/after snapshots.
+func AuditChangeAs(ctx context.Context, q registry.Queryer, a op.Actor, tenant, action, table, kind, record string, before any) error {
 	after, e := securitySnapshot(ctx, q, table, tenant, record)
 	if e != nil {
 		return e
