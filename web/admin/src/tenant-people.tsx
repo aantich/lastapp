@@ -1,9 +1,10 @@
 import { useBuiltinRoles } from "./console-config";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
 import { useAction } from "./use-action";
+import { useApiQuery } from "./query";
 import { confirmAction } from "./confirm";
 import { nameFields, status } from "./console-forms";
 import type { Item, TenantCapabilities } from "./api-types";
@@ -13,25 +14,20 @@ export function TenantPeople({
   tab,
   team,
   selectTeam,
-  refresh,
-  reload,
 }: {
   tenant: string;
   caps: TenantCapabilities;
   tab: string;
   team: string;
   selectTeam: (id: string) => void;
-  refresh: () => void;
-  reload: number;
 }) {
   const roles = useBuiltinRoles();
   const base = "/v1/tenants/" + tenant,
     path = base + "/teams/" + team;
-  const [group, setGroup] = useState<Item>({}),
-    [modal, setModal] = useState<Modal | null>(null),
+  const [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState("");
   const { busy, run: act } = useAction(path, {
-    onSuccess: refresh,
+    onSuccess: () => {},
     onError: setError,
   });
   const canMembers = !!caps["membership.read"]?.all,
@@ -39,24 +35,11 @@ export function TenantPeople({
     manageTeam =
       !!caps["team.manage"]?.all ||
       (caps["team.manage"]?.teams || []).includes(team);
-  useEffect(() => {
-    setModal(null);
-    setError("");
-  }, [tenant, tab, team]);
-  useEffect(() => {
-    if (!team) return;
-    let live = true;
-    api<Item>(path)
-      .then((v) => {
-        if (live) setGroup(v);
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [tenant, team, reload]);
+  // The parent keys this screen by Tenant, tab and team, so a new selection
+  // starts without the previous modal or error.
+  const teamQuery = useApiQuery<Item>(team ? path : null),
+    group = teamQuery.data || {},
+    shownError = error || teamQuery.error?.message || "";
   const name: [string, (r: Item) => ReactNode] = [
     "Person",
     (r) => (
@@ -151,9 +134,9 @@ export function TenantPeople({
   }
   return (
     <>
-      {error && (
+      {shownError && (
         <div className="error" role="alert">
-          {error}
+          {shownError}
         </div>
       )}
       {tab === "members" && canMembers ? (
@@ -168,7 +151,6 @@ export function TenantPeople({
           <Collection
             key={tenant + "members"}
             path={base + "/memberships"}
-            reload={reload}
             columns={[
               name,
               [
@@ -236,7 +218,6 @@ export function TenantPeople({
           </div>
           <Collection
             path={base + "/teams"}
-            reload={reload}
             columns={[
               ["Team", (r) => <strong>{r.display_name}</strong>],
               ["Status", (r) => status(r.state)],
@@ -275,7 +256,6 @@ export function TenantPeople({
           <Collection
             key={path}
             path={path + "/members"}
-            reload={reload}
             columns={[
               name,
               [
@@ -390,10 +370,7 @@ export function TenantPeople({
           key={tenant + team + modal.title}
           modal={modal}
           close={() => setModal(null)}
-          done={() => {
-            setModal(null);
-            refresh();
-          }}
+          done={() => setModal(null)}
           lookups={{}}
         />
       )}

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
+import { apiKey, queryClient, useApiQuery } from "../query";
 import { RemoteSelect } from "../remote-select";
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
@@ -56,59 +57,91 @@ export function EntityDesigner({
   tenant: string;
   me: Item;
 }) {
-  const [items, setItems] = useState<Item[]>([]),
-    [record, setRecord] = useState<Item | null>(null),
+  const [record, setRecord] = useState<Item | null>(null),
     [draft, setDraft] = useState<Item | null>(null),
-    [catalog, setCatalog] = useState<EntityCatalog | null>(null),
     [tab, setTab] = useState("fields"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [name, setName] = useState(""),
     [template, setTemplate] = useState(""),
-    [review, setReview] = useState(false),
-    [roles, setRoles] = useState<Item[]>([]);
+    [review, setReview] = useState(false);
   const [editField, setEditField] = useState<Item | null>(null),
     [editPermission, setEditPermission] = useState<Item | null>(null),
     [editRule, setEditRule] = useState<Item | null>(null);
   const creationID = useRef(crypto.randomUUID());
   const dirty =
     !!record && JSON.stringify(draft) !== JSON.stringify(record.draft_json);
+  const listPath = "/v1/spaces/" + space + "/entities";
+  // The catalog and role list do not change while the designer is open.
+  const catalogQuery = useApiQuery<EntityCatalog>("/v1/entity-capabilities", {
+      refetchInterval: false,
+    }),
+    rolesQuery = useApiQuery<Page>(
+      "/v1/tenants/" + tenant + "/spaces/" + space + "/roles",
+      { refetchInterval: false },
+    ),
+    listQuery = useApiQuery<Page>(listPath);
+  const catalog = catalogQuery.data,
+    roles = (rolesQuery.data?.items || []).filter((x) => x.domain === "data"),
+    items = listQuery.data?.items || [];
   const load = () =>
-    api<Page>("/v1/spaces/" + space + "/entities").then((v) =>
-      setItems(v.items),
-    );
-  useEffect(() => {
-    let live = true;
-    Promise.all([
-      api<EntityCatalog>("/v1/entity-capabilities"),
-      api<Page>("/v1/tenants/" + tenant + "/spaces/" + space + "/roles"),
-      api<Page>("/v1/spaces/" + space + "/entities"),
-    ])
-      .then(([c, r, l]) => {
-        if (live) {
-          setCatalog(c);
-          setRoles(r.items.filter((x) => x.domain === "data"));
-          setItems(l.items);
-          const selected = new URLSearchParams(location.search).get("entity");
-          if (selected) {
-            api<Item>("/v1/entities/" + selected)
-              .then((v) => {
-                if (live && v.space_id === space) {
-                  setRecord(v);
-                  setDraft(v.draft_json);
-                }
-              })
-              .catch((e) => {
-                if (live) setError(e.message);
-              });
+    queryClient.invalidateQueries({ queryKey: apiKey(listPath) });
+  // An ?entity= link opens that entity once it has loaded.
+  const [linked] = useState(() =>
+      new URLSearchParams(location.search).get("entity"),
+    ),
+    linkedQuery = useApiQuery<Item>(linked ? "/v1/entities/" + linked : null, {
+      refetchInterval: false,
+    }),
+    [linkHandled, setLinkHandled] = useState(false);
+  if (!linkHandled && linkedQuery.data) {
+    setLinkHandled(true);
+    if (!record && linkedQuery.data.space_id === space) {
+      setRecord(linkedQuery.data);
+      setDraft(linkedQuery.data.draft_json);
+    }
+  }
+  // While a publication is pending, poll the entity every 1.5 s until the
+  // pending version clears. refetchInterval never overlaps requests. Only
+  // responses fetched for this publication count, never an older cached read.
+  const pendingQuery = useApiQuery<Item>(
+      record?.pending_version_id ? "/v1/entities/" + record.id : null,
+      {
+        refetchInterval: (q) =>
+          q.state.data && !q.state.data.pending_version_id ? false : 1500,
+      },
+    ),
+    [polled, setPolled] = useState(0);
+  if (
+    pendingQuery.data &&
+    pendingQuery.isFetchedAfterMount &&
+    pendingQuery.dataUpdatedAt !== polled
+  ) {
+    const v = pendingQuery.data;
+    setPolled(pendingQuery.dataUpdatedAt);
+    // Keep unsaved edits: take only publication state from the server.
+    setRecord((current) =>
+      dirty &&
+      current &&
+      JSON.stringify(current.draft_json) !== JSON.stringify(v.draft_json)
+        ? {
+            ...current,
+            publications: v.publications,
+            pending_version_id: v.pending_version_id,
+            active_version_id: v.active_version_id,
+            active_definition: v.active_definition,
           }
-        }
-      })
-      .catch((e) => setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [space, tenant]);
+        : v,
+    );
+    if (!dirty) setDraft(v.draft_json);
+    if (!v.pending_version_id) void load();
+  }
+  const readError =
+    catalogQuery.error ||
+    rolesQuery.error ||
+    listQuery.error ||
+    linkedQuery.error ||
+    pendingQuery.error;
   useEffect(() => {
     if (!dirty) return;
     const fn = (e: BeforeUnloadEvent) => {
@@ -127,38 +160,6 @@ export function EntityDesigner({
       window.removeEventListener(beforeNavigateEvent, navigate);
     };
   }, [dirty]);
-  useEffect(() => {
-    if (!record?.pending_version_id) return;
-    let live = true;
-    const timer = setInterval(() => {
-      api<Item>("/v1/entities/" + record.id)
-        .then((v) => {
-          if (!live) return;
-          setRecord((current) =>
-            dirty &&
-            current &&
-            JSON.stringify(current.draft_json) !== JSON.stringify(v.draft_json)
-              ? {
-                  ...current,
-                  publications: v.publications,
-                  pending_version_id: v.pending_version_id,
-                  active_version_id: v.active_version_id,
-                  active_definition: v.active_definition,
-                }
-              : v,
-          );
-          if (!dirty) setDraft(v.draft_json);
-          if (!v.pending_version_id) void load();
-        })
-        .catch((e) => {
-          if (live) setError(e.message);
-        });
-    }, 1500);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [record?.id, record?.pending_version_id, dirty]);
   async function run(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -222,17 +223,18 @@ export function EntityDesigner({
         [list]: d![list].filter((x: Item) => x.key !== key),
       }));
   };
+  const shownError = error || readError?.message || "";
   if (!catalog)
     return (
-      <p role={error ? "alert" : undefined}>
-        {error || "Loading entity designer…"}
+      <p role={shownError ? "alert" : undefined}>
+        {shownError || "Loading entity designer…"}
       </p>
     );
   return (
     <section className="entity-designer">
-      {error && (
+      {shownError && (
         <div className="error" role="alert">
-          {error}
+          {shownError}
         </div>
       )}
       {!draft ? (

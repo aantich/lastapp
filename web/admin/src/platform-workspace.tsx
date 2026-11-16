@@ -1,5 +1,5 @@
 import { useBuiltinRoles } from "./console-config";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import {
   Building2,
   Users,
@@ -16,6 +16,8 @@ import { FormModal, type Modal, type Field } from "./form-modal";
 import { PasswordScreen } from "./login";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
+import { refreshQueries, useApiQuery } from "./query";
+import { useRouteState, useScreenError } from "./route-state";
 import {
   accountFields,
   accountPayload,
@@ -46,14 +48,20 @@ export function PlatformWorkspace({
   const [path, navigate] = useConsoleURL(),
     route = parsePlatformURL(path),
     { page, tenant, tab, settingsTab } = route;
-  const [overview, setOverview] = useState<TenantOverview>({}),
-    [reload, setReload] = useState(0),
-    [modal, setModal] = useState<Modal | null>(null),
-    [error, setError] = useState(""),
-    [plans, setPlans] = useState<Item[]>([]);
-  const refresh = () => setReload((r) => r + 1);
+  const [modal, setModal] = useRouteState<Modal | null>(path, null);
+  const plansQuery = useApiQuery<Page>("/admin/v1/plans"),
+    overviewQuery = useApiQuery<TenantOverview>(
+      tenant ? "/v1/tenants/" + tenant + "/overview" : null,
+    ),
+    plans = plansQuery.data?.items || [],
+    overview: TenantOverview = (tenant && overviewQuery.data) || {};
+  const refresh = () => void refreshQueries();
+  const { error, setError, dismiss } = useScreenError(path, [
+    plansQuery.error,
+    overviewQuery.error,
+  ]);
   const { busy, run: act } = useAction(path, {
-    onSuccess: refresh,
+    onSuccess: () => {},
     onError: setError,
   });
   function go(...page: string[]) {
@@ -62,41 +70,10 @@ export function PlatformWorkspace({
   useEffect(() => {
     if (!path.startsWith(consoleURL.platform()))
       navigate(consoleURL.platform("tenants"), true);
-    setModal(null);
-    setError("");
-  }, [path]);
-  useEffect(() => {
-    let live = true;
-    api<Page>("/admin/v1/plans")
-      .then((v) => {
-        if (live) setPlans(v.items);
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [reload]);
-  useEffect(() => {
-    setOverview({});
-    if (!tenant) return;
-    let live = true;
-    api<TenantOverview>("/v1/tenants/" + tenant + "/overview")
-      .then((v) => {
-        if (live) setOverview(v);
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [tenant, reload]);
+  }, [path, navigate]);
   const profile = overview.tenant || {};
   function done() {
     setModal(null);
-    refresh();
   }
   function addAdmin() {
     setModal({
@@ -467,11 +444,7 @@ export function PlatformWorkspace({
       {error && (
         <div className="error" role="alert">
           {error}
-          <button
-            className="tiny"
-            onClick={() => setError("")}
-            aria-label="Dismiss error"
-          >
+          <button className="tiny" onClick={dismiss} aria-label="Dismiss error">
             ×
           </button>
         </div>
@@ -513,7 +486,6 @@ export function PlatformWorkspace({
               <Collection
                 key={tenant + "inventory"}
                 path={`/v1/tenants/${tenant}/apps`}
-                reload={reload}
                 columns={[
                   columnsName,
                   ["Space", (r) => r.space_name],
@@ -526,7 +498,6 @@ export function PlatformWorkspace({
             <Collection
               key={tenant + "admins"}
               path={`/admin/v1/tenants/${tenant}/administrators`}
-              reload={reload}
               columns={[
                 columnsName,
                 columnsStatus,
@@ -574,7 +545,6 @@ export function PlatformWorkspace({
       ) : page === "tenants" ? (
         <Collection
           path="/admin/v1/tenants"
-          reload={reload}
           columns={[
             columnsName,
             ["Plan", (r) => r.plan_name],
@@ -594,7 +564,6 @@ export function PlatformWorkspace({
       ) : page === "users" ? (
         <Collection
           path="/admin/v1/users"
-          reload={reload}
           columns={[
             columnsName,
             [
@@ -669,7 +638,6 @@ export function PlatformWorkspace({
               ? "/v1/tenants/" + route.id + "/audit-events"
               : "/admin/v1/audit-events"
           }
-          reload={reload}
           columns={[
             [
               "Event",
@@ -703,7 +671,6 @@ export function PlatformWorkspace({
           {settingsTab === "plans" ? (
             <Collection
               path="/admin/v1/plans"
-              reload={reload}
               columns={[
                 columnsName,
                 [
@@ -721,7 +688,6 @@ export function PlatformWorkspace({
           ) : (
             <Collection
               path="/admin/v1/database-targets"
-              reload={reload}
               columns={[
                 columnsName,
                 ["Endpoint", (r) => r.canonical_host + ":" + r.port],

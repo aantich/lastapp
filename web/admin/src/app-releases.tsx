@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Upload, RefreshCw, ExternalLink } from "lucide-react";
-import { api } from "./api";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { api, type Failure } from "./api";
+import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
 import { FormModal, type Modal } from "./form-modal";
 import { status } from "./console-forms";
@@ -26,21 +28,11 @@ export function AppReleases({
   refresh: () => void;
   openWorkspaces: () => void;
 }) {
-  const [releases, setReleases] = useState<Item[]>([]),
-    [builds, setBuilds] = useState<Item[]>([]),
-    [selected, setSelected] = useState<Item>(),
-    [deployment, setDeployment] = useState<Item>(),
+  const [selected, setSelected] = useState<Item>(),
     [error, setError] = useState(""),
-    [deploymentError, setDeploymentError] = useState(""),
     [busy, setBusy] = useState(false),
-    [reload, setReload] = useState(0),
-    [modal, setModal] = useState<Modal | null>(null),
-    [hasMore, setHasMore] = useState(false),
-    [page, setPage] = useState(1);
+    [modal, setModal] = useState<Modal | null>(null);
   const { config } = useConsoleConfig();
-  const refreshApp = useRef(refresh),
-    previousDeployment = useRef<Item>(undefined);
-  refreshApp.current = refresh;
   const folder = useRef<HTMLInputElement>(null),
     live = useRef(true),
     development = !!app.workspace_id;
@@ -50,76 +42,78 @@ export function AppReleases({
       live.current = false;
     };
   }, []);
+  // Release history pages accumulate behind "Load more".
+  const releasesPath = `/v1/apps/${app.id}/releases`;
+  const releasePages = useInfiniteQuery({
+    queryKey: [...apiKey(releasesPath), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      api<Page>(
+        `${releasesPath}?page=${pageParam}`,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, _, page) =>
+      last.pagination?.has_more ? page + 1 : undefined,
+  });
+  const releases = (releasePages.data?.pages || []).reduce<Item[]>(
+      (all, p) => [
+        ...all.filter((r) => !p.items.some((n) => n.id === r.id)),
+        ...p.items,
+      ],
+      [],
+    ),
+    hasMore = !!releasePages.hasNextPage,
+    listError = releasePages.error?.message || "";
+  const builds =
+    useApiQuery<Page>(development ? `/v1/apps/${app.id}/builds` : null).data
+      ?.items || [];
+  // Production deployment status: poll while it is in progress, backing off
+  // from 1.5 s to 10 s after failures, and stop at a final state or when
+  // access is gone. refetchInterval never overlaps requests.
+  const deploymentPath = `/v1/apps/${app.id}/deployment`,
+    failures = useRef({ at: 0, count: 0 });
+  const deploymentQuery = useApiQuery<{ deployment?: Item | null }>(
+    deploymentPath,
+    {
+      refetchInterval: (q) => {
+        const { status, error, errorUpdatedAt, data } = q.state;
+        if (status === "error") {
+          if (failures.current.at !== errorUpdatedAt)
+            failures.current = {
+              at: errorUpdatedAt,
+              count: failures.current.count + 1,
+            };
+          if ([401, 403, 404].includes((error as Failure).status)) return false;
+          return Math.min(1500 * 2 ** failures.current.count, 10000);
+        }
+        failures.current = { at: 0, count: 0 };
+        return data?.deployment &&
+          ["queued", "preparing", "publishing"].includes(data.deployment.state)
+          ? 1500
+          : false;
+      },
+    },
+  );
+  const deployment = deploymentQuery.data?.deployment || undefined,
+    deploymentError = deploymentQuery.error
+      ? `Could not refresh deployment status: ${errorMessage(deploymentQuery.error)}`
+      : "";
+  // When this deployment finishes, the App itself changed: refresh it.
+  const previousDeployment = useRef<Item | undefined>(undefined);
   useEffect(() => {
-    let alive = true;
-    setError("");
-    Promise.all([
-      api<Page>(`/v1/apps/${app.id}/releases?page=${page}`),
-      ...(development ? [api<Page>(`/v1/apps/${app.id}/builds`)] : []),
-    ])
-      .then(([rels, b]) => {
-        if (!alive) return;
-        setReleases((old) =>
-          page === 1
-            ? rels.items
-            : [
-                ...old.filter((r) => !rels.items.some((n) => n.id === r.id)),
-                ...rels.items,
-              ],
-        );
-        setHasMore(!!rels.pagination?.has_more);
-        setBuilds(b?.items || []);
-      })
-      .catch((e) => {
-        if (alive) setError(e.message);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [app.id, tenant, development, reload, page]);
-  useEffect(() => {
-    let alive = true,
-      timer: ReturnType<typeof setTimeout> | undefined;
-    let retryDelay = 1500;
-    async function poll() {
-      try {
-        const result = await api<Item>(`/v1/apps/${app.id}/deployment`);
-        if (!alive) return;
-        const latest: Item | undefined = result.deployment || undefined;
-        const previous = previousDeployment.current;
-        previousDeployment.current = latest;
-        setDeployment(latest);
-        setDeploymentError("");
-        if (
-          latest?.state === "active" &&
-          previous &&
-          previous.id === latest.id &&
-          previous.state !== "active"
-        )
-          refreshApp.current();
-        retryDelay = 1500;
-        if (
-          !latest ||
-          !["queued", "preparing", "publishing"].includes(latest.state)
-        )
-          return;
-      } catch (e) {
-        if (!alive) return;
-        setDeploymentError(
-          `Could not refresh deployment status: ${errorMessage(e)}`,
-        );
-        if ([401, 403, 404].includes((e as { status?: number }).status || 0))
-          return;
-        retryDelay = Math.min(retryDelay * 2, 10000);
-      }
-      if (alive) timer = setTimeout(poll, retryDelay);
-    }
-    void poll();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [app.id, reload]);
+    const previous = previousDeployment.current;
+    previousDeployment.current = deployment;
+    if (
+      deployment?.state === "active" &&
+      previous &&
+      previous.id === deployment.id &&
+      previous.state !== "active"
+    )
+      refresh();
+  }, [deployment, refresh]);
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -163,7 +157,7 @@ export function AppReleases({
       const result = await response.json();
       if (!response.ok)
         throw new Error(result.error?.message || "Upload failed");
-      setReload((x) => x + 1);
+      void refreshQueries();
       await capture(result.id);
     });
     if (folder.current) folder.current.value = "";
@@ -232,7 +226,6 @@ export function AppReleases({
           latest.revision,
         );
         setSelected(rel);
-        setReload((x) => x + 1);
       },
     });
   }
@@ -273,9 +266,11 @@ export function AppReleases({
           {},
           revision,
         );
+        // Show the new deployment at once; its state restarts the polling.
         previousDeployment.current = result;
-        setDeployment(result);
-        setReload((x) => x + 1);
+        queryClient.setQueryData(apiKey(deploymentPath), {
+          deployment: result,
+        });
       },
     });
   }
@@ -294,7 +289,7 @@ export function AppReleases({
           <button
             aria-label="Refresh releases"
             disabled={busy}
-            onClick={() => setReload((x) => x + 1)}
+            onClick={() => void refreshQueries()}
           >
             <RefreshCw size={16} />
           </button>
@@ -335,9 +330,9 @@ export function AppReleases({
           )}
         </div>
       </div>
-      {(error || deploymentError) && (
+      {(error || listError || deploymentError) && (
         <div className="error" role="alert">
-          {error || deploymentError}
+          {error || listError || deploymentError}
         </div>
       )}
       {deployment && (
@@ -375,7 +370,9 @@ export function AppReleases({
             </button>
           ))}
           {hasMore && (
-            <button onClick={() => setPage((p) => p + 1)}>Load more</button>
+            <button onClick={() => void releasePages.fetchNextPage()}>
+              Load more
+            </button>
           )}
         </div>
         {selected ? (
@@ -475,10 +472,7 @@ export function AppReleases({
         <FormModal
           modal={modal}
           close={() => setModal(null)}
-          done={() => {
-            setModal(null);
-            setReload((x) => x + 1);
-          }}
+          done={() => setModal(null)}
           lookups={{}}
         />
       )}

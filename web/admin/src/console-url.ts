@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 // The console's route table: every console URL is built and parsed here.
 //   /console/                                   sign-in landing
@@ -90,15 +90,14 @@ export function useConsoleURL() {
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, []);
-  return [
-    path,
-    (next: string, replace = false) => {
-      if (next === location.pathname) return;
-      const proceed = () => {
-        history[replace ? "replaceState" : "pushState"](null, "", next);
-        setPath(next);
-      };
-      if (navigationAllowed(proceed)) proceed();
-    },
-  ] as const;
+  // Stable, so screens can redirect from an effect that lists it.
+  const navigate = useCallback((next: string, replace = false) => {
+    if (next === location.pathname) return;
+    const proceed = () => {
+      history[replace ? "replaceState" : "pushState"](null, "", next);
+      setPath(next);
+    };
+    if (navigationAllowed(proceed)) proceed();
+  }, []);
+  return [path, navigate] as const;
 }

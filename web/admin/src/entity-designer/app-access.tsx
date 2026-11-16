@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api";
+import { apiKey, queryClient, useApiQuery } from "../query";
+import { useAction } from "../use-action";
 import type { EntityCatalog, Item } from "../api-types";
 import { Select } from "../select";
 import { FieldChoices, Expression } from "./expression";
@@ -10,35 +12,32 @@ export function AppDataAccess({
   app: string;
   spaceManager: boolean;
 }) {
-  const [state, set] = useState<Item | null>(null),
-    [access, edit] = useState<Item | null>(null),
-    [contracts, setContracts] = useState<Item[]>([]),
-    [roles, setRoles] = useState<Item[]>([]),
-    [catalog, setCatalog] = useState<EntityCatalog | null>(null),
-    [error, setError] = useState(""),
-    [saving, setSaving] = useState(false);
-  useEffect(() => {
-    let live = true;
-    Promise.all([
-      api<Item>("/v1/apps/" + app + "/data-access"),
-      api<Item>("/v1/apps/" + app + "/entity-contracts"),
-      api<EntityCatalog>("/v1/entity-capabilities"),
-    ])
-      .then(([s, c, cat]) => {
-        if (live) {
-          set(s);
-          edit(s.access);
-          setContracts(c.entities);
-          setRoles(c.roles);
-          setCatalog(cat);
-        }
-      })
-      .catch((e) => setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [app]);
-  if (!access) return <p>{error || "Loading data access…"}</p>;
+  const path = "/v1/apps/" + app + "/data-access";
+  // The form edits a local copy; these reads stay still while it is open.
+  const stateQuery = useApiQuery<Item>(path, { refetchInterval: false }),
+    contractsQuery = useApiQuery<Item>(
+      "/v1/apps/" + app + "/entity-contracts",
+      { refetchInterval: false },
+    ),
+    catalogQuery = useApiQuery<EntityCatalog>("/v1/entity-capabilities", {
+      refetchInterval: false,
+    });
+  const [access, edit] = useState<Item | null>(null),
+    [error, setError] = useState("");
+  const state = stateQuery.data,
+    contracts: Item[] = contractsQuery.data?.entities || [],
+    roles: Item[] = contractsQuery.data?.roles || [],
+    catalog = catalogQuery.data || null;
+  const ready = !!state && !!contractsQuery.data && !!catalog;
+  if (ready && !access) edit(state.access);
+  const { busy: saving, run } = useAction(app, {
+    onSuccess: () => {},
+    onError: setError,
+  });
+  const readError =
+    stateQuery.error || contractsQuery.error || catalogQuery.error;
+  if (!access)
+    return <p>{error || readError?.message || "Loading data access…"}</p>;
   const permissions = contracts.flatMap((c) =>
     (c.definition.permissions || []).map((p: Item) => ({
       ...p,
@@ -183,20 +182,11 @@ export function AppDataAccess({
       className="panel entity-app-access entity-advanced"
       onSubmit={(e) => {
         e.preventDefault();
-        setSaving(true);
-        setError("");
-        api<Item>(
-          "/v1/apps/" + app + "/data-access",
-          "PATCH",
-          access,
-          state!.revision,
-        )
-          .then((v) => {
-            set(v);
-            edit(v.access);
-          })
-          .catch((e) => setError(e.message))
-          .finally(() => setSaving(false));
+        void run(async () => {
+          const v = await api<Item>(path, "PATCH", access, state!.revision);
+          queryClient.setQueryData(apiKey(path), v);
+          edit(v.access);
+        });
       }}
     >
       <h2>App data access</h2>

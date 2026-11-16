@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import {
   AppWindow,
   FolderOpen,
@@ -28,6 +28,8 @@ import { RemoteSelect } from "./remote-select";
 import { AccessControl } from "./access-control";
 import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
+import { LiveRefresh, refreshQueries, useApiQuery } from "./query";
+import { useRouteState, useScreenError } from "./route-state";
 import { nameFields, stateOptions, status as badge } from "./console-forms";
 import type {
   Item,
@@ -89,13 +91,41 @@ export function TenantWorkspace({
       : memberships[0]?.id || "";
   const tenant = parsed.area === "tenants" ? parsed.tenant : fallback,
     base = "/v1/tenants/" + tenant;
-  const [overview, setOverview] = useState<TenantOverview>({}),
-    [caps, setCaps] = useState<TenantCapabilities>({}),
-    [space, setSpace] = useState<Item>({}),
-    [app, setApp] = useState<Item>({}),
-    [reload, setReload] = useState(0),
-    [modal, setModal] = useState<Modal | null>(null),
-    [error, setError] = useState("");
+  const [modal, setModal] = useRouteState<Modal | null>(url, null);
+  // Everything this workspace shows refreshes every 5 s while no form is open.
+  // refetchInterval never overlaps requests and pauses in a hidden tab.
+  const live = tenant && !modal ? 5000 : false;
+  const overviewQuery = useApiQuery<TenantOverview>(
+      tenant ? base + "/overview" : null,
+      { refetchInterval: live },
+    ),
+    capsQuery = useApiQuery<{ permissions: TenantCapabilities }>(
+      tenant ? base + "/capabilities" : null,
+      { refetchInterval: live },
+    ),
+    // A Space or App screen also reads its subject.
+    spaceQuery = useApiQuery<Item>(
+      tenant && parsed.page === "spaces" && parsed.space
+        ? base + "/spaces/" + parsed.space
+        : null,
+      { refetchInterval: live },
+    ),
+    appQuery = useApiQuery<Item>(
+      tenant && parsed.page === "apps" && parsed.app
+        ? base + "/apps/" + parsed.app
+        : null,
+      { refetchInterval: live },
+    );
+  const overview: TenantOverview = overviewQuery.data || {},
+    caps: TenantCapabilities = capsQuery.data?.permissions || {},
+    space: Item = spaceQuery.data || {},
+    app: Item = appQuery.data || {};
+  const { error, setError, dismiss } = useScreenError(url, [
+    overviewQuery.error,
+    capsQuery.error,
+    spaceQuery.error,
+    appQuery.error,
+  ]);
   const route = {
     page: parsed.page,
     // An App URL names no Space; take it from the loaded App.
@@ -108,17 +138,14 @@ export function TenantWorkspace({
   };
   if (route.page === "spaces" && route.space) route.page = "space";
   if (route.page === "apps" && route.app) route.page = "app";
-  const profile = overview.tenant || {},
-    contextKey = url,
-    currentContext = useRef(url);
-  currentContext.current = url;
+  const profile = overview.tenant || {};
   const all = (action: string) => !!caps[action]?.all,
     can = (action: string) => !!caps[action]?.available;
   const scoped = (action: string, spaceID = route.space, appID = route.app) =>
     all(action) ||
     (caps[action]?.spaces || []).includes(spaceID) ||
     (caps[action]?.apps || []).includes(appID);
-  const refresh = () => setReload((r) => r + 1);
+  const refresh = () => void refreshQueries();
   const { busy, run: act } = useAction(url, {
     onSuccess: () => done(),
     onError: setError,
@@ -154,67 +181,9 @@ export function TenantWorkspace({
   useEffect(() => {
     if (parsed.area !== "tenants" && parsed.area !== "account" && tenant)
       navigate(consoleURL.tenant(tenant, "apps"), true);
-  }, [url, tenant]);
-  useEffect(() => {
-    setModal(null);
-    setError("");
-  }, [url]);
-  useEffect(() => {
-    setOverview({});
-    setCaps({});
-    setSpace({});
-    setApp({});
-  }, [tenant]);
-  useEffect(() => {
-    if (!tenant) return;
-    let live = true;
-    Promise.all([
-      api<TenantOverview>(base + "/overview"),
-      api<{ permissions: TenantCapabilities }>(base + "/capabilities"),
-    ])
-      .then(([o, c]) => {
-        if (live) {
-          setOverview(o);
-          setCaps(c.permissions);
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [tenant, reload]);
-  useEffect(() => {
-    if (!tenant || !["space", "app"].includes(route.page)) return;
-    let live = true;
-    api<Item>(
-      base +
-        (route.page === "space"
-          ? "/spaces/" + route.space
-          : "/apps/" + route.app),
-    )
-      .then((v) => {
-        if (live) {
-          if (route.page === "space") setSpace(v);
-          else setApp(v);
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-  }, [tenant, route.page, route.space, route.app, reload]);
-  useEffect(() => {
-    if (!tenant || modal) return;
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
-  }, [tenant, modal]);
+  }, [parsed.area, tenant, navigate]);
   function done() {
     setModal(null);
-    refresh();
   }
   function edit(
     row: Item,
@@ -240,14 +209,14 @@ export function TenantWorkspace({
         ),
     });
   }
+  // setModal is bound to the route it was read on, so a lookup that finishes
+  // after the user navigates away opens nothing on the new screen.
   async function createSpace() {
-    const started = contextKey;
     try {
       const [targets, members] = await Promise.all([
         api<Page>(base + "/database-targets"),
         api<Page>(base + "/memberships"),
       ]);
-      if (currentContext.current !== started) return;
       setModal({
         title: "Create Space",
         submit: "Create Space",
@@ -418,10 +387,8 @@ export function TenantWorkspace({
     });
   }
   async function addDatabase() {
-    const started = contextKey;
     try {
       const targets = await api<Page>(base + "/database-targets");
-      if (currentContext.current !== started) return;
       setModal({
         title: "Add database",
         submit: "Add database",
@@ -618,616 +585,613 @@ export function TenantWorkspace({
     </>
   );
   return (
-    <ConsoleShell
-      me={me}
-      kind="Tenant"
-      title={title}
-      nav={menu}
-      active={
-        route.page === "space"
-          ? "spaces"
-          : route.page === "app"
-            ? "apps"
-            : route.page
-      }
-      navigate={go}
-      context={
-        memberships.length > 1 || me.pagination?.has_more ? (
-          <RemoteSelect
-            path="/v1/my-tenants"
-            label="Tenant"
-            value={tenant}
-            onChange={selectTenant}
-            initial={options(memberships)}
-          />
-        ) : (
-          <strong className="company-name">
-            {profile.display_name ||
-              memberships[0]?.display_name ||
-              "No Tenant access"}
-          </strong>
-        )
-      }
-      breadcrumbs={
-        <>
-          <button className="text-button" onClick={() => go("apps")}>
-            {profile.display_name || "Tenant"}
-          </button>
-          {route.page === "app" && detailReady && (
-            <>
-              <span> / </span>
-              <button
-                className="text-button"
-                disabled={!scoped("space.read", app.space_id, "")}
-                onClick={() => openSpace({ id: app.space_id })}
-              >
-                {app.space_name}
-              </button>
-            </>
-          )}
-        </>
-      }
-      actions={actions}
-      appearanceControls={appearanceControls}
-      account={() => go("account")}
-      signOut={signOut}
-    >
-      {error && (
-        <div className="error" role="alert">
-          {error}
-          <button
-            className="tiny"
-            aria-label="Dismiss error"
-            onClick={() => setError("")}
-          >
-            ×
-          </button>
-        </div>
-      )}
-      {detailReady &&
-        (route.page === "space" || route.page === "app") &&
-        detail.workspace_id && (
-          <DevelopmentBanner
-            workspace={detail.workspace_id}
-            openSpace={(id) => go("space", { space: id })}
-          />
-        )}
-      {!!tabs.length && (
-        <div className="tabs workspace-tabs">
-          {tabs.map(([id, label]) => (
-            <button
-              key={id}
-              className={
-                (route.page === "people" ? peopleTab : route.tab) === id
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                go(route.page, { space: route.space, app: route.app, tab: id })
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-      {route.page === "account" ? (
-        <>
-          <AgentAccess me={me} />
-          <section className="panel workspace-section">
-            <p>
-              {me.display_name} · {me.email}
-            </p>
-          </section>
-          {me.auth_method === "password" ? (
-            <PasswordScreen done={refreshMe} />
+    <LiveRefresh value={live}>
+      <ConsoleShell
+        me={me}
+        kind="Tenant"
+        title={title}
+        nav={menu}
+        active={
+          route.page === "space"
+            ? "spaces"
+            : route.page === "app"
+              ? "apps"
+              : route.page
+        }
+        navigate={go}
+        context={
+          memberships.length > 1 || me.pagination?.has_more ? (
+            <RemoteSelect
+              path="/v1/my-tenants"
+              label="Tenant"
+              value={tenant}
+              onChange={selectTenant}
+              initial={options(memberships)}
+            />
           ) : (
-            <p className="panel workspace-section">
-              Manage your password with your single sign-on provider.
-            </p>
-          )}
-        </>
-      ) : !tenant ? (
-        <section className="panel empty">
-          <p>Your administrator can add this account to a Tenant.</p>
-        </section>
-      ) : (
-        <>
-          {route.page === "apps" && (
-            <>
-              {overview.spaces === 0 && all("space.manage") && (
-                <section className="panel first-space">
-                  <div>
-                    <h2>Create your first Space</h2>
-                    <p>A Space gives your Apps a shared database.</p>
-                  </div>
-                  <button className="primary" onClick={createSpace}>
-                    Create Space
-                  </button>
-                </section>
-              )}
-              <Collection
-                key={base + "apps"}
-                path={base + "/apps"}
-                reload={reload}
-                columns={[
-                  nameColumn,
-                  ["Space", (r) => r.space_name],
-                  statusColumn,
-                ]}
-                empty="No Apps are available yet."
-                actions={(r) => (
-                  <button className="text-button" onClick={() => openApp(r)}>
-                    Open
-                  </button>
-                )}
-              />
-            </>
-          )}
-          {route.page === "spaces" && (
-            <Collection
-              key={base + "spaces"}
-              path={base + "/spaces"}
-              reload={reload}
-              columns={[
-                nameColumn,
-                ["Apps", (r) => r.app_count],
-                ["Database", (r) => badge(r.database_state)],
-                statusColumn,
-              ]}
-              empty="Create a Space to organize your Apps."
-              actions={(r) => (
-                <button className="text-button" onClick={() => openSpace(r)}>
-                  Open
+            <strong className="company-name">
+              {profile.display_name ||
+                memberships[0]?.display_name ||
+                "No Tenant access"}
+            </strong>
+          )
+        }
+        breadcrumbs={
+          <>
+            <button className="text-button" onClick={() => go("apps")}>
+              {profile.display_name || "Tenant"}
+            </button>
+            {route.page === "app" && detailReady && (
+              <>
+                <span> / </span>
+                <button
+                  className="text-button"
+                  disabled={!scoped("space.read", app.space_id, "")}
+                  onClick={() => openSpace({ id: app.space_id })}
+                >
+                  {app.space_name}
                 </button>
-              )}
+              </>
+            )}
+          </>
+        }
+        actions={actions}
+        appearanceControls={appearanceControls}
+        account={() => go("account")}
+        signOut={signOut}
+      >
+        {error && (
+          <div className="error" role="alert">
+            {error}
+            <button
+              className="tiny"
+              aria-label="Dismiss error"
+              onClick={dismiss}
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {detailReady &&
+          (route.page === "space" || route.page === "app") &&
+          detail.workspace_id && (
+            <DevelopmentBanner
+              workspace={detail.workspace_id}
+              openSpace={(id) => go("space", { space: id })}
             />
           )}
-          {route.page === "space" && detailReady && (
-            <>
-              {route.tab === "development" && !space.workspace_id && (
-                <DevelopmentWorkspaces
-                  space={space.id}
-                  openSpace={(id) => go("space", { space: id })}
-                />
-              )}
-              {route.tab === "apps" && (
+        {!!tabs.length && (
+          <div className="tabs workspace-tabs">
+            {tabs.map(([id, label]) => (
+              <button
+                key={id}
+                className={
+                  (route.page === "people" ? peopleTab : route.tab) === id
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  go(route.page, {
+                    space: route.space,
+                    app: route.app,
+                    tab: id,
+                  })
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {route.page === "account" ? (
+          <>
+            <AgentAccess me={me} />
+            <section className="panel workspace-section">
+              <p>
+                {me.display_name} · {me.email}
+              </p>
+            </section>
+            {me.auth_method === "password" ? (
+              <PasswordScreen done={refreshMe} />
+            ) : (
+              <p className="panel workspace-section">
+                Manage your password with your single sign-on provider.
+              </p>
+            )}
+          </>
+        ) : !tenant ? (
+          <section className="panel empty">
+            <p>Your administrator can add this account to a Tenant.</p>
+          </section>
+        ) : (
+          <>
+            {route.page === "apps" && (
+              <>
+                {overview.spaces === 0 && all("space.manage") && (
+                  <section className="panel first-space">
+                    <div>
+                      <h2>Create your first Space</h2>
+                      <p>A Space gives your Apps a shared database.</p>
+                    </div>
+                    <button className="primary" onClick={createSpace}>
+                      Create Space
+                    </button>
+                  </section>
+                )}
                 <Collection
-                  key={space.id + "apps"}
-                  path={base + "/apps?space_id=" + space.id}
-                  reload={reload}
+                  key={base + "apps"}
+                  path={base + "/apps"}
                   columns={[
                     nameColumn,
-                    ["Micro-apps", (r) => r.microapp_count],
+                    ["Space", (r) => r.space_name],
                     statusColumn,
                   ]}
+                  empty="No Apps are available yet."
                   actions={(r) => (
                     <button className="text-button" onClick={() => openApp(r)}>
                       Open
                     </button>
                   )}
                 />
-              )}
-              {route.tab === "entities" && scoped("entity.manage") && (
-                <EntityDesigner
-                  key={space.id}
-                  space={space.id}
-                  tenant={tenant}
-                  me={me}
-                />
-              )}
-              {route.tab === "access" && (
-                <AccessControl
-                  key={space.id}
-                  tenant={tenant}
-                  caps={caps}
-                  reload={reload}
-                  refresh={refresh}
-                  scopeKind="space"
-                  scopeId={space.id}
-                />
-              )}
-              {route.tab === "settings" && (
-                <>
-                  <section className="panel workspace-section">
-                    <div className="settings-heading">
-                      <div className="settings-summary">
-                        <h2>General</h2>
-                        {badge(space.state)}
-                      </div>
-                      {scoped("space.manage") && (
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            edit(
-                              space,
-                              base + "/spaces/" + space.id,
-                              "Edit Space",
-                            )
-                          }
-                        >
-                          Edit Space
-                        </button>
-                      )}
-                    </div>
-                  </section>
-                  <section className="panel workspace-section">
-                    <h2 className="section-title">Database</h2>
-                    <dl className="workspace-facts">
-                      <dt>Connection</dt>
-                      <dd>{badge(space.database_state)}</dd>
-                      <dt>Layout</dt>
-                      <dd>{space.database_layout}</dd>
-                    </dl>
-                    {all("database.read") && (
+              </>
+            )}
+            {route.page === "spaces" && (
+              <Collection
+                key={base + "spaces"}
+                path={base + "/spaces"}
+                columns={[
+                  nameColumn,
+                  ["Apps", (r) => r.app_count],
+                  ["Database", (r) => badge(r.database_state)],
+                  statusColumn,
+                ]}
+                empty="Create a Space to organize your Apps."
+                actions={(r) => (
+                  <button className="text-button" onClick={() => openSpace(r)}>
+                    Open
+                  </button>
+                )}
+              />
+            )}
+            {route.page === "space" && detailReady && (
+              <>
+                {route.tab === "development" && !space.workspace_id && (
+                  <DevelopmentWorkspaces
+                    space={space.id}
+                    openSpace={(id) => go("space", { space: id })}
+                  />
+                )}
+                {route.tab === "apps" && (
+                  <Collection
+                    key={space.id + "apps"}
+                    path={base + "/apps?space_id=" + space.id}
+                    columns={[
+                      nameColumn,
+                      ["Micro-apps", (r) => r.microapp_count],
+                      statusColumn,
+                    ]}
+                    actions={(r) => (
                       <button
-                        className="secondary"
-                        onClick={() => go("settings", { tab: "databases" })}
+                        className="text-button"
+                        onClick={() => openApp(r)}
                       >
-                        Manage databases
+                        Open
                       </button>
                     )}
-                    <details>
-                      <summary>Advanced</summary>
-                      <p>Database: {space.database_name}</p>
-                      <p>Slug: {space.slug}</p>
-                    </details>
-                  </section>
-                </>
-              )}
-            </>
-          )}
-          {route.page === "app" && detailReady && (
-            <>
-              {route.tab === "releases" && (
-                <AppReleases
-                  key={app.id}
-                  app={app}
-                  tenant={tenant}
-                  refresh={refresh}
-                  openWorkspaces={() =>
-                    go("space", { space: app.space_id, tab: "development" })
-                  }
-                />
-              )}
-              {route.tab === "microapps" && (
-                <Collection
-                  key={app.id + "microapps"}
-                  path={base + "/microapps?app_id=" + app.id}
-                  reload={reload}
-                  columns={[nameColumn, statusColumn]}
-                  empty="Add your first micro-app."
-                  actions={
-                    scoped("microapp.manage")
-                      ? (r) => (
+                  />
+                )}
+                {route.tab === "entities" && scoped("entity.manage") && (
+                  <EntityDesigner
+                    key={space.id}
+                    space={space.id}
+                    tenant={tenant}
+                    me={me}
+                  />
+                )}
+                {route.tab === "access" && (
+                  <AccessControl
+                    key={space.id}
+                    tenant={tenant}
+                    caps={caps}
+                    scopeKind="space"
+                    scopeId={space.id}
+                  />
+                )}
+                {route.tab === "settings" && (
+                  <>
+                    <section className="panel workspace-section">
+                      <div className="settings-heading">
+                        <div className="settings-summary">
+                          <h2>General</h2>
+                          {badge(space.state)}
+                        </div>
+                        {scoped("space.manage") && (
                           <button
-                            className="text-button"
+                            className="secondary"
                             onClick={() =>
                               edit(
-                                r,
-                                base + "/microapps/" + r.id,
-                                "Edit micro-app",
-                                [
-                                  {
-                                    key: "display_name",
-                                    label: "Name",
-                                    required: true,
-                                  },
-                                  {
-                                    key: "state",
-                                    label: "Status",
-                                    type: "select",
-                                    options: states,
-                                    required: true,
-                                  },
-                                  {
-                                    key: "artifact_ref",
-                                    label: "Artifact reference",
-                                    advanced: true,
-                                  },
-                                  {
-                                    key: "navigation_order",
-                                    label: "Navigation order",
-                                    type: "number",
-                                    advanced: true,
-                                  },
-                                ],
+                                space,
+                                base + "/spaces/" + space.id,
+                                "Edit Space",
                               )
                             }
                           >
-                            Edit micro-app
-                          </button>
-                        )
-                      : undefined
-                  }
-                />
-              )}
-              {route.tab === "access" && (
-                <AccessControl
-                  key={app.id}
-                  tenant={tenant}
-                  caps={caps}
-                  reload={reload}
-                  refresh={refresh}
-                  scopeKind="app"
-                  scopeId={app.id}
-                />
-              )}
-              {route.tab === "settings" && (
-                <>
-                  <section className="panel workspace-section">
-                    <div className="settings-heading">
-                      <div className="settings-summary">
-                        <h2>General</h2>
-                        {badge(app.state)}
-                      </div>
-                      {scoped("app.manage") && (
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            edit(app, base + "/apps/" + app.id, "Edit App", [
-                              ...editFields,
-                              computeField(
-                                !!profile.allow_dedicated_compute ||
-                                  app.compute_mode === "dedicated",
-                              ),
-                            ])
-                          }
-                        >
-                          Edit App
-                        </button>
-                      )}
-                    </div>
-                    <details>
-                      <summary>Advanced</summary>
-                      <p>Slug: {app.slug}</p>
-                      <p>Compute preference: {app.compute_mode}</p>
-                    </details>
-                  </section>
-                  {scoped("app.manage") && (
-                    <AppDataAccess
-                      key={app.id}
-                      app={app.id}
-                      spaceManager={scoped("entity.manage", app.space_id, "")}
-                    />
-                  )}
-                </>
-              )}
-            </>
-          )}
-          {route.page === "people" && (
-            <TenantPeople
-              key={tenant}
-              tenant={tenant}
-              caps={caps}
-              tab={peopleTab}
-              team={route.team}
-              selectTeam={(id) => go("people", { tab: "teams", team: id })}
-              refresh={refresh}
-              reload={reload}
-            />
-          )}
-          {route.page === "activity" && (
-            <Collection
-              path={base + "/audit-events"}
-              reload={reload}
-              columns={[
-                [
-                  "Event",
-                  (r) => (
-                    <>
-                      <strong>{r.action}</strong>
-                      <small>{r.resource_type}</small>
-                    </>
-                  ),
-                ],
-                ["Actor", (r) => r.actor_name],
-                ["Time", (r) => new Date(r.created_at).toLocaleString()],
-              ]}
-            />
-          )}
-          {route.page === "settings" && route.tab === "agents" && (
-            <AgentAccess key={tenant} me={me} tenant={tenant} />
-          )}
-          {route.page === "settings" && route.tab === "general" && (
-            <section className="panel workspace-section">
-              <dl className="workspace-facts">
-                <dt>Name</dt>
-                <dd>{profile.display_name}</dd>
-                <dt>Plan</dt>
-                <dd>{profile.plan_name}</dd>
-                <dt>Status</dt>
-                <dd>{profile.state}</dd>
-                <dt>Spaces / Apps / Databases</dt>
-                <dd>
-                  {profile.max_spaces ?? "Unlimited"} /{" "}
-                  {profile.max_apps ?? "Unlimited"} /{" "}
-                  {profile.max_databases ?? "Unlimited"}
-                </dd>
-              </dl>
-              {all("tenant.manage") && (
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    edit(profile, base, "Edit Tenant", [
-                      { key: "display_name", label: "Name", required: true },
-                    ])
-                  }
-                >
-                  Edit Tenant
-                </button>
-              )}
-            </section>
-          )}
-          {route.page === "settings" && route.tab === "databases" && (
-            <Collection
-              path={base + "/database-resources"}
-              reload={reload}
-              columns={[
-                [
-                  "Database",
-                  (r) => (
-                    <>
-                      <strong>{r.database_name}</strong>
-                      <small>
-                        {r.management_mode} · {r.layout}
-                      </small>
-                    </>
-                  ),
-                ],
-                statusColumn,
-                ["Last result", (r) => r.last_error_message || "—"],
-              ]}
-              actions={
-                all("database.manage")
-                  ? (r) => (
-                      <>
-                        {["ready", "failed"].includes(r.state) && (
-                          <button
-                            className="text-button"
-                            disabled={busy}
-                            onClick={() =>
-                              act(() =>
-                                api(
-                                  base +
-                                    "/database-resources/" +
-                                    r.id +
-                                    "/retry",
-                                  "POST",
-                                  {},
-                                  r.revision,
-                                ),
-                              )
-                            }
-                          >
-                            {r.state === "failed"
-                              ? "Retry"
-                              : "Recheck connection"}
+                            Edit Space
                           </button>
                         )}
-                        {r.management_mode === "registered" &&
-                          !["provisioning", "retired"].includes(r.state) && (
+                      </div>
+                    </section>
+                    <section className="panel workspace-section">
+                      <h2 className="section-title">Database</h2>
+                      <dl className="workspace-facts">
+                        <dt>Connection</dt>
+                        <dd>{badge(space.database_state)}</dd>
+                        <dt>Layout</dt>
+                        <dd>{space.database_layout}</dd>
+                      </dl>
+                      {all("database.read") && (
+                        <button
+                          className="secondary"
+                          onClick={() => go("settings", { tab: "databases" })}
+                        >
+                          Manage databases
+                        </button>
+                      )}
+                      <details>
+                        <summary>Advanced</summary>
+                        <p>Database: {space.database_name}</p>
+                        <p>Slug: {space.slug}</p>
+                      </details>
+                    </section>
+                  </>
+                )}
+              </>
+            )}
+            {route.page === "app" && detailReady && (
+              <>
+                {route.tab === "releases" && (
+                  <AppReleases
+                    key={app.id}
+                    app={app}
+                    tenant={tenant}
+                    refresh={refresh}
+                    openWorkspaces={() =>
+                      go("space", { space: app.space_id, tab: "development" })
+                    }
+                  />
+                )}
+                {route.tab === "microapps" && (
+                  <Collection
+                    key={app.id + "microapps"}
+                    path={base + "/microapps?app_id=" + app.id}
+                    columns={[nameColumn, statusColumn]}
+                    empty="Add your first micro-app."
+                    actions={
+                      scoped("microapp.manage")
+                        ? (r) => (
                             <button
                               className="text-button"
                               onClick={() =>
-                                setModal({
-                                  title: "Update database credentials",
-                                  submit: "Save",
-                                  initial: {},
-                                  fields: [
+                                edit(
+                                  r,
+                                  base + "/microapps/" + r.id,
+                                  "Edit micro-app",
+                                  [
                                     {
-                                      key: "username",
-                                      label: "Username",
+                                      key: "display_name",
+                                      label: "Name",
                                       required: true,
                                     },
                                     {
-                                      key: "password",
-                                      label: "Password",
-                                      type: "password",
+                                      key: "state",
+                                      label: "Status",
+                                      type: "select",
+                                      options: states,
                                       required: true,
+                                    },
+                                    {
+                                      key: "artifact_ref",
+                                      label: "Artifact reference",
+                                      advanced: true,
+                                    },
+                                    {
+                                      key: "navigation_order",
+                                      label: "Navigation order",
+                                      type: "number",
+                                      advanced: true,
                                     },
                                   ],
-                                  save: (v) =>
+                                )
+                              }
+                            >
+                              Edit micro-app
+                            </button>
+                          )
+                        : undefined
+                    }
+                  />
+                )}
+                {route.tab === "access" && (
+                  <AccessControl
+                    key={app.id}
+                    tenant={tenant}
+                    caps={caps}
+                    scopeKind="app"
+                    scopeId={app.id}
+                  />
+                )}
+                {route.tab === "settings" && (
+                  <>
+                    <section className="panel workspace-section">
+                      <div className="settings-heading">
+                        <div className="settings-summary">
+                          <h2>General</h2>
+                          {badge(app.state)}
+                        </div>
+                        {scoped("app.manage") && (
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              edit(app, base + "/apps/" + app.id, "Edit App", [
+                                ...editFields,
+                                computeField(
+                                  !!profile.allow_dedicated_compute ||
+                                    app.compute_mode === "dedicated",
+                                ),
+                              ])
+                            }
+                          >
+                            Edit App
+                          </button>
+                        )}
+                      </div>
+                      <details>
+                        <summary>Advanced</summary>
+                        <p>Slug: {app.slug}</p>
+                        <p>Compute preference: {app.compute_mode}</p>
+                      </details>
+                    </section>
+                    {scoped("app.manage") && (
+                      <AppDataAccess
+                        key={app.id}
+                        app={app.id}
+                        spaceManager={scoped("entity.manage", app.space_id, "")}
+                      />
+                    )}
+                  </>
+                )}
+              </>
+            )}
+            {route.page === "people" && (
+              <TenantPeople
+                key={tenant + "/" + peopleTab + "/" + route.team}
+                tenant={tenant}
+                caps={caps}
+                tab={peopleTab}
+                team={route.team}
+                selectTeam={(id) => go("people", { tab: "teams", team: id })}
+              />
+            )}
+            {route.page === "activity" && (
+              <Collection
+                path={base + "/audit-events"}
+                columns={[
+                  [
+                    "Event",
+                    (r) => (
+                      <>
+                        <strong>{r.action}</strong>
+                        <small>{r.resource_type}</small>
+                      </>
+                    ),
+                  ],
+                  ["Actor", (r) => r.actor_name],
+                  ["Time", (r) => new Date(r.created_at).toLocaleString()],
+                ]}
+              />
+            )}
+            {route.page === "settings" && route.tab === "agents" && (
+              <AgentAccess key={tenant} me={me} tenant={tenant} />
+            )}
+            {route.page === "settings" && route.tab === "general" && (
+              <section className="panel workspace-section">
+                <dl className="workspace-facts">
+                  <dt>Name</dt>
+                  <dd>{profile.display_name}</dd>
+                  <dt>Plan</dt>
+                  <dd>{profile.plan_name}</dd>
+                  <dt>Status</dt>
+                  <dd>{profile.state}</dd>
+                  <dt>Spaces / Apps / Databases</dt>
+                  <dd>
+                    {profile.max_spaces ?? "Unlimited"} /{" "}
+                    {profile.max_apps ?? "Unlimited"} /{" "}
+                    {profile.max_databases ?? "Unlimited"}
+                  </dd>
+                </dl>
+                {all("tenant.manage") && (
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      edit(profile, base, "Edit Tenant", [
+                        { key: "display_name", label: "Name", required: true },
+                      ])
+                    }
+                  >
+                    Edit Tenant
+                  </button>
+                )}
+              </section>
+            )}
+            {route.page === "settings" && route.tab === "databases" && (
+              <Collection
+                path={base + "/database-resources"}
+                columns={[
+                  [
+                    "Database",
+                    (r) => (
+                      <>
+                        <strong>{r.database_name}</strong>
+                        <small>
+                          {r.management_mode} · {r.layout}
+                        </small>
+                      </>
+                    ),
+                  ],
+                  statusColumn,
+                  ["Last result", (r) => r.last_error_message || "—"],
+                ]}
+                actions={
+                  all("database.manage")
+                    ? (r) => (
+                        <>
+                          {["ready", "failed"].includes(r.state) && (
+                            <button
+                              className="text-button"
+                              disabled={busy}
+                              onClick={() =>
+                                act(() =>
+                                  api(
+                                    base +
+                                      "/database-resources/" +
+                                      r.id +
+                                      "/retry",
+                                    "POST",
+                                    {},
+                                    r.revision,
+                                  ),
+                                )
+                              }
+                            >
+                              {r.state === "failed"
+                                ? "Retry"
+                                : "Recheck connection"}
+                            </button>
+                          )}
+                          {r.management_mode === "registered" &&
+                            !["provisioning", "retired"].includes(r.state) && (
+                              <button
+                                className="text-button"
+                                onClick={() =>
+                                  setModal({
+                                    title: "Update database credentials",
+                                    submit: "Save",
+                                    initial: {},
+                                    fields: [
+                                      {
+                                        key: "username",
+                                        label: "Username",
+                                        required: true,
+                                      },
+                                      {
+                                        key: "password",
+                                        label: "Password",
+                                        type: "password",
+                                        required: true,
+                                      },
+                                    ],
+                                    save: (v) =>
+                                      api(
+                                        base + "/database-resources/" + r.id,
+                                        "PATCH",
+                                        {
+                                          credentials: {
+                                            username: v.username,
+                                            password: v.password,
+                                          },
+                                        },
+                                        r.revision,
+                                      ),
+                                  })
+                                }
+                              >
+                                Update credentials
+                              </button>
+                            )}
+                          {r.management_mode === "registered" &&
+                            r.state === "ready" && (
+                              <button
+                                className="text-button"
+                                onClick={() =>
+                                  setModal({
+                                    title: "Schema credentials",
+                                    submit: "Save",
+                                    initial: {},
+                                    fields: [
+                                      {
+                                        key: "username",
+                                        label: "Schema username",
+                                        required: true,
+                                      },
+                                      {
+                                        key: "password",
+                                        label: "Schema password",
+                                        type: "password",
+                                        required: true,
+                                      },
+                                    ],
+                                    save: (v) =>
+                                      api(
+                                        base +
+                                          "/database-resources/" +
+                                          r.id +
+                                          "/schema-credentials",
+                                        "POST",
+                                        v,
+                                        r.revision,
+                                      ),
+                                  })
+                                }
+                              >
+                                Set schema credentials
+                              </button>
+                            )}
+                          {!["provisioning", "retired"].includes(r.state) && (
+                            <button
+                              className="text-button danger"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (
+                                  await confirmAction({
+                                    title: "Retire database resource?",
+                                    message:
+                                      "Retire this database resource? Physical data is preserved.",
+                                    confirmLabel: "Retire",
+                                    danger: true,
+                                  })
+                                )
+                                  act(() =>
                                     api(
                                       base + "/database-resources/" + r.id,
                                       "PATCH",
-                                      {
-                                        credentials: {
-                                          username: v.username,
-                                          password: v.password,
-                                        },
-                                      },
+                                      { state: "retired" },
                                       r.revision,
                                     ),
-                                })
-                              }
+                                  );
+                              }}
                             >
-                              Update credentials
+                              Retire
                             </button>
                           )}
-                        {r.management_mode === "registered" &&
-                          r.state === "ready" && (
-                            <button
-                              className="text-button"
-                              onClick={() =>
-                                setModal({
-                                  title: "Schema credentials",
-                                  submit: "Save",
-                                  initial: {},
-                                  fields: [
-                                    {
-                                      key: "username",
-                                      label: "Schema username",
-                                      required: true,
-                                    },
-                                    {
-                                      key: "password",
-                                      label: "Schema password",
-                                      type: "password",
-                                      required: true,
-                                    },
-                                  ],
-                                  save: (v) =>
-                                    api(
-                                      base +
-                                        "/database-resources/" +
-                                        r.id +
-                                        "/schema-credentials",
-                                      "POST",
-                                      v,
-                                      r.revision,
-                                    ),
-                                })
-                              }
-                            >
-                              Set schema credentials
-                            </button>
-                          )}
-                        {!["provisioning", "retired"].includes(r.state) && (
-                          <button
-                            className="text-button danger"
-                            disabled={busy}
-                            onClick={async () => {
-                              if (
-                                await confirmAction({
-                                  title: "Retire database resource?",
-                                  message:
-                                    "Retire this database resource? Physical data is preserved.",
-                                  confirmLabel: "Retire",
-                                  danger: true,
-                                })
-                              )
-                                act(() =>
-                                  api(
-                                    base + "/database-resources/" + r.id,
-                                    "PATCH",
-                                    { state: "retired" },
-                                    r.revision,
-                                  ),
-                                );
-                            }}
-                          >
-                            Retire
-                          </button>
-                        )}
-                      </>
-                    )
-                  : undefined
-              }
-            />
-          )}
-        </>
-      )}
-      {modal && (
-        <FormModal
-          key={url + modal.title}
-          modal={modal}
-          lookups={{}}
-          close={() => setModal(null)}
-          done={done}
-        />
-      )}
-    </ConsoleShell>
+                        </>
+                      )
+                    : undefined
+                }
+              />
+            )}
+          </>
+        )}
+        {modal && (
+          <FormModal
+            key={url + modal.title}
+            modal={modal}
+            lookups={{}}
+            close={() => setModal(null)}
+            done={done}
+          />
+        )}
+      </ConsoleShell>
+    </LiveRefresh>
   );
 }
 import { AgentAccess } from "./agent-access";

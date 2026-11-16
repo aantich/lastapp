@@ -1,9 +1,4 @@
 {
-  "src/access-control.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
   "src/agent-access.tsx": {
     "react-hooks/exhaustive-deps": {
       "count": 2
@@ -12,19 +7,9 @@
       "count": 1
     }
   },
-  "src/app-releases.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
   "src/appearance.tsx": {
     "react-refresh/only-export-components": {
       "count": 2
-    }
-  },
-  "src/collection.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
     }
   },
   "src/console-config.tsx": {
@@ -42,7 +27,7 @@
   },
   "src/entity-designer/designer.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 2
+      "count": 1
     }
   },
   "src/entity-designer/expression.tsx": {
@@ -63,39 +48,12 @@
       "count": 2
     }
   },
-  "src/platform-workspace.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    },
-    "react-hooks/set-state-in-effect": {
-      "count": 2
-    }
-  },
   "src/remote-select.tsx": {
     "react-hooks/exhaustive-deps": {
       "count": 3
     },
     "react-hooks/set-state-in-effect": {
       "count": 3
-    }
-  },
-  "src/tenant-people.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    },
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
-  "src/tenant-workspace.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 3
-    },
-    "react-hooks/refs": {
-      "count": 1
-    },
-    "react-hooks/set-state-in-effect": {
-      "count": 2
     }
   },
   "tests/development-releases.spec.ts": {
