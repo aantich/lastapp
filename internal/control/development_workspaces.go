@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -105,7 +106,7 @@ func (s *Server) snapshot(ctx context.Context, q registry.Queryer, space string)
 		if pending != nil {
 			return out, registry.Conflict("Wait for entity publications to finish before capturing a workspace or release.")
 		}
-		if captured.Definition, e = defOf(definition.Value()); e != nil {
+		if captured.Definition, e = entities.DefOf(definition.Value()); e != nil {
 			return out, e
 		}
 		out.Entities = append(out.Entities, captured)

@@ -13,6 +13,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -202,7 +203,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 }
 
 func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersion *string) error {
-	d, e := defOf(v.Definition.Value())
+	d, e := entities.DefOf(v.Definition.Value())
 	if e != nil {
 		return e
 	}
@@ -278,11 +279,11 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	// Additive preparation is resumable; never drop an existing table/column.
 	var old entity.Definition
 	if v.BaseVersion != nil {
-		r, e := versionDefinition(ctx, s.DB, *v.BaseVersion)
+		r, e := entities.VersionDefinition(ctx, s.DB, *v.BaseVersion)
 		if e != nil {
 			return e
 		}
-		old, e = defOf(r.Value())
+		old, e = entities.DefOf(r.Value())
 		if e != nil {
 			return e
 		}
@@ -579,11 +580,11 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	if v.BaseVersion == nil {
 		return
 	}
-	base, e := versionDefinition(ctx, s.DB, *v.BaseVersion)
+	base, e := entities.VersionDefinition(ctx, s.DB, *v.BaseVersion)
 	if e != nil {
 		return
 	}
-	d, e := defOf(base.Value())
+	d, e := entities.DefOf(base.Value())
 	if e != nil {
 		return
 	}
@@ -640,7 +641,7 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entity
 		if err != nil {
 			return err
 		}
-		if e = validateEntityRefsCandidates(ctx, tx, d, tenant, space, entityID, candidates); e != nil {
+		if e = entities.ValidateEntityRefsCandidates(ctx, tx, d, tenant, space, entityID, candidates); e != nil {
 			return e
 		}
 		if e = s.projectPermissions(ctx, tx, v, d); e != nil {

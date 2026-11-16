@@ -9,6 +9,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
@@ -415,28 +416,28 @@ func TestAuthoringOperations(t *testing.T) {
 
 	// Console actor: draft lifecycle, revisions and generated views.
 	d := entity.Definition{Format: 1, Key: "ticket", Label: "Ticket", Fields: []entity.Field{{Key: "title", Label: "Title", Type: "text", MaxLength: 100}}, Projection: []string{"title"}, Rules: []entity.Rule{}, Permissions: []entity.Permission{}}
-	created, e := s.authoring.CreateEntity(ctx, human, space, entityCreateInput{Definition: d})
+	created, e := s.authoring.CreateEntity(ctx, human, space, entities.EntityCreateInput{Definition: d})
 	if e != nil || created.DraftContract == nil || created.Revision != 1 {
 		t.Fatal("console entity", created, e)
 	}
 	key := created.ID
 	d.Label = "Support ticket"
-	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 0)
+	_, e = s.authoring.SaveEntity(ctx, human, key, entities.EntitySaveInput{Definition: d}, 0)
 	wantProblem(t, e, 428, "revision_required")
-	_, e = s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 2)
+	_, e = s.authoring.SaveEntity(ctx, human, key, entities.EntitySaveInput{Definition: d}, 2)
 	wantProblem(t, e, 412, "stale_revision")
-	if saved, e := s.authoring.SaveEntity(ctx, human, key, entitySaveInput{Definition: d}, 1); e != nil || saved.Label != d.Label {
+	if saved, e := s.authoring.SaveEntity(ctx, human, key, entities.EntitySaveInput{Definition: d}, 1); e != nil || saved.Label != d.Label {
 		t.Fatal("console save", saved, e)
 	}
-	if v, e := s.authoring.Entity(ctx, human, key, entityView{Section: "definition"}); e != nil || v.(registry.Row)["section"] != "definition" {
+	if v, e := s.authoring.Entity(ctx, human, key, entities.EntityView{Section: "definition"}); e != nil || v.(registry.Row)["section"] != "definition" {
 		t.Fatal("entity section", v, e)
 	}
-	_, e = s.authoring.Entity(ctx, human, key, entityView{Field: "x"})
+	_, e = s.authoring.Entity(ctx, human, key, entities.EntityView{Field: "x"})
 	wantProblem(t, e, 400, "invalid_request")
 	if v, e := s.authoring.ValidateEntity(ctx, human, key, d, "diagnostics"); e != nil || v["schema"] != nil {
 		t.Fatal("validate", v, e)
 	}
-	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]entityItem)) != 1 {
+	if page, e := s.authoring.Entities(ctx, human, space); e != nil || len(page["items"].([]entities.EntityItem)) != 1 {
 		t.Fatal("entities", page, e)
 	}
 	_, e = s.authoring.PublishEntity(ctx, human, key, 0)
@@ -463,7 +464,7 @@ func TestAuthoringOperations(t *testing.T) {
 	if v, e := s.authoring.SaveAppAccess(ctx, human, app, entity.AppAccess{Inherit: true}, registry.Integer(access["revision"])); e != nil || registry.Integer(v["revision"]) != registry.Integer(access["revision"])+1 {
 		t.Fatal("save app access", v, e)
 	}
-	contracts, e := s.authoring.AppContracts(ctx, human, app, contractView{Section: "inventory"})
+	contracts, e := s.authoring.AppContracts(ctx, human, app, entities.ContractView{Section: "inventory"})
 	if e != nil || contracts["pagination"] == nil {
 		t.Fatal("app contracts", contracts, e)
 	}

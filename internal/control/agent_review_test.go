@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
@@ -281,7 +282,7 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	definition, e := defOf(stored["draft_json"])
+	definition, e := entities.DefOf(stored["draft_json"])
 	if e != nil || entity.Hash(definition) != entity.Hash(d) {
 		t.Fatal("check persisted its candidate", e)
 	}

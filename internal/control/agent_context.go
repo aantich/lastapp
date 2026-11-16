@@ -9,6 +9,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -237,7 +238,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in agentRead
 		return agentPage(s.Users(ctx, op.AgentActor(ctx, p), in.pageRequest()))
 	case "entity":
 		if target.Kind == "app" {
-			v, e := s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), target.ID, contractView{Section: "inventory", Page: in.pageRequest()})
+			v, e := s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), target.ID, entities.ContractView{Section: "inventory", Page: in.pageRequest()})
 			if e == nil {
 				e = agentFits(v)
 			}
@@ -250,7 +251,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in agentRead
 		if target.Kind != "space" {
 			return nil, registry.Bad("Entity inventory needs a Space target, or an App target for its approved contracts.")
 		}
-		if _, e = s.authoring.authoringSpace(ctx, op.AgentActor(ctx, p), target.ID); e != nil {
+		if _, e = s.authoring.AuthoringSpace(ctx, op.AgentActor(ctx, p), target.ID); e != nil {
 			return nil, e
 		}
 		values, e := registry.ScanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, target.ID, res.Tenant)
@@ -259,7 +260,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in agentRead
 		}
 		for i := range values {
 			v := &values[i]
-			d, e := defOf(v.draft.Value())
+			d, e := entities.DefOf(v.draft.Value())
 			if e != nil {
 				return nil, e
 			}
@@ -277,7 +278,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in agentRead
 		if target.Kind != "space" {
 			return nil, registry.Bad("Permission inventory requires a Space authoring target. App contracts include their approved permissions.")
 		}
-		if _, e = s.authoring.authoringSpace(ctx, op.AgentActor(ctx, p), target.ID); e != nil {
+		if _, e = s.authoring.AuthoringSpace(ctx, op.AgentActor(ctx, p), target.ID); e != nil {
 			return nil, e
 		}
 		values, e := registry.ScanAll[agentPermission](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", res.Tenant, target.ID)
@@ -345,13 +346,13 @@ func (s *Server) toolAgentGet(ctx context.Context, p access.Principal, raw json.
 		if e != nil {
 			return nil, e
 		}
-		return agentSized(s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), in.ID, contractView{}))
+		return agentSized(s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), in.ID, entities.ContractView{}))
 	case "entity":
 		if in.View == "contract" || target.Kind == "app" {
 			if target.Kind != "app" {
 				return nil, registry.Bad("Contract inspection requires an App target.")
 			}
-			v, e := s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), target.ID, contractView{Entity: in.ID, Section: in.Section, Field: in.Field, Version: in.Version})
+			v, e := s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), target.ID, entities.ContractView{Entity: in.ID, Section: in.Section, Field: in.Field, Version: in.Version})
 			if e == nil {
 				e = agentFits(v)
 			}
@@ -368,7 +369,7 @@ func (s *Server) toolAgentGet(ctx context.Context, p access.Principal, raw json.
 		if in.View != "" && in.View != "authoring" {
 			return nil, registry.Bad("Unknown entity view.")
 		}
-		return agentSized(s.authoring.Entity(ctx, op.AgentActor(ctx, p), in.ID, entityView{Section: in.Section, Version: in.Version, Field: in.Field}))
+		return agentSized(s.authoring.Entity(ctx, op.AgentActor(ctx, p), in.ID, entities.EntityView{Section: in.Section, Version: in.Version, Field: in.Field}))
 	case "publication":
 		if e = registry.ID(in.Entity); e != nil {
 			return nil, e

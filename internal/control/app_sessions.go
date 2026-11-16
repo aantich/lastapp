@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/base64"
 	"net/http"
 	"regexp"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
-	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -156,27 +154,6 @@ func (s *Server) dataSession(ctx context.Context, r *http.Request) (appSession, 
 		return v, registry.Problem(403, "invalid_origin", "App origin mismatch.")
 	}
 	return v, nil
-}
-
-func projectAppPermissions(ctx context.Context, tx *sql.Tx, app string, a entity.AppAccess) error {
-	if _, e := tx.ExecContext(ctx, "DELETE rp FROM role_permissions rp JOIN roles r ON r.id=rp.role_id WHERE r.app_id=? AND r.domain='data'", app); e != nil {
-		return e
-	}
-	gates := []entity.Gate{}
-	if !a.Inherit {
-		gates = append(gates, a.Ceiling...)
-	}
-	if a.Restricted {
-		gates = append(gates, a.Restrictions...)
-	}
-	for _, g := range gates {
-		for _, role := range g.Roles {
-			if _, e := tx.ExecContext(ctx, "INSERT IGNORE INTO role_permissions(role_id,permission_id,domain) VALUES(?,?,'data')", role, g.Permission); e != nil {
-				return e
-			}
-		}
-	}
-	return nil
 }
 
 func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p access.Principal) error {

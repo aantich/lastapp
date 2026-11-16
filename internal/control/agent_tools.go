@@ -18,6 +18,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
@@ -781,16 +782,16 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 		}
 		permissions = append(permissions, "platform.manage")
 	case "entity":
-		v, e := s.authoring.entityRow(ctx, s.DB, op.AgentActor(ctx, p), in.ID, "entity.manage")
+		v, e := s.authoring.EntityRow(ctx, s.DB, op.AgentActor(ctx, p), in.ID, "entity.manage")
 		if e != nil {
 			return nil, e
 		}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
-			d, e := v.draft()
+			d, e := v.DraftDefinition()
 			if e != nil {
 				return nil, e
 			}
-			return s.authoring.SaveEntity(ctx, a, in.ID, entitySaveInput{Definition: d, State: in.State}, in.Revision)
+			return s.authoring.SaveEntity(ctx, a, in.ID, entities.EntitySaveInput{Definition: d, State: in.State}, in.Revision)
 		}
 		permissions = append(permissions, "entities.publish")
 	default:
@@ -826,7 +827,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, ra
 			return nil, registry.Bad("New entities require a Space target.")
 		}
 		key = stableAgentID(p, in.RequestKey)
-		create := entityCreateInput{ID: key, Definition: *in.Definition}
+		create := entities.EntityCreateInput{ID: key, Definition: *in.Definition}
 		space := agentPaths(res, target)["space"]
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.authoring.CreateEntity(ctx, a, space, create)
@@ -838,7 +839,7 @@ func (s *Server) toolAgentEntitySave(ctx context.Context, p access.Principal, ra
 		if in.Revision < 1 {
 			return nil, registry.Problem(428, "revision_required", "Existing drafts require expected_revision.")
 		}
-		save := entitySaveInput{Definition: *in.Definition}
+		save := entities.EntitySaveInput{Definition: *in.Definition}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			return s.authoring.SaveEntity(ctx, a, key, save, in.Revision)
 		}
@@ -884,12 +885,12 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p access.Principal, r
 		return nil, registry.Bad("Synthetic case count exceeds the published schema limit.")
 	}
 	a := op.AgentActor(ctx, p)
-	v, e := s.authoring.entityRow(ctx, s.DB, a, in.Entity, "entity.manage")
+	v, e := s.authoring.EntityRow(ctx, s.DB, a, in.Entity, "entity.manage")
 	if e != nil {
 		return nil, e
 	}
 	if in.Definition == nil {
-		d, e := v.draft()
+		d, e := v.DraftDefinition()
 		if e != nil {
 			return nil, e
 		}
@@ -908,7 +909,7 @@ func (s *Server) toolAgentEntityCheck(ctx context.Context, p access.Principal, r
 	result["changes"] = registry.Row{"candidate_differs_from_draft": entity.Hash(in.Definition) != entity.Hash(v.Draft), "published_version": v.ActiveVersion, "activation_includes": "schema, rules and ACLs; supported storage changes are checked by the publication worker"}
 	cases := []registry.Row{}
 	for _, c := range in.Cases {
-		data, e := s.authoring.TestEntity(ctx, a, in.Entity, entityTestInput{Definition: *in.Definition, App: c.App, User: c.User, Operation: c.Operation, Record: c.Record, Values: c.Values})
+		data, e := s.authoring.TestEntity(ctx, a, in.Entity, entities.EntityTestInput{Definition: *in.Definition, App: c.App, User: c.User, Operation: c.Operation, Record: c.Record, Values: c.Values})
 		if e == nil {
 			e = agentFits(data)
 		}

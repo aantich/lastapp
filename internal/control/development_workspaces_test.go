@@ -16,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -140,7 +141,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	// A new grant to an inactive recipient remains invalid outside a published copy.
 	inactiveDefinition := definition
 	inactiveDefinition.Permissions = definition.Permissions[3:]
-	if validateEntityRefs(ctx, s.DB, inactiveDefinition, EntityDefinition{ID: eid, TenantID: tenant, SpaceID: space}) == nil {
+	if entities.ValidateEntityRefs(ctx, s.DB, inactiveDefinition, entities.EntityDefinition{ID: eid, TenantID: tenant, SpaceID: space}) == nil {
 		t.Fatal("ordinary publication accepted inactive recipients")
 	}
 	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: registry.NewID(), Name: "Private author workspace"}, 0, 200)
@@ -226,7 +227,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	// Publish a compatible development-only backend change, then promote that
 	// exact schema/rule/ACL snapshot while preserving production rows.
 	currentDefinition := oc.want("GET", "/v1/entities/"+devEntity, nil, 0, 200)
-	definition, e = defOf(currentDefinition["draft_json"])
+	definition, e = entities.DefOf(currentDefinition["draft_json"])
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -287,7 +288,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := defOf(active["definition_json"])
+		d, err := entities.DefOf(active["definition_json"])
 		if err != nil {
 			t.Fatal(err)
 		}

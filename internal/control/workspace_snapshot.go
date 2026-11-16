@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -143,15 +144,15 @@ func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnap
 // The single publication capture routine is shared by the authoring endpoint and
 // bounded snapshot jobs. Candidate references are accepted only for a captured
 // batch whose tables are prepared before any version can activate.
-func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p access.Principal, v EntityDefinition, version string, candidates map[string]bool) error {
-	d, e := v.draft()
+func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p access.Principal, v entities.EntityDefinition, version string, candidates map[string]bool) error {
+	d, e := v.DraftDefinition()
 	if e != nil {
 		return e
 	}
 	if ds := d.Validate(); len(ds) > 0 {
 		return registry.Bad(ds[0].Path + ": " + ds[0].Message)
 	}
-	if e = validateEntityRefsCandidates(ctx, tx, d, v.TenantID, v.SpaceID, v.ID, candidates); e != nil {
+	if e = entities.ValidateEntityRefsCandidates(ctx, tx, d, v.TenantID, v.SpaceID, v.ID, candidates); e != nil {
 		return e
 	}
 	if v.PendingVersion != nil {
@@ -176,7 +177,7 @@ func agentID(p access.Principal) any {
 
 // Empty tables are prepared without foreign keys, then the ordinary publisher
 // verifies/adds those keys before activation. This also supports cyclic references.
-func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []EntityDefinition) error {
+func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []entities.EntityDefinition) error {
 	db, e := s.businessDB(ctx, resource, true)
 	if e != nil {
 		return e
@@ -186,7 +187,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 		if v.ActiveVersion != nil {
 			continue
 		}
-		d, e := v.draft()
+		d, e := v.DraftDefinition()
 		if e != nil {
 			return e
 		}
@@ -246,7 +247,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 		if access.Deref(v.DatabaseState) != "ready" {
 			return registry.Conflict("Workspace storage failed. Inspect database setup and retry workspace preparation.")
 		}
-		defs, e := registry.ScanAll[EntityDefinition](ctx, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.BackingSpace)
+		defs, e := registry.ScanAll[entities.EntityDefinition](ctx, q, "SELECT "+entities.EntityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.BackingSpace)
 		if e != nil {
 			return e
 		}
@@ -301,7 +302,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 				if err != nil {
 					return err
 				}
-				if err = projectAppPermissions(ctx, tx, a.ID, access); err != nil {
+				if err = entities.ProjectAppPermissions(ctx, tx, a.ID, access); err != nil {
 					return err
 				}
 			}
@@ -418,7 +419,7 @@ func (s *Server) ensureSnapshotReady(ctx context.Context, q registry.Queryer, sp
 		return e
 	}
 	for _, draft := range drafts {
-		d, e := defOf(draft.Draft.Value())
+		d, e := entities.DefOf(draft.Draft.Value())
 		if e != nil {
 			return e
 		}

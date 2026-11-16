@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -100,7 +101,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 			return tx.Commit()
 		}
 		if v.State == "preparing" {
-			defs, e := registry.ScanAll[EntityDefinition](attempt, q, "SELECT "+entityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.SpaceID)
+			defs, e := registry.ScanAll[entities.EntityDefinition](attempt, q, "SELECT "+entities.EntityColumns+" FROM entity_definitions WHERE space_id=? ORDER BY id", v.SpaceID)
 			if e != nil {
 				return e
 			}
@@ -125,9 +126,9 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 				}
 			}
 			for _, d := range plan.Snapshot.Entities {
-				var current EntityDefinition
+				var current entities.EntityDefinition
 				var activeHash string
-				e := registry.Lookup(attempt, tx, "SELECT "+registry.Prefixed("e", entityColumns)+",COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, append(current.ScanFields(), &activeHash)...)
+				e := registry.Lookup(attempt, tx, "SELECT "+registry.Prefixed("e", entities.EntityColumns)+",COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.id=?", []any{d.ID}, append(current.ScanFields(), &activeHash)...)
 				if e != nil {
 					return e
 				}
@@ -239,7 +240,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 			if _, e = tx.ExecContext(attempt, "UPDATE apps SET data_access_json=?,approved_origin=?,origin_host=?,origin_generation=origin_generation+IF(?<>?,1,0),active_release_id=IF(id=?, ?,active_release_id),revision=revision+1 WHERE id=?", b, registry.Nullable(access.Origin), registry.Nullable(host), old.Origin, access.Origin, v.TargetApp, v.ReleaseID, app.ID); e != nil {
 				return e
 			}
-			if e = projectAppPermissions(attempt, tx, app.ID, access); e != nil {
+			if e = entities.ProjectAppPermissions(attempt, tx, app.ID, access); e != nil {
 				return e
 			}
 		}

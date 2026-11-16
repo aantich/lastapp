@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -206,7 +207,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 			if e = json.Unmarshal(publicJSON, &public); e != nil {
 				return e
 			}
-			if public["fields"], e = publicEntityFields(allowed); e != nil {
+			if public["fields"], e = entities.PublicEntityFields(allowed); e != nil {
 				return e
 			}
 			out = append(out, registry.Row{"id": rt.entityID, "entity": public, "version": rt.version, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
@@ -924,24 +925,4 @@ func businessAudit(ctx context.Context, q registry.Queryer, rt dataRuntime, reco
 	}
 	_, e := q.ExecContext(ctx, "DELETE FROM _lastapp_data_audit WHERE entity_id=? AND created_at<UTC_TIMESTAMP(6)-INTERVAL 90 DAY LIMIT 100", rt.entityID)
 	return e
-}
-
-func publicEntityFields(fields []entity.Field) ([]registry.Row, error) {
-	out := []registry.Row{}
-	for _, field := range fields {
-		b, e := json.Marshal(field)
-		if e != nil {
-			return nil, e
-		}
-		m := registry.Row{}
-		if e = json.Unmarshal(b, &m); e != nil {
-			return nil, e
-		}
-		m["read_only"] = field.Calculation != nil
-		m["has_default"] = field.Default != nil
-		delete(m, "default")
-		delete(m, "calculation")
-		out = append(out, m)
-	}
-	return out, nil
 }
