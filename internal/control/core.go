@@ -216,6 +216,17 @@ func Open(c Config) (*Server, error) {
 	return s, nil
 }
 
+// appendOnlyRegistryTables are registry tables the runtime account may read and
+// insert into but never update or delete: audit history, MCP receipts and
+// immutable builds/releases. Every other registry table (except goose's own
+// version table) receives runtime UPDATE,DELETE grants.
+var appendOnlyRegistryTables = map[string]bool{
+	"audit_events":             true,
+	"agent_operation_receipts": true,
+	"app_builds":               true,
+	"app_releases":             true,
+}
+
 func Migrate(ctx context.Context, db *sql.DB) error {
 	goose.SetBaseFS(migrationFiles)
 	if e := goose.SetDialect("mysql"); e != nil {

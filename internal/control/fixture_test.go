@@ -3,9 +3,14 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
+
+	"github.com/pressly/goose/v3"
 )
 
 // Used only against an explicitly supplied, disposable local CI server. Secrets
@@ -57,9 +62,25 @@ func TestPrepareFixture(t *testing.T) {
 		"GRANT CREATE USER ON *.* TO 'lastapp_provisioner'@'%'",
 		"GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `la\\_%`.* TO 'lastapp_provisioner'@'%' WITH GRANT OPTION",
 	}
-	for _, table := range []string{"users", "sessions", "plans", "tenants", "tenant_memberships", "database_targets", "database_resources", "spaces", "apps", "microapp_installations", "groups", "group_memberships", "local_accounts", "roles", "role_permissions", "access_grants", "permissions", "entity_definitions", "entity_versions", "agent_grants", "agent_oauth_requests", "agent_token_sessions", "agent_oauth_clients", "development_workspaces", "workspace_items", "artifact_uploads", "release_deployments"} {
-		statements = append(statements, "GRANT UPDATE,DELETE ON `lastapp_control`."+table+" TO 'lastapp_control'@'%'")
+	// Derive mutable tables from the migrated schema so a new table is not
+	// silently left without runtime grants.
+	tables, e := s.DB.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema='lastapp_control' AND table_type='BASE TABLE' AND table_name<>? ORDER BY table_name", goose.TableName())
+	if e != nil {
+		t.Fatal(e)
 	}
+	for tables.Next() {
+		var table string
+		if e = tables.Scan(&table); e != nil {
+			t.Fatal(e)
+		}
+		if !appendOnlyRegistryTables[table] {
+			statements = append(statements, "GRANT UPDATE,DELETE ON `lastapp_control`.`"+table+"` TO 'lastapp_control'@'%'")
+		}
+	}
+	if e = tables.Err(); e != nil {
+		t.Fatal(e)
+	}
+	tables.Close()
 	for _, statement := range statements {
 		if _, e = s.DB.Exec(statement); e != nil {
 			t.Fatal(e)
@@ -68,6 +89,52 @@ func TestPrepareFixture(t *testing.T) {
 	// Seed with a TCP DSN so development target placement follows the mapped port.
 	if e = s.SeedDevelopment(ctx, state.Provisioner); e != nil {
 		t.Fatal(e)
+	}
+}
+
+// scripts/dev.py grants the local runtime account in Python; keep its explicit
+// table list equal to the migrated tables minus appendOnlyRegistryTables.
+func TestDevelopmentRuntimeGrantsCoverRegistryTables(t *testing.T) {
+	want := map[string]bool{}
+	created := regexp.MustCompile(`(?i)CREATE TABLE\s+(?:IF NOT EXISTS\s+)?` + "`?" + `([a-z0-9_]+)`)
+	names, e := fs.Glob(migrationFiles, "migrations/*.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, name := range names {
+		b, e := migrationFiles.ReadFile(name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, m := range created.FindAllStringSubmatch(string(b), -1) {
+			want[m[1]] = !appendOnlyRegistryTables[m[1]]
+		}
+	}
+	for table := range appendOnlyRegistryTables {
+		if _, ok := want[table]; !ok {
+			t.Fatalf("append-only table %s is not in the migrations", table)
+		}
+	}
+	script, e := os.ReadFile(filepath.Join("..", "..", "scripts", "dev.py"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	list := regexp.MustCompile(`for table in \[([^\]]*)\]`).FindSubmatch(script)
+	if list == nil {
+		t.Fatal("runtime grant table list not found in scripts/dev.py")
+	}
+	got := map[string]bool{}
+	for _, v := range strings.Split(string(list[1]), ",") {
+		got[strings.Trim(strings.TrimSpace(v), "'\"")] = true
+	}
+	for table, mutable := range want {
+		if mutable != got[table] {
+			t.Errorf("scripts/dev.py runtime UPDATE,DELETE grant for %s = %v, want %v", table, got[table], mutable)
+		}
+		delete(got, table)
+	}
+	for table := range got {
+		t.Errorf("scripts/dev.py grants unknown table %s", table)
 	}
 }
 
