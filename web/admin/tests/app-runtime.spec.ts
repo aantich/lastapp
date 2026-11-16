@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { login, logout, fixtureTenant, selectTenant, post } from "./helpers";
+import { apiOrigin, appOrigin, appPort } from "./stack";
 let staticServer: Server;
 let approvedApp = "";
 test.afterEach(async ({ page }) => {
@@ -52,7 +53,7 @@ test.beforeAll(async () => {
       res.writeHead(404).end();
     }
   });
-  await new Promise<void>((r) => staticServer.listen(8789, "127.0.0.1", r));
+  await new Promise<void>((r) => staticServer.listen(appPort, "127.0.0.1", r));
 });
 test.afterAll(async () => {
   await new Promise<void>((r, j) =>
@@ -166,7 +167,7 @@ test("isolated browser App connects with PKCE and uses the real entity API", asy
         page,
         "/v1/apps/" + app + "/data-access",
         {
-          origin: "http://localhost:8789",
+          origin: appOrigin,
           inherit: true,
           ceiling: [],
           restricted: false,
@@ -179,7 +180,8 @@ test("isolated browser App connects with PKCE and uses the real entity API", asy
   ).toBe(200);
   approvedApp = app;
   const browserApp = await context.newPage();
-  await browserApp.goto("http://localhost:8789");
+  await browserApp.goto(appOrigin);
+  await browserApp.getByLabel("API origin", { exact: true }).fill(apiOrigin);
   await browserApp.getByLabel("App ID", { exact: true }).fill(app);
   const popupPromise = context.waitForEvent("page");
   await browserApp

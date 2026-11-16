@@ -1,11 +1,8 @@
 import { test, expect, Page } from "@playwright/test";
 import { selectTenant, logout, choose, fixtureTenant, pick } from "./helpers";
+import { apiOrigin, uiOrigin } from "./stack";
 
-async function signIn(
-  page: Page,
-  origin = "http://127.0.0.1:8787",
-  subject = "operator",
-) {
+async function signIn(page: Page, origin = apiOrigin, subject = "operator") {
   await page.goto(origin + "/console/");
   await page
     .getByRole("link", { name: "Continue with SSO", exact: true })
@@ -49,7 +46,7 @@ test("server paging, search and option pickers reach records beyond the first pa
   await signIn(page);
   const { tenant, owner } = await fixtureTenant(page, "AAA Paging");
   await logout(page);
-  await signIn(page, "http://127.0.0.1:8787", "tenant-admin");
+  await signIn(page, apiOrigin, "tenant-admin");
   await selectTenant(page, tenant);
   const space = crypto.randomUUID();
   await create(page, `/v1/tenants/${tenant}/spaces`, {
@@ -128,7 +125,7 @@ test("server paging, search and option pickers reach records beyond the first pa
 test("Vite login returns to the development UI and authenticated writes succeed", async ({
   page,
 }) => {
-  await signIn(page, "http://127.0.0.1:5173");
+  await signIn(page, uiOrigin);
   await page.getByRole("button", { name: "Tenants", exact: true }).click();
   await page
     .getByRole("button", { name: "Create Tenant", exact: true })

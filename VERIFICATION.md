@@ -410,7 +410,7 @@ The integration scenario checks:
 - Plan layout restrictions, pending-resource quotas, cross-Tenant references and suspended Tenant allocation rules.
 - API/audit responses omit connection secrets. The registry runtime account is denied UPDATE/DELETE on audit history at the database level.
 
-`npm run test:e2e` in `web/admin` uses real OIDC redirects and Chrome to check:
+`make e2e` (formerly `npm run test:e2e` against the development stack) uses real OIDC redirects and Chrome to check:
 
 1. Tenant → shared Space/ready database → App → micro-app, using console forms.
 2. Missing CSRF rejection, stale revisions, last-superadmin protection and unauthorized outside-user access.
@@ -769,3 +769,20 @@ exercised by these local checks. No commit, push or remote deployment was made.
   native dev-SSO select; its selector was updated and the test passed on rerun.
   `app-runtime.spec.ts` still fails as it does on main (popup on port 8789 times
   out).
+
+## Browser regressions on a disposable database — 16 November 2026
+
+- `make e2e` (`scripts/e2e.py`) started a fresh tmpfs MariaDB (`mariadb-e2e`
+  Compose service, profile `e2e`, port 33318), prepared it with `scripts/ci_config.py` and
+  `TestPrepareFixture`, built the console and binaries, and ran the API on 8797,
+  the development issuer on 8798 and Vite on 5183: **29 of 29** Playwright
+  scenarios passed in 2.2 minutes, including `app-runtime.spec.ts` (the data App
+  is now pointed at the e2e API origin). Afterwards no e2e container or listener
+  remained.
+- The development registry was not used: tenants with the e2e `ui-` slug stayed
+  at 177 (newest created before the run) and `ui_*` schemas at 17. The total
+  tenant count moved 240 → 242 only because of concurrently running Go
+  integration tests (`test-`/`starter-` slugs).
+- `npm run lint`, `npm run typecheck`, `go build ./...`, golangci-lint (0 issues)
+  and `python3 -m py_compile` on the touched scripts passed. The CI workflow
+  change (browser step via `scripts/e2e.py`) was not executed on GitHub here.

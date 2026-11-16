@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { login, logout, fixtureTenant, choose } from "./helpers";
+import { apiOrigin } from "./stack";
 
 test("OAuth consent scopes an agent and account settings edit and revoke it", async ({
   page,
@@ -29,12 +30,12 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   });
   expect(registration.status()).toBe(201);
   const client = await registration.json();
-  const oauth = new URL("http://127.0.0.1:8787/oauth/authorize");
+  const oauth = new URL(apiOrigin + "/oauth/authorize");
   oauth.search = new URLSearchParams({
     response_type: "code",
     client_id: client.client_id,
     redirect_uri: "http://127.0.0.1:8790/callback",
-    resource: "http://127.0.0.1:8787/mcp",
+    resource: apiOrigin + "/mcp",
     code_challenge_method: "S256",
     code_challenge: challenge,
     state: "ui-agent-state",
@@ -100,7 +101,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
       code: returned.searchParams.get("code")!,
       client_id: client.client_id,
       redirect_uri: "http://127.0.0.1:8790/callback",
-      resource: "http://127.0.0.1:8787/mcp",
+      resource: apiOrigin + "/mcp",
       code_verifier: "v".repeat(64),
     },
   });
@@ -111,7 +112,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
     "entities.draft",
     "read",
   ]);
-  await page.goto("http://127.0.0.1:8787/console/account");
+  await page.goto(apiOrigin + "/console/account");
   await expect(
     page.getByRole("heading", { name: "Agent access", exact: true }),
   ).toBeVisible();
@@ -208,7 +209,7 @@ test("agent consent returns after signing in and can be denied", async ({
     response_type: "code",
     client_id: "lastapp-development",
     redirect_uri: "http://127.0.0.1:8790/callback",
-    resource: "http://127.0.0.1:8787/mcp",
+    resource: apiOrigin + "/mcp",
     code_challenge_method: "S256",
     code_challenge: "a".repeat(43),
     state: "deny-state",
