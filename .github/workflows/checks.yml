@@ -8,7 +8,7 @@ jobs:
     timeout-minutes: 15
     services:
       mariadb:
-        image: mariadb:12.3 # keep in sync with docker-compose.yaml and docker-compose.e2e.yaml
+        image: mariadb:12.3 # keep in sync with docker-compose.yaml
         env:
           MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1"
         ports:
@@ -60,7 +60,7 @@ jobs:
           go vet ./...
           go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Browser regressions
-        # Own disposable MariaDB/API/OIDC stack (docker-compose.e2e.yaml), as locally.
+        # Own disposable MariaDB/API/OIDC stack (docker-compose.yaml, profile e2e), as locally.
         working-directory: web/admin
         run: |
           npx playwright install --with-deps chromium

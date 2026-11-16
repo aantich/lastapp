@@ -167,7 +167,7 @@ compiles with the console's TypeScript, so run `make web` (or `make dev`) once f
 their owned generated resources. Do not point them at production. Plain Go tests
 without explicit fixture config are not integration evidence. The browser suite never touches the development stack or its data: `make e2e`
 (`scripts/e2e.py`, also used by CI) starts a fresh MariaDB from
-`docker-compose.e2e.yaml` (Compose project `lastapp-e2e`, tmpfs, port 33318),
+the `mariadb-e2e` service of `docker-compose.yaml` (profile `e2e`, tmpfs, port 33318; only that container is removed, never the development volume),
 prepares it the way CI does (`scripts/ci_config.py` + `TestPrepareFixture`),
 builds the current source and runs a separate API on 8797, development issuer on
 8798 and Vite on 5183, then stops them and removes the container. Its disposable

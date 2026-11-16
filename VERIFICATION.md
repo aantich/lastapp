@@ -772,8 +772,8 @@ exercised by these local checks. No commit, push or remote deployment was made.
 
 ## Browser regressions on a disposable database — 16 November 2026
 
-- `make e2e` (`scripts/e2e.py`) started a fresh tmpfs MariaDB (`lastapp-e2e`
-  Compose project, port 33318), prepared it with `scripts/ci_config.py` and
+- `make e2e` (`scripts/e2e.py`) started a fresh tmpfs MariaDB (`mariadb-e2e`
+  Compose service, profile `e2e`, port 33318), prepared it with `scripts/ci_config.py` and
   `TestPrepareFixture`, built the console and binaries, and ran the API on 8797,
   the development issuer on 8798 and Vite on 5183: **29 of 29** Playwright
   scenarios passed in 2.2 minutes, including `app-runtime.spec.ts` (the data App

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the browser regressions against a disposable stack, never the development data.
 
-Starts a fresh MariaDB (docker-compose.e2e.yaml, tmpfs), prepares it exactly as
+Starts a fresh MariaDB (service mariadb-e2e in docker-compose.yaml, tmpfs), prepares it exactly as
 CI does (ci_config.py + TestPrepareFixture), builds the console and API, starts a
 separate API and development OIDC issuer on their own ports, runs Playwright,
 then stops the processes and removes the database container. Secrets, binaries and logs live in
@@ -12,10 +12,13 @@ import json, os, pathlib, shutil, signal, socket, subprocess, sys, time, urllib.
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 STATE=ROOT/'.local'/'e2e'
 # The only place the e2e ports are chosen; everything else derives from STATE/e2e.json and config.json.
-PORTS={'db':33318,'api':8797,'oidc':8798,'ui':5183,'app':8799}
 SERVICE='mariadb-e2e'
+PORTS={'db':33318,'api':8797,'oidc':8798,'ui':5183,'app':8799}
 ENV=dict(os.environ,LASTAPP_E2E_DB_PORT=str(PORTS['db']))
-COMPOSE=['docker','compose','-f',str(ROOT/'docker-compose.e2e.yaml')]
+COMPOSE=['docker','compose','-f',str(ROOT/'docker-compose.yaml'),'--profile','e2e']
+# Remove only the e2e container. Never `down`: the project also owns the development
+# database and its mariadb-data volume.
+REMOVE=COMPOSE+['rm','--stop','--force','--volumes',SERVICE]
 def run(args,**kw):return subprocess.run([str(v) for v in args],cwd=kw.pop('cwd',ROOT),env=kw.pop('env',ENV),check=True,**kw)
 def listening(port):
  with socket.socket() as s:return s.connect_ex(('127.0.0.1',port))==0
@@ -30,7 +33,7 @@ def wait_url(url,log):
 def main():
  processes=[]
  signal.signal(signal.SIGTERM,lambda *_:sys.exit(143)) # still clean up when terminated
- run(COMPOSE+['down','-v','--remove-orphans'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ run(REMOVE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  busy=[f'{name}={port}' for name,port in PORTS.items() if listening(port)]
  if busy:raise RuntimeError('e2e ports already in use: '+', '.join(busy))
  if STATE.exists():shutil.rmtree(STATE)
@@ -63,5 +66,5 @@ def main():
   for proc in processes:
    try:proc.wait(timeout=10)
    except subprocess.TimeoutExpired:proc.kill()
-  subprocess.run(COMPOSE+['down','-v','--remove-orphans'],cwd=ROOT,env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  subprocess.run(REMOVE,cwd=ROOT,env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 if __name__=='__main__':sys.exit(main())
