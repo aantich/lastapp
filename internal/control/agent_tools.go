@@ -314,7 +314,7 @@ func (s *Server) mcpHandler() http.Handler {
 					e = resolved.Validate(args)
 				}
 				var data any
-				a := &agentExecution{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
+				a := &AgentCall{Grant: p.Agent, Permission: current.Permissions, Operation: current.Name}
 				call = context.WithValue(call, agentContextKey{}, a)
 				if e != nil {
 					e = bad("Tool arguments do not match its published schema: " + e.Error())
@@ -325,17 +325,16 @@ func (s *Server) mcpHandler() http.Handler {
 				if e == nil {
 					result["data"] = data
 				} else {
-					capture := newOperationResponse()
-					fake, _ := http.NewRequestWithContext(call, "POST", "/mcp", nil)
-					fake.Header.Set("X-Request-ID", newID())
-					writeError(capture, fake, e)
-					value, _ := capture.Value()
-					result["error"] = value["error"]
-					var ae *APIError
-					if errors.As(e, &ae) && ae.Code == "needs_authorization" {
-						var scopeError *agentAuthorityError
-						if errors.As(e, &scopeError) {
-							result["required_scopes"] = scopeError.Missing
+					o := classify(e)
+					rid := newID()
+					if o.Unmapped {
+						fields := []any{"operation", "mcp " + current.Name, "operation_request_id", rid}
+						requestLogger(call).Error("request failed", append(fields, diagnostic(e)...)...)
+					}
+					result["error"] = o.payload(rid)
+					if o.Code == "needs_authorization" {
+						if o.Authority != nil {
+							result["required_scopes"] = o.Authority.Missing
 						}
 						result["authorization_url"] = s.Config.PublicURL + "/console/account"
 						result["guidance"] = "The user must explicitly expand Agent access in the console. Refresh/reconnect, reread revisions, and retry. Nothing has executed."
@@ -345,7 +344,7 @@ func (s *Server) mcpHandler() http.Handler {
 				if len(b) > agentMaxResponse {
 					result = Row{"ok": false, "error": Row{"code": "response_limit", "message": "Inspect a smaller scope or page; no content was silently truncated."}}
 					if a.Committed {
-						result["committed"], result["resource"] = true, a.Result
+						result["committed"], result["resource"] = true, a.ResultRef
 						result["guidance"] = "The mutation committed. Inspect the resource using a smaller section/page; reuse the same request_key for unchanged retries."
 					}
 					b, _ = json.Marshal(result)
@@ -524,16 +523,16 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 	if e := requireAgent(p.Agent, permissions...); e != nil {
 		return ctx, e
 	}
-	old, _ := ctx.Value(agentContextKey{}).(*agentExecution)
+	old := agentCallFrom(ctx)
 	operation := ""
 	if old != nil {
 		operation = old.Operation
 	}
 	a := old
 	if a == nil {
-		a = &agentExecution{}
+		a = &AgentCall{}
 	}
-	*a = agentExecution{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(Row{"operation": operation, "input": input}), Result: result}
+	*a = AgentCall{Grant: p.Agent, Permission: permissions, Operation: operation, Key: key, Hash: entity.Hash(Row{"operation": operation, "input": input}), ResultRef: result}
 	var previous string
 	var saved any
 	e := s.DB.QueryRowContext(ctx, "SELECT input_hash,result_json FROM agent_operation_receipts WHERE grant_id=? AND request_key=?", p.Agent.ID, key).Scan(&previous, &saved)
@@ -551,16 +550,16 @@ func (s *Server) beginAgentWrite(ctx context.Context, p Principal, key string, r
 
 func agentWriteResult(ctx context.Context, data Row, e error) (any, error) {
 	if errors.Is(e, errAgentReplay) {
-		a := ctx.Value(agentContextKey{}).(*agentExecution)
+		a := agentCallFrom(ctx)
 		a.Committed = true
-		return Row{"replayed": true, "committed": true, "resource": a.Result, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
+		return Row{"replayed": true, "committed": true, "resource": a.ResultRef, "next": "Inspect the resource/job with lastapp_get; this request was not executed twice."}, nil
 	}
 	var ae *APIError
 	if errors.As(e, &ae) && ae.Code == "response_limit" {
 		// executeManagement reached response serialization after the mutation
 		// committed. The receipt is the authoritative, compact outcome.
-		if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok && a.Committed {
-			return Row{"committed": true, "resource": a.Result, "response_error": Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
+		if a := agentCallFrom(ctx); a != nil && a.Committed {
+			return Row{"committed": true, "resource": a.ResultRef, "response_error": Row{"code": ae.Code, "message": ae.Message}, "next": "Inspect with lastapp_get. For an entity use section=definition and version=draft; request individual schema sections/fields as needed. Unchanged retries use the same request_key."}, nil
 		}
 	}
 	return data, e

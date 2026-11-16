@@ -250,7 +250,7 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 		t.Fatal(e)
 	}
 	p.Agent = g
-	ctx := context.WithValue(context.Background(), agentContextKey{}, &agentExecution{Grant: g, Permission: []string{"entities.check"}, Operation: "lastapp_entity_check"})
+	ctx := context.WithValue(context.Background(), agentContextKey{}, &AgentCall{Grant: g, Permission: []string{"entities.check"}, Operation: "lastapp_entity_check"})
 	raw := agentTestJSON(t, agentCheckInput{Entity: eid, Cases: []agentCase{{Operation: "create", Values: map[string]any{"choice_0": d.Fields[0].Values[0]}}}})
 	checked, e := s.toolAgentEntityCheck(ctx, p, raw)
 	if e != nil {

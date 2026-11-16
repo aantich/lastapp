@@ -84,6 +84,7 @@ type Server struct {
 	mux                    *http.ServeMux
 	auth                   *oidcAuth
 	Log                    *slog.Logger
+	run                    *runner
 }
 type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -213,6 +214,7 @@ func Open(c Config) (*Server, error) {
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
+	s.run = &runner{db: db, access: s}
 	return s, nil
 }
 
@@ -465,26 +467,8 @@ func send(w http.ResponseWriter, status int, value any) {
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
-	var ae *APIError
-	var ed entity.Diagnostic
-	var me *mariadb.MySQLError
-	if errors.As(err, &ae) {
-	} else if errors.As(err, &ed) {
-		ae = &APIError{400, ed.Code, ed.Message}
-	} else if errors.As(err, &me) {
-		switch me.Number {
-		case 1062:
-			ae = &APIError{409, "already_exists", "This ID or name already exists. Read the existing resource before retrying."}
-		case 1451, 1452:
-			ae = &APIError{409, "invalid_reference", "A referenced resource is missing, belongs to another Tenant, or is still in use."}
-		case 4025:
-			ae = &APIError{400, "invalid_request", "The request violates a resource constraint."}
-		case 1205, 1213:
-			ae = &APIError{409, "retry_transaction", "A concurrent change occurred; refresh and retry."}
-		}
-	}
-	if ae == nil {
-		ae = &APIError{500, "internal_error", "The operation failed. See the server log with this request ID."}
+	o := classify(err)
+	if o.Unmapped {
 		fields := []any{"operation", r.Method + " " + r.Pattern}
 		if rid := r.Header.Get("X-Request-ID"); rid != requestIDFrom(r.Context()) {
 			// MCP tool calls run operations under their own request IDs.
@@ -492,24 +476,10 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 		requestLogger(r.Context()).Error("request failed", append(fields, diagnostic(err)...)...)
 	}
-	if ae.Status == 429 {
+	if o.Status == 429 {
 		w.Header().Set("Retry-After", "1")
 	}
-	payload := Row{"code": ae.Code, "message": ae.Message, "request_id": r.Header.Get("X-Request-ID"), "retryable": ae.Code == "retry_transaction" || ae.Code == "publication_in_progress" || ae.Status == 429}
-	if ed.Path != "" {
-		payload["field_or_rule"] = ed.Path
-		if ed.Code == "invalid_value" {
-			payload["field"] = ed.Path
-		}
-	}
-	var rf entity.RuleFailure
-	if errors.As(err, &rf) {
-		if rf.Field != "" {
-			payload["field"] = rf.Field
-		}
-		payload["rule"] = rf.Rule
-	}
-	send(w, ae.Status, Row{"error": payload})
+	send(w, o.Status, Row{"error": o.payload(r.Header.Get("X-Request-ID"))})
 }
 
 func expectedRevision(r *http.Request) (int64, error) {
@@ -528,17 +498,9 @@ func checkRevision(got, want int64) error {
 	return nil
 }
 
+// audit is the context shim of auditAs for code not yet migrated to actors.
 func audit(ctx context.Context, q Queryer, tenant, user, action, kind, record, request string, details any) error {
-	identity, _ := ctx.Value(agentAuditKey{}).(agentAuditIdentity)
-	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
-		identity = agentAuditIdentity{Grant: a.Grant.ID, Client: a.Grant.Client}
-	}
-	if identity.Grant != "" {
-		details = Row{"agent_grant_id": identity.Grant, "agent_client_id": identity.Client, "details": details}
-	}
-	b, _ := json.Marshal(details)
-	_, e := q.ExecContext(ctx, "INSERT INTO audit_events (tenant_id,actor_user_id,action,resource_type,resource_id,request_id,details_json) VALUES (?,?,?,?,?,?,?)", nullable(tenant), nullable(user), action, kind, nullable(record), request, string(b))
-	return e
+	return auditAs(ctx, q, Actor{Principal: Principal{ID: user}, RequestID: request, Agent: agentCallFrom(ctx)}, tenant, action, kind, record, details)
 }
 
 func nullable(v string) any {
@@ -548,43 +510,8 @@ func nullable(v string) any {
 	return v
 }
 
+// mutate is the context shim of runner.mutate for handlers not yet migrated
+// to operations with an explicit Actor.
 func (s *Server) mutate(ctx context.Context, p Principal, action string, res Resource, request string, fn func(*sql.Tx) error) error {
-	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-	if e != nil {
-		return e
-	}
-	defer tx.Rollback()
-	if res.Tenant != "" {
-		var x string
-		if e = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", res.Tenant).Scan(&x); e != nil {
-			return missing()
-		}
-	} else {
-		var x string
-		if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", SuperRole).Scan(&x); e != nil {
-			return e
-		}
-	}
-	if e = s.authorize(ctx, tx, p, action, res, true); e != nil {
-		return e
-	}
-	if e = s.productionMutationGuard(ctx, tx, p, action, res); e != nil {
-		return e
-	}
-	if e = s.agentMutationBegin(ctx, tx); e != nil {
-		return e
-	}
-	if e = fn(tx); e != nil {
-		return e
-	}
-	if e = s.agentMutationFinish(ctx, tx); e != nil {
-		return e
-	}
-	if e = tx.Commit(); e != nil {
-		return e
-	}
-	if a, ok := ctx.Value(agentContextKey{}).(*agentExecution); ok {
-		a.Committed = true
-	}
-	return nil
+	return s.run.mutate(ctx, actorFrom(ctx, p, request), action, res, fn)
 }
