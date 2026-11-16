@@ -69,6 +69,9 @@ func (m *membership) AddMembership(ctx context.Context, a Actor, tenant string, 
 	} else if e := id(in.User); e != nil {
 		return memberRef{}, e
 	}
+	// A new account's password derivation does not consume the database deadline.
+	ctx, cancel := renewDeadline(ctx)
+	defer cancel()
 	e := m.run.mutate(ctx, a, "membership.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		if e := metadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
 			return e

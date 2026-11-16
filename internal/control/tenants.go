@@ -263,6 +263,9 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 	} else if e := id(in.Admin); e != nil {
 		return Ref{}, e
 	}
+	// A new account's password derivation does not consume the database deadline.
+	ctx, cancel := renewDeadline(ctx)
+	defer cancel()
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
 		if in.Account != nil {
 			var e error

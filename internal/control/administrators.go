@@ -27,6 +27,9 @@ func (m *membership) AddAdministrator(ctx context.Context, a Actor, tenant strin
 	if e != nil {
 		return memberRef{}, e
 	}
+	// A new account's password derivation does not consume the database deadline.
+	ctx, cancel := renewDeadline(ctx)
+	defer cancel()
 	e = m.run.mutate(ctx, a, "authorization.manage", Resource{Tenant: tenant}, func(tx *sql.Tx) error {
 		if e := m.run.authorizeTx(ctx, tx, a, "platform.admin", Resource{}); e != nil {
 			return e

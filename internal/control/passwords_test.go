@@ -88,6 +88,30 @@ func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
 	}
 }
 
+// Every request that derives a new or changed password must give its database
+// work a deadline that the uncancellable PBKDF2 derivation has not consumed.
+func TestRequestDeadlineExcludesPasswordDerivation(t *testing.T) {
+	_, platform, _, _, _ := foundationFixture(t)
+	start := time.Now()
+	passwordKey("Slow derivation 8!", make([]byte, 16), passwordIterations)
+	derivation := time.Since(start)
+	previous := requestTimeout
+	requestTimeout = derivation / 2
+	t.Cleanup(func() { requestTimeout = previous })
+	account := func(label string) Row {
+		return Row{"display_name": "Slow " + label, "email": "slow-" + label + "-" + newID() + "@example.test", "password": "Slow derivation 8!"}
+	}
+	user := account("user")
+	platform.want("POST", "/admin/v1/users", user, 0, 201)
+	tenant := newID()
+	platform.want("POST", "/admin/v1/tenants", Row{"id": tenant, "slug": "slow-" + tenant, "display_name": "Slow derivation", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin": account("admin")}, 0, 201)
+	platform.want("POST", "/v1/tenants/"+tenant+"/memberships", Row{"account": account("member")}, 0, 201)
+	platform.want("POST", "/admin/v1/tenants/"+tenant+"/administrators", Row{"account": account("administrator")}, 0, 201)
+	// A password change derives twice (current and new password).
+	signedIn := passwordSignIn(platform, str(user["email"]), "Slow derivation 8!", 200)
+	signedIn.want("POST", "/auth/password", Row{"current_password": "Slow derivation 8!", "new_password": "Fast derivation 9!"}, 0, 200)
+}
+
 func passwordSignIn(c testClient, email, password string, want int) testClient {
 	c.t.Helper()
 	b, _ := json.Marshal(Row{"email": email, "password": password})

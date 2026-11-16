@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
@@ -243,7 +242,7 @@ func requireAgent(g *agentGrant, permissions ...string) error {
 
 func (s *Server) mcpHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		ctx, cancel := withRequestDeadline(r.Context())
 		defer cancel()
 		r = r.WithContext(ctx)
 		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {

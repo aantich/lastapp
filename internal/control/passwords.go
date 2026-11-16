@@ -165,14 +165,16 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p Princ
 	if e != nil {
 		return e
 	}
+	ctx, cancel := renewDeadline(r.Context())
+	defer cancel()
 	var user string
-	e = s.mutate(r.Context(), p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+	e = s.mutate(ctx, p, "platform.admin", Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		var e error
-		user, e = localAccount(r.Context(), tx, account, true)
+		user, e = localAccount(ctx, tx, account, true)
 		if e != nil {
 			return e
 		}
-		return audit(r.Context(), tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), Row{"display_name": account.Name, "email": account.Email})
+		return audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), Row{"display_name": account.Name, "email": account.Email})
 	})
 	if e == nil {
 		send(w, 201, Row{"id": user, "display_name": account.Name, "email": account.Email, "state": stateActive})
@@ -339,39 +341,41 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p Princi
 		return e
 	}
 	next := passwordKey(in.Next, salt, passwordIterations)
-	tx, e := s.DB.BeginTx(r.Context(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	ctx, cancel := renewDeadline(r.Context())
+	defer cancel()
+	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	var state string
-	if e = tx.QueryRowContext(r.Context(), "SELECT state FROM users WHERE id=? FOR UPDATE", p.ID).Scan(&state); e != nil {
+	if e = tx.QueryRowContext(ctx, "SELECT state FROM users WHERE id=? FOR UPDATE", p.ID).Scan(&state); e != nil {
 		return e
 	}
 	if state != stateActive {
 		return invalidLogin()
 	}
 	var current int64
-	if e = tx.QueryRowContext(r.Context(), "SELECT revision FROM local_accounts WHERE user_id=? FOR UPDATE", p.ID).Scan(&current); e != nil {
+	if e = tx.QueryRowContext(ctx, "SELECT revision FROM local_accounts WHERE user_id=? FOR UPDATE", p.ID).Scan(&current); e != nil {
 		return e
 	}
 	if e = checkRevision(current, revision); e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(r.Context(), "UPDATE local_accounts SET password_hash=?,password_salt=?,password_iterations=?,must_change_password=0,revision=revision+1 WHERE user_id=?", next, salt, passwordIterations, p.ID); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE local_accounts SET password_hash=?,password_salt=?,password_iterations=?,must_change_password=0,revision=revision+1 WHERE user_id=?", next, salt, passwordIterations, p.ID); e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", p.ID); e != nil {
+	if _, e = tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id=?", p.ID); e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(r.Context(), "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE user_id=? AND state='active'", p.ID); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE user_id=? AND state='active'", p.ID); e != nil {
 		return e
 	}
-	session, csrf, e := newConsoleSession(r.Context(), tx, p.ID, "password")
+	session, csrf, e := newConsoleSession(ctx, tx, p.ID, "password")
 	if e != nil {
 		return e
 	}
-	if e = audit(r.Context(), tx, "", p.ID, "user.password_changed", "user", p.ID, r.Header.Get("X-Request-ID"), Row{}); e != nil {
+	if e = audit(ctx, tx, "", p.ID, "user.password_changed", "user", p.ID, r.Header.Get("X-Request-ID"), Row{}); e != nil {
 		return e
 	}
 	if e = tx.Commit(); e != nil {
