@@ -11,6 +11,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	admin "github.com/aantich/lastapp/web/admin"
@@ -55,7 +56,7 @@ func (s *Server) Handler() http.Handler {
 		send(w, 200, registry.Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": publicPasswordPolicy(), "role_catalog": authz.Roles()})
+		send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)

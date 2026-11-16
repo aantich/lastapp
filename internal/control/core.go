@@ -31,6 +31,7 @@ import (
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -65,7 +66,7 @@ type Server struct {
 	Log                    *slog.Logger
 	run                    *op.Runner
 	inv                    *inventory
-	members                *membership
+	members                *membership.Members
 	authority              *roles.Authority
 	storage                *databases.Storage
 	authoring              *authoring
@@ -185,7 +186,7 @@ func Open(c config.Config) (*Server, error) {
 	s.authoring = &authoring{db: db, run: s.run, config: &s.Config, queue: s.queueDefinition, actorContext: s.actorContext}
 	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.seal, Config: &s.Config, RegistryName: cfg.DBName}
 	s.inv = &inventory{db: db, run: s.run, allocateDatabase: s.storage.Allocate, prepareAccount: s.prepareAccount}
-	s.members = &membership{db: db, run: s.run, prepareAccount: s.prepareAccount}
+	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}
 	s.authority = &roles.Authority{DB: db, Run: s.run}
 	return s, nil
 }

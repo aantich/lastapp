@@ -15,6 +15,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -177,7 +178,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e = s.DB.QueryRow("SELECT id FROM users WHERE oidc_issuer=? AND oidc_subject='outsider'", s.Config.OIDCIssuer).Scan(&joe); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.members.AddMembership(ctx, admin, tenant, accountChoice{User: joe}); e != nil {
+	if _, e = s.members.AddMembership(ctx, admin, tenant, membership.AccountChoice{User: joe}); e != nil {
 		t.Fatal(e)
 	}
 	auditRequest := registry.NewID()
@@ -332,7 +333,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	}
 	teamName := "Typed team"
 	request = registry.NewID()
-	if _, e = s.members.UpdateTeam(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, tenant, team.ID, teamPatch{Name: &teamName}, 2); e != nil {
+	if _, e = s.members.UpdateTeam(ctx, op.Actor{Principal: admin.Principal, RequestID: request}, tenant, team.ID, membership.TeamPatch{Name: &teamName}, 2); e != nil {
 		t.Fatal(e)
 	}
 	sameAudit(request, "group.updated", "after", "SELECT id,display_name,state,revision FROM groups WHERE id=?", nil, team.ID)
@@ -539,7 +540,7 @@ func jsonKeys(t reflect.Type) []string {
 // members must therefore be declared in sorted order (snapshot records keep
 // their own documented order and are not Row replacements).
 func TestRegistryRecordKeysAreSorted(t *testing.T) {
-	for _, v := range []any{registry.Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, Membership{}, Team{}, TeamMember{}, Administrator{}, User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
+	for _, v := range []any{registry.Plan{}, Tenant{}, tenantItem{}, Space{}, SpaceItem{}, App{}, AppItem{}, Microapp{}, microappItem{}, membership.Membership{}, membership.Team{}, membership.TeamMember{}, membership.Administrator{}, User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, EntityDefinition{}, entityItem{}, publicationItem{}, Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, WorkspaceItem{}, registry.WorkspaceMapping{}, Deployment{}, Release{}, ReleaseItem{}, Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, AuditEvent{}} {
 		keys := jsonKeys(reflect.TypeOf(v))
 		if len(keys) == 0 || !slices.IsSorted(keys) {
 			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)

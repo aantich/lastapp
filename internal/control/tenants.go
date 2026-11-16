@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -257,13 +258,13 @@ func (t *tenantItem) ScanFields() []any {
 }
 
 type tenantCreateInput struct {
-	ID      string        `json:"id"`
-	Slug    string        `json:"slug"`
-	Name    string        `json:"display_name"`
-	Plan    string        `json:"plan_id"`
-	Admin   string        `json:"initial_admin_user_id"`
-	Account *accountInput `json:"initial_admin"`
-	Layout  string        `json:"default_layout"`
+	ID      string                   `json:"id"`
+	Slug    string                   `json:"slug"`
+	Name    string                   `json:"display_name"`
+	Plan    string                   `json:"plan_id"`
+	Admin   string                   `json:"initial_admin_user_id"`
+	Account *membership.AccountInput `json:"initial_admin"`
+	Layout  string                   `json:"default_layout"`
 }
 
 type tenantPatch struct {
@@ -301,7 +302,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a op.Actor, in tenantCreat
 	if (in.Admin == "") == (in.Account == nil) {
 		return op.Ref{}, registry.Bad("Select an existing administrator or supply a new administrator account.")
 	}
-	var account preparedAccount
+	var account membership.PreparedAccount
 	if in.Account != nil {
 		if e := v.run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
 			return op.Ref{}, e
@@ -314,12 +315,12 @@ func (v *inventory) CreateTenant(ctx context.Context, a op.Actor, in tenantCreat
 	} else if e := registry.ID(in.Admin); e != nil {
 		return op.Ref{}, e
 	}
-	ctx, cancel := account.deadline(ctx)
+	ctx, cancel := account.Deadline(ctx)
 	defer cancel()
 	e := v.run.Mutate(ctx, a, "platform.admin", access.Resource{}, func(tx *sql.Tx) error {
 		if in.Account != nil {
 			var e error
-			in.Admin, e = localAccount(ctx, tx, account, true)
+			in.Admin, e = membership.LocalAccount(ctx, tx, account, true)
 			if e != nil {
 				return e
 			}

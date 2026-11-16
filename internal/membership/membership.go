@@ -1,0 +1,436 @@
+package membership
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/op"
+	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
+)
+
+// membership owns Tenant memberships, teams and their members, and Tenant
+// administrators. Console handlers and MCP tools both call these methods.
+type Members struct {
+	DB  *sql.DB
+	Run *op.Runner
+	// Collaborator of a domain not yet extracted, passed explicitly.
+	PrepareAccount func(AccountInput) (PreparedAccount, error)
+}
+
+// AccountChoice selects an existing user or supplies a local account.
+type AccountChoice struct {
+	User    string        `json:"user_id"`
+	Account *AccountInput `json:"account"`
+}
+
+type (
+	memberRef struct {
+		UserID string `json:"user_id"`
+	}
+	TeamPatch struct {
+		Name  *string `json:"display_name"`
+		State *string `json:"state"`
+	}
+)
+
+// Membership is a Tenant member with account state, platform administration
+// and Tenant administrator assignment.
+type Membership struct {
+	AdministratorID       *string      `json:"administrator_id"`
+	AdministratorRevision *int64       `json:"administrator_revision"`
+	CreatedAt             time.Time    `json:"created_at"`
+	Name                  string       `json:"display_name"`
+	Email                 *string      `json:"email"`
+	PlatformAdmin         registry.Bit `json:"platform_admin"`
+	Revision              int64        `json:"revision"`
+	State                 string       `json:"state"`
+	UserID                string       `json:"user_id"`
+	UserState             string       `json:"user_state"`
+}
+
+func (v *Membership) ScanFields() []any {
+	return []any{&v.AdministratorID, &v.AdministratorRevision, &v.CreatedAt, &v.Name, &v.Email, &v.PlatformAdmin, &v.Revision, &v.State, &v.UserID, &v.UserState}
+}
+
+// Team is a Tenant team.
+type Team struct {
+	Name     string `json:"display_name"`
+	ID       string `json:"id"`
+	Revision int64  `json:"revision"`
+	Slug     string `json:"slug"`
+	State    string `json:"state"`
+}
+
+const teamColumns = "g.display_name,g.id,g.revision,g.slug,g.state"
+
+func (v *Team) ScanFields() []any { return []any{&v.Name, &v.ID, &v.Revision, &v.Slug, &v.State} }
+
+// TeamMember is a team member with account and Tenant membership state and
+// the member's team administrator and reviewer assignments.
+type TeamMember struct {
+	AdministratorID       *string      `json:"administrator_id"`
+	AdministratorRevision *int64       `json:"administrator_revision"`
+	Name                  string       `json:"display_name"`
+	PlatformAdmin         registry.Bit `json:"platform_admin"`
+	ReviewerID            *string      `json:"reviewer_id"`
+	ReviewerRevision      *int64       `json:"reviewer_revision"`
+	State                 string       `json:"state"`
+	TenantState           string       `json:"tenant_state"`
+	UserID                string       `json:"user_id"`
+	UserState             string       `json:"user_state"`
+}
+
+func (v *TeamMember) ScanFields() []any {
+	return []any{&v.AdministratorID, &v.AdministratorRevision, &v.Name, &v.PlatformAdmin, &v.ReviewerID, &v.ReviewerRevision, &v.State, &v.TenantState, &v.UserID, &v.UserState}
+}
+
+// memberState is a membership's audited prior state.
+type memberState struct {
+	Revision int64  `json:"revision"`
+	State    string `json:"state"`
+	UserID   string `json:"user_id"`
+}
+
+// teamMemberState is a team membership's audited prior state.
+type teamMemberState struct {
+	State  string `json:"state"`
+	UserID string `json:"user_id"`
+}
+
+// grantRef is an audited role assignment.
+type grantRef struct {
+	ID     string `json:"id"`
+	RoleID string `json:"role_id"`
+}
+
+func (v *grantRef) ScanFields() []any { return []any{&v.ID, &v.RoleID} }
+
+func (m *Members) Memberships(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Membership], error) {
+	if e := m.Run.Authorize(ctx, a, "membership.read", access.Resource{Tenant: tenant}); e != nil {
+		return op.Page[Membership]{}, e
+	}
+	return op.PageScan[Membership](ctx, m.DB, page, op.CollectionFor("memberships"), "SELECT ag.id AS administrator_id,ag.revision AS administrator_revision,m.created_at,u.display_name,u.email,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,m.revision,m.state,m.user_id,u.state AS user_state FROM tenant_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN access_grants ag ON ag.user_id=m.user_id AND ag.tenant_id=m.tenant_id AND ag.role_id=? WHERE m.tenant_id=? ORDER BY u.display_name,u.id", access.SuperRole, access.TenantAdminRole, tenant)
+}
+
+// AddMembership adds an active existing user, or a local account, to tenant.
+// Supplying a new password additionally requires platform administration.
+func (m *Members) AddMembership(ctx context.Context, a op.Actor, tenant string, in AccountChoice) (memberRef, error) {
+	if (in.User == "") == (in.Account == nil) {
+		return memberRef{}, registry.Bad("Select an existing user or supply an account.")
+	}
+	var account PreparedAccount
+	if in.Account != nil {
+		if e := m.Run.Authorize(ctx, a, "membership.manage", access.Resource{Tenant: tenant}); e != nil {
+			return memberRef{}, e
+		}
+		if in.Account.Password != "" {
+			if e := m.Run.Authorize(ctx, a, "platform.admin", access.Resource{}); e != nil {
+				return memberRef{}, e
+			}
+		}
+		var e error
+		account, e = m.PrepareAccount(*in.Account)
+		if e != nil {
+			return memberRef{}, e
+		}
+	} else if e := registry.ID(in.User); e != nil {
+		return memberRef{}, e
+	}
+	ctx, cancel := account.Deadline(ctx)
+	defer cancel()
+	e := m.Run.Mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		if e := registry.MetadataQuota(ctx, tx, tenant, "tenant_memberships"); e != nil {
+			return e
+		}
+		if in.Account != nil {
+			platform, e := access.IsPlatform(ctx, tx, a.Principal.ID)
+			if e != nil {
+				return e
+			}
+			in.User, e = LocalAccount(ctx, tx, account, platform)
+			if e != nil {
+				return e
+			}
+		}
+		var state string
+		if e := tx.QueryRowContext(ctx, "SELECT state FROM users WHERE id=? FOR UPDATE", in.User).Scan(&state); e != nil {
+			if errors.Is(e, sql.ErrNoRows) {
+				return registry.Bad("An active existing user is required.")
+			}
+			return e
+		}
+		if state != registry.StateActive {
+			return registry.Bad("An active existing user is required. They must sign in once first.")
+		}
+		if _, e := tx.ExecContext(ctx, "INSERT INTO tenant_memberships (tenant_id,user_id) VALUES (?,?)", tenant, in.User); e != nil {
+			return e
+		}
+		return op.AuditAs(ctx, tx, a, tenant, "membership.created", "user", in.User, registry.Row{"before": nil, "after": registry.Row{"user_id": in.User, "state": registry.StateActive}})
+	})
+	if e != nil {
+		return memberRef{}, e
+	}
+	return memberRef{UserID: in.User}, nil
+}
+
+// UpdateMembership enables or disables a Tenant membership under its
+// revision, keeping an active Tenant administrator. Disabling revokes the
+// user's agent delegations in the Tenant.
+func (m *Members) UpdateMembership(ctx context.Context, a op.Actor, tenant, user, state string, revision int64) (op.Done, error) {
+	if !registry.EnabledState(state) {
+		return op.Done{}, registry.Bad("Invalid membership state.")
+	}
+	if revision < 1 {
+		return op.Done{}, op.RevisionRequired()
+	}
+	e := m.Run.Mutate(ctx, a, "membership.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		var before memberState
+		e := registry.Lookup(ctx, tx, "SELECT user_id,state,revision FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE", []any{tenant, user}, &before.UserID, &before.State, &before.Revision)
+		if e != nil {
+			return e
+		}
+		if e = op.CheckRevision(before.Revision, revision); e != nil {
+			return e
+		}
+		res, e := tx.ExecContext(ctx, "UPDATE tenant_memberships SET state=?,revision=revision+1 WHERE tenant_id=? AND user_id=?", state, tenant, user)
+		if e != nil {
+			return e
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			var found int
+			if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=? AND user_id=?", tenant, user).Scan(&found); e != nil {
+				return e
+			}
+			if found == 0 {
+				return registry.Missing()
+			}
+		}
+		if e = access.EnsureTenantAdmin(ctx, tx, tenant); e != nil {
+			return e
+		}
+		if state == registry.StateDisabled {
+			if _, e = tx.ExecContext(ctx, "UPDATE agent_grants SET state='revoked',revision=revision+1 WHERE tenant_id=? AND user_id=? AND state='active'", tenant, user); e != nil {
+				return e
+			}
+		}
+		return op.AuditAs(ctx, tx, a, tenant, "membership.updated", "user", user, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state, "revision": revision + 1}})
+	})
+	if e != nil {
+		return op.Done{}, e
+	}
+	return op.Done{OK: true}, nil
+}
+
+func (m *Members) Teams(ctx context.Context, a op.Actor, tenant string, page op.PageRequest) (op.Page[Team], error) {
+	sc, e := m.Run.Scopes(ctx, a, tenant, "team.read")
+	if e != nil {
+		return op.Page[Team]{}, e
+	}
+	filter, args := teamSQL(sc, "g.id")
+	args = append([]any{tenant}, args...)
+	return op.PageScan[Team](ctx, m.DB, page, op.CollectionFor("teams"), "SELECT "+teamColumns+" FROM groups g WHERE g.tenant_id=? AND "+filter+" ORDER BY g.display_name,g.id", args...)
+}
+
+func teamSQL(sc access.ScopeSet, column string) (string, []any) {
+	if sc.All {
+		return "1=1", nil
+	}
+	parts := []string{"1=0"}
+	args := []any{}
+	for _, v := range sc.Teams {
+		parts = append(parts, column+"=?")
+		args = append(args, v)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
+func (m *Members) Team(ctx context.Context, a op.Actor, tenant, team string) (Team, error) {
+	if e := m.Run.Authorize(ctx, a, "team.read", access.Resource{Tenant: tenant, Team: team}); e != nil {
+		return Team{}, e
+	}
+	return registry.ScanOne[Team](ctx, m.DB, "SELECT "+teamColumns+" FROM groups g WHERE g.tenant_id=? AND g.id=?", tenant, team)
+}
+
+func (m *Members) CreateTeam(ctx context.Context, a op.Actor, tenant string, in op.NamedInput) (op.Ref, error) {
+	if e := registry.ID(in.ID); e != nil {
+		return op.Ref{}, e
+	}
+	if e := registry.Named(in.Slug, in.Name); e != nil {
+		return op.Ref{}, e
+	}
+	e := m.Run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant}, func(tx *sql.Tx) error {
+		if e := registry.MetadataQuota(ctx, tx, tenant, "groups"); e != nil {
+			return e
+		}
+		if _, e := tx.ExecContext(ctx, "INSERT INTO groups (id,tenant_id,slug,display_name) VALUES (?,?,?,?)", in.ID, tenant, in.Slug, in.Name); e != nil {
+			return e
+		}
+		return op.AuditAs(ctx, tx, a, tenant, "group.created", "group", in.ID, registry.Row{"before": nil, "after": registry.Row{"display_name": in.Name, "state": registry.StateActive}})
+	})
+	if e != nil {
+		return op.Ref{}, e
+	}
+	return m.Run.Ref(ctx, "groups", tenant, in.ID)
+}
+
+func (m *Members) UpdateTeam(ctx context.Context, a op.Actor, tenant, team string, in TeamPatch, revision int64) (op.Ref, error) {
+	if revision < 1 {
+		return op.Ref{}, op.RevisionRequired()
+	}
+	e := m.Run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
+		old, e := roles.TeamSnapshotOf(ctx, tx, tenant, team)
+		if e != nil {
+			return e
+		}
+		if e = op.CheckRevision(old.Revision, revision); e != nil {
+			return e
+		}
+		if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 160) {
+			return registry.Bad("Invalid name.")
+		}
+		if in.State != nil && !registry.EnabledState(*in.State) {
+			return registry.Bad("Invalid state.")
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE groups SET display_name=COALESCE(?,display_name),state=COALESCE(?,state),revision=revision+1 WHERE id=? AND tenant_id=?", in.Name, in.State, team, tenant); e != nil {
+			return e
+		}
+		return roles.AuditChangeAs(ctx, tx, a, tenant, "group.updated", "groups", "group", team, old)
+	})
+	if e != nil {
+		return op.Ref{}, e
+	}
+	return m.Run.Ref(ctx, "groups", tenant, team)
+}
+
+func (m *Members) AddTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (op.Done, error) {
+	return m.changeTeamMember(ctx, a, tenant, team, user, revision, true)
+}
+
+// RemoveTeamMember also deletes the user's team-scoped role assignments.
+func (m *Members) RemoveTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64) (op.Done, error) {
+	return m.changeTeamMember(ctx, a, tenant, team, user, revision, false)
+}
+
+// changeTeamMember adds or removes a member under the team's revision, which
+// every membership change advances.
+func (m *Members) changeTeamMember(ctx context.Context, a op.Actor, tenant, team, user string, revision int64, add bool) (op.Done, error) {
+	if e := registry.ID(user); e != nil {
+		return op.Done{}, e
+	}
+	if revision < 1 {
+		return op.Done{}, op.RevisionRequired()
+	}
+	e := m.Run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
+		old, e := registry.LockRecord(ctx, tx, "groups", tenant, team)
+		if e != nil {
+			return e
+		}
+		if e = op.CheckRevision(old.Revision, revision); e != nil {
+			return e
+		}
+		var wasMember int
+		if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM group_memberships WHERE tenant_id=? AND group_id=? AND user_id=?", tenant, team, user).Scan(&wasMember); e != nil {
+			return e
+		}
+		if !add && wasMember == 0 {
+			return registry.Missing()
+		}
+		if add {
+			if e := registry.ActiveTenantUser(ctx, tx, tenant, user); e != nil {
+				return e
+			}
+		}
+		if !add {
+			removed, e := registry.ScanAll[grantRef](ctx, tx, "SELECT id,role_id FROM access_grants WHERE tenant_id=? AND scope_team_id=? AND user_id=?", tenant, team, user)
+			if e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(ctx, "DELETE FROM access_grants WHERE tenant_id=? AND scope_team_id=? AND user_id=?", tenant, team, user); e != nil {
+				return e
+			}
+			if len(removed) > 0 {
+				if e = op.AuditAs(ctx, tx, a, tenant, "team.roles.revoked_on_leave", "group", team, registry.Row{"user_id": user, "assignments": removed}); e != nil {
+					return e
+				}
+			}
+		}
+		query := "DELETE FROM group_memberships WHERE tenant_id=? AND group_id=? AND user_id=?"
+		if add {
+			if e := registry.MetadataQuota(ctx, tx, tenant, "group_memberships"); e != nil {
+				return e
+			}
+			query = "INSERT INTO group_memberships (tenant_id,group_id,user_id) VALUES (?,?,?)"
+		}
+		if _, e = tx.ExecContext(ctx, query, tenant, team, user); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE groups SET revision=revision+1 WHERE id=?", team); e != nil {
+			return e
+		}
+		return op.AuditAs(ctx, tx, a, tenant, "group.members_changed", "group", team, registry.Row{"before": registry.Row{"user_id": user, "member": wasMember > 0}, "after": registry.Row{"user_id": user, "member": add}})
+	})
+	if e != nil {
+		return op.Done{}, e
+	}
+	return op.Done{OK: true}, nil
+}
+
+// SetTeamMemberState enables or disables a team member under the team's
+// revision. Enabling requires an active Tenant member.
+func (m *Members) SetTeamMemberState(ctx context.Context, a op.Actor, tenant, team, user, state string, revision int64) (op.Done, error) {
+	if !registry.EnabledState(state) {
+		return op.Done{}, registry.Bad("Invalid membership state.")
+	}
+	if revision < 1 {
+		return op.Done{}, op.RevisionRequired()
+	}
+	e := m.Run.Mutate(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}, func(tx *sql.Tx) error {
+		locked, e := registry.LockRecord(ctx, tx, "groups", tenant, team)
+		if e != nil {
+			return e
+		}
+		if e = op.CheckRevision(locked.Revision, revision); e != nil {
+			return e
+		}
+		var before teamMemberState
+		e = registry.Lookup(ctx, tx, "SELECT user_id,state FROM group_memberships WHERE tenant_id=? AND group_id=? AND user_id=?", []any{tenant, team, user}, &before.UserID, &before.State)
+		if e != nil {
+			return e
+		}
+		if state == registry.StateActive {
+			if e = registry.ActiveTenantUser(ctx, tx, tenant, user); e != nil {
+				return e
+			}
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE group_memberships SET state=? WHERE tenant_id=? AND group_id=? AND user_id=?", state, tenant, team, user); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE groups SET revision=revision+1 WHERE id=?", team); e != nil {
+			return e
+		}
+		return op.AuditAs(ctx, tx, a, tenant, "team.membership.updated", "group", team, registry.Row{"before": before, "after": registry.Row{"user_id": user, "state": state}})
+	})
+	if e != nil {
+		return op.Done{}, e
+	}
+	return op.Done{OK: true}, nil
+}
+
+// TeamMembers requires team management authority, not only team read.
+func (m *Members) TeamMembers(ctx context.Context, a op.Actor, tenant, team string, page op.PageRequest) (op.Page[TeamMember], error) {
+	if e := m.Run.Authorize(ctx, a, "team.manage", access.Resource{Tenant: tenant, Team: team}); e != nil {
+		return op.Page[TeamMember]{}, e
+	}
+	var found string
+	if e := registry.Lookup(ctx, m.DB, "SELECT id FROM groups WHERE tenant_id=? AND id=?", []any{tenant, team}, &found); e != nil {
+		return op.Page[TeamMember]{}, e
+	}
+	return op.PageScan[TeamMember](ctx, m.DB, page, op.CollectionFor("members"), "SELECT ga.id AS administrator_id,ga.revision AS administrator_revision,u.display_name,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=u.id AND pg.role_id=?) AS platform_admin,gr.id AS reviewer_id,gr.revision AS reviewer_revision,gm.state,tm.state AS tenant_state,gm.user_id,u.state AS user_state FROM group_memberships gm JOIN users u ON u.id=gm.user_id JOIN tenant_memberships tm ON tm.tenant_id=gm.tenant_id AND tm.user_id=gm.user_id LEFT JOIN access_grants ga ON ga.tenant_id=gm.tenant_id AND ga.scope_team_id=gm.group_id AND ga.user_id=gm.user_id AND ga.role_id=? LEFT JOIN access_grants gr ON gr.tenant_id=gm.tenant_id AND gr.scope_team_id=gm.group_id AND gr.user_id=gm.user_id AND gr.role_id=? WHERE gm.tenant_id=? AND gm.group_id=? ORDER BY u.display_name,gm.user_id", access.SuperRole, authz.TeamAdminRole, authz.TeamReviewerRole, tenant, team)
+}

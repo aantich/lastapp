@@ -19,6 +19,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -664,7 +665,7 @@ func (s *Server) toolAgentUpdate(ctx context.Context, p access.Principal, raw js
 			return update(ctx, a, res.Tenant, in.ID, patch, in.Revision)
 		}
 	case "team":
-		patch := teamPatch{Name: in.Name}
+		patch := membership.TeamPatch{Name: in.Name}
 		call = func(ctx context.Context, a op.Actor) (any, error) {
 			if in.Compute != nil || in.Artifact != nil || in.Order != nil || in.PlanID != nil || in.Layout != nil {
 				return nil, registry.Bad("Invalid or unsupported JSON request fields.")
@@ -756,7 +757,7 @@ func (s *Server) toolAgentLifecycle(ctx context.Context, p access.Principal, raw
 		}
 	case "team":
 		call = func(ctx context.Context, a op.Actor) (any, error) {
-			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, teamPatch{State: &in.State}, in.Revision)
+			return s.members.UpdateTeam(ctx, a, res.Tenant, in.ID, membership.TeamPatch{State: &in.State}, in.Revision)
 		}
 	case "role":
 		call = func(ctx context.Context, a op.Actor) (any, error) {
@@ -992,7 +993,7 @@ func (s *Server) toolAgentMembership(ctx context.Context, p access.Principal, ra
 			if target.Kind == "team" {
 				return s.members.AddTeamMember(ctx, a, res.Tenant, target.ID, in.User, in.Revision)
 			}
-			return s.members.AddMembership(ctx, a, res.Tenant, accountChoice{User: in.User})
+			return s.members.AddMembership(ctx, a, res.Tenant, membership.AccountChoice{User: in.User})
 		}
 	case "set_state":
 		if in.Revision < 1 {

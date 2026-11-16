@@ -2,99 +2,35 @@ package control
 
 import (
 	"context"
-	"crypto/pbkdf2"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/http"
-	"net/mail"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
 )
 
-const (
-	passwordIterations = 600000
-	minPasswordLength  = 8
-	maxPasswordLength  = 128
-	// Bound authentication work independently of the policy for NEW passwords.
-	// Existing credentials must remain usable after a policy change.
-	maxPasswordInputBytes = 1024
-)
-const localIssuer = "urn:lastapp:local"
-
-func passwordLengthHint() string {
-	return fmt.Sprintf("%d–%d characters.", minPasswordLength, maxPasswordLength)
-}
-
-func publicPasswordPolicy() registry.Row {
-	return registry.Row{"min_length": minPasswordLength, "max_length": maxPasswordLength, "length_hint": passwordLengthHint()}
-}
-
-type accountInput struct {
-	Name     string `json:"display_name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-type preparedAccount struct {
-	Name, Email string
-	Hash, Salt  []byte
-}
-
-// deadline renews the request deadline after prepareAccount derived a
-// password, so the derivation does not consume the database deadline. Without
-// a derivation the request keeps its original deadline.
-func (a preparedAccount) deadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	if a.Hash == nil {
-		return ctx, func() {}
-	}
-	return op.RenewDeadline(ctx)
-}
-
-func loginEmail(raw string) (string, error) {
-	email := strings.ToLower(strings.TrimSpace(raw))
-	a, e := mail.ParseAddress(email)
-	if e != nil || a.Address != email || len(email) > 320 {
-		return "", registry.Bad("Enter a valid email address.")
-	}
-	return email, nil
-}
-
-func validatePassword(password string) error {
-	n := utf8.RuneCountInString(password)
-	if !utf8.ValidString(password) || n < minPasswordLength || n > maxPasswordLength {
-		return registry.Bad("Use a password of " + passwordLengthHint())
-	}
-	return nil
-}
-
-func passwordKey(password string, salt []byte, iterations int) []byte {
-	key, _ := pbkdf2.Key(sha256.New, password, salt, iterations, 32)
-	return key
-}
-
-func (s *Server) prepareAccount(in accountInput) (preparedAccount, error) {
-	email, e := loginEmail(in.Email)
+func (s *Server) prepareAccount(in membership.AccountInput) (membership.PreparedAccount, error) {
+	email, e := membership.LoginEmail(in.Email)
 	if e != nil {
-		return preparedAccount{}, e
+		return membership.PreparedAccount{}, e
 	}
-	out := preparedAccount{Name: strings.TrimSpace(in.Name), Email: email}
+	out := membership.PreparedAccount{Name: strings.TrimSpace(in.Name), Email: email}
 	if in.Password == "" {
 		return out, nil
 	} // Existing local account; never replace its credentials.
 	if out.Name == "" || len(out.Name) > 160 {
 		return out, registry.Bad("Enter the account holder's name (maximum 160 bytes).")
 	}
-	if e = validatePassword(in.Password); e != nil {
+	if e = membership.ValidatePassword(in.Password); e != nil {
 		return out, e
 	}
 	release, e := s.passwordWork()
@@ -106,39 +42,8 @@ func (s *Server) prepareAccount(in accountInput) (preparedAccount, error) {
 	if _, e = rand.Read(out.Salt); e != nil {
 		return out, e
 	}
-	out.Hash = passwordKey(in.Password, out.Salt, passwordIterations)
+	out.Hash = membership.PasswordKey(in.Password, out.Salt, membership.PasswordIterations)
 	return out, nil
-}
-
-// No email-based OIDC linking. An existing local account may be added to another
-// Tenant, but its credentials and global profile are never overwritten.
-func localAccount(ctx context.Context, tx *sql.Tx, in preparedAccount, canCreate bool) (string, error) {
-	if len(in.Hash) > 0 && !canCreate {
-		return "", registry.Problem(403, "platform_account_required", "A platform administrator must create global email/password accounts. Add an existing account instead.")
-	}
-	var user, state string
-	e := tx.QueryRowContext(ctx, "SELECT u.id,u.state FROM local_accounts a JOIN users u ON u.id=a.user_id WHERE a.login_email=? FOR UPDATE", in.Email).Scan(&user, &state)
-	if e == nil {
-		if len(in.Hash) > 0 {
-			return "", registry.Conflict("An account already uses this email. Select the existing account; its password has not changed.")
-		}
-		if state != registry.StateActive {
-			return "", registry.Bad("An active account is required.")
-		}
-		return user, nil
-	}
-	if !errors.Is(e, sql.ErrNoRows) {
-		return "", e
-	}
-	if len(in.Hash) == 0 {
-		return "", registry.Bad("A new account requires a name and initial password.")
-	}
-	user = registry.NewID()
-	if _, e = tx.ExecContext(ctx, "INSERT INTO users(id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?)", user, localIssuer, user, in.Name, in.Email); e != nil {
-		return "", e
-	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO local_accounts(user_id,login_email,password_hash,password_salt,password_iterations) VALUES (?,?,?,?,?)", user, in.Email, in.Hash, in.Salt, passwordIterations)
-	return user, e
 }
 
 func newConsoleSession(ctx context.Context, tx *sql.Tx, user, method string) (string, string, error) {
@@ -169,7 +74,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 	if e := s.Authorize(r.Context(), s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
 		return e
 	}
-	var in accountInput
+	var in membership.AccountInput
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
@@ -185,7 +90,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 	var user string
 	e = s.mutate(ctx, p, "platform.admin", access.Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
 		var e error
-		user, e = localAccount(ctx, tx, account, true)
+		user, e = membership.LocalAccount(ctx, tx, account, true)
 		if e != nil {
 			return e
 		}
@@ -199,7 +104,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 
 // Trusted CLI bootstrap, never an anonymous registration endpoint.
 func (s *Server) BootstrapLocal(ctx context.Context, name, email, password string) (string, error) {
-	account, e := s.prepareAccount(accountInput{Name: name, Email: email, Password: password})
+	account, e := s.prepareAccount(membership.AccountInput{Name: name, Email: email, Password: password})
 	if e != nil {
 		return "", e
 	}
@@ -212,7 +117,7 @@ func (s *Server) BootstrapLocal(ctx context.Context, name, email, password strin
 	if e = tx.QueryRowContext(ctx, "SELECT id FROM roles WHERE id=? FOR UPDATE", access.SuperRole).Scan(&locked); e != nil {
 		return "", e
 	}
-	user, e := localAccount(ctx, tx, account, true)
+	user, e := membership.LocalAccount(ctx, tx, account, true)
 	if e != nil {
 		return "", e
 	}
@@ -254,13 +159,13 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		// Forwarded addresses are used only through explicitly trusted proxy peers.
-		email, e := loginEmail(in.Email)
+		email, e := membership.LoginEmail(in.Email)
 		peer := s.loginClientIP(r)
 		now := time.Now()
 		if !s.loginLimiter.allowRate("ip:"+peer, now, 12, 1.0/5) || !s.loginLimiter.allowRate("email:"+hex.EncodeToString(hash(email)), now, 8, 1.0/30) {
 			return rateLimited(w)
 		}
-		if e != nil || len(in.Password) > maxPasswordInputBytes {
+		if e != nil || len(in.Password) > membership.MaxPasswordInputBytes {
 			return invalidLogin()
 		}
 		release, e := s.passwordWork()
@@ -279,9 +184,9 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		if errors.Is(e, sql.ErrNoRows) {
-			salt, expected, iterations = make([]byte, 16), make([]byte, 32), passwordIterations
+			salt, expected, iterations = make([]byte, 16), make([]byte, 32), membership.PasswordIterations
 		}
-		got := passwordKey(in.Password, salt, iterations)
+		got := membership.PasswordKey(in.Password, salt, iterations)
 		if subtle.ConstantTimeCompare(got, expected) != 1 || user == "" || state != registry.StateActive {
 			return invalidLogin()
 		}
@@ -329,10 +234,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 	if e := decode(w, r, &in); e != nil {
 		return e
 	}
-	if len(in.Current) > maxPasswordInputBytes {
+	if len(in.Current) > membership.MaxPasswordInputBytes {
 		return invalidLogin()
 	}
-	if e := validatePassword(in.Next); e != nil {
+	if e := membership.ValidatePassword(in.Next); e != nil {
 		return e
 	}
 	if in.Current == in.Next {
@@ -349,13 +254,13 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 	if e := s.DB.QueryRowContext(r.Context(), "SELECT password_hash,password_salt,password_iterations,revision FROM local_accounts WHERE user_id=?", p.ID).Scan(&expected, &salt, &iterations, &revision); e != nil {
 		return e
 	}
-	if subtle.ConstantTimeCompare(passwordKey(in.Current, salt, iterations), expected) != 1 {
+	if subtle.ConstantTimeCompare(membership.PasswordKey(in.Current, salt, iterations), expected) != 1 {
 		return invalidLogin()
 	}
 	if _, e := rand.Read(salt); e != nil {
 		return e
 	}
-	next := passwordKey(in.Next, salt, passwordIterations)
+	next := membership.PasswordKey(in.Next, salt, membership.PasswordIterations)
 	ctx, cancel := op.RenewDeadline(r.Context())
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -377,7 +282,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 	if e = op.CheckRevision(current, revision); e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(ctx, "UPDATE local_accounts SET password_hash=?,password_salt=?,password_iterations=?,must_change_password=0,revision=revision+1 WHERE user_id=?", next, salt, passwordIterations, p.ID); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE local_accounts SET password_hash=?,password_salt=?,password_iterations=?,must_change_password=0,revision=revision+1 WHERE user_id=?", next, salt, membership.PasswordIterations, p.ID); e != nil {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id=?", p.ID); e != nil {

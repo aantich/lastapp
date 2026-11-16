@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -50,7 +51,7 @@ type inventory struct {
 	run *op.Runner
 	// Collaborators of domains not yet extracted, passed explicitly.
 	allocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databases.DatabaseInput, policy registry.Policy, workspace *access.Resource) error
-	prepareAccount   func(accountInput) (preparedAccount, error)
+	prepareAccount   func(membership.AccountInput) (membership.PreparedAccount, error)
 }
 
 // Space is a Space read with its Tenant's name and its database binding.

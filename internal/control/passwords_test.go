@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -31,7 +32,7 @@ func TestPasswordLengthBounds(t *testing.T) {
 		{"invalid unicode", "password\xff", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if e := validatePassword(tc.password); (e == nil) != tc.valid {
+			if e := membership.ValidatePassword(tc.password); (e == nil) != tc.valid {
 				t.Fatalf("valid=%v, error=%v", tc.valid, e)
 			}
 		})
@@ -57,11 +58,11 @@ func TestPublicPasswordPolicy(t *testing.T) {
 		t.Fatal(e)
 	}
 	p := config.Policy
-	if p.Min != minPasswordLength || p.Max != maxPasswordLength || p.Hint != passwordLengthHint() {
+	if p.Min != membership.MinPasswordLength || p.Max != membership.MaxPasswordLength || p.Hint != membership.PasswordLengthHint() {
 		t.Fatal("config differs from authoritative policy", p)
 	}
 	for _, n := range []int{p.Min - 1, p.Min, p.Max, p.Max + 1} {
-		e := validatePassword(strings.Repeat("😀", n))
+		e := membership.ValidatePassword(strings.Repeat("😀", n))
 		if (e == nil) != (n >= p.Min && n <= p.Max) {
 			t.Fatalf("public bounds disagree with Unicode validation at %d: %v", n, e)
 		}
@@ -78,7 +79,7 @@ func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
 	email, password := "slow-"+registry.NewID()+"@example.test", "Slow derivation 8!"
 	platform.want("POST", "/admin/v1/users", registry.Row{"display_name": "Slow derivation", "email": email, "password": password}, 0, 201)
 	start := time.Now()
-	passwordKey(password, make([]byte, 16), passwordIterations)
+	membership.PasswordKey(password, make([]byte, 16), membership.PasswordIterations)
 	derivation := time.Since(start)
 	// Each database phase is far shorter than half a derivation; the derivation
 	// itself is longer than this deadline.
@@ -98,7 +99,7 @@ func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
 func TestRequestDeadlineExcludesPasswordDerivation(t *testing.T) {
 	_, platform, _, _, _ := foundationFixture(t)
 	start := time.Now()
-	passwordKey("Slow derivation 8!", make([]byte, 16), passwordIterations)
+	membership.PasswordKey("Slow derivation 8!", make([]byte, 16), membership.PasswordIterations)
 	derivation := time.Since(start)
 	previous := op.RequestTimeout
 	op.RequestTimeout = derivation / 2
@@ -310,12 +311,12 @@ func TestAccountDeadlineRenewsOnlyAfterDerivation(t *testing.T) {
 	defer cancel()
 	original, _ := ctx.Deadline()
 	time.Sleep(10 * time.Millisecond)
-	kept, keep := preparedAccount{Email: "existing@example.test"}.deadline(ctx)
+	kept, keep := membership.PreparedAccount{Email: "existing@example.test"}.Deadline(ctx)
 	defer keep()
 	if deadline, _ := kept.Deadline(); !deadline.Equal(original) {
 		t.Fatal("an account without a derived password renewed the request deadline")
 	}
-	renewed, stop := preparedAccount{Email: "new@example.test", Hash: []byte{1}, Salt: []byte{2}}.deadline(ctx)
+	renewed, stop := membership.PreparedAccount{Email: "new@example.test", Hash: []byte{1}, Salt: []byte{2}}.Deadline(ctx)
 	defer stop()
 	if deadline, _ := renewed.Deadline(); !deadline.After(original) {
 		t.Fatal("a derived password did not renew the request deadline")

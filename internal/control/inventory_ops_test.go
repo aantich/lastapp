@@ -10,6 +10,7 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -196,7 +197,7 @@ func TestMembershipOperations(t *testing.T) {
 	platform := op.Actor{Principal: access.Principal{ID: operator, Platform: true}, RequestID: registry.NewID()}
 
 	// Console actor: membership, team and member revisions.
-	if v, e := s.members.AddMembership(ctx, human, tenant, accountChoice{User: joe}); e != nil || v.UserID != joe {
+	if v, e := s.members.AddMembership(ctx, human, tenant, membership.AccountChoice{User: joe}); e != nil || v.UserID != joe {
 		t.Fatal("console membership", v, e)
 	}
 	_, e := s.members.UpdateMembership(ctx, human, tenant, joe, registry.StateDisabled, 0)
@@ -230,9 +231,9 @@ func TestMembershipOperations(t *testing.T) {
 	// Denied scope: Tenant administrators are platform operations.
 	_, e = s.members.Administrators(ctx, human, tenant, op.PageRequest{})
 	wantProblem(t, e, 403, "forbidden")
-	_, e = s.members.AddAdministrator(ctx, human, tenant, accountChoice{User: joe})
+	_, e = s.members.AddAdministrator(ctx, human, tenant, membership.AccountChoice{User: joe})
 	wantProblem(t, e, 403, "forbidden")
-	if v, e := s.members.AddAdministrator(ctx, platform, tenant, accountChoice{User: joe}); e != nil || v.UserID != joe {
+	if v, e := s.members.AddAdministrator(ctx, platform, tenant, membership.AccountChoice{User: joe}); e != nil || v.UserID != joe {
 		t.Fatal("platform administrator", v, e)
 	}
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE request_id=? AND action='grant.created' AND actor_user_id=?", platform.RequestID, operator).Scan(&n); e != nil || n != 1 {
