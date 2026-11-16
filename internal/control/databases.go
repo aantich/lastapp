@@ -236,7 +236,7 @@ func agentDatabaseProvision(ctx context.Context, tx *sql.Tx, p Principal, resour
 // allocate requests a database resource inside the caller's transaction. A
 // workspace allocation is authorized by workspace.manage on its scope and is
 // not counted against an agent's database allocation.
-func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Row, workspace *Resource) error {
+func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *Resource) error {
 	action, res := "database.manage", Resource{Tenant: tenant}
 	if workspace != nil {
 		action, res = "workspace.manage", *workspace
@@ -256,16 +256,16 @@ func (v *storage) allocate(ctx context.Context, tx *sql.Tx, a Actor, tenant stri
 			return e
 		}
 	}
-	if e := layoutAllowed(policy, in.Layout); e != nil {
+	if e := layoutAllowed(policy.Plan, in.Layout); e != nil {
 		return e
 	}
 	if in.Mode != "managed" && in.Mode != "registered" {
 		return bad("Select managed or registered database mode.")
 	}
-	if integer(policy["allow_"+in.Mode+"_database"]) != 1 {
+	if !policy.allowsMethod(in.Mode) {
 		return problem(403, "plan_restriction", "This database method is not included in the plan.")
 	}
-	if e := quota(ctx, tx, tenant, "database_resources", "max_databases", policy); e != nil {
+	if e := quota(ctx, tx, tenant, "database_resources", policy.MaxDatabases); e != nil {
 		return e
 	}
 	if e := pendingDatabaseQuota(ctx, tx, tenant); e != nil {

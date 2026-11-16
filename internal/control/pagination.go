@@ -110,9 +110,35 @@ func collectionFor(key string) collection {
 // pageQuery runs one bounded page of query, an already permission-filtered
 // statement, searching and ordering by the collection's static columns.
 func pageQuery(ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[Row], error) {
-	info, search, e := req.info()
+	info, query, args, e := pageSQL(req, c, query, args)
 	if e != nil {
 		return Page[Row]{}, e
+	}
+	v, e := rows(ctx, q, query, args...)
+	if e != nil {
+		return Page[Row]{}, e
+	}
+	return pageOf(info, v), nil
+}
+
+// pageScan is pageQuery for a typed registry record.
+func pageScan[T any, P record[T]](ctx context.Context, q Queryer, req PageRequest, c collection, query string, args ...any) (Page[T], error) {
+	info, query, args, e := pageSQL(req, c, query, args)
+	if e != nil {
+		return Page[T]{}, e
+	}
+	v, e := scanAll[T, P](ctx, q, query, args...)
+	if e != nil {
+		return Page[T]{}, e
+	}
+	return pageOf(info, v), nil
+}
+
+// pageSQL wraps query in the collection's search, order and one-extra LIMIT.
+func pageSQL(req PageRequest, c collection, query string, args []any) (pageInfo, string, []any, error) {
+	info, search, e := req.info()
+	if e != nil {
+		return info, "", nil, e
 	}
 	query = "SELECT * FROM (" + query + ") AS collection"
 	if search != "" {
@@ -122,15 +148,16 @@ func pageQuery(ctx context.Context, q Queryer, req PageRequest, c collection, qu
 	}
 	query += " ORDER BY " + c.order + " LIMIT ? OFFSET ?"
 	args = append(args, info.Limit+1, (info.Page-1)*info.Limit)
-	v, e := rows(ctx, q, query, args...)
-	if e != nil {
-		return Page[Row]{}, e
-	}
+	return info, query, args, nil
+}
+
+// pageOf cuts the one-extra row that reports has_more.
+func pageOf[T any](info pageInfo, v []T) Page[T] {
 	info.HasMore = len(v) > info.Limit
 	if info.HasMore {
 		v = v[:info.Limit]
 	}
-	return Page[Row]{Items: v, Pagination: info}, nil
+	return Page[T]{Items: v, Pagination: info}
 }
 
 // pageRows is the shim for handlers not yet migrated to operations: it takes

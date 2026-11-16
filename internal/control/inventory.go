@@ -47,7 +47,7 @@ type inventory struct {
 	db  *sql.DB
 	run *runner
 	// Collaborators of domains not yet extracted, passed explicitly.
-	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Row, workspace *Resource) error
+	allocateDatabase func(ctx context.Context, tx *sql.Tx, a Actor, tenant string, in databaseInput, policy Policy, workspace *Resource) error
 	prepareAccount   func(accountInput) (preparedAccount, error)
 }
 
@@ -91,7 +91,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 		if e != nil {
 			return e
 		}
-		if e = quota(ctx, tx, tenant, "spaces", "max_spaces", policy); e != nil {
+		if e = quota(ctx, tx, tenant, "spaces", policy.MaxSpaces); e != nil {
 			return e
 		}
 		resource, layout := in.Database.Resource, in.Database.Layout
@@ -111,7 +111,7 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 				return conflict("A retired database cannot be bound.")
 			}
 			layout = str(db["layout"])
-			if e = layoutAllowed(policy, layout); e != nil {
+			if e = layoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
 		} else {
@@ -119,16 +119,16 @@ func (v *inventory) CreateSpace(ctx context.Context, a Actor, tenant string, in 
 				return bad("Select an existing database or request managed creation.")
 			}
 			if layout == "" {
-				layout = str(policy["tenant_default_layout"])
-				if layout == "" || layoutAllowed(policy, layout) != nil {
-					layout = str(policy["default_layout"])
+				layout = policy.TenantLayout
+				if layout == "" || layoutAllowed(policy.Plan, layout) != nil {
+					layout = policy.DefaultLayout
 				}
 			}
-			if e = layoutAllowed(policy, layout); e != nil {
+			if e = layoutAllowed(policy.Plan, layout); e != nil {
 				return e
 			}
-			if layout == "shared" && str(policy["default_shared_database_id"]) != "" {
-				resource = str(policy["default_shared_database_id"])
+			if layout == "shared" && policy.DefaultSharedDatabase != "" {
+				resource = policy.DefaultSharedDatabase
 				db, e := row(ctx, tx, "SELECT target_id,state FROM database_resources WHERE id=? AND tenant_id=?", resource, tenant)
 				if e != nil {
 					return e
@@ -233,7 +233,7 @@ func (v *inventory) CreateApp(ctx context.Context, a Actor, tenant, space string
 		if e = appQuota(ctx, tx, tenant, space, policy, true); e != nil {
 			return e
 		}
-		if in.Compute == "dedicated" && integer(policy["allow_dedicated_compute"]) != 1 {
+		if in.Compute == "dedicated" && !policy.AllowDedicatedCompute {
 			return problem(403, "plan_restriction", "Dedicated compute is not permitted by this plan.")
 		}
 		_, e = tx.ExecContext(ctx, "INSERT INTO apps (id,tenant_id,space_id,slug,display_name,compute_mode) VALUES (?,?,?,?,?,?)", in.ID, tenant, space, in.Slug, in.Name, in.Compute)
@@ -454,7 +454,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 				if table == "apps" {
 					e = appQuota(ctx, tx, res.Tenant, res.Space, policy, false)
 				} else {
-					e = quota(ctx, tx, res.Tenant, table, "max_"+table, policy)
+					e = quota(ctx, tx, res.Tenant, table, policy.MaxSpaces)
 				}
 				if e != nil {
 					return e
@@ -479,7 +479,7 @@ func (v *inventory) patch(ctx context.Context, a Actor, table, action string, re
 				if e != nil {
 					return e
 				}
-				if integer(policy["allow_dedicated_compute"]) != 1 {
+				if !policy.AllowDedicatedCompute {
 					return problem(403, "plan_restriction", "Dedicated compute is not permitted.")
 				}
 			}

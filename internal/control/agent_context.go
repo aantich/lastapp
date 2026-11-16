@@ -83,7 +83,7 @@ func (in agentReadInput) pageRequest() PageRequest {
 
 // agentPage is the MCP result of a paged operation: the page within the
 // response bound, and whether it is the complete collection.
-func agentPage(v Page[Row], e error) (Row, error) {
+func agentPage[T any](v Page[T], e error) (Row, error) {
 	if e == nil {
 		e = agentFits(v)
 	}

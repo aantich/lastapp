@@ -5,9 +5,55 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+	"time"
 )
 
-const planColumns = "id,code,display_name,allow_shared_database,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_dedicated_compute,default_layout,max_spaces,max_apps,max_databases,revision,created_at"
+// Plan is a subscription plan: allowed database layouts and methods, compute
+// and the Tenant quotas (nil is unlimited).
+type Plan struct {
+	AllowDedicatedCompute  bit       `json:"allow_dedicated_compute"`
+	AllowDedicatedDatabase bit       `json:"allow_dedicated_database"`
+	AllowManaged           bit       `json:"allow_managed_database"`
+	AllowRegistered        bit       `json:"allow_registered_database"`
+	AllowSharedDatabase    bit       `json:"allow_shared_database"`
+	Code                   string    `json:"code"`
+	CreatedAt              time.Time `json:"created_at"`
+	DefaultLayout          string    `json:"default_layout"`
+	Name                   string    `json:"display_name"`
+	ID                     string    `json:"id"`
+	MaxApps                *int64    `json:"max_apps"`
+	MaxDatabases           *int64    `json:"max_databases"`
+	MaxSpaces              *int64    `json:"max_spaces"`
+	Revision               int64     `json:"revision"`
+}
+
+const planColumns = "allow_dedicated_compute,allow_dedicated_database,allow_managed_database,allow_registered_database,allow_shared_database,code,created_at,default_layout,display_name,id,max_apps,max_databases,max_spaces,revision"
+
+func (p *Plan) fields() []any {
+	return []any{&p.AllowDedicatedCompute, &p.AllowDedicatedDatabase, &p.AllowManaged, &p.AllowRegistered, &p.AllowSharedDatabase, &p.Code, &p.CreatedAt, &p.DefaultLayout, &p.Name, &p.ID, &p.MaxApps, &p.MaxDatabases, &p.MaxSpaces, &p.Revision}
+}
+
+// Policy is the plan of an active Tenant with the Tenant's own defaults.
+type Policy struct {
+	Plan
+	TenantState           string
+	TenantLayout          string // empty when the Tenant uses the plan default
+	DefaultSharedDatabase string // empty until the first shared database exists
+}
+
+func (p *Policy) fields() []any {
+	return append(p.Plan.fields(), &p.TenantState, &p.TenantLayout, &p.DefaultSharedDatabase)
+}
+
+// allowsLayout reports whether the plan permits a database layout.
+func (p Plan) allowsLayout(layout string) bool {
+	return layout == "shared" && bool(p.AllowSharedDatabase) || layout == "dedicated" && bool(p.AllowDedicatedDatabase)
+}
+
+// allowsMethod reports whether the plan permits a database provisioning mode.
+func (p Plan) allowsMethod(mode string) bool {
+	return mode == "managed" && bool(p.AllowManaged) || mode == "registered" && bool(p.AllowRegistered)
+}
 
 type planInput struct {
 	ID         string  `json:"id"`
@@ -37,18 +83,18 @@ func (in planInput) validate() error {
 	return bad("The default layout must be allowed by this plan.")
 }
 
-func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Row], error) {
+func (v *inventory) Plans(ctx context.Context, a Actor, page PageRequest) (Page[Plan], error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return Page[Row]{}, e
+		return Page[Plan]{}, e
 	}
-	return pageQuery(ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
+	return pageScan[Plan](ctx, v.db, page, collectionFor("plans"), "SELECT "+planColumns+" FROM plans ORDER BY display_name")
 }
 
-func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Row, error) {
+func (v *inventory) Plan(ctx context.Context, a Actor, record string) (Plan, error) {
 	if e := v.run.authorize(ctx, a, "platform.admin", Resource{}); e != nil {
-		return nil, e
+		return Plan{}, e
 	}
-	return row(ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
+	return scanOne[Plan](ctx, v.db, "SELECT "+planColumns+" FROM plans WHERE id=?", record)
 }
 
 func (v *inventory) CreatePlan(ctx context.Context, a Actor, in planInput) (Ref, error) {
@@ -79,14 +125,16 @@ func (v *inventory) UpdatePlan(ctx context.Context, a Actor, record string, in p
 		return Ref{}, revisionRequired()
 	}
 	e := v.run.mutate(ctx, a, "platform.admin", Resource{}, func(tx *sql.Tx) error {
-		old, e := row(ctx, tx, "SELECT id,revision,code FROM plans WHERE id=? FOR UPDATE", record)
+		var current int64
+		var code string
+		e := lookup(ctx, tx, "SELECT revision,code FROM plans WHERE id=? FOR UPDATE", []any{record}, &current, &code)
 		if e != nil {
 			return e
 		}
-		if e = checkRevision(integer(old["revision"]), revision); e != nil {
+		if e = checkRevision(current, revision); e != nil {
 			return e
 		}
-		if str(old["code"]) != in.Code {
+		if code != in.Code {
 			return bad("Plan codes are immutable.")
 		}
 		_, e = tx.ExecContext(ctx, "UPDATE plans SET display_name=?,allow_shared_database=?,allow_dedicated_database=?,allow_managed_database=?,allow_registered_database=?,allow_dedicated_compute=?,default_layout=?,max_spaces=?,max_apps=?,max_databases=?,revision=revision+1 WHERE id=?", in.Name, in.Shared, in.Dedicated, in.Managed, in.Registered, in.Compute, in.Default, in.Spaces, in.Apps, in.Databases, record)
@@ -274,7 +322,7 @@ func (v *inventory) CreateTenant(ctx context.Context, a Actor, in tenantCreateIn
 				return e
 			}
 		}
-		policy, e := row(ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
+		policy, e := scanOne[Plan](ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", in.Plan)
 		if e != nil {
 			return e
 		}
@@ -340,7 +388,7 @@ func (v *inventory) UpdateTenant(ctx context.Context, a Actor, record string, in
 		if in.Plan != nil {
 			plan = *in.Plan
 		}
-		policy, e := row(ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
+		policy, e := scanOne[Plan](ctx, tx, "SELECT "+planColumns+" FROM plans WHERE id=?", plan)
 		if e != nil {
 			return e
 		}
@@ -443,29 +491,33 @@ func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p P
 	return e
 }
 
-func layoutAllowed(policy Row, layout string) error {
-	if layout == "" {
-		return nil
-	}
-	if (layout == "shared" && integer(policy["allow_shared_database"]) == 1) || (layout == "dedicated" && integer(policy["allow_dedicated_database"]) == 1) {
+func layoutAllowed(policy Plan, layout string) error {
+	if layout == "" || policy.allowsLayout(layout) {
 		return nil
 	}
 	return problem(403, "plan_restriction", "This database layout is not permitted by the selected plan.")
 }
 
-func policyFor(ctx context.Context, q Queryer, tenant string) (Row, error) {
-	v, e := row(ctx, q, "SELECT p.*,t.state AS tenant_state,t.default_layout AS tenant_default_layout,t.default_shared_database_id FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
+// policyFor reads the plan of an active Tenant; resources are allocated only
+// in an active Tenant.
+func policyFor(ctx context.Context, q Queryer, tenant string) (Policy, error) {
+	v, e := scanOne[Policy](ctx, q, "SELECT "+prefixed("p", planColumns)+",t.state,COALESCE(t.default_layout,''),COALESCE(t.default_shared_database_id,'') FROM plans p JOIN tenants t ON t.plan_id=p.id WHERE t.id=?", tenant)
 	if e != nil {
-		return nil, e
+		return Policy{}, e
 	}
-	if str(v["tenant_state"]) != stateActive {
-		return nil, conflict("The Tenant must be active to allocate resources.")
+	if v.TenantState != stateActive {
+		return Policy{}, conflict("The Tenant must be active to allocate resources.")
 	}
 	return v, nil
 }
 
-func quota(ctx context.Context, q Queryer, tenant, table, column string, policy Row) error {
-	if policy[column] == nil {
+// quotaNames names each quota-limited table in the quota_exceeded message.
+var quotaNames = map[string]string{"spaces": "spaces", "apps": "apps", "database_resources": "databases"}
+
+// quota rejects one more production record of table when limit (nil is
+// unlimited) is reached.
+func quota(ctx context.Context, q Queryer, tenant, table string, limit *int64) error {
+	if limit == nil {
 		return nil
 	}
 	var n int
@@ -482,8 +534,8 @@ func quota(ctx context.Context, q Queryer, tenant, table, column string, policy 
 	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE tenant_id=? AND "+state, tenant).Scan(&n); e != nil {
 		return e
 	}
-	if int64(n) >= integer(policy[column]) {
-		return problem(409, "quota_exceeded", "The Tenant's "+strings.TrimPrefix(column, "max_")+" limit has been reached.")
+	if int64(n) >= *limit {
+		return problem(409, "quota_exceeded", "The Tenant's "+quotaNames[table]+" limit has been reached.")
 	}
 	return nil
 }
