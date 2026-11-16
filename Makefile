@@ -1,4 +1,4 @@
-.PHONY: dev stop test integration web build lint fmt
+.PHONY: dev stop test integration e2e web build lint fmt
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 # node/npm come from PATH; set NODE_BIN=/path/to/node/bin to prefer another Node.
 NODE_BIN ?=
@@ -25,7 +25,11 @@ fmt:
 	$(GOLANGCI_LINT) fmt ./...
 integration:
 	LASTAPP_SECURITY_CONFIG=$(CURDIR)/.local/config.json LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/control
-	cd web/admin && npm run test:e2e
+	$(MAKE) e2e
+# Browser regressions on a disposable MariaDB/API (scripts/e2e.py); never the dev data.
+# Pass Playwright arguments with ARGS, e.g. make e2e ARGS=tests/security.spec.ts
+e2e:
+	python3 scripts/e2e.py $(ARGS)
 
 .PHONY: mcp-test
 mcp-test:
