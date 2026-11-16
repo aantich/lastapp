@@ -23,7 +23,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	if len(in.IDs) > entity.Limits.Bulk {
 		return bad("Too many records.")
 	}
-	db, release, e := s.runtimeDB(r.Context(), str(rt.session["database_resource_id"]))
+	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -39,7 +39,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	out := []any{}
 	for _, id := range in.IDs {
 		result := Row{"id": id, "operations": []string{}}
-		raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=?", rt.session["tenant_id"], rt.session["space_id"], id)
+		raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=?", rt.session.TenantID, rt.session.SpaceID, id)
 		if e == nil {
 			c := rt.actor
 			c.Record = businessRecord(rt.d, raw)
@@ -97,7 +97,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 			return bad("Choose a recipient user or team.")
 		}
 	}
-	db, release, e := s.runtimeDB(r.Context(), str(rt.session["database_resource_id"]))
+	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -110,7 +110,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 	if e = rt.checkGate(r.Context(), tx, true); e != nil {
 		return e
 	}
-	raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=? FOR UPDATE", rt.session["tenant_id"], rt.session["space_id"], record)
+	raw, e := row(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=? FOR UPDATE", rt.session.TenantID, rt.session.SpaceID, record)
 	if e != nil {
 		return e
 	}
@@ -170,7 +170,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 	if in.Kind == "user" {
 		query = "SELECT COUNT(*) FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.user_id=? AND m.tenant_id=? AND m.state='active'"
 	}
-	if e = s.DB.QueryRowContext(r.Context(), query, in.Recipient, rt.session["tenant_id"]).Scan(&n); e != nil {
+	if e = s.DB.QueryRowContext(r.Context(), query, in.Recipient, rt.session.TenantID).Scan(&n); e != nil {
 		return e
 	}
 	if n != 1 {
@@ -182,7 +182,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 	if n >= 200 {
 		return conflict("Record share limit reached.")
 	}
-	_, e = tx.ExecContext(r.Context(), "INSERT INTO _lastapp_record_acl(tenant_id,space_id,entity_id,record_id,permission_id,security_revision,recipient_id,recipient_kind,grantor_id) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE security_revision=VALUES(security_revision),grantor_id=VALUES(grantor_id)", rt.session["tenant_id"], rt.session["space_id"], rt.entityID, record, in.Permission, rt.permissionRevisions[in.Permission], in.Recipient, in.Kind, c.Actor)
+	_, e = tx.ExecContext(r.Context(), "INSERT INTO _lastapp_record_acl(tenant_id,space_id,entity_id,record_id,permission_id,security_revision,recipient_id,recipient_kind,grantor_id) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE security_revision=VALUES(security_revision),grantor_id=VALUES(grantor_id)", rt.session.TenantID, rt.session.SpaceID, rt.entityID, record, in.Permission, rt.permissionRevisions[in.Permission], in.Recipient, in.Kind, c.Actor)
 	if e != nil {
 		return e
 	}
@@ -237,9 +237,9 @@ func (s *Server) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRun
 	var recipients []Named
 	var e error
 	if kind == "user" {
-		recipients, e = scanAll[Named](r.Context(), s.DB, "SELECT u.display_name,u.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.email LIKE ? OR u.id=?) ORDER BY u.display_name,u.id LIMIT 50", rt.session["tenant_id"], pattern, pattern, search)
+		recipients, e = scanAll[Named](r.Context(), s.DB, "SELECT u.display_name,u.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.email LIKE ? OR u.id=?) ORDER BY u.display_name,u.id LIMIT 50", rt.session.TenantID, pattern, pattern, search)
 	} else if kind == "team" {
-		recipients, e = scanAll[Named](r.Context(), s.DB, "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' AND (display_name LIKE ? OR id=?) ORDER BY display_name,id LIMIT 50", rt.session["tenant_id"], pattern, search)
+		recipients, e = scanAll[Named](r.Context(), s.DB, "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' AND (display_name LIKE ? OR id=?) ORDER BY display_name,id LIMIT 50", rt.session.TenantID, pattern, search)
 	} else {
 		return bad("Choose user or team.")
 	}

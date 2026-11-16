@@ -125,7 +125,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		return e
 	}
 	defer tx.Rollback()
-	v, e := row(r.Context(), tx, "SELECT l.* FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(in.Code))
+	v, e := scanOne[appSession](r.Context(), tx, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(in.Code))
 	if e != nil {
 		return problem(401, "invalid_exchange", "Launch code is invalid or expired.")
 	}
@@ -133,7 +133,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		return e
 	}
 	challenge := base64.RawURLEncoding.EncodeToString(hash(in.Verifier))
-	if subtle.ConstantTimeCompare([]byte(challenge), []byte(str(v["challenge"]))) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(str(v["nonce"]))) != 1 || r.Header.Get("Origin") != str(v["origin"]) {
+	if subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != deref(v.Origin) {
 		return problem(401, "invalid_exchange", "Launch challenge or origin mismatch.")
 	}
 	raw := token(32)
@@ -141,33 +141,50 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	if e != nil {
 		return e
 	}
-	_, e = tx.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,'app',?,?,?,?,?,?,?,?,?)", hash(raw), v["user_id"], hash(""), v["parent_hash"], v["tenant_id"], v["space_id"], v["app_id"], v["origin"], v["origin_generation"], v["agent_grant_id"], v["agent_grant_revision"], time.Now().Add(appTokenLifetime))
+	_, e = tx.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,'app',?,?,?,?,?,?,?,?,?)", hash(raw), v.UserID, hash(""), v.ParentHash, v.TenantID, v.SpaceID, v.AppID, v.Origin, v.OriginGeneration, v.AgentGrant, v.AgentRevision, time.Now().Add(appTokenLifetime))
 	if e != nil {
 		return e
 	}
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	w.Header().Set("Access-Control-Allow-Origin", str(v["origin"]))
+	w.Header().Set("Access-Control-Allow-Origin", deref(v.Origin))
 	w.Header().Add("Vary", "Origin")
 	send(w, 200, Row{"access_token": raw, "expires_in": int(appTokenLifetime.Seconds()), "token_type": "Bearer"})
 	return nil
 }
 
-func (s *Server) dataSession(ctx context.Context, r *http.Request) (Row, error) {
+// appSession is a launch code or App data session with the database
+// resource of its Space.
+type appSession struct {
+	UserID, TenantID, SpaceID, AppID, Challenge, Nonce, Resource string
+	OriginGeneration                                             int64
+	Origin, AgentGrant                                           *string
+	AgentRevision                                                *int64
+	ParentHash                                                   []byte
+}
+
+// appSessionColumns selects an appSession from sessions l joined to spaces sp.
+const appSessionColumns = "l.user_id,l.tenant_id,l.space_id,l.app_id,COALESCE(l.challenge,''),COALESCE(l.nonce,''),sp.database_resource_id,l.origin_generation,l.origin,l.agent_grant_id,l.agent_grant_revision,l.parent_hash"
+
+func (v *appSession) fields() []any {
+	return []any{&v.UserID, &v.TenantID, &v.SpaceID, &v.AppID, &v.Challenge, &v.Nonce, &v.Resource, &v.OriginGeneration, &v.Origin, &v.AgentGrant, &v.AgentRevision, &v.ParentHash}
+}
+
+func (s *Server) dataSession(ctx context.Context, r *http.Request) (appSession, error) {
 	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if raw == "" || raw == r.Header.Get("Authorization") || len(raw) > 128 {
-		return nil, problem(401, "unauthenticated", "An App bearer token is required.")
+		return appSession{}, problem(401, "unauthenticated", "An App bearer token is required.")
 	}
-	v, e := row(ctx, s.DB, "SELECT l.user_id,l.tenant_id,l.space_id,l.app_id,l.origin,l.origin_generation,l.parent_hash,l.agent_grant_id,l.agent_grant_revision,sp.database_resource_id FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", hash(raw))
+	v, e := scanOne[appSession](ctx, s.DB, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", hash(raw))
 	if e != nil {
-		return nil, problem(401, "unauthenticated", "App session expired or revoked.")
+		return v, problem(401, "unauthenticated", "App session expired or revoked.")
 	}
 	if e = s.appSessionParent(ctx, s.DB, v); e != nil {
-		return nil, e
+		return v, e
 	}
-	if r.Header.Get("Origin") != str(v["origin"]) {
-		return nil, problem(403, "invalid_origin", "App origin mismatch.")
+	if r.Header.Get("Origin") != deref(v.Origin) {
+		return v, problem(403, "invalid_origin", "App origin mismatch.")
 	}
 	return v, nil
 }

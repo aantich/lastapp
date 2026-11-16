@@ -302,10 +302,11 @@ func (v *EffectiveAssignment) fields() []any {
 	return []any{&v.AppID, &v.Code, &v.Name, &v.Domain, &v.GroupID, &v.ID, &v.RoleID, &v.ScopeKind, &v.ScopeTeamID, &v.SpaceID}
 }
 
-// deref is the value of an optional column, or "" for NULL.
-func deref(v *string) string {
+// deref is the value of an optional column, or its zero value for NULL.
+func deref[T any](v *T) T {
+	var zero T
 	if v == nil {
-		return ""
+		return zero
 	}
 	return *v
 }

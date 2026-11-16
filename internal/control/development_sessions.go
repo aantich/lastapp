@@ -9,35 +9,35 @@ import (
 
 // Both browser and delegated sessions use the same parent check on exchange and
 // every data request. Agent tokens never authenticate directly to the data API.
-func (s *Server) appSessionParent(ctx context.Context, q Queryer, v Row) error {
+func (s *Server) appSessionParent(ctx context.Context, q Queryer, v appSession) error {
 	denied := problem(401, "unauthenticated", "App session expired or revoked.")
-	p := Principal{ID: str(v["user_id"])}
-	if str(v["agent_grant_id"]) != "" {
-		g, e := s.readAgentGrant(ctx, q, str(v["agent_grant_id"]))
+	p := Principal{ID: v.UserID}
+	if deref(v.AgentGrant) != "" {
+		g, e := s.readAgentGrant(ctx, q, deref(v.AgentGrant))
 		if e != nil {
 			return denied
 		}
 		p.Agent = g
-		if g.Revision != integer(v["agent_grant_revision"]) || requireAgent(g, "workspaces.test") != nil {
+		if g.Revision != deref(v.AgentRevision) || requireAgent(g, "workspaces.test") != nil {
 			return denied
 		}
 		var workspace string
-		if e = q.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v["space_id"]).Scan(&workspace); e != nil {
+		if e = q.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v.SpaceID).Scan(&workspace); e != nil {
 			return denied
 		}
-		if e = s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: str(v["tenant_id"]), Space: str(v["space_id"])}, true); e != nil {
+		if e = s.authorize(ctx, q, p, "workspace.manage", Resource{Tenant: v.TenantID, Space: v.SpaceID}, true); e != nil {
 			return denied
 		}
 	} else {
 		var n int
-		e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions parent JOIN users u ON u.id=parent.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id WHERE parent.token_hash=? AND parent.user_id=? AND parent.purpose='console' AND parent.state='active' AND parent.expires_at>UTC_TIMESTAMP(6) AND (parent.auth_method='oidc' OR la.must_change_password=0)", v["parent_hash"], p.ID).Scan(&n)
+		e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions parent JOIN users u ON u.id=parent.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id WHERE parent.token_hash=? AND parent.user_id=? AND parent.purpose='console' AND parent.state='active' AND parent.expires_at>UTC_TIMESTAMP(6) AND (parent.auth_method='oidc' OR la.must_change_password=0)", v.ParentHash, p.ID).Scan(&n)
 		if e != nil {
 			return e
 		}
 		if n != 1 {
 			return denied
 		}
-		if e = s.workspaceGuard(ctx, q, p, str(v["space_id"])); e != nil {
+		if e = s.workspaceGuard(ctx, q, p, v.SpaceID); e != nil {
 			return denied
 		}
 	}
