@@ -34,6 +34,38 @@ node_modules in this worktree and no console source changed); schema validator
 `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./internal/...`
 **PASS** (control package 146.8 s; only `TestPrepareFixture` skipped).
 
+## Console data-layer tails and dependency audit — 16 November 2026
+
+- RemoteSelect, Agent access/consent and the console config provider no
+  longer fetch from effects. RemoteSelect uses an infinite query per debounced
+  search (Load more appends a page; the AbortSignal cancels superseded and
+  abandoned requests); the rest use `useApiQuery()`. Revoking agent access
+  runs through `useAction()`.
+- ESLint suppressions: 20 → 0, none added; `eslint-suppressions.json` removed.
+  Hooks/constants moved out of component files (`console-config.ts`,
+  `appearance.ts`); the release spec types the window client instead of `any`.
+- The ErrorBoundary's "Try again" now resets inactive cached reads and retries
+  failed lazy chunks (`retryable-lazy.ts`; React.lazy caches a rejection).
+- `tests/console-data.spec.ts` adds two browser tests: a render failure
+  (malformed Agent access response via route interception) shows the fallback,
+  the shell navigates, and Try again recovers once the response is valid; an
+  aborted designer chunk shows the fallback, returning to the tab keeps the
+  failure without a new request, and Try again downloads it. Both tests failed
+  as expected with the reset and the lazy retry temporarily disabled.
+
+Executed checks in `web/admin`: `npm run lint`, `npm run typecheck`,
+`npm run build` **PASS** at each commit. Browser run: `make e2e` (disposable
+stack from `test/e2e-isolated-db`, merged into a throwaway branch only):
+**34/34** passed.
+
+`npm audit`: 7 moderate, all one advisory (GHSA-g3hv-75wg-m249, minimatch
+`<11.0.1` ReDoS-style globparts amplification) through `typescript-eslint`
+8.72.2 → `@typescript-eslint/typescript-estree` (`minimatch ^10.2.2`). Dev-only
+lint tooling with repository-controlled globs; `npm audit --omit=dev` reports 0
+and nothing reaches the console bundle. `npm audit fix` (no `--force`) changes
+nothing: no fixed version is in range. `--force` would move `typescript-eslint`
+to 8.36.0, outside the declared range, so it was not applied.
+
 ## Console data layer and component split — 16 November 2026
 
 - `@tanstack/react-query` 5.107.1 (pinned) is the console read layer:
@@ -64,8 +96,8 @@ passed after each data-layer and split commit; **32/32** with the new
 - No error and no horizontal overflow at 1280 and 390 px on 4 Platform and
   7 Tenant pages, including the lazy-loaded designer.
 
-Not covered: the ErrorBoundary fallback has no browser test, and no test
-forces a failure of the designer chunk download.
+The ErrorBoundary and chunk-failure gaps noted here are covered by the
+entry above.
 
 ## Error wrapping and structured request logging — 16 November 2026
 
