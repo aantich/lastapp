@@ -44,6 +44,14 @@ export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
 
+// Composites
+export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
+export { useSidebarCollapse, useCommandPaletteShortcut } from "./hooks";
+export { ContextSwitcher, type ContextOption } from "./context-switcher";
+export { CommandPalette, type Command } from "./command-palette";
+export { DataTable, type Column } from "./data-table";
+export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
+
 // Form controls
 export { Select, ListboxPopup, type ListOption } from "./select";
 export { RemoteSelect } from "./remote-select";
