@@ -96,25 +96,23 @@ func (s *Server) Routes(mux *http.ServeMux, console httpapi.Session) {
 }
 
 const (
-	agentAccessLifetime      = 15 * time.Minute
-	agentGrantDays           = 7
-	agentMaxGrantDays        = 30
-	agentCodeLifetime        = 5 * time.Minute
-	MaxResponse              = 2 << 20
-	agentMaxDatabases        = 20
-	agentMaxTargets          = 32
-	agentMaxConnections      = 100
-	MaxConcurrent            = 16
-	agentMaxTokenRotations   = 4096
-	agentMaxSyntheticCases   = 10
-	MaxClients               = 1000
-	UnapprovedClientLifetime = 10 * time.Minute
-	BootstrapConcurrent      = 4
-	TokenConcurrent          = 4
-	ValidationConcurrent     = 8
-	ClientIdleLifetime       = 30 * 24 * time.Hour
-	agentMaxClientRedirects  = 16
-	MaxClientMetadata        = 65536
+	agentAccessLifetime     = 15 * time.Minute
+	agentGrantDays          = 7
+	agentMaxGrantDays       = 30
+	agentCodeLifetime       = 5 * time.Minute
+	MaxResponse             = 2 << 20
+	agentMaxDatabases       = 20
+	agentMaxTargets         = 32
+	agentMaxConnections     = 100
+	MaxConcurrent           = 16
+	agentMaxTokenRotations  = 4096
+	agentMaxSyntheticCases  = 10
+	MaxClients              = 1000
+	BootstrapConcurrent     = 4
+	TokenConcurrent         = 4
+	ValidationConcurrent    = 8
+	agentMaxClientRedirects = 16
+	MaxClientMetadata       = 65536
 )
 
 // Principal authenticates an MCP bearer token: its token-bound grant,

@@ -347,7 +347,7 @@ func TestAgentBootstrapIsolation(t *testing.T) {
 func TestAgentUnapprovedClientRetention(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
 	ctx := context.Background()
-	old := time.Now().UTC().Add(-agent.UnapprovedClientLifetime - time.Minute)
+	old := time.Now().UTC().Add(-access.UnapprovedClientLifetime - time.Minute)
 	args := []any{}
 	tuples := []string{}
 	for i := 0; i < agent.MaxClients; i++ {
@@ -381,7 +381,7 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatal("expired anonymous quota blocked a new registration", w.Code)
 	}
-	if e := agent.CleanupClients(ctx, s.DB); e != nil {
+	if e := access.CleanupClients(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	for _, key := range []string{approved, pending} {

@@ -13,7 +13,6 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
-	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/httpapi"
@@ -61,16 +60,13 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			if _, e = cleanupSessions(ctx, conn); e != nil {
 				return e
 			}
-			if _, e = conn.ExecContext(ctx, "DELETE FROM agent_token_sessions WHERE grant_id IN (SELECT id FROM agent_grants WHERE state='revoked' OR expires_at<=UTC_TIMESTAMP(6)) LIMIT 1000"); e != nil {
-				return e
-			}
-			if _, e = conn.ExecContext(ctx, "DELETE FROM agent_oauth_requests WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
+			if e = access.CleanupAgentSessions(ctx, conn); e != nil {
 				return e
 			}
 			if _, e = conn.ExecContext(ctx, "DELETE FROM artifact_uploads WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
 				return e
 			}
-			if e = agent.CleanupClients(ctx, conn); e != nil {
+			if e = access.CleanupClients(ctx, conn); e != nil {
 				return e
 			}
 			cleanedAt = time.Now()

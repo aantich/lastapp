@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/httpapi"
@@ -114,7 +115,7 @@ func (s *Server) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer data.ReleasePinnedLock(conn, lock)
-	if e = CleanupClients(ctx, conn); e != nil {
+	if e = access.CleanupClients(ctx, conn); e != nil {
 		httpapi.WriteError(w, r, e)
 		return
 	}
@@ -132,16 +133,4 @@ func (s *Server) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.Send(w, 201, registry.Row{"client_id": client.ID, "client_id_issued_at": time.Now().Unix(), "client_name": client.Name, "redirect_uris": client.Redirects, "grant_types": in.Grants, "response_types": []string{"code"}, "token_endpoint_auth_method": "none", "scope": client.Scope})
-}
-
-// Unapproved registrations have a short, bounded lifetime. Approved client
-// identities use the longer retention window and do not consume anonymous quota.
-// Never evict a client during consent/code exchange or while a grant is live.
-func CleanupClients(ctx context.Context, q registry.Queryer) error {
-	_, e := q.ExecContext(ctx, `DELETE FROM agent_oauth_clients WHERE
- ((created_at<? AND NOT EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=agent_oauth_clients.id)) OR last_used_at<?)
- AND NOT EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=agent_oauth_clients.id AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6))
- AND NOT EXISTS (SELECT 1 FROM agent_oauth_requests r WHERE r.client_id=agent_oauth_clients.id AND r.consumed=0 AND r.expires_at>UTC_TIMESTAMP(6))
- LIMIT 1000`, time.Now().UTC().Add(-UnapprovedClientLifetime), time.Now().UTC().Add(-ClientIdleLifetime))
-	return e
 }

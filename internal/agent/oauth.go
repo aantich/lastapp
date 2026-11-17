@@ -44,7 +44,7 @@ func (s *Server) ResolveClient(ctx context.Context, key string) (config.AgentCli
 	}
 	if strings.HasPrefix(key, "lastapp-client-") {
 		var metadata []byte
-		if e := s.DB.QueryRowContext(ctx, "SELECT metadata_json FROM agent_oauth_clients c WHERE id=? AND (created_at>? OR EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id))", key, time.Now().UTC().Add(-UnapprovedClientLifetime)).Scan(&metadata); e != nil {
+		if e := s.DB.QueryRowContext(ctx, "SELECT metadata_json FROM agent_oauth_clients c WHERE id=? AND (created_at>? OR EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id))", key, time.Now().UTC().Add(-access.UnapprovedClientLifetime)).Scan(&metadata); e != nil {
 			return config.AgentClient{}, registry.Bad("Unknown OAuth client. Reconnect from your agent to register automatically.")
 		}
 		var c config.AgentClient
