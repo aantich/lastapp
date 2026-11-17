@@ -164,7 +164,10 @@ type TargetInput struct {
 	Credentials *Credentials `json:"credentials"`
 }
 
-var hostRE = regexp.MustCompile(`^[a-zA-Z0-9.:\-]+$`)
+var (
+	hostRE         = regexp.MustCompile(`^[a-zA-Z0-9.:\-]+$`)
+	databaseNameRE = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`)
+)
 
 func (v *Storage) validateTarget(in *TargetInput) error {
 	in.Host = strings.ToLower(strings.TrimSuffix(in.Host, "."))
@@ -370,7 +373,7 @@ func (v *Storage) Allocate(ctx context.Context, tx *sql.Tx, a op.Actor, tenant s
 		}
 		ownership = b
 	} else {
-		if !regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`).MatchString(in.Database) || strings.EqualFold(in.Database, v.RegistryName) {
+		if !databaseNameRE.MatchString(in.Database) || strings.EqualFold(in.Database, v.RegistryName) {
 			return registry.Bad("Invalid or protected database name.")
 		}
 		if cred.Username == "" || cred.Password == "" {

@@ -587,6 +587,9 @@ func (s *Publisher) projectPermissions(ctx context.Context, tx *sql.Tx, v Versio
 	return nil
 }
 
+// intDisplayWidth strips the integer display width some servers report.
+var intDisplayWidth = regexp.MustCompile(`(?i)^(bigint|tinyint)\([0-9]+\)$`)
+
 func verifyEntityColumns(ctx context.Context, q registry.Queryer, id string, d entity.Definition) error {
 	for _, f := range d.Fields {
 		var actual, collation, nullable string
@@ -595,7 +598,7 @@ func verifyEntityColumns(ctx context.Context, q registry.Queryer, id string, d e
 		}
 		want := strings.Split(data.Type(f), " ")[0]
 		normalize := func(s string) string {
-			return regexp.MustCompile(`(?i)^(bigint|tinyint)\([0-9]+\)$`).ReplaceAllString(strings.ToLower(s), "$1")
+			return intDisplayWidth.ReplaceAllString(strings.ToLower(s), "$1")
 		}
 		if want == "BOOLEAN" {
 			want = "tinyint"

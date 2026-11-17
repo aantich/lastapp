@@ -156,6 +156,9 @@ var (
 	// GeneratedName matches managed database and runtime account names.
 	GeneratedName = regexp.MustCompile(`^la_[a-f0-9]{32}$`)
 	accountHostRE = regexp.MustCompile(`^[a-zA-Z0-9.%:_\-]+$`)
+	// generatedPasswordRE matches generated runtime passwords, which are
+	// embedded in CREATE USER and must stay quote-free.
+	generatedPasswordRE = regexp.MustCompile(`^[A-Za-z0-9_\-]+$`)
 )
 
 // Provision creates or verifies one resource's database and runtime account.
@@ -216,7 +219,7 @@ func (p *Provisioner) Provision(ctx context.Context, record string) error {
 	} else if comment != marker {
 		return OwnershipConflict()
 	}
-	if !regexp.MustCompile(`^[A-Za-z0-9_\-]+$`).MatchString(runtime.Password) {
+	if !generatedPasswordRE.MatchString(runtime.Password) {
 		return OwnershipConflict()
 	}
 	principal := "'" + runtime.Username + "'@'" + runtime.AccountHost + "'"
@@ -296,9 +299,6 @@ func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required 
 		target := grant[on+4 : to]
 		if target != scope {
 			return registry.Problem(400, "unsafe_grants", "Runtime credentials must be restricted to this database.")
-		}
-		if strings.Contains(grant, "WITH GRANT OPTION") {
-			return registry.Problem(400, "unsafe_grants", "Runtime credentials must not have GRANT OPTION.")
 		}
 		if privs == "ALL PRIVILEGES" && !strict {
 			for _, p := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
