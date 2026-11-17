@@ -56,21 +56,22 @@ function ToastItem({ item }: { item: Toast }) {
   );
 }
 
-// Mounted once at the console root (main.tsx). The live regions exist before
+// Mounted once at the console root (main.tsx). The live regions (aria-live
+// without a role, so they never count as page alerts) exist before
 // any toast so screen readers announce additions: polite for info/success,
 // assertive for danger. Toasts pause while hovered or focused.
 export function Toaster() {
   const items = useSyncExternalStore(subscribeToasts, currentToasts);
   return (
     <div className="ui-toaster">
-      <div role="status" aria-live="polite" className="ui-toaster-region">
+      <div aria-live="polite" className="ui-toaster-region">
         {items
           .filter((t) => t.tone !== "danger")
           .map((t) => (
             <ToastItem key={t.id} item={t} />
           ))}
       </div>
-      <div role="alert" aria-live="assertive" className="ui-toaster-region">
+      <div aria-live="assertive" className="ui-toaster-region">
         {items
           .filter((t) => t.tone === "danger")
           .map((t) => (
