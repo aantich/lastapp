@@ -49,9 +49,9 @@
 
   /* Graphic marks without text (dots, charts): lightness differs per status */
   --ui-chart-primary: #2f5bea;
-  --ui-chart-success: #2e9d66;
-  --ui-chart-warning: #e0a23b;
-  --ui-chart-danger: #c8352a;
+  --ui-chart-success: #2e8b57;
+  --ui-chart-warning: #bc8420;
+  --ui-chart-danger: #a52a1f;
 
   /* Shape */
   --ui-radius: 9px;
@@ -93,9 +93,9 @@
   --ui-danger-soft: #3b1b18;
 
   --ui-chart-primary: #7b9bff;
-  --ui-chart-success: #3fa372;
+  --ui-chart-success: #52b985;
   --ui-chart-warning: #e2b04f;
-  --ui-chart-danger: #e0574a;
+  --ui-chart-danger: #d9483b;
 
   --ui-shadow: none;
   --ui-button-shadow: none;
