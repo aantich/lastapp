@@ -1,5 +1,53 @@
 # Lastapp verification
 
+## Worker leader and steps extracted from control (P4) — 17 November 2026
+
+- Pure move, no behaviour change: the background leader is `worker.Leader`
+  (`internal/worker`). It holds `GET_LOCK(lastapp:<registry>,0)` on one pinned
+  registry connection, runs its `Step`s in order on that connection, pauses a
+  second when no step found work, and on any step error ends the term (lock
+  released through `data.ReleasePinnedLock`, `provisioning leader disconnected`
+  logged) and retries a second later. The step list is built once in `Open`
+  in the previous order: `Cleanup`, deployments, workspaces, `Publication`,
+  `databases.Provisioner`. `Server.RunWorker` is a one-line wrapper.
+- Per-term state (cleanup timestamp, publication and provisioning Tenant
+  cursors) moved from loop locals into the steps; an optional `Starter.Start`
+  resets it on each new term, and the provisioning step's `Start` runs the
+  former provisioning→pending reset. Only provisioning reports busy, so the
+  idle pause is unchanged. A process-local mutex serializes terms so step state
+  is never shared between two.
+- Provisioning (`provision`, `nextJob`, `validateRuntime`, `checkGrants`,
+  `provisionError`, the generated-name patterns) moved to
+  `internal/databases/provisioner.go` with the target connector injected from
+  control. A line-by-line diff against `ac4d569:internal/control/worker.go`
+  (indentation stripped) shows only receivers, exported names, `return busy, e`
+  forms, the injected `Warn`/`Connect`/`Access`/`Sealer` and doc comments: both
+  transactions are still `READ COMMITTED` on the leader connection, the lock
+  order is unchanged (`tenants … FOR UPDATE`, then `database_resources`; the
+  per-resource `GET_LOCK` on the target), the agent recheck still runs before
+  the claim, and audits still carry `op.AgentAuditContext`.
+- Cleanup: agent token-session and OAuth-request deletes and `CleanupClients`
+  (with `UnapprovedClientLifetime`/`ClientIdleLifetime`) moved to
+  `internal/access/cleanup.go`; agent registration and OAuth use them from
+  there, with no copy left in agent. Console-session and upload-ticket deletes
+  stay in the worker's `Cleanup` step, in the same order.
+- Layering: `worker` is layer 100 below control (now 110) and is scanned by
+  `TestNoHTTPLoopback`; it imports only `access`, `data` and `registry`.
+- New tests: `internal/worker` (lock-only fixture: start/step order, steps on the
+  connection holding the lock, standing by while the lock is held, idle pause,
+  leadership loss and a new term after a step error; adapters database-free);
+  `internal/databases` (provisioning error mapping, generated names).
+- `internal/control` production code: 2,709 → 2,337 lines.
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 263.8 s, worker 4.9 s); goldens with `-count=2` **PASS** and
+`git diff ac4d569 -- internal/control/testdata` is empty; `make mcp-test`
+**PASS** (includes `TestAgentRetry*` and `TestAgentDeniedDatabaseJobAudit`);
+`make e2e` **PASS** (34 browser tests; a first run made concurrently with the
+race suite timed out and was discarded); `python3 design/validate_schema.py --check`,
+`python3 scripts/verify_driver.py` and `git diff --check` **PASS**.
+
 ## Agent OAuth and management MCP extracted from control (P6) — 17 November 2026
 
 - Pure move, no behaviour change: the OAuth authorization server for MCP
