@@ -9,7 +9,10 @@ const groups: [string, RegExp][] = [
   ["Sidebar (ink)", /^--ui-sidebar/],
   ["Signal blue and focus", /^--ui-(primary|on-primary|focus)/],
   ["Status", /^--ui-(success|warning|danger|info|neutral)/],
-  ["Controls and inverse", /^--ui-(control|on-control|skeleton|inverse|on-inverse)/],
+  [
+    "Controls and inverse",
+    /^--ui-(control|on-control|skeleton|inverse|on-inverse)/,
+  ],
   ["Graphic marks", /^--ui-chart/],
 ];
 

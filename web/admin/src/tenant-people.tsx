@@ -1,7 +1,7 @@
 import { useBuiltinRoles } from "./console-config";
 import { useState, type ReactNode } from "react";
 import { api } from "./api";
-import { Collection, FormModal, type Modal, confirmAction } from "./ui";
+import { Collection, FormModal, type Modal, confirmAction, Alert } from "./ui";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
 import { nameFields, status } from "./console-forms";
@@ -137,11 +137,7 @@ export function TenantPeople({
   }
   return (
     <>
-      {shownError && (
-        <div className="error" role="alert">
-          {shownError}
-        </div>
-      )}
+      {shownError && <Alert>{shownError}</Alert>}
       {tab === "members" && canMembers ? (
         <>
           <div className="section-actions">

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { ConsoleShell } from "./console-shell";
 import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
-import { FormModal, type Modal, ErrorBoundary } from "./ui";
+import { FormModal, type Modal, ErrorBoundary, Alert } from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
@@ -156,12 +156,9 @@ export function PlatformWorkspace({
       }
     >
       {error && (
-        <div className="error" role="alert">
+        <Alert onDismiss={dismiss} dismissLabel="Dismiss error">
           {error}
-          <button className="tiny" onClick={dismiss} aria-label="Dismiss error">
-            ×
-          </button>
-        </div>
+        </Alert>
       )}
       <ErrorBoundary key={path}>
         {tenant ? (

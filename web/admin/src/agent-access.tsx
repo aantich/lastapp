@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
-import { RemoteSelect, Select, NumberInput, useDialogFocus } from "./ui";
+import { RemoteSelect, Select, NumberInput, useDialogFocus, Alert } from "./ui";
 import { errorMessage, useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 
@@ -306,11 +306,7 @@ function AgentGrantForm({
           does not revoke this connection.
         </small>
       </label>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       <div className="agent-form-actions">
         <button
           type="button"
@@ -371,11 +367,7 @@ export function AgentConsent({ me }: { me: Me }) {
             <p>Choose exactly what this client may do as {me.display_name}.</p>
           </div>
         </div>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
+        {error && <Alert>{error}</Alert>}
         {info && config ? (
           <>
             <div className="agent-client">
@@ -551,11 +543,7 @@ export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {
           </small>
         </div>
       )}
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       {loading ? (
         <p className="muted">Loading agent connections…</p>
       ) : loadFailed ? null : items.length === 0 ? (

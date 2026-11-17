@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { RemoteSelect, Select } from "../ui";
+import { RemoteSelect, Select, Alert } from "../ui";
 import { isItem, items, text, type Item } from "../api-types";
 import { strings } from "./shared";
 import { ValueInputs } from "./expression";
@@ -99,11 +99,7 @@ export function EntityTest({
         </>
       )}
       <button className="primary">Run test</button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert as="p">{error}</Alert>}
       {result && (
         <section className="entity-result">
           <h3>{result.allowed ? "Allowed" : "Denied or invalid"}</h3>

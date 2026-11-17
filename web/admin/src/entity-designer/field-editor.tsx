@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RemoteSelect, Select, NumberInput } from "../ui";
+import { RemoteSelect, Select, NumberInput, Alert } from "../ui";
 import { isItem, text, type EntityCatalog, type Item } from "../api-types";
 import { Expression } from "./expression";
 import {
@@ -60,11 +60,7 @@ export function FieldEditor({
         save(value);
       }}
     >
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert as="p">{error}</Alert>}
       <label className="field">
         <span>Name</span>
         <input

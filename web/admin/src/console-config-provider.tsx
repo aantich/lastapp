@@ -2,6 +2,7 @@ import { useCallback, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiKey } from "./query";
 import { ConfigContext, configPath, loadConsoleConfig } from "./console-config";
+import { Alert, Button } from "./ui";
 
 // Loads the console configuration before anything else renders and refreshes
 // it whenever the window regains focus or is restored from the back/forward
@@ -31,17 +32,15 @@ export function ConsoleConfigProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {error && (
-        <div className="error" role="alert">
-          Cannot load server settings: {error}{" "}
-          <button
-            className="secondary"
-            onClick={() => {
-              void refetch();
-            }}
-          >
-            Retry
-          </button>
-        </div>
+        <Alert
+          actions={
+            <Button size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          Cannot load server settings: {error}
+        </Alert>
       )}
       {config ? (
         <ConfigContext.Provider value={{ config, refresh }}>

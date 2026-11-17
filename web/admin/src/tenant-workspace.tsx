@@ -18,6 +18,7 @@ import {
   type Modal,
   RemoteSelect,
   ErrorBoundary,
+  Alert,
 } from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
@@ -374,16 +375,9 @@ export function TenantWorkspace({
         signOut={signOut}
       >
         {error && (
-          <div className="error" role="alert">
+          <Alert onDismiss={dismiss} dismissLabel="Dismiss error">
             {error}
-            <button
-              className="tiny"
-              aria-label="Dismiss error"
-              onClick={dismiss}
-            >
-              ×
-            </button>
-          </div>
+          </Alert>
         )}
         {detailReady &&
           (route.page === "space" || route.page === "app") &&

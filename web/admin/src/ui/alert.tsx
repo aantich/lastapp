@@ -21,6 +21,7 @@ export function Alert({
   children,
   actions,
   onDismiss,
+  dismissLabel = "Dismiss",
   live = true,
   icon = true,
   as: As = "div",
@@ -31,6 +32,7 @@ export function Alert({
   children?: ReactNode;
   actions?: ReactNode;
   onDismiss?: () => void;
+  dismissLabel?: string;
   live?: boolean;
   icon?: boolean;
   as?: "div" | "p";
@@ -60,7 +62,7 @@ export function Alert({
             <button
               type="button"
               className="icon"
-              aria-label="Dismiss"
+              aria-label={dismissLabel}
               onClick={onDismiss}
             >
               <X size={15} aria-hidden />

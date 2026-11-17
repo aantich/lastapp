@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "./api";
-import { Collection, FormModal, type Modal } from "./ui";
+import { Collection, FormModal, type Modal, Alert } from "./ui";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
 import { status } from "./console-forms";
@@ -172,9 +172,7 @@ export function AccessControl({
         )}
       </div>
       {(error || metaQuery.error) && (
-        <div className="error" role="alert">
-          {error || metaQuery.error?.message}
-        </div>
+        <Alert>{error || metaQuery.error?.message}</Alert>
       )}
       <Collection
         key={path + view}

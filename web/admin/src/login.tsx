@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Layers3, LoaderCircle, ArrowUpRight, LogOut } from "lucide-react";
 import { api } from "./api";
 import { useConsoleConfig, usePasswordPolicy } from "./console-config";
-import { NewPasswordInput } from "./ui";
+import { NewPasswordInput, Alert } from "./ui";
 import { errorMessage } from "./use-action";
 
 export function LoginScreen({ done }: { done: () => Promise<void> }) {
@@ -57,11 +57,7 @@ export function LoginScreen({ done }: { done: () => Promise<void> }) {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
+          {error && <Alert>{error}</Alert>}
           <button className="primary" disabled={busy}>
             {busy ? <LoaderCircle className="spin" size={18} /> : "Sign in"}
           </button>
@@ -199,11 +195,7 @@ export function PasswordScreen({
             />
           </label>
           {success && <p role="status">{success}</p>}
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
+          {error && <Alert>{error}</Alert>}
           <button className="primary" disabled={busy}>
             {busy ? "Saving…" : "Save password"}
           </button>

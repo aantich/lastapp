@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useApiQuery } from "../query";
 import type { LaunchCode, LaunchInfo } from "../api-types";
+import { Alert } from "../ui";
 export function AppLaunch() {
   const [error, setError] = useState(""),
     [done, setDone] = useState(false);
@@ -29,11 +30,7 @@ export function AppLaunch() {
           Authorize this App to use your current Space permissions within its
           approved access ceiling.
         </p>
-        {shownError && (
-          <p className="error" role="alert">
-            {shownError}
-          </p>
-        )}
+        {shownError && <Alert as="p">{shownError}</Alert>}
         {done ? (
           <p>Connection sent to the App. You can close this window.</p>
         ) : (
