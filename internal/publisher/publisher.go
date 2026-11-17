@@ -203,6 +203,11 @@ func (s *Publisher) Job(ctx context.Context, q registry.Queryer, cursor ...*stri
 	if e == nil {
 		return true, nil
 	}
+	if op.Transient(e) {
+		// The version stays publishing: the next pass resumes it under a new
+		// attempt (its storage gate stays closed meanwhile).
+		return true, e
+	}
 	s.Warn(ctx, "entity publication failed", e, "entity_id", v.EntityID)
 	message := "Publication failed. Check database/schema privileges and retry; existing data is preserved."
 	if ae, ok := e.(*registry.APIError); ok {
