@@ -150,15 +150,21 @@ a pinned registry connection. A term then runs as follows.
   rechecks make that overlap safe, as before.
 - **Tenant fairness.** Provisioning (`databases.NextJob`) and publication
   (`Publisher.Job` cursor) round-robin over Tenants. Deployments and workspaces
-  use `worker.Fair`: `DeploymentJob`/`WorkspaceJob` take the oldest unfinished
-  job of the first Tenant after a cursor and report whether it progressed. One
-  pass visits each Tenant with work at most once and stops at the first job that
-  progresses; a Tenant whose head job is waiting (deployment on its
-  publications, workspace on its storage or publications) is skipped, and a
-  failing Tenant is passed over on the next pass. Within one Tenant jobs stay
-  strictly in creation order, so a Space's or App's deployments apply in the
-  order they were queued; a waiting head job still holds back that Tenant's later
-  jobs of the same kind.
+  use `worker.Fair`: `DeploymentJob`/`WorkspaceJob` work on the first Tenant
+  after a cursor and report whether a job progressed. One pass visits each
+  Tenant with work at most once and stops at the first job that progresses; a
+  Tenant with nothing that can progress is skipped, and a failing Tenant is
+  passed over on the next pass.
+- **Order within a Tenant.** Deployments keep strict creation order (oldest
+  unfinished first): each one is checked against the production base hash and
+  changes the Space's shared entities, roles and App policies, so a later
+  deployment must not overtake an earlier one; a waiting deployment holds back
+  only its own Tenant's later deployments. Workspaces need no order: each has its
+  own backing Space and storage, and its preparation is a per-workspace state
+  machine. `WorkspaceJob` therefore tries the Tenant's preparing workspaces
+  oldest first and stops at the first that progresses, so a workspace waiting
+  for its storage or publications never holds back another, and one workspace's
+  error does not stop the others in that pass.
 - **Lock order.** Concurrent steps take registry row locks in the same order as
   console mutations: the Tenant row (`tenants … FOR UPDATE`) first, then the
   Tenant's resources (`database_resources`, `entity_definitions`/
@@ -290,7 +296,8 @@ another, and term end (killed lock connection) stopping every step before the
 next term's recovery (`go test ./internal/worker`); the `Fair` and publication
 adapters have database-free tests. `TestWorkerTenantFairness`
 (`internal/control`) runs the real leader: a Tenant's waiting deployment and
-workspace do not block another Tenant's. `internal/databases` has database-free tests for the stored provisioning
+workspace do not block another Tenant's; `TestWorkerWorkspacesIndependent`: a
+waiting workspace does not block a newer one of the same Tenant. `internal/databases` has database-free tests for the stored provisioning
 error mapping and generated names; provisioning itself, queue fairness and
 leadership-loss recovery run black-box in `internal/control`.
 The agreed direction is that each layer gets its own tests and its own fixtures;
