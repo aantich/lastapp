@@ -1,0 +1,22 @@
+## console: platform operator creates a Tenant (1)
+tenant.created actor=user:operator human tenant=tenant target=tenant:tenant request=#1 details=[initial_admin_user_id]
+## console: Tenant administrator adds a member, Space and App (5)
+membership.created actor=user:owner human tenant=tenant target=user:joe request=#2 details=[after,before]
+grant.created actor=user:owner human tenant=tenant target=access_grant:#1 request=#3 details=[after,before]
+space.created actor=user:owner human tenant=tenant target=space:space request=#3 details=[database_resource_id]
+grant.created actor=user:owner human tenant=tenant target=access_grant:#2 request=#4 details=[after,before]
+app.created actor=user:owner human tenant=tenant target=app:app request=#4 details=[space_id]
+## console: draft and queue an entity publication (1)
+entity.created actor=user:owner human tenant=tenant target=entity:human request=#5 details=[]
+## worker: publish the human-requested entity (1)
+entity.published actor=user:owner human tenant=tenant target=entity:human request=#6 details=[hash,version]
+## mcp: create a micro-app with a request key (1)
+microapp.created actor=user:owner agent grant:agent client=golden tenant=tenant target=microapp:microapp request=#7 details=[app_id]
+## mcp: replay the same request key (0)
+## mcp: denied without resources.write (0)
+## mcp: draft and queue an entity publication, then replay it (1)
+entity.created actor=user:owner agent grant:agent client=golden tenant=tenant target=entity:agent request=#8 details=[]
+## worker: publish the agent-requested entity (1)
+entity.published actor=user:owner agent grant:agent client=golden tenant=tenant target=entity:agent request=#9 details=[hash,version]
+## console: human update after the agent's work (1)
+apps.updated actor=user:owner human tenant=tenant target=apps:app request=#10 details=[state]
