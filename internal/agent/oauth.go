@@ -627,7 +627,7 @@ func (s *Server) Token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, "invalid_grant")
 		return
 	}
-	access, refresh := registry.Token(32), registry.Token(48)
+	accessToken, refresh := registry.Token(32), registry.Token(48)
 	var rotations int
 	if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_token_sessions WHERE grant_id=?", g.ID).Scan(&rotations); e != nil {
 		httpapi.WriteError(w, r, e)
@@ -637,7 +637,7 @@ func (s *Server) Token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, "invalid_grant")
 		return
 	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", registry.NewID(), g.ID, g.Revision, family, registry.TokenHash(access), registry.TokenHash(refresh), time.Now().UTC().Add(agentAccessLifetime))
+	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", registry.NewID(), g.ID, g.Revision, family, registry.TokenHash(accessToken), registry.TokenHash(refresh), time.Now().UTC().Add(agentAccessLifetime))
 	if e != nil {
 		httpapi.WriteError(w, r, e)
 		return
@@ -650,7 +650,7 @@ func (s *Server) Token(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, e)
 		return
 	}
-	httpapi.Send(w, 200, registry.Row{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
+	httpapi.Send(w, 200, registry.Row{"access_token": accessToken, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
 }
 
 func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {

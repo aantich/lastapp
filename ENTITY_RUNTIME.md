@@ -140,7 +140,11 @@ constraints and rules to single and bulk writes.
 
 Record sharing delegates an existing role-activated permission, retaining its
 predicate, fields and App ceiling. A grantor needs that permission and an explicit
-`acl.manage` delegation grant. Security changes invalidate older shares; label
+`acl.manage` delegation grant. Share-recipient search and user/team reference
+options apply one Tenant-directory rule (`identityOptions` in
+`internal/dataapi/options.go`): without live `membership.read`/`team.read` the
+caller finds only themselves and their own teams, by name, email or ID; a share to
+a known member ID is still validated and accepted. Security changes invalidate older shares; label
 changes preserve them. Global identities/roles remain in the registry; indexed
 record grants and mutation audit live beside the business records. Disabling
 memberships/teams or revoking the parent session affects subsequent requests.

@@ -17,7 +17,9 @@ func (s *Server) InitAuth(ctx context.Context) error { return s.sessions.InitAut
 // Bootstrap makes an OIDC identity a platform superadmin. Trusted CLI and
 // development seeding only, never an anonymous registration endpoint.
 func (s *Server) Bootstrap(ctx context.Context, issuer, subject, name, email string) (string, error) {
-	tx, e := s.DB.BeginTx(ctx, nil)
+	// READ COMMITTED like BootstrapLocal and op.Runner.Mutate: under the platform
+	// role lock, the user lookup and platform checks read the latest commits.
+	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {
 		return "", e
 	}

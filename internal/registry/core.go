@@ -207,6 +207,14 @@ type LockedRecord struct {
 	State    string
 }
 
+// LockTenant takes the Tenant row lock that serializes a Tenant's registry
+// mutations. It returns the raw scan error (sql.ErrNoRows for a missing
+// Tenant); callers map it.
+func LockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
+	var id string
+	return tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&id)
+}
+
 func LockRecord(ctx context.Context, tx *sql.Tx, table, tenant, record string) (LockedRecord, error) {
 	query := "SELECT revision,state FROM " + table + " WHERE id=?"
 	args := []any{record}

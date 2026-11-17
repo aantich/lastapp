@@ -96,7 +96,7 @@ func snapshotIDs(base spaceSnapshot) map[string]string {
 	return ids
 }
 
-func (s *Service) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
+func (s *Service) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace string) error {
 	if len(base.Apps) > registry.MaxWorkspaceApps {
 		return registry.Conflict("Space exceeds the workspace App limit.")
 	}
@@ -161,7 +161,7 @@ func (s *Service) QueueDefinition(ctx context.Context, tx *sql.Tx, p access.Prin
 		return registry.Conflict("A publication is already pending.")
 	}
 	b, _ := json.Marshal(d)
-	plan := data.Plan(v.ID, "lastapp:"+entity.Hash(s.RegistryName)[:16]+":"+v.ID, d)
+	plan := data.Plan(v.ID, data.TableMarker(s.RegistryName, v.ID), d)
 	pb, _ := json.Marshal(plan)
 	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", version, v.TenantID, v.SpaceID, v.ID, v.ActiveVersion, b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
 		return e
@@ -196,7 +196,7 @@ func (s *Service) prepareSnapshotTables(ctx context.Context, resource string, en
 		if ds := d.Validate(); len(ds) > 0 {
 			return registry.Bad(ds[0].Message)
 		}
-		marker := "lastapp:" + entity.Hash(s.RegistryName)[:16] + ":" + v.ID
+		marker := data.TableMarker(s.RegistryName, v.ID)
 		var comment string
 		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(v.ID), "`")).Scan(&comment)
 		if e == nil {
@@ -317,7 +317,7 @@ func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v re
 			return e
 		}
 		defer tx.Rollback()
-		if e = LockTenant(ctx, tx, v.TenantID); e != nil {
+		if e = registry.LockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
 		if e = s.Access.WorkspaceOwner(ctx, tx, p, v); e != nil {

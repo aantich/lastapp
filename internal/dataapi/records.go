@@ -303,9 +303,6 @@ func (s *Runtime) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunt
 			if e != nil {
 				return e
 			}
-			c.Record = old
-			c.Old = old
-
 		}
 		c.Record = old
 		c.Old = old

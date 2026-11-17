@@ -146,8 +146,7 @@ func (s *Publisher) Job(ctx context.Context, q registry.Queryer, cursor ...*stri
 			return true, err
 		}
 		defer tx.Rollback()
-		var locked string
-		if err = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", v.TenantID).Scan(&locked); err != nil {
+		if err = registry.LockTenant(ctx, tx, v.TenantID); err != nil {
 			return true, err
 		}
 		permission := "entities.publish"
@@ -276,12 +275,12 @@ func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *strin
 		return registry.Conflict("Entity storage is busy; retry shortly.")
 	}
 	defer data.ReleasePinnedLock(conn, lock)
-	marker := "lastapp:" + entity.Hash(s.RegistryName)[:16]
+	marker := data.OwnershipMarker(s.RegistryName)
 	if e = s.ensureSupport(ctx, conn, marker); e != nil {
 		return e
 	}
 	table := strings.Trim(data.Table(entityID), "`")
-	tableMarker := marker + ":" + entityID
+	tableMarker := data.TableMarker(s.RegistryName, entityID)
 	var comment string
 	e = conn.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", table).Scan(&comment)
 	exists := e == nil
@@ -449,8 +448,7 @@ func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *strin
 		return e
 	}
 	defer rt.Rollback()
-	var lockedTenant string
-	if e = rt.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&lockedTenant); e != nil {
+	if e = registry.LockTenant(ctx, rt, tenant); e != nil {
 		return e
 	}
 	if v.Deployment != nil {
@@ -494,7 +492,10 @@ func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *strin
 // OpenGate opens the storage gate of v's entity for its attempt, fencing the
 // physical version to v and layoutHash.
 func OpenGate(ctx context.Context, q registry.Queryer, v Version, layoutHash string) error {
-	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v.ID, layoutHash, v.EntityID, access.Deref(v.Attempt))
+	// The fence is the attempt and, once this version is open, its layout: a
+	// version's layout hash is a function of its definition, so a different
+	// hash for the open version is a caller error, never a silent rewrite.
+	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=? AND NOT (gate_open=1 AND version_id<=>? AND layout_hash<>?)", v.ID, layoutHash, v.EntityID, access.Deref(v.Attempt), v.ID, layoutHash)
 	if err != nil {
 		return err
 	}
@@ -586,6 +587,9 @@ func (s *Publisher) projectPermissions(ctx context.Context, tx *sql.Tx, v Versio
 	return nil
 }
 
+// intDisplayWidth strips the integer display width some servers report.
+var intDisplayWidth = regexp.MustCompile(`(?i)^(bigint|tinyint)\([0-9]+\)$`)
+
 func verifyEntityColumns(ctx context.Context, q registry.Queryer, id string, d entity.Definition) error {
 	for _, f := range d.Fields {
 		var actual, collation, nullable string
@@ -594,7 +598,7 @@ func verifyEntityColumns(ctx context.Context, q registry.Queryer, id string, d e
 		}
 		want := strings.Split(data.Type(f), " ")[0]
 		normalize := func(s string) string {
-			return regexp.MustCompile(`(?i)^(bigint|tinyint)\([0-9]+\)$`).ReplaceAllString(strings.ToLower(s), "$1")
+			return intDisplayWidth.ReplaceAllString(strings.ToLower(s), "$1")
 		}
 		if want == "BOOLEAN" {
 			want = "tinyint"

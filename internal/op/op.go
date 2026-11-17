@@ -171,8 +171,7 @@ func (r *Runner) Mutate(ctx context.Context, a Actor, action string, res access.
 	}
 	defer tx.Rollback()
 	if res.Tenant != "" {
-		var x string
-		if e = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", res.Tenant).Scan(&x); e != nil {
+		if e = registry.LockTenant(ctx, tx, res.Tenant); e != nil {
 			return registry.Missing()
 		}
 	} else {

@@ -70,6 +70,9 @@ func (s *Runtime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	origin := r.Header.Get("Origin")
 	if origin != "" {
+		// Deliberately live, not cached: one lookup on ix_app_origin, so a
+		// revoked or changed App origin stops receiving CORS (preflight and
+		// readable error responses) immediately, like its sessions.
 		var n int
 		e := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE state='active' AND approved_origin=?", origin).Scan(&n)
 		if e != nil {

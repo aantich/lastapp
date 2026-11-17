@@ -95,12 +95,11 @@ func (v *AuditEvent) ScanFields() []any {
 
 // Audits pages a Tenant's audit trail (tenant set) or the whole platform's.
 func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, page op.PageRequest) (op.Page[AuditEvent], error) {
-	p := actor.Principal
 	action := "audit.read"
 	if tenant == "" {
 		action = "platform.admin"
 	}
-	if e := v.Run.Access.Authorize(ctx, v.DB, p, action, access.Resource{Tenant: tenant}, false); e != nil {
+	if e := v.Run.Authorize(ctx, actor, action, access.Resource{Tenant: tenant}); e != nil {
 		return op.Page[AuditEvent]{}, e
 	}
 	args := []any{}

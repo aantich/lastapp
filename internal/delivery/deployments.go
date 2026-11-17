@@ -130,7 +130,7 @@ func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer, after s
 				return e
 			}
 			defer tx.Rollback()
-			if e = LockTenant(attempt, tx, v.TenantID); e != nil {
+			if e = registry.LockTenant(attempt, tx, v.TenantID); e != nil {
 				return e
 			}
 			if _, e = s.deploymentPrincipal(attempt, tx, v); e != nil {
@@ -157,7 +157,7 @@ func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer, after s
 				return e
 			}
 			defer tx.Rollback()
-			if e = LockTenant(attempt, tx, v.TenantID); e != nil {
+			if e = registry.LockTenant(attempt, tx, v.TenantID); e != nil {
 				return e
 			}
 			if _, e = s.deploymentPrincipal(attempt, tx, v); e != nil {
@@ -220,7 +220,7 @@ func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer, after s
 			return e
 		}
 		defer tx.Rollback()
-		if e = LockTenant(attempt, tx, v.TenantID); e != nil {
+		if e = registry.LockTenant(attempt, tx, v.TenantID); e != nil {
 			return e
 		}
 		if _, e = s.deploymentPrincipal(attempt, tx, v); e != nil {
@@ -336,7 +336,7 @@ func (s *Service) failDeployment(ctx context.Context, job deploymentTask, messag
 		return err
 	}
 	defer tx.Rollback()
-	if err = LockTenant(ctx, tx, job.TenantID); err != nil {
+	if err = registry.LockTenant(ctx, tx, job.TenantID); err != nil {
 		return err
 	}
 	versions, err := registry.ScanAll[publisher.Version](ctx, tx, "SELECT "+publisher.VersionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job.ID)

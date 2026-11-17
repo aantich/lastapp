@@ -166,6 +166,10 @@ func (m *Manager) ChangePassword(w http.ResponseWriter, r *http.Request, p acces
 		return e
 	}
 	next := membership.PasswordKey(in.Next, salt, membership.PasswordIterations)
+	// The account read above runs under the request deadline: the pool slot
+	// is taken without waiting (429 when busy) and before any database work.
+	// Only the write follows the two derivations, so only it renews the
+	// deadline; the revision fence rejects a change since that read.
 	ctx, cancel := op.RenewDeadline(r.Context())
 	defer cancel()
 	tx, e := m.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})

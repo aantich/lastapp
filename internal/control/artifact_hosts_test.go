@@ -6,21 +6,15 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/config"
-	"github.com/aantich/lastapp/internal/delivery"
 )
 
+// The canonical-port origins themselves are pinned by delivery.TestHostedOrigins;
+// this checks that the App host server claims (and 404s) its namespace on any
+// port spelling and leaves the console host alone.
 func TestAppHostCanonicalPorts(t *testing.T) {
-	const app = "00000000-0000-4000-8000-000000000001"
-	for _, tc := range []struct{ base, want string }{
-		{"https://Apps.Example.test:443", "https://" + app + ".apps.example.test"},
-		{"http://apps.example.test:80", "http://" + app + ".apps.example.test"},
-		{"https://apps.example.test:8443", "https://" + app + ".apps.example.test:8443"},
-	} {
-		t.Run(tc.base, func(t *testing.T) {
-			s := &Server{Config: config.Config{AppOrigin: tc.base}}
-			if got := delivery.HostedOrigin(&s.Config, app); got != tc.want {
-				t.Fatalf("origin %q, want %q", got, tc.want)
-			}
+	for _, base := range []string{"https://Apps.Example.test:443", "http://apps.example.test:80", "https://apps.example.test:8443"} {
+		t.Run(base, func(t *testing.T) {
+			s := &Server{Config: config.Config{AppOrigin: base}}
 			for _, host := range []string{"invalid.apps.example.test", "invalid.apps.example.test:443", "invalid.apps.example.test:8443", "INVALID.APPS.EXAMPLE.TEST.:443"} {
 				r := httptest.NewRequest("GET", "https://"+host+"/console/", nil)
 				w := httptest.NewRecorder()

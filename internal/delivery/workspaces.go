@@ -16,11 +16,6 @@ import (
 	"github.com/aantich/lastapp/internal/roles"
 )
 
-const (
-	maxOwnedWorkspaces = 5
-	maxSpaceWorkspaces = 20
-)
-
 type (
 	WorkspaceCreateInput struct {
 		ID   string `json:"id"`
@@ -239,7 +234,7 @@ func (s *Service) CreateWorkspace(ctx context.Context, actor op.Actor, space str
 		if e := tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(owner_user_id=?),0) FROM development_workspaces WHERE production_space_id=? AND state<>'archived'", p.ID, res.Space).Scan(&total, &owned); e != nil {
 			return e
 		}
-		if owned >= maxOwnedWorkspaces || total >= maxSpaceWorkspaces {
+		if owned >= registry.MaxOwnedWorkspaces || total >= registry.MaxSpaceWorkspaces {
 			return registry.Conflict("Archive an unused workspace before creating another.")
 		}
 		if e := s.ensureSnapshotReady(ctx, tx, res.Space); e != nil {
@@ -281,7 +276,7 @@ func (s *Service) CreateWorkspace(ctx context.Context, actor op.Actor, space str
 		if e = roles.AssignInitialManager(ctx, tx, actor, res.Tenant, backing, "", p.ID); e != nil {
 			return e
 		}
-		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID, p.ID); e != nil {
+		if e = s.installSnapshot(ctx, tx, base, res.Tenant, backing, in.ID); e != nil {
 			return e
 		}
 		return op.AuditAs(ctx, tx, actor, res.Tenant, "workspace.created", "workspace", in.ID, registry.Row{"production_space_id": res.Space, "backing_space_id": backing})

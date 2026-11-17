@@ -5,14 +5,12 @@ import (
 	"encoding/base64"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
-	"github.com/aantich/lastapp/internal/roles"
 )
 
 func base64Encode(b []byte) string          { return base64.RawURLEncoding.EncodeToString(b) }
@@ -233,20 +231,11 @@ func (s *Runtime) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRu
 	if kind == "" {
 		kind = "user"
 	}
-	search := r.URL.Query().Get("q")
-	if len(search) > 160 {
-		return registry.Bad("Search is too long.")
-	}
-	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(search) + "%"
-	var recipients []roles.Named
-	var e error
-	if kind == "user" {
-		recipients, e = registry.ScanAll[roles.Named](r.Context(), s.DB, "SELECT u.display_name,u.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id AND u.state='active' WHERE m.tenant_id=? AND m.state='active' AND (u.display_name LIKE ? OR u.email LIKE ? OR u.id=?) ORDER BY u.display_name,u.id LIMIT 50", rt.session.TenantID, pattern, pattern, search)
-	} else if kind == "team" {
-		recipients, e = registry.ScanAll[roles.Named](r.Context(), s.DB, "SELECT display_name,id FROM groups WHERE tenant_id=? AND state='active' AND (display_name LIKE ? OR id=?) ORDER BY display_name,id LIMIT 50", rt.session.TenantID, pattern, search)
-	} else {
+	if kind != "user" && kind != "team" {
 		return registry.Bad("Choose user or team.")
 	}
+	// Recipient search applies the same directory rule as reference pickers.
+	recipients, e := s.identityOptions(r.Context(), rt, kind, r.URL.Query().Get("q"))
 	if e != nil {
 		return e
 	}
