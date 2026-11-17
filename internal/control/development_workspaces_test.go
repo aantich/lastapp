@@ -154,7 +154,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	c.as(joe).want("GET", "/v1/workspaces/"+wid, nil, 0, 404)
 	provision(resource)
 	for i := 0; i < 10; i++ {
-		if e = s.delivery.WorkspaceJob(ctx, s.DB); e != nil {
+		if _, _, e = s.delivery.WorkspaceJob(ctx, s.DB, ""); e != nil {
 			t.Fatal(e)
 		}
 		if _, e = s.publisher.Job(ctx, s.DB); e != nil {
@@ -354,7 +354,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 			}
 		}
 
-		if e = s.delivery.DeploymentJob(ctx, s.DB); e != nil {
+		if _, _, e = s.delivery.DeploymentJob(ctx, s.DB, ""); e != nil {
 			t.Fatal(e)
 		}
 		if _, e = s.publisher.Job(ctx, s.DB); e != nil {

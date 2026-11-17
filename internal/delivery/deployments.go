@@ -89,12 +89,23 @@ func DeploymentEntities(ctx context.Context, q registry.Queryer, id string) (map
 	return ids, nil
 }
 
-func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer) error {
-	jobs, e := registry.ScanAll[deploymentTask](ctx, q, deploymentTaskSQL+" WHERE d.state IN ('queued','preparing','publishing') ORDER BY d.created_at LIMIT 1")
+// deploymentHead selects the oldest unfinished deployment of each Tenant: a
+// Tenant's deployments are applied strictly in the order they were queued
+// (which also keeps every Space's and App's deployments in order).
+const deploymentHead = " WHERE d.state IN ('queued','preparing','publishing') AND d.tenant_id>? AND NOT EXISTS (SELECT 1 FROM release_deployments o WHERE o.tenant_id=d.tenant_id AND o.state IN ('queued','preparing','publishing') AND (o.created_at<d.created_at OR (o.created_at=d.created_at AND o.id<d.id))) ORDER BY d.tenant_id LIMIT 1"
+
+// DeploymentJob advances the oldest unfinished deployment of the first Tenant
+// after the given one (Tenant ID order) that has one. It returns that Tenant,
+// or "" when no later Tenant has a deployment, and whether the job progressed:
+// false means it is waiting for its entity publications. A deadlock or lock
+// wait timeout is returned for retry and never fails the deployment.
+func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer, after string) (tenant string, progressed bool, err error) {
+	jobs, e := registry.ScanAll[deploymentTask](ctx, q, deploymentTaskSQL+deploymentHead, after)
 	if e != nil || len(jobs) == 0 {
-		return e
+		return "", false, e
 	}
 	v := jobs[0]
+	waiting := false
 	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, v.ID)
 	ctx = op.AgentAuditContext(ctx, v.AgentGrant, "")
 	attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -197,6 +208,7 @@ func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer) error {
 				return registry.Conflict("A backend publication failed. Live security policies and the previous client release remain selected. Inspect the entity publication before deploying again.")
 			}
 			if state != "prepared" {
+				waiting = true
 				return nil
 			}
 		}
@@ -296,15 +308,18 @@ func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer) error {
 		return tx.Commit()
 	}
 	if e = run(); e == nil {
-		return nil
+		return v.TenantID, !waiting, nil
+	}
+	if op.Transient(e) {
+		return v.TenantID, false, e
 	}
 	// A lost commit acknowledgement must not undo a completed activation.
 	var currentState string
 	if err := q.QueryRowContext(ctx, "SELECT state FROM release_deployments WHERE id=?", v.ID).Scan(&currentState); err != nil {
-		return err
+		return v.TenantID, false, err
 	}
 	if currentState == registry.StateActive {
-		return nil
+		return v.TenantID, true, nil
 	}
 	message := "Deployment preparation failed. The previous client release remains selected. Review backend publications before retrying from a fresh workspace."
 	if ae, ok := e.(*registry.APIError); ok {
@@ -312,7 +327,7 @@ func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer) error {
 	} else {
 		s.Warn(ctx, "release deployment failed", e)
 	}
-	return s.failDeployment(ctx, v, message)
+	return v.TenantID, true, s.failDeployment(ctx, v, message)
 }
 
 func (s *Service) failDeployment(ctx context.Context, job deploymentTask, message string) error {

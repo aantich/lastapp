@@ -127,7 +127,7 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	rec.http(oc, "GET /v1/apps/{app}/deployment queued", "GET", "/v1/apps/"+prodApp+"/deployment", nil, 0, 200)
 	rec.http(jc, "GET /v1/apps/{app}/deployment other user", "GET", "/v1/apps/"+prodApp+"/deployment", nil, 0, 403)
 	for range 8 {
-		if e := s.delivery.DeploymentJob(ctx, s.DB); e != nil {
+		if _, _, e := s.delivery.DeploymentJob(ctx, s.DB, ""); e != nil {
 			t.Fatal(e)
 		}
 		if _, e := s.publisher.Job(ctx, s.DB); e != nil {

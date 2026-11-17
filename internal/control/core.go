@@ -168,12 +168,12 @@ func Open(c config.Config) (*Server, error) {
 	s.delivery = &delivery.Service{DB: db, Run: s.run, Access: s.Checker, Config: &s.Config, Storage: s.storage, RegistryName: cfg.DBName, Warn: warn}
 	s.publisher = &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: cfg.DBName, Connect: s.targetDB, DeploymentAuthority: s.delivery.PublishingDeploymentAuthority, DeploymentEntities: delivery.DeploymentEntities, Warn: warn}
 	s.delivery.Publisher = s.publisher
-	// One leader per registry runs the queues in this fixed order on its pinned
-	// connection.
+	// One leader per registry runs each queue in its own loop while it holds
+	// the lock; the starters run in this order when a term begins.
 	s.worker = &worker.Leader{DB: db, Lock: "lastapp:" + cfg.DBName, Warn: warn, Steps: []worker.Step{
 		&worker.Cleanup{},
-		worker.Job{Label: "deployments", Do: s.delivery.DeploymentJob},
-		worker.Job{Label: "workspaces", Do: s.delivery.WorkspaceJob},
+		&worker.Fair{Label: "deployments", Job: s.delivery.DeploymentJob},
+		&worker.Fair{Label: "workspaces", Job: s.delivery.WorkspaceJob},
 		&worker.Publication{Job: s.publisher.Job},
 		s.provisioner,
 	}}
