@@ -14,6 +14,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -46,7 +47,7 @@ func newReleaseFixture(t *testing.T) releaseFixture {
 	if e != nil {
 		t.Fatal(e)
 	}
-	ws := c.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: registry.NewID(), Name: "Private human workspace"}, 0, 200)
+	ws := c.want("POST", "/v1/spaces/"+space+"/workspaces", delivery.WorkspaceCreateInput{ID: registry.NewID(), Name: "Private human workspace"}, 0, 200)
 	if _, e = s.DB.Exec("UPDATE development_workspaces SET state='ready' WHERE id=?", ws["id"]); e != nil {
 		t.Fatal(e)
 	}
@@ -68,7 +69,7 @@ func newReleaseFixture(t *testing.T) releaseFixture {
 	if e = json.Unmarshal(w.Body.Bytes(), &build); e != nil || w.Code != 201 {
 		t.Fatal("upload", w.Code, e)
 	}
-	rel := c.want("POST", "/v1/apps/"+app+"/releases", releaseCreateInput{Name: "Private snapshot", Build: registry.Str(build["id"]), Manifest: releaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{}}}, 1, 200)
+	rel := c.want("POST", "/v1/apps/"+app+"/releases", delivery.ReleaseCreateInput{Name: "Private snapshot", Build: registry.Str(build["id"]), Manifest: delivery.ReleaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{}}}, 1, 200)
 	return releaseFixture{s, c, p, tenant, space, registry.Str(ws["id"]), registry.Str(ws["backing_space_id"]), app, productionApp, rel}
 }
 
@@ -82,7 +83,7 @@ func TestReleaseWorkspaceOwnership(t *testing.T) {
 		raw, _ := json.Marshal(agentReadInput{Resource: "release", ID: registry.Str(f.release["id"])})
 		result, e := f.s.toolAgentGet(ctx, p, raw)
 		if want == 200 {
-			if e != nil || result.(Release).Snapshot.Value() == nil {
+			if e != nil || result.(delivery.Release).Snapshot.Value() == nil {
 				t.Fatal("authorized release inspection", e)
 			}
 			return
@@ -157,7 +158,7 @@ func TestWorkspaceAppQuota(t *testing.T) {
 	devPath := "/v1/tenants/" + f.tenant + "/apps/" + registry.Str(dev["id"])
 	f.c.want("PATCH", devPath, registry.Row{"state": "archived"}, 1, 200)
 	f.c.want("PATCH", devPath, registry.Row{"state": "active"}, 2, 200)
-	rel := f.c.want("POST", "/v1/apps/"+f.app+"/releases", releaseCreateInput{Name: "Exceeds production capacity", Build: registry.Str(f.release["build_id"]), Manifest: releaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{}}}, 1, 200)
+	rel := f.c.want("POST", "/v1/apps/"+f.app+"/releases", delivery.ReleaseCreateInput{Name: "Exceeds production capacity", Build: registry.Str(f.release["build_id"]), Manifest: delivery.ReleaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{}}}, 1, 200)
 	rejected := f.c.want("POST", "/v1/releases/"+registry.Str(rel["id"])+"/deploy", registry.Row{}, 1, 409)
 	if !strings.Contains(registry.Str(rejected), "production App quota") {
 		t.Fatal("deployment rejected for wrong reason", rejected)
@@ -187,7 +188,7 @@ func TestReleasePreviewConcurrentConfiguration(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer tx.Rollback()
-	if e = lockTenant(ctx, tx, f.tenant); e != nil {
+	if e = delivery.LockTenant(ctx, tx, f.tenant); e != nil {
 		t.Fatal(e)
 	}
 	r := httptest.NewRequest("POST", "/v1/releases/"+registry.Str(f.release["id"])+"/preview", strings.NewReader("{}"))

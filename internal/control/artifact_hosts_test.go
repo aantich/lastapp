@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/delivery"
 )
 
 func TestAppHostCanonicalPorts(t *testing.T) {
@@ -17,7 +18,7 @@ func TestAppHostCanonicalPorts(t *testing.T) {
 	} {
 		t.Run(tc.base, func(t *testing.T) {
 			s := &Server{Config: config.Config{AppOrigin: tc.base}}
-			if got := s.appHostedOrigin(app); got != tc.want {
+			if got := delivery.HostedOrigin(&s.Config, app); got != tc.want {
 				t.Fatalf("origin %q, want %q", got, tc.want)
 			}
 			for _, host := range []string{"invalid.apps.example.test", "invalid.apps.example.test:443", "invalid.apps.example.test:8443", "INVALID.APPS.EXAMPLE.TEST.:443"} {

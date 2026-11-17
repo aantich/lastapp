@@ -206,8 +206,9 @@ owns consent and tokens; `agent_clients.go` owns registration/retention;
 `agent_tools.go` owns typed schemas, transport and adapters; `agent_context.go`
 owns authorized context and canonical agent guides. Shared domain operations
 (`internal/op` and the domain packages `inventory`, `membership`, `roles`,
-`databases`, `entities`), mutation receipts and workers enforce the
-actual operations.
+`databases`, `entities`, with workspaces, builds, releases and deployments in
+`internal/delivery`), mutation receipts and workers enforce the actual
+operations.
 
 Run `make mcp-test` against the existing local development MariaDB for the
 `TestAgent*` protocol, OAuth, delegation, isolation, replay, response-limit and

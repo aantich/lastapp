@@ -134,6 +134,9 @@ const (
 	MaxAppReleases         = 100
 	MaxOutstandingUploads  = 10
 	UploadTicketLifetime   = 10 * time.Minute
+	// LaunchLifetime bounds a single-use App launch code: console launches
+	// (internal/dataapi) and agent development launches (internal/delivery).
+	LaunchLifetime = 2 * time.Minute
 )
 
 // Workspace Apps consume only the workspace's metadata capacity. Production

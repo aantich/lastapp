@@ -23,6 +23,7 @@ import (
 	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/dataapi"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
@@ -66,6 +67,7 @@ type Server struct {
 	authoring              *entities.Authoring
 	publisher              *publisher.Publisher
 	dataAPI                *dataapi.Runtime
+	delivery               *delivery.Service
 }
 
 func LoadConfig(path string) (config.Config, error) {
@@ -106,7 +108,7 @@ func Open(c config.Config) (*Server, error) {
 	}
 	adminURL, _ := url.Parse(c.PublicURL)
 	appURL, _ := url.Parse(c.AppOrigin)
-	appNamespace := appHostNamespace(c.AppOrigin)
+	appNamespace := delivery.HostNamespace(c.AppOrigin)
 	adminHost := strings.TrimSuffix(strings.ToLower(adminURL.Hostname()), ".")
 	if c.AppOrigin != "" && (appURL == nil || !config.ValidOrigin(c.AppOrigin, false) || adminHost == strings.TrimPrefix(appNamespace, ".") || appNamespace != "" && strings.HasSuffix(adminHost, appNamespace) || (!c.Development && !strings.HasPrefix(c.AppOrigin, "https://"))) {
 		return nil, fmt.Errorf("app_origin must use a separate secure host namespace that does not contain public_url")
@@ -167,11 +169,17 @@ func Open(c config.Config) (*Server, error) {
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
-	s.publisher = &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: cfg.DBName, Connect: s.targetDB, DeploymentAuthority: s.publishingDeploymentAuthority, DeploymentEntities: deploymentEntities, Warn: func(ctx context.Context, msg string, err error, attrs ...any) {
+	warn := func(ctx context.Context, msg string, err error, attrs ...any) {
 		httpapi.Logger(ctx, s.Log).Warn(msg, append(attrs, httpapi.Diagnostic(err)...)...)
-	}}
-	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.queueDefinition}
+	}
 	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.sealer.Seal, Config: &s.Config, RegistryName: cfg.DBName}
+	// The publisher sits below delivery: it rechecks a publishing deployment's
+	// authority and captured entities through delivery's functions, and
+	// delivery then receives the publisher it activates entity versions with.
+	s.delivery = &delivery.Service{DB: db, Run: s.run, Access: s.Checker, Config: &s.Config, Storage: s.storage, RegistryName: cfg.DBName, Warn: warn}
+	s.publisher = &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: cfg.DBName, Connect: s.targetDB, DeploymentAuthority: s.delivery.PublishingDeploymentAuthority, DeploymentEntities: delivery.DeploymentEntities, Warn: warn}
+	s.delivery.Publisher = s.publisher
+	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.delivery.QueueDefinition}
 	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, PrepareAccount: s.prepareAccount}
 	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}
 	s.authority = &roles.Authority{DB: db, Run: s.run}

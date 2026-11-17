@@ -11,6 +11,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
@@ -36,7 +37,7 @@ func (s *Server) Handler() http.Handler {
 		httpapi.Send(w, 200, registry.Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		httpapi.Send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
+		httpapi.Send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"), "development_policy": delivery.Policy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)

@@ -1,4 +1,4 @@
-package control
+package delivery
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
-	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -96,7 +95,7 @@ func snapshotIDs(base spaceSnapshot) map[string]string {
 	return ids
 }
 
-func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
+func (s *Service) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
 	if len(base.Apps) > registry.MaxWorkspaceApps {
 		return registry.Conflict("Space exceeds the workspace App limit.")
 	}
@@ -146,7 +145,7 @@ func (s *Server) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnap
 // The single publication capture routine is shared by the authoring endpoint and
 // bounded snapshot jobs. Candidate references are accepted only for a captured
 // batch whose tables are prepared before any version can activate.
-func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p access.Principal, v entities.EntityDefinition, version string, candidates map[string]bool) error {
+func (s *Service) QueueDefinition(ctx context.Context, tx *sql.Tx, p access.Principal, v entities.EntityDefinition, version string, candidates map[string]bool) error {
 	d, e := v.DraftDefinition()
 	if e != nil {
 		return e
@@ -161,7 +160,7 @@ func (s *Server) queueDefinition(ctx context.Context, tx *sql.Tx, p access.Princ
 		return registry.Conflict("A publication is already pending.")
 	}
 	b, _ := json.Marshal(d)
-	plan := data.Plan(v.ID, "lastapp:"+entity.Hash(s.registryName)[:16]+":"+v.ID, d)
+	plan := data.Plan(v.ID, "lastapp:"+entity.Hash(s.RegistryName)[:16]+":"+v.ID, d)
 	pb, _ := json.Marshal(plan)
 	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", version, v.TenantID, v.SpaceID, v.ID, v.ActiveVersion, b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
 		return e
@@ -179,8 +178,8 @@ func agentID(p access.Principal) any {
 
 // Empty tables are prepared without foreign keys, then the ordinary publisher
 // verifies/adds those keys before activation. This also supports cyclic references.
-func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []entities.EntityDefinition) error {
-	db, e := s.publisher.BusinessDB(ctx, resource, true)
+func (s *Service) prepareSnapshotTables(ctx context.Context, resource string, entities []entities.EntityDefinition) error {
+	db, e := s.Publisher.BusinessDB(ctx, resource, true)
 	if e != nil {
 		return e
 	}
@@ -196,7 +195,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 		if ds := d.Validate(); len(ds) > 0 {
 			return registry.Bad(ds[0].Message)
 		}
-		marker := "lastapp:" + entity.Hash(s.registryName)[:16] + ":" + v.ID
+		marker := "lastapp:" + entity.Hash(s.RegistryName)[:16] + ":" + v.ID
 		var comment string
 		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(v.ID), "`")).Scan(&comment)
 		if e == nil {
@@ -215,7 +214,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 	return nil
 }
 
-func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
+func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.state='preparing' ORDER BY w.created_at LIMIT 1")
 	if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
 		return nil
@@ -229,7 +228,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 	ctx = context.WithValue(ctx, access.WorkspaceOperationKey{}, v.ID)
 	p := access.Principal{ID: v.Owner}
 	if access.Deref(v.OwnerGrant) != "" {
-		p.Agent, e = s.ReadAgentGrant(ctx, q, access.Deref(v.OwnerGrant))
+		p.Agent, e = s.Access.ReadAgentGrant(ctx, q, access.Deref(v.OwnerGrant))
 		if e != nil {
 			return e
 		}
@@ -240,7 +239,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 				return e
 			}
 		}
-		if e = s.WorkspaceOwner(ctx, q, p, v); e != nil {
+		if e = s.Access.WorkspaceOwner(ctx, q, p, v); e != nil {
 			return e
 		}
 		if access.Deref(v.DatabaseState) == "pending" || access.Deref(v.DatabaseState) == "provisioning" {
@@ -265,10 +264,10 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 			return e
 		}
 		defer tx.Rollback()
-		if e = lockTenant(ctx, tx, v.TenantID); e != nil {
+		if e = LockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
-		if e = s.WorkspaceOwner(ctx, tx, p, v); e != nil {
+		if e = s.Access.WorkspaceOwner(ctx, tx, p, v); e != nil {
 			return e
 		}
 		ready := true
@@ -290,7 +289,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 			}
 			// The workspace job owns baseline publication authority; ordinary later
 			// agent publications keep their own grants and permission checks.
-			if e = s.queueDefinition(ctx, tx, access.Principal{ID: p.ID}, d, registry.NewID(), candidates); e != nil {
+			if e = s.QueueDefinition(ctx, tx, access.Principal{ID: p.ID}, d, registry.NewID(), candidates); e != nil {
 				return e
 			}
 		}
@@ -321,7 +320,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
 	} else {
-		httpapi.Logger(ctx, s.Log).Warn("workspace preparation failed", httpapi.Diagnostic(e)...)
+		s.Warn(ctx, "workspace preparation failed", e)
 	}
 	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
 	return err
@@ -357,7 +356,7 @@ type publishedDraft struct {
 
 func (v *publishedDraft) ScanFields() []any { return []any{&v.Draft, &v.Pending, &v.ActiveHash} }
 
-func (s *Server) ensureSnapshotReady(ctx context.Context, q registry.Queryer, space string) error {
+func (s *Service) ensureSnapshotReady(ctx context.Context, q registry.Queryer, space string) error {
 	drafts, e := registry.ScanAll[publishedDraft](ctx, q, "SELECT e.draft_json,e.pending_version_id,COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.space_id=? AND e.state='active'", space)
 	if e != nil {
 		return e

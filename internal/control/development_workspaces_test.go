@@ -16,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/publisher"
@@ -145,7 +146,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if entities.ValidateEntityRefs(ctx, s.DB, inactiveDefinition, entities.EntityDefinition{ID: eid, TenantID: tenant, SpaceID: space}) == nil {
 		t.Fatal("ordinary publication accepted inactive recipients")
 	}
-	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: registry.NewID(), Name: "Private author workspace"}, 0, 200)
+	ws := oc.want("POST", "/v1/spaces/"+space+"/workspaces", delivery.WorkspaceCreateInput{ID: registry.NewID(), Name: "Private author workspace"}, 0, 200)
 	wid, backing, resource := registry.Str(ws["id"]), registry.Str(ws["backing_space_id"]), registry.Str(ws["database_resource_id"])
 	if resource == source {
 		t.Fatal("workspace shares production database")
@@ -153,7 +154,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	c.as(joe).want("GET", "/v1/workspaces/"+wid, nil, 0, 404)
 	provision(resource)
 	for i := 0; i < 10; i++ {
-		if e = s.workspaceJob(ctx, s.DB); e != nil {
+		if e = s.delivery.WorkspaceJob(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 		if _, e = s.publisher.Job(ctx, s.DB); e != nil {
@@ -275,7 +276,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if len(buildList["items"].([]any)) != 1 {
 		t.Fatal("missing uploaded build inventory")
 	}
-	rel := oc.want("POST", "/v1/apps/"+devApp+"/releases", releaseCreateInput{Name: "1.0.0", Build: registry.Str(build["id"]), Manifest: releaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{"react": "19.2.0"}}}, 2, 200)
+	rel := oc.want("POST", "/v1/apps/"+devApp+"/releases", delivery.ReleaseCreateInput{Name: "1.0.0", Build: registry.Str(build["id"]), Manifest: delivery.ReleaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{"react": "19.2.0"}}}, 2, 200)
 	oc.want("POST", "/v1/releases/"+registry.Str(rel["id"])+"/preview", registry.Row{}, 2, 200)
 	job := oc.want("POST", "/v1/releases/"+registry.Str(rel["id"])+"/deploy", registry.Row{}, 2, 202)
 	oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": definition}, 3, 409)
@@ -336,7 +337,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 			if prepared > 0 && failure == "activation_failure" {
 				// Fault injection after storage preparation: a unique origin conflict
 				// forces rollback after policy activation and physical gate opening.
-				host := strings.TrimPrefix(s.appHostedOrigin(app), "http://")
+				host := strings.TrimPrefix(s.delivery.HostedOrigin(app), "http://")
 				host = strings.Split(host, ":")[0]
 				if _, e = s.DB.Exec("UPDATE apps SET origin_host=? WHERE id=?", host, devApp); e != nil {
 					t.Fatal(e)
@@ -353,7 +354,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 			}
 		}
 
-		if e = s.deploymentJob(ctx, s.DB); e != nil {
+		if e = s.delivery.DeploymentJob(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 		if _, e = s.publisher.Job(ctx, s.DB); e != nil {
@@ -394,7 +395,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if !strings.Contains(registry.Str(productionEntity["active_definition"]), "notes") {
 		t.Fatal("captured backend schema did not deploy")
 	}
-	host := strings.TrimPrefix(s.appHostedOrigin(app), "http://")
+	host := strings.TrimPrefix(s.delivery.HostedOrigin(app), "http://")
 	r := httptest.NewRequest("GET", "http://"+host+"/_lastapp/config.json", nil)
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
