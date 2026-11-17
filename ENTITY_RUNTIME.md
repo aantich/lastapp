@@ -149,7 +149,7 @@ Already-authorized bounded requests use their captured authorization snapshot.
 ## Publication and supported limits
 
 Two registry tables store entity drafts and immutable publication versions/jobs.
-The existing worker prepares owned storage under a pinned entity lock and local
+The publisher (`internal/publisher`, run by the existing worker) prepares owned storage under a pinned entity lock and local
 write gate, activates registry projections transactionally, then opens the exact
 version. Recovery can finish an activation interrupted before opening. Failed
 preparation restores the previous gate only when its physical layout is verified
