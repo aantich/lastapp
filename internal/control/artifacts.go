@@ -19,6 +19,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -87,7 +88,7 @@ func (s *Server) releaseRoutes() {
 }
 
 func (s *Server) ownedDevelopmentApp(ctx context.Context, q registry.Queryer, p access.Principal, app string) (registry.AppRecord, registry.Workspace, error) {
-	a, e := s.appRow(ctx, q, app)
+	a, e := inventory.AppRow(ctx, q, app)
 	if e != nil {
 		return registry.AppRecord{}, registry.Workspace{}, e
 	}
@@ -315,7 +316,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) Builds(ctx context.Context, actor op.Actor, app string, page op.PageRequest) (op.Page[Build], error) {
 	p := actor.Principal
-	a, e := s.appRow(ctx, s.DB, app)
+	a, e := inventory.AppRow(ctx, s.DB, app)
 	if e != nil {
 		return op.Page[Build]{}, e
 	}

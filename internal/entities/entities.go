@@ -15,6 +15,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -628,7 +629,7 @@ func (v *Authoring) TestEntity(ctx context.Context, a op.Actor, key string, in E
 // AppContracts are the published entity contracts an App may use: its
 // access ceiling narrows fields and permissions unless a is a Space manager.
 func (v *Authoring) AppContracts(ctx context.Context, a op.Actor, app string, view ContractView) (registry.Row, error) {
-	current, e := registry.ScanOne[registry.AppRecord](ctx, v.DB, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := inventory.AppRow(ctx, v.DB, app)
 	if e != nil {
 		return nil, e
 	}
@@ -742,7 +743,7 @@ func (v *Authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 
 // AppAccess is an App's data-access policy with its revision.
 func (v *Authoring) AppAccess(ctx context.Context, a op.Actor, app string) (registry.Row, error) {
-	current, e := registry.ScanOne[registry.AppRecord](ctx, v.DB, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := inventory.AppRow(ctx, v.DB, app)
 	if e != nil {
 		return nil, e
 	}
@@ -762,13 +763,13 @@ func (v *Authoring) SaveAppAccess(ctx context.Context, a op.Actor, app string, i
 	if revision < 1 {
 		return nil, op.RevisionRequired()
 	}
-	current, e := registry.ScanOne[registry.AppRecord](ctx, v.DB, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
+	current, e := inventory.AppRow(ctx, v.DB, app)
 	if e != nil {
 		return nil, e
 	}
 	res := access.Resource{Tenant: current.TenantID, App: current.ID}
 	e = v.Run.Mutate(ctx, a, "app.manage", res, func(tx *sql.Tx) error {
-		current, e = registry.ScanOne[registry.AppRecord](ctx, tx, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", current.ID)
+		current, e = inventory.AppRow(ctx, tx, current.ID)
 		if e != nil {
 			return e
 		}

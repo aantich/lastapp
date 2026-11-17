@@ -8,6 +8,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -66,7 +67,7 @@ func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in deve
 	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
 		return nil, registry.Bad("Provide an S256 challenge and random nonce.")
 	}
-	v, e := s.appRow(ctx, s.DB, app)
+	v, e := inventory.AppRow(ctx, s.DB, app)
 	if e != nil {
 		return nil, e
 	}

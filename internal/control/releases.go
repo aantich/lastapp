@@ -13,6 +13,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -117,7 +118,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor op.Actor, app string, 
 	}
 	record := actor.OperationID()
 	e = s.run.Mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
-		a, e = s.appRow(ctx, tx, a.ID)
+		a, e = inventory.AppRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
 		}
@@ -193,7 +194,7 @@ func (s *Server) CreateRelease(ctx context.Context, actor op.Actor, app string, 
 
 func (s *Server) Releases(ctx context.Context, actor op.Actor, app string, page op.PageRequest) (op.Page[ReleaseItem], error) {
 	p := actor.Principal
-	a, e := s.appRow(ctx, s.DB, app)
+	a, e := inventory.AppRow(ctx, s.DB, app)
 	if e != nil {
 		return op.Page[ReleaseItem]{}, e
 	}
@@ -256,7 +257,7 @@ func (s *Server) PreviewRelease(ctx context.Context, actor op.Actor, release str
 		return nil, registry.Conflict("Configure the App hosting origin first.")
 	}
 	e = s.run.Mutate(ctx, actor, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, func(tx *sql.Tx) error {
-		a, e = s.appRow(ctx, tx, a.ID)
+		a, e = inventory.AppRow(ctx, tx, a.ID)
 		if e != nil {
 			return e
 		}
@@ -338,7 +339,7 @@ func (s *Server) DeployRelease(ctx context.Context, actor op.Actor, release stri
 	record := actor.OperationID()
 	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, record)
 	e = s.run.Mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
-		a, e := s.appRow(ctx, tx, rel.ProductionApp)
+		a, e := inventory.AppRow(ctx, tx, rel.ProductionApp)
 		if e != nil {
 			if ae, ok := e.(*registry.APIError); !ok || ae.Status != 404 {
 				return e
@@ -420,7 +421,7 @@ func (s *Server) Deployment(ctx context.Context, actor op.Actor, deployment stri
 // A pending sibling deployment also explains a shared Space's mutation fence.
 func (s *Server) AppDeployment(ctx context.Context, actor op.Actor, app string) (registry.Row, error) {
 	p := actor.Principal
-	a, e := s.appRow(ctx, s.DB, app)
+	a, e := inventory.AppRow(ctx, s.DB, app)
 	if e != nil {
 		return nil, e
 	}

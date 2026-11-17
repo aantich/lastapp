@@ -11,6 +11,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -24,10 +25,6 @@ var (
 	pkceRE     = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
-func (s *Server) appRow(ctx context.Context, q registry.Queryer, app string) (registry.AppRecord, error) {
-	return registry.ScanOne[registry.AppRecord](ctx, q, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
-}
-
 func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		Challenge string `json:"challenge"`
@@ -39,7 +36,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
 		return registry.Bad("Valid S256 challenge and nonce required.")
 	}
-	v, e := s.appRow(r.Context(), s.DB, r.PathValue("app"))
+	v, e := inventory.AppRow(r.Context(), s.DB, r.PathValue("app"))
 	if e != nil {
 		return e
 	}

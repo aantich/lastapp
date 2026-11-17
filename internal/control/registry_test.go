@@ -417,12 +417,12 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		sameJSON(t, s.DB, detail, "SELECT * FROM entity_definitions WHERE id=?", key)
 	}
 	// The agent inventory summarizes each draft as the untyped read did.
-	inventory, e := registry.ScanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	drafts, e := registry.ScanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil {
 		t.Fatal(e)
 	}
 	untyped, e := registry.QueryRows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
-	if e != nil || len(untyped) != len(inventory) {
+	if e != nil || len(untyped) != len(drafts) {
 		t.Fatal("entity inventory", e)
 	}
 	for i, v := range untyped {
@@ -439,9 +439,9 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		}
 		v["description"], v["draft_fields"], v["draft_relationships"] = d.Description, fields, relationships
 		delete(v, "draft_json")
-		inventory[i].Fields, inventory[i].Relationships, inventory[i].Description = fields, relationships, d.Description
-		if mustJSON(t, v) != mustJSON(t, inventory[i]) || inventory[i].SearchText() != v.SearchText() {
-			t.Fatalf("entity inventory differs\nwant: %s\ngot:  %s", mustJSON(t, v), mustJSON(t, inventory[i]))
+		drafts[i].Fields, drafts[i].Relationships, drafts[i].Description = fields, relationships, d.Description
+		if mustJSON(t, v) != mustJSON(t, drafts[i]) || drafts[i].SearchText() != v.SearchText() {
+			t.Fatalf("entity inventory differs\nwant: %s\ngot:  %s", mustJSON(t, v), mustJSON(t, drafts[i]))
 		}
 	}
 	if _, e = s.DB.Exec("INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id) SELECT ?,'order.read','data','Read orders',CONCAT('e:',id),tenant_id,space_id,id,active_version_id FROM entity_definitions WHERE id=?", registry.NewID(), entityID); e != nil {
@@ -457,7 +457,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.DB.Exec("UPDATE apps SET approved_origin='https://typed.example',origin_host='typed.example' WHERE id=?", app); e != nil {
 		t.Fatal(e)
 	}
-	record, e := s.appRow(ctx, s.DB, app)
+	record, e := inventory.AppRow(ctx, s.DB, app)
 	if e != nil {
 		t.Fatal(e)
 	}
