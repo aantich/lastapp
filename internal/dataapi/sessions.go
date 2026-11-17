@@ -14,10 +14,7 @@ import (
 	"github.com/aantich/lastapp/internal/registry"
 )
 
-const (
-	appTokenLifetime = 30 * time.Minute
-	LaunchLifetime   = 2 * time.Minute
-)
+const appTokenLifetime = 30 * time.Minute
 
 func (s *Runtime) Launch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
@@ -59,11 +56,11 @@ func (s *Runtime) Launch(w http.ResponseWriter, r *http.Request, p access.Princi
 		return e
 	}
 	code := registry.Token(32)
-	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), registry.TokenHash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(LaunchLifetime))
+	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), registry.TokenHash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(registry.LaunchLifetime))
 	if e != nil {
 		return e
 	}
-	httpapi.Send(w, 200, registry.Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(LaunchLifetime.Seconds())})
+	httpapi.Send(w, 200, registry.Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(registry.LaunchLifetime.Seconds())})
 	return nil
 }
 

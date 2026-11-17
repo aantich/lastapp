@@ -11,6 +11,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
+	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
@@ -67,10 +68,10 @@ func TestDeliveryShapeGolden(t *testing.T) {
 
 	// Console: workspace lifecycle.
 	rec.http(oc, "GET /v1/spaces/{space}/workspaces empty", "GET", "/v1/spaces/"+space+"/workspaces", nil, 0, 200)
-	ws := rec.http(oc, "POST /v1/spaces/{space}/workspaces", "POST", "/v1/spaces/"+space+"/workspaces", workspaceCreateInput{ID: registry.NewID(), Name: "Golden workspace"}, 0, 200)
+	ws := rec.http(oc, "POST /v1/spaces/{space}/workspaces", "POST", "/v1/spaces/"+space+"/workspaces", delivery.WorkspaceCreateInput{ID: registry.NewID(), Name: "Golden workspace"}, 0, 200)
 	wid := registry.Str(ws["id"])
 	rec.http(oc, "POST /v1/spaces/{space}/workspaces invalid", "POST", "/v1/spaces/"+space+"/workspaces", registry.Row{"id": "not-an-id"}, 0, 400)
-	rec.http(oc, "POST /v1/spaces/{space}/workspaces on backing space", "POST", "/v1/spaces/"+registry.Str(ws["backing_space_id"])+"/workspaces", workspaceCreateInput{ID: registry.NewID(), Name: "Nested"}, 0, 400)
+	rec.http(oc, "POST /v1/spaces/{space}/workspaces on backing space", "POST", "/v1/spaces/"+registry.Str(ws["backing_space_id"])+"/workspaces", delivery.WorkspaceCreateInput{ID: registry.NewID(), Name: "Nested"}, 0, 400)
 	rec.http(oc, "GET /v1/workspaces/{workspace} provisioning", "GET", "/v1/workspaces/"+wid, nil, 0, 200)
 	rec.http(jc, "GET /v1/workspaces/{workspace} other user", "GET", "/v1/workspaces/"+wid, nil, 0, 404)
 	rec.http(oc, "POST /v1/workspaces/{workspace}/retry not failed", "POST", "/v1/workspaces/"+wid+"/retry", registry.Row{}, registry.Integer(ws["revision"]), 409)
@@ -88,7 +89,7 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	zip.AddCookie(sessionCookie(oc))
 	rec.raw("GET /v1/apps/{app}/starter.zip", zip, 200)
 	verifier, nonce := registry.Token(32), registry.Token(32)
-	launch := developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5490"}
+	launch := delivery.DevelopmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5490"}
 	rec.http(oc, "POST /v1/apps/{app}/development-launch unapproved origin", "POST", "/v1/apps/"+app+"/development-launch", launch, 0, 400)
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5490", Inherit: true}, 1, 200)
 	rec.http(oc, "POST /v1/apps/{app}/development-launch human session", "POST", "/v1/apps/"+app+"/development-launch", launch, 0, 400)
@@ -104,7 +105,7 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	rec.http(jc, "GET /v1/apps/{app}/builds other user", "GET", "/v1/apps/"+app+"/builds", nil, 0, 404)
 
 	// Releases, preview and production deployment.
-	capture := releaseCreateInput{Name: "1.0.0", Build: registry.Str(build["id"]), Manifest: releaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{"react": "19.2.0"}}}
+	capture := delivery.ReleaseCreateInput{Name: "1.0.0", Build: registry.Str(build["id"]), Manifest: delivery.ReleaseManifest{Microapps: map[string]string{}, Dependencies: map[string]string{"react": "19.2.0"}}}
 	rec.http(oc, "POST /v1/apps/{app}/releases stale", "POST", "/v1/apps/"+app+"/releases", capture, 9, 412)
 	rec.http(oc, "POST /v1/apps/{app}/releases without If-Match", "POST", "/v1/apps/"+app+"/releases", capture, 0, 428)
 	rel := rec.http(oc, "POST /v1/apps/{app}/releases", "POST", "/v1/apps/"+app+"/releases", capture, 2, 200)
@@ -125,7 +126,7 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	rec.http(oc, "GET /v1/apps/{app}/deployment queued", "GET", "/v1/apps/"+prodApp+"/deployment", nil, 0, 200)
 	rec.http(jc, "GET /v1/apps/{app}/deployment other user", "GET", "/v1/apps/"+prodApp+"/deployment", nil, 0, 403)
 	for range 8 {
-		if e := s.deploymentJob(ctx, s.DB); e != nil {
+		if e := s.delivery.DeploymentJob(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 		if _, e := s.publisher.Job(ctx, s.DB); e != nil {

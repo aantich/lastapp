@@ -1,4 +1,4 @@
-package control
+package delivery
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
-	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/publisher"
@@ -44,10 +43,10 @@ func decodeDeployment(v registry.JSONValue) (deploymentPlan, error) {
 	return plan, e
 }
 
-func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v deploymentTask) (access.Principal, error) {
+func (s *Service) deploymentPrincipal(ctx context.Context, q registry.Queryer, v deploymentTask) (access.Principal, error) {
 	p := access.Principal{ID: v.CreatedBy}
 	if v.AgentGrant != "" {
-		g, e := s.ReadAgentGrant(ctx, q, v.AgentGrant)
+		g, e := s.Access.ReadAgentGrant(ctx, q, v.AgentGrant)
 		if e != nil {
 			return p, e
 		}
@@ -61,7 +60,7 @@ func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v 
 
 // publishingDeploymentAuthority rechecks the live authority of the publishing
 // deployment that owns an entity publication (publisher.DeploymentAuthority).
-func (s *Server) publishingDeploymentAuthority(ctx context.Context, q registry.Queryer, id string) error {
+func (s *Service) PublishingDeploymentAuthority(ctx context.Context, q registry.Queryer, id string) error {
 	job, e := registry.ScanOne[deploymentTask](ctx, q, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", id)
 	if e != nil {
 		return e
@@ -72,7 +71,7 @@ func (s *Server) publishingDeploymentAuthority(ctx context.Context, q registry.Q
 
 // deploymentEntities returns the active entities of a deployment's captured
 // snapshot (publisher.DeploymentEntities).
-func deploymentEntities(ctx context.Context, q registry.Queryer, id string) (map[string]bool, error) {
+func DeploymentEntities(ctx context.Context, q registry.Queryer, id string) (map[string]bool, error) {
 	var stored registry.JSONValue
 	if e := registry.Lookup(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", []any{id}, &stored); e != nil {
 		return nil, e
@@ -90,7 +89,7 @@ func deploymentEntities(ctx context.Context, q registry.Queryer, id string) (map
 	return ids, nil
 }
 
-func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
+func (s *Service) DeploymentJob(ctx context.Context, q registry.Queryer) error {
 	jobs, e := registry.ScanAll[deploymentTask](ctx, q, deploymentTaskSQL+" WHERE d.state IN ('queued','preparing','publishing') ORDER BY d.created_at LIMIT 1")
 	if e != nil || len(jobs) == 0 {
 		return e
@@ -110,7 +109,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 			return e
 		}
 		if v.State == "queued" {
-			if e = s.ensureReleaseBuild(attempt, q, v.ReleaseID); e != nil {
+			if e = s.EnsureReleaseBuild(attempt, q, v.ReleaseID); e != nil {
 				return e
 			}
 		}
@@ -120,7 +119,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 				return e
 			}
 			defer tx.Rollback()
-			if e = lockTenant(attempt, tx, v.TenantID); e != nil {
+			if e = LockTenant(attempt, tx, v.TenantID); e != nil {
 				return e
 			}
 			if _, e = s.deploymentPrincipal(attempt, tx, v); e != nil {
@@ -147,7 +146,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 				return e
 			}
 			defer tx.Rollback()
-			if e = lockTenant(attempt, tx, v.TenantID); e != nil {
+			if e = LockTenant(attempt, tx, v.TenantID); e != nil {
 				return e
 			}
 			if _, e = s.deploymentPrincipal(attempt, tx, v); e != nil {
@@ -169,7 +168,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 				if activeHash == entity.Hash(d.Definition) {
 					continue
 				}
-				if e = s.queueDefinition(attempt, tx, p, current, plan.Versions[d.ID], candidates); e != nil {
+				if e = s.QueueDefinition(attempt, tx, p, current, plan.Versions[d.ID], candidates); e != nil {
 					return e
 				}
 				if _, e = tx.ExecContext(attempt, "UPDATE entity_versions SET deployment_id=? WHERE id=?", v.ID, plan.Versions[d.ID]); e != nil {
@@ -201,7 +200,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 				return nil
 			}
 		}
-		if e = s.ensureReleaseBuild(attempt, q, v.ReleaseID); e != nil {
+		if e = s.EnsureReleaseBuild(attempt, q, v.ReleaseID); e != nil {
 			return e
 		}
 		tx, e := s.DB.BeginTx(attempt, nil)
@@ -209,7 +208,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 			return e
 		}
 		defer tx.Rollback()
-		if e = lockTenant(attempt, tx, v.TenantID); e != nil {
+		if e = LockTenant(attempt, tx, v.TenantID); e != nil {
 			return e
 		}
 		if _, e = s.deploymentPrincipal(attempt, tx, v); e != nil {
@@ -227,13 +226,13 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 				} // Unchanged entity.
 				return err
 			}
-			if e = s.publisher.Activate(attempt, tx, version, captured.Definition); e != nil {
+			if e = s.Publisher.Activate(attempt, tx, version, captured.Definition); e != nil {
 				return e
 			}
 			// Open the new physical version before committing its registry version.
 			// Old runtime snapshots see a mismatch and fail closed until commit.
 			if storage == nil {
-				storage, e = s.publisher.BusinessDB(attempt, v.Resource, true)
+				storage, e = s.Publisher.BusinessDB(attempt, v.Resource, true)
 				if e != nil {
 					return e
 				}
@@ -263,7 +262,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 			access := app.Access
 			access.Origin = old.Origin
 			if app.ID == v.TargetApp {
-				access.Origin = s.appHostedOrigin(app.ID)
+				access.Origin = s.HostedOrigin(app.ID)
 			}
 			b, _ := json.Marshal(access)
 			host := ""
@@ -311,18 +310,18 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
 	} else {
-		httpapi.Logger(ctx, s.Log).Warn("release deployment failed", httpapi.Diagnostic(e)...)
+		s.Warn(ctx, "release deployment failed", e)
 	}
 	return s.failDeployment(ctx, v, message)
 }
 
-func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message string) error {
+func (s *Service) failDeployment(ctx context.Context, job deploymentTask, message string) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err = lockTenant(ctx, tx, job.TenantID); err != nil {
+	if err = LockTenant(ctx, tx, job.TenantID); err != nil {
 		return err
 	}
 	versions, err := registry.ScanAll[publisher.Version](ctx, tx, "SELECT "+publisher.VersionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job.ID)
@@ -347,12 +346,12 @@ func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message
 		return err
 	}
 	for _, version := range versions {
-		s.publisher.RestoreBase(ctx, version)
+		s.Publisher.RestoreBase(ctx, version)
 	}
 	return nil
 }
 
-func (s *Server) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, space string, snapshot spaceSnapshot, activate bool) error {
+func (s *Service) applySnapshotMetadata(ctx context.Context, tx *sql.Tx, tenant, space string, snapshot spaceSnapshot, activate bool) error {
 	if e := s.snapshotAppQuota(ctx, tx, tenant, snapshot); e != nil {
 		return e
 	}

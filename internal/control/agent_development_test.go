@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -59,7 +61,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 		return ws
 	}
 	own, foreign := callWorkspace(p, "First agent"), callWorkspace(other, "Second agent")
-	if _, e := s.workspaceRow(ctx, s.DB, p, registry.Str(foreign["id"])); e == nil {
+	if _, e := s.delivery.Workspace(ctx, op.AgentActor(ctx, p), registry.Str(foreign["id"])); e == nil {
 		t.Fatal("agent accessed sibling workspace")
 	}
 	d := entity.Templates()[0]
@@ -102,7 +104,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	s.Config.Development = false
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5190", Inherit: true}, 1, 200)
 	verifier, nonce := registry.Token(32), registry.Token(32)
-	raw, _ = json.Marshal(agentWorkspaceInput{Action: "launch", App: app, Launch: &developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
+	raw, _ = json.Marshal(agentWorkspaceInput{Action: "launch", App: app, Launch: &delivery.DevelopmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
 	launch, e := s.toolAgentWorkspace(ctx, p, raw)
 	if e != nil {
 		t.Fatal(e)

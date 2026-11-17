@@ -74,10 +74,10 @@ func (s *Server) workerLeader(ctx context.Context) error {
 			}
 			cleanedAt = time.Now()
 		}
-		if e = s.deploymentJob(ctx, conn); e != nil {
+		if e = s.delivery.DeploymentJob(ctx, conn); e != nil {
 			return e
 		}
-		if e = s.workspaceJob(ctx, conn); e != nil {
+		if e = s.delivery.WorkspaceJob(ctx, conn); e != nil {
 			return e
 		}
 		if _, err := s.publisher.Job(ctx, conn, &lastPublicationTenant); err != nil {
