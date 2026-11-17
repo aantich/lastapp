@@ -280,7 +280,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": definition}, 3, 409)
 	assertSecurity := func() {
 		t.Helper()
-		actor, access, err := s.actorContext(ctx, s.DB, joe, tenant, space, app)
+		actor, access, err := s.authoring.ActorContext(ctx, s.DB, joe, tenant, space, app)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,12 +1,8 @@
 package control
 
 import (
-	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
@@ -37,53 +33,6 @@ func (s *Server) entityRoutes() {
 	s.api("GET /v1/apps/{app}/launch-info", s.appLaunchInfo)
 	s.api("POST /v1/apps/{app}/launch", s.appLaunch)
 	s.mux.HandleFunc("/data/v1/", s.dataHandler)
-}
-
-func (s *Server) actorContext(ctx context.Context, q registry.Queryer, user, tenant, space, app string) (entity.Context, entity.AppAccess, error) {
-	c := entity.Context{Actor: user, Now: time.Now().UTC(), Roles: map[string]bool{}, Teams: map[string]bool{}, ReviewTeams: map[string]bool{}, AdminTeams: map[string]bool{}}
-	a := entity.AppAccess{Inherit: true}
-	if e := s.Member(ctx, q, access.Principal{ID: user}, tenant, true); e != nil {
-		return c, a, e
-	}
-	query := strings.Replace(access.EffectiveAssignmentSQL, " ORDER BY g.scope_kind,g.id", " AND (g.scope_kind='team' OR (g.scope_kind='space' AND g.space_id=?) OR (g.scope_kind='app' AND g.app_id=?)) ORDER BY g.scope_kind,g.id", 1)
-	assignments, e := registry.ScanAll[access.EffectiveAssignment](ctx, q, query, user, tenant, space, app)
-	if e != nil {
-		return c, a, e
-	}
-	for _, g := range assignments {
-		if (g.ScopeKind == "space" && access.Deref(g.SpaceID) == space) || (g.ScopeKind == "app" && access.Deref(g.AppID) == app) {
-			c.Roles[g.RoleID] = true
-		}
-		if g.ScopeKind == "team" {
-			if g.Code == "team.reviewer" {
-				c.ReviewTeams[access.Deref(g.ScopeTeamID)] = true
-			}
-			if g.Code == "team.admin" {
-				c.AdminTeams[access.Deref(g.ScopeTeamID)] = true
-			}
-		}
-	}
-	teams, e := registry.ScanStrings(ctx, q, "SELECT gm.group_id FROM group_memberships gm JOIN groups g ON g.id=gm.group_id AND g.tenant_id=gm.tenant_id AND g.state='active' WHERE gm.tenant_id=? AND gm.user_id=? AND gm.state='active' LIMIT ?", tenant, user, entity.MaxActorTeams+1)
-	if e != nil {
-		return c, a, e
-	}
-	if len(teams) > entity.MaxActorTeams {
-		return c, a, registry.Conflict("Membership expansion limit exceeded.")
-	}
-	for _, g := range teams {
-		c.Teams[g] = true
-	}
-	if app != "" {
-		var access registry.JSONValue
-		if e := registry.Lookup(ctx, q, "SELECT data_access_json FROM apps WHERE id=? AND tenant_id=? AND space_id=? AND state='active'", []any{app, tenant, space}, &access); e != nil {
-			return c, a, e
-		}
-		b, _ := json.Marshal(access)
-		if e = json.Unmarshal(b, &a); e != nil {
-			return c, a, e
-		}
-	}
-	return c, a, nil
 }
 
 func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p access.Principal) error {

@@ -168,7 +168,7 @@ func Open(c config.Config) (*Server, error) {
 	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
-	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.queueDefinition, ActorContext: s.actorContext}
+	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.queueDefinition}
 	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.sealer.Seal, Config: &s.Config, RegistryName: cfg.DBName}
 	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, PrepareAccount: s.prepareAccount}
 	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}

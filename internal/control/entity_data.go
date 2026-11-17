@@ -107,7 +107,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 	if e = tx.QueryRowContext(ctx, "SELECT origin_generation FROM apps WHERE id=? AND state='active'", se.AppID).Scan(&generation); e != nil || generation != se.OriginGeneration {
 		return rt, registry.Problem(401, "unauthenticated", "App origin approval changed. Reconnect the App.")
 	}
-	rt.actor, rt.access, e = s.actorContext(ctx, tx, se.UserID, se.TenantID, se.SpaceID, se.AppID)
+	rt.actor, rt.access, e = s.authoring.ActorContext(ctx, tx, se.UserID, se.TenantID, se.SpaceID, se.AppID)
 	if e != nil {
 		return rt, e
 	}
