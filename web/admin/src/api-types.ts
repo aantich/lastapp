@@ -116,7 +116,7 @@ export type EntityCatalog = {
   context_providers: ContextProvider[];
 };
 
-// internal/control/app_sessions.go: appLaunchInfo, App launch code exchange.
+// internal/dataapi/sessions.go: LaunchInfo, App launch code exchange.
 export type LaunchInfo = {
   id: string;
   name: string;

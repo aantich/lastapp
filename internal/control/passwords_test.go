@@ -176,7 +176,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 	}
 	// Exhaust just the email budget at a fixed timestamp, without expensive hashes.
 	for range 8 {
-		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(hash("limited@example.test")), time.Now(), 8, 1.0/30)
+		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(registry.TokenHash("limited@example.test")), time.Now(), 8, 1.0/30)
 	}
 	passwordSignIn(c, "limited@example.test", password, 429)
 	wrong := httptest.NewRequest("GET", "/auth/login", nil)

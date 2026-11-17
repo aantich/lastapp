@@ -239,7 +239,7 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 func agentFixtureToken(t *testing.T, s *Server, p access.Principal) string {
 	t.Helper()
 	access := registry.Token(32)
-	if _, e := s.DB.Exec("INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE))", registry.NewID(), p.Agent.ID, p.Agent.Revision, registry.NewID(), hash(access), hash(registry.Token(48))); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE))", registry.NewID(), p.Agent.ID, p.Agent.Revision, registry.NewID(), registry.TokenHash(access), registry.TokenHash(registry.Token(48))); e != nil {
 		t.Fatal(e)
 	}
 	return access

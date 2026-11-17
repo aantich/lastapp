@@ -105,7 +105,7 @@ func TestSessionShapeGolden(t *testing.T) {
 	send("GET /v1/me after logout", "GET", "/v1/me", nil, 401, signedIn(session, ""))
 	limited := "limited-" + registry.NewID()[:8] + "@example.test"
 	for range 8 {
-		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(hash(limited)), time.Now(), 8, 1.0/30)
+		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(registry.TokenHash(limited)), time.Now(), 8, 1.0/30)
 	}
 	login("POST /auth/login/password rate limited", registry.Row{"email": limited, "password": password}, s.Config.PublicURL, 429)
 

@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
@@ -68,7 +67,7 @@ func (s *Server) InitAuth(ctx context.Context) error {
 func (s *Server) cookie(w http.ResponseWriter, name, value string, age int, httpOnly bool) {
 	http.SetCookie(w, &http.Cookie{Name: httpapi.CookieName(s.Config.PublicURL, name), Value: value, Path: "/", MaxAge: age, HttpOnly: httpOnly, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteLaxMode})
 }
-func hash(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
 		httpapi.WriteError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
@@ -159,7 +158,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, csrf := registry.Token(32), registry.Token(32)
-	_, e = tx.ExecContext(ctx, "INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR))", hash(session), uid, hash(csrf))
+	_, e = tx.ExecContext(ctx, "INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR))", registry.TokenHash(session), uid, registry.TokenHash(csrf))
 	if e != nil {
 		httpapi.WriteError(w, r, e)
 		return
@@ -182,7 +181,7 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (access.Princip
 	if e != nil {
 		return p, registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}
-	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,''),se.auth_method,COALESCE(la.must_change_password,0) FROM sessions se JOIN users u ON u.id=se.user_id LEFT JOIN local_accounts la ON la.user_id=u.id AND se.auth_method='password' WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active' AND (se.auth_method='oidc' OR la.user_id IS NOT NULL)", hash(c.Value)).Scan(&p.ID, &p.Name, &p.Email, &p.AuthMethod, &p.PasswordChangeRequired)
+	e = s.DB.QueryRowContext(ctx, "SELECT u.id,u.display_name,COALESCE(u.email,''),se.auth_method,COALESCE(la.must_change_password,0) FROM sessions se JOIN users u ON u.id=se.user_id LEFT JOIN local_accounts la ON la.user_id=u.id AND se.auth_method='password' WHERE se.token_hash=? AND se.expires_at>UTC_TIMESTAMP(6) AND se.purpose='console' AND se.state='active' AND u.state='active' AND (se.auth_method='oidc' OR la.user_id IS NOT NULL)", registry.TokenHash(c.Value)).Scan(&p.ID, &p.Name, &p.Email, &p.AuthMethod, &p.PasswordChangeRequired)
 	if errors.Is(e, sql.ErrNoRows) {
 		return p, registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}
@@ -206,8 +205,8 @@ func (s *Server) csrf(ctx context.Context, r *http.Request) error {
 		return registry.Problem(403, "csrf_failed", "Missing CSRF token.")
 	}
 	var expected []byte
-	e = s.DB.QueryRowContext(ctx, "SELECT csrf_hash FROM sessions WHERE token_hash=? AND purpose='console' AND state='active' AND expires_at>UTC_TIMESTAMP(6)", hash(cookie.Value)).Scan(&expected)
-	if e != nil || subtle.ConstantTimeCompare(expected, hash(value)) != 1 {
+	e = s.DB.QueryRowContext(ctx, "SELECT csrf_hash FROM sessions WHERE token_hash=? AND purpose='console' AND state='active' AND expires_at>UTC_TIMESTAMP(6)", registry.TokenHash(cookie.Value)).Scan(&expected)
+	if e != nil || subtle.ConstantTimeCompare(expected, registry.TokenHash(value)) != 1 {
 		return registry.Problem(403, "csrf_failed", "Invalid CSRF token.")
 	}
 	return nil

@@ -13,11 +13,12 @@ const module = "github.com/aantich/lastapp/"
 
 // layers is the documented dependency direction (DEVELOPMENT.md, package
 // layout): an internal package may import only internal packages of a strictly
-// lower layer. control → publisher → entities → inventory → membership → roles → databases
+// lower layer. control → dataapi → publisher → entities → inventory → membership → roles → databases
 // → op → access → registry, with config, sealer and the entity/data/authz/
 // artifact leaves below them. A new internal package must be placed here.
 var layers = map[string]int{
 	"control":    100,
+	"dataapi":    97,
 	"publisher":  95,
 	"entities":   90,
 	"inventory":  80,
@@ -37,8 +38,11 @@ var layers = map[string]int{
 }
 
 // transportOnly packages are HTTP/wiring plumbing: below control, but no
-// domain package may depend on them.
-var transportOnly = map[string]bool{"control": true, "httpapi": true}
+// domain package may depend on them. dataapi is the HTTP-facing App data API
+// (/data/v1, App launch/sessions): it serves requests itself, so it may use the
+// shared httpapi plumbing (decode/send, error writer, limiter, proxies) instead
+// of duplicating it, and only control (which mounts it) may import it.
+var transportOnly = map[string]bool{"control": true, "dataapi": true, "httpapi": true}
 
 type listedPackage struct {
 	ImportPath   string
@@ -83,7 +87,7 @@ func TestPackageLayering(t *testing.T) {
 			case strings.HasPrefix(from, "cmd/"):
 				// Binaries wire the service together.
 			case transportOnly[name] && (!fromInternal || !transportOnly[strings.TrimPrefix(from, "internal/")]):
-				t.Errorf("%s imports %s: only cmd/ and internal/control may import transport packages", from, to)
+				t.Errorf("%s imports %s: only cmd/ and transport packages (control, dataapi) may import transport packages", from, to)
 			case !fromInternal:
 				// Non-internal module packages (packages/, web/) may use leaves only.
 				if toLayer > layers["config"] {

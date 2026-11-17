@@ -98,7 +98,7 @@ func TestEntityRuntime(t *testing.T) {
 		}
 		verifier := registry.Token(32)
 		nonce := registry.Token(32)
-		v := client.want("POST", "/v1/apps/"+appID+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+		v := client.want("POST", "/v1/apps/"+appID+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), "nonce": nonce}, 0, 200)
 		code, result := dataReq("", "POST", "/session/exchange", registry.Row{"code": v["code"], "verifier": verifier, "nonce": nonce}, 0, origin)
 		if code != 200 {
 			t.Fatal(result)
@@ -350,7 +350,7 @@ func TestEntityRuntime(t *testing.T) {
 		t.Fatal(latest["publications"])
 	}
 	request(bearer, "POST", "/entities/deal/query", registry.Row{"select": []string{"name"}}, 0, 200)
-	exec("DELETE FROM sessions WHERE token_hash=?", hash(oc.session))
+	exec("DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(oc.session))
 	request(bearer, "GET", "/schema", nil, 0, 401)
 	request(bearer2, "GET", "/schema", nil, 0, 401)
 	request(sharedBearer, "GET", "/schema", nil, 0, 401)
@@ -397,32 +397,6 @@ func businessDatabaseFixture(t *testing.T, s *Server, tenant string, managed boo
 	}
 	exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,schema_credentials_enc) VALUES(?,?,?,?,'registered','shared','ready',?,?)", resource, tenant, target, name, enc, schema)
 	return resource, target
-}
-
-func TestTenantDataFairness(t *testing.T) {
-	var limiter inFlightTenants
-	releases := []func(){}
-	for i := 0; i < entity.MaxTenantDataRequests; i++ {
-		release, ok := limiter.reserve("one")
-		if !ok {
-			t.Fatal("premature limit")
-		}
-		releases = append(releases, release)
-	}
-	if _, ok := limiter.reserve("one"); ok {
-		t.Fatal("one Tenant exceeded its concurrency budget")
-	}
-	other, ok := limiter.reserve("two")
-	if !ok {
-		t.Fatal("another Tenant was blocked")
-	}
-	other()
-	for _, release := range releases {
-		release()
-	}
-	if len(limiter.counts) != 0 {
-		t.Fatal("idle Tenant counters retained")
-	}
 }
 
 // failingWorkspaceRead fails the publisher's workspace lookup with a database

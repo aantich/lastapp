@@ -21,6 +21,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/dataapi"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
@@ -46,9 +47,6 @@ type Server struct {
 	agentValidationSlots   chan struct{}
 	agentBootstrapLimiter  httpapi.Limiter
 	agentValidationLimiter httpapi.Limiter
-	tenantDataSlots        inFlightTenants
-	dataSlots              chan struct{}
-	definitions            definitionCache
 	limiter                httpapi.Limiter
 	loginLimiter           httpapi.Limiter
 	passwordSlots          chan struct{}
@@ -67,6 +65,7 @@ type Server struct {
 	storage                *databases.Storage
 	authoring              *entities.Authoring
 	publisher              *publisher.Publisher
+	dataAPI                *dataapi.Runtime
 }
 
 func LoadConfig(path string) (config.Config, error) {
@@ -165,7 +164,7 @@ func Open(c config.Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
-	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
+	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
 	s.publisher = &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: cfg.DBName, Connect: s.targetDB, DeploymentAuthority: s.publishingDeploymentAuthority, DeploymentEntities: deploymentEntities, Warn: func(ctx context.Context, msg string, err error, attrs ...any) {
@@ -176,8 +175,11 @@ func Open(c config.Config) (*Server, error) {
 	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, PrepareAccount: s.prepareAccount}
 	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}
 	s.authority = &roles.Authority{DB: db, Run: s.run}
+	s.dataAPI = &dataapi.Runtime{DB: db, Access: s.Checker, Authoring: s.authoring, Publisher: s.publisher, Sealer: seal, Config: &s.Config, Limiter: &s.limiter, Proxies: &s.trustedProxies, Slots: make(chan struct{}, entity.Limits.DataRequests)}
 	return s, nil
 }
+
+func (s *Server) Close() error { s.publisher.Close(); return s.DB.Close() }
 
 func Migrate(ctx context.Context, db *sql.DB) error {
 	goose.SetBaseFS(migrationFiles)

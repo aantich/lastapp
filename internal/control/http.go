@@ -44,7 +44,7 @@ func (s *Server) Handler() http.Handler {
 	s.api("POST /auth/password", s.changePassword)
 	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		c, _ := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
-		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", hash(c.Value))
+		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(c.Value))
 		if e != nil {
 			return e
 		}

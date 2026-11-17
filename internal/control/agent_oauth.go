@@ -213,7 +213,7 @@ func (s *Server) agentAuthorize(w http.ResponseWriter, r *http.Request) {
 	if q.Get("scope") == "" && c.Scope != "" {
 		scopes, e = agentScopeNames(c.Scope)
 	}
-	if !matched || !validAgentRedirect(redirect) || e != nil || q.Get("response_type") != "code" || q.Get("resource") != s.mcpURL() || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || len(q.Get("state")) > 1024 || !verifierRE.MatchString(q.Get("code_challenge")) {
+	if !matched || !validAgentRedirect(redirect) || e != nil || q.Get("response_type") != "code" || q.Get("resource") != s.mcpURL() || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || len(q.Get("state")) > 1024 || !registry.PKCEVerifier.MatchString(q.Get("code_challenge")) {
 		httpapi.WriteError(w, r, registry.Bad("Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE."))
 		return
 	}
@@ -435,7 +435,7 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p access.P
 		limits, _ := json.Marshal(in.Limits)
 		_, e = tx.ExecContext(r.Context(), "INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,scope_id,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,?,?,?,?,?,?,?,?,?)", grant, p.ID, v.ClientID, v.ClientName, registry.Nullable(in.Tenant), in.Kind, registry.Nullable(in.Scope), permissions, limits, time.Now().UTC().Add(time.Duration(in.Days)*24*time.Hour), v.Resource)
 		if e == nil {
-			_, e = tx.ExecContext(r.Context(), "UPDATE agent_oauth_requests SET grant_id=?,code_hash=?,expires_at=? WHERE id=?", grant, hash(code), time.Now().UTC().Add(agentCodeLifetime), v.ID)
+			_, e = tx.ExecContext(r.Context(), "UPDATE agent_oauth_requests SET grant_id=?,code_hash=?,expires_at=? WHERE id=?", grant, registry.TokenHash(code), time.Now().UTC().Add(agentCodeLifetime), v.ID)
 		}
 		if e == nil {
 			e = op.Audit(r.Context(), tx, in.Tenant, p.ID, "agent.approved", "agent_grant", grant, r.Header.Get("X-Request-ID"), registry.Row{"client_id": v.ClientID, "scope_kind": in.Kind, "scope_id": in.Scope, "permissions": in.Permissions})
@@ -598,7 +598,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	var grantID, family string
 	switch r.Form.Get("grant_type") {
 	case "authorization_code":
-		v, err := registry.ScanOne[oauthRequest](ctx, tx, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE code_hash=? AND resource_uri=? AND consumed=0 AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(r.Form.Get("code")), s.mcpURL())
+		v, err := registry.ScanOne[oauthRequest](ctx, tx, "SELECT "+oauthRequestColumns+" FROM agent_oauth_requests WHERE code_hash=? AND resource_uri=? AND consumed=0 AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", registry.TokenHash(r.Form.Get("code")), s.mcpURL())
 		if err != nil {
 			oauthError(w, "invalid_grant")
 			return
@@ -606,7 +606,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		verifier := r.Form.Get("code_verifier")
 		sum := sha256.Sum256([]byte(verifier))
 		challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-		if !verifierRE.MatchString(verifier) || subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || r.Form.Get("client_id") != v.ClientID || r.Form.Get("redirect_uri") != v.RedirectURI {
+		if !registry.PKCEVerifier.MatchString(verifier) || subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || r.Form.Get("client_id") != v.ClientID || r.Form.Get("redirect_uri") != v.RedirectURI {
 			oauthError(w, "invalid_grant")
 			return
 		}
@@ -615,7 +615,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		_, e = tx.ExecContext(ctx, "UPDATE agent_oauth_requests SET consumed=1 WHERE id=?", v.ID)
 	case "refresh_token":
 		var session, grant, state, client string
-		err := registry.Lookup(ctx, tx, "SELECT t.id,t.grant_id,t.family_id,t.state,g.client_id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE t.refresh_hash=? FOR UPDATE", []any{hash(r.Form.Get("refresh_token"))}, &session, &grant, &family, &state, &client)
+		err := registry.Lookup(ctx, tx, "SELECT t.id,t.grant_id,t.family_id,t.state,g.client_id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE t.refresh_hash=? FOR UPDATE", []any{registry.TokenHash(r.Form.Get("refresh_token"))}, &session, &grant, &family, &state, &client)
 		if err != nil || client != r.Form.Get("client_id") {
 			oauthError(w, "invalid_grant")
 			return
@@ -662,7 +662,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, "invalid_grant")
 		return
 	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", registry.NewID(), g.ID, g.Revision, family, hash(access), hash(refresh), time.Now().UTC().Add(agentAccessLifetime))
+	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", registry.NewID(), g.ID, g.Revision, family, registry.TokenHash(access), registry.TokenHash(refresh), time.Now().UTC().Add(agentAccessLifetime))
 	if e != nil {
 		httpapi.WriteError(w, r, e)
 		return
@@ -692,7 +692,7 @@ func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var family string
-	e := s.DB.QueryRowContext(r.Context(), "SELECT t.family_id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE (t.access_hash=? OR t.refresh_hash=?) AND g.client_id=?", hash(r.Form.Get("token")), hash(r.Form.Get("token")), r.Form.Get("client_id")).Scan(&family)
+	e := s.DB.QueryRowContext(r.Context(), "SELECT t.family_id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE (t.access_hash=? OR t.refresh_hash=?) AND g.client_id=?", registry.TokenHash(r.Form.Get("token")), registry.TokenHash(r.Form.Get("token")), r.Form.Get("client_id")).Scan(&family)
 	if e == nil {
 		_, e = s.DB.ExecContext(r.Context(), "UPDATE agent_token_sessions SET state='revoked' WHERE family_id=?", family)
 	}

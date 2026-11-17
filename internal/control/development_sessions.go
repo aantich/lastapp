@@ -7,48 +7,12 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/dataapi"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
-
-// Both browser and delegated sessions use the same parent check on exchange and
-// every data request. Agent tokens never authenticate directly to the data API.
-func (s *Server) appSessionParent(ctx context.Context, q registry.Queryer, v appSession) error {
-	denied := registry.Problem(401, "unauthenticated", "App session expired or revoked.")
-	p := access.Principal{ID: v.UserID}
-	if access.Deref(v.AgentGrant) != "" {
-		g, e := s.ReadAgentGrant(ctx, q, access.Deref(v.AgentGrant))
-		if e != nil {
-			return denied
-		}
-		p.Agent = g
-		if g.Revision != access.Deref(v.AgentRevision) || access.RequireAgent(g, "workspaces.test") != nil {
-			return denied
-		}
-		var workspace string
-		if e = q.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v.SpaceID).Scan(&workspace); e != nil {
-			return denied
-		}
-		if e = s.Authorize(ctx, q, p, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, true); e != nil {
-			return denied
-		}
-	} else {
-		var n int
-		e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions parent JOIN users u ON u.id=parent.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id WHERE parent.token_hash=? AND parent.user_id=? AND parent.purpose='console' AND parent.state='active' AND parent.expires_at>UTC_TIMESTAMP(6) AND (parent.auth_method='oidc' OR la.must_change_password=0)", v.ParentHash, p.ID).Scan(&n)
-		if e != nil {
-			return e
-		}
-		if n != 1 {
-			return denied
-		}
-		if e = s.WorkspaceGuard(ctx, q, p, v.SpaceID); e != nil {
-			return denied
-		}
-	}
-	return nil
-}
 
 type developmentLaunchInput struct {
 	Challenge string `json:"challenge"`
@@ -64,7 +28,7 @@ func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in deve
 	if e := access.RequireAgent(p.Agent, "workspaces.test"); e != nil {
 		return nil, e
 	}
-	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
+	if !registry.PKCEChallenge.MatchString(in.Challenge) || !registry.PKCEChallenge.MatchString(in.Nonce) {
 		return nil, registry.Bad("Provide an S256 challenge and random nonce.")
 	}
 	v, e := inventory.AppRow(ctx, s.DB, app)
@@ -87,13 +51,13 @@ func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in deve
 	}
 	code := registry.Token(32)
 	e = s.run.Mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
-		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
+		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(dataapi.LaunchLifetime))
 		return e
 	})
 	if e != nil {
 		return nil, e
 	}
-	return registry.Row{"code": code, "nonce": in.Nonce, "origin": in.Origin, "expires_in": int(launchLifetime.Seconds()), "instruction": "Exchange once with the locally held verifier using SDK connectDevelopment. Never put this code or an App token in a build."}, nil
+	return registry.Row{"code": code, "nonce": in.Nonce, "origin": in.Origin, "expires_in": int(dataapi.LaunchLifetime.Seconds()), "instruction": "Exchange once with the locally held verifier using SDK connectDevelopment. Never put this code or an App token in a build."}, nil
 }
 
 func (s *Server) developmentLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {

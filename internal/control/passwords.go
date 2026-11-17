@@ -49,7 +49,7 @@ func (s *Server) prepareAccount(in membership.AccountInput) (membership.Prepared
 
 func newConsoleSession(ctx context.Context, tx *sql.Tx, user, method string) (string, string, error) {
 	session, csrf := registry.Token(32), registry.Token(32)
-	_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,expires_at,auth_method) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR),?)", hash(session), user, hash(csrf), method)
+	_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,expires_at,auth_method) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR),?)", registry.TokenHash(session), user, registry.TokenHash(csrf), method)
 	return session, csrf, e
 }
 
@@ -163,7 +163,7 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		email, e := membership.LoginEmail(in.Email)
 		peer := s.trustedProxies.ClientIP(r)
 		now := time.Now()
-		if !s.loginLimiter.AllowRate("ip:"+peer, now, 12, 1.0/5) || !s.loginLimiter.AllowRate("email:"+hex.EncodeToString(hash(email)), now, 8, 1.0/30) {
+		if !s.loginLimiter.AllowRate("ip:"+peer, now, 12, 1.0/5) || !s.loginLimiter.AllowRate("email:"+hex.EncodeToString(registry.TokenHash(email)), now, 8, 1.0/30) {
 			return httpapi.RateLimited(w)
 		}
 		if e != nil || len(in.Password) > membership.MaxPasswordInputBytes {

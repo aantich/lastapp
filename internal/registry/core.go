@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -178,6 +179,18 @@ func Token(n int) string {
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
+// TokenHash is the stored SHA-256 digest of a secret token: console and App
+// session tokens, launch codes, upload tickets and agent OAuth codes/tokens.
+func TokenHash(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
+
+// PKCE formats shared by App launch codes and agent OAuth: PKCEVerifier is an
+// RFC 7636 code verifier, PKCEChallenge an S256 challenge (also used for the
+// launch nonce).
+var (
+	PKCEVerifier  = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+	PKCEChallenge = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+)
 
 // LockedRecord is the revision and lifecycle state of a record locked for
 // update.
