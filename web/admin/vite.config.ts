@@ -6,7 +6,11 @@ const api = process.env.LASTAPP_API_ORIGIN || "http://127.0.0.1:8787";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: "/console/",
-  build: { emptyOutDir: false },
+  build: {
+    emptyOutDir: false,
+    // The console CSP has no data: font source; always emit fonts as files.
+    assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,

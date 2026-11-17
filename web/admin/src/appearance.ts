@@ -1,69 +1,45 @@
 import { useEffect, useState } from "react";
 import { savePreference } from "./preferences";
 
-export const themes = [
-  { id: "neo", name: "Neo", description: "Quiet blue · fine dashed borders" },
-  {
-    id: "studio",
-    name: "Studio",
-    description: "Soft violet · rounded surfaces",
-  },
-  {
-    id: "evergreen",
-    name: "Evergreen",
-    description: "Natural green · crisp and calm",
-  },
-] as const;
-type Theme = (typeof themes)[number]["id"];
-export type Mode = "light" | "dark" | "system";
-export type Appearance = { theme: Theme; mode: Mode };
+// Signal is the only theme; the browser preference chooses the color mode.
+export const modes = ["light", "dark", "system"] as const;
+export type Mode = (typeof modes)[number];
+export type Appearance = { mode: Mode };
 const storageKey = "lastapp-appearance";
-const defaults: Appearance = { theme: "neo", mode: "light" };
+const defaults: Appearance = { mode: "light" };
+// Browser chrome color: the Signal canvas of each resolved mode.
+const chrome = { light: "#f6f5f2", dark: "#141518" };
 
+// Older saved values also carry a `theme` preset; it is ignored.
 function readAppearance(): Appearance {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
-    return {
-      theme: themes.some((t) => t.id === saved?.theme)
-        ? saved.theme
-        : defaults.theme,
-      mode: ["light", "dark", "system"].includes(saved?.mode)
-        ? saved.mode
-        : defaults.mode,
-    };
+    return { mode: modes.includes(saved?.mode) ? saved.mode : defaults.mode };
   } catch {
     return defaults;
   }
 }
 
-function applyAppearance(value: Appearance) {
+export function applyMode(mode: Mode) {
   const dark =
-    value.mode === "dark" ||
-    (value.mode === "system" &&
-      matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.theme = value.theme;
+    mode === "dark" ||
+    (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.mode = dark ? "dark" : "light";
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", dark ? "#17181e" : "#ffffff");
+    ?.setAttribute("content", dark ? chrome.dark : chrome.light);
 }
 
-// Apply before React mounts; index.html also sets the attributes before CSS loads.
-applyAppearance(readAppearance());
+// Apply before React mounts; index.html also sets the attribute before CSS loads.
+applyMode(readAppearance().mode);
 
 export function useAppearance() {
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
-  const [systemDark, setSystemDark] = useState(
-    () => matchMedia("(prefers-color-scheme: dark)").matches,
-  );
   useEffect(() => {
-    applyAppearance(appearance);
+    applyMode(appearance.mode);
     savePreference(storageKey, JSON.stringify(appearance));
     const system = matchMedia("(prefers-color-scheme: dark)");
-    const updateSystem = () => {
-      setSystemDark(system.matches);
-      applyAppearance(appearance);
-    };
+    const updateSystem = () => applyMode(appearance.mode);
     system.addEventListener("change", updateSystem);
     return () => system.removeEventListener("change", updateSystem);
   }, [appearance]);
@@ -78,9 +54,6 @@ export function useAppearance() {
   return {
     appearance,
     setAppearance,
-    isDark:
-      appearance.mode === "dark" ||
-      (appearance.mode === "system" && systemDark),
     reset: () => setAppearance({ ...defaults }),
   };
 }
