@@ -80,7 +80,8 @@ generated from that model; it is not a separate authoring language or independen
 source of rules. Inspect capabilities and generated contracts rather than copying
 type/operator lists or inventing storage mappings.
 
-Management routes are in `internal/control/entities.go`. Published data routes
+Management route handlers are in `internal/control/entities.go`; the operations
+they call are in `internal/entities/entities.go`. Published data routes
 start at `/data/v1`; their context comes exclusively from the App token.
 `GET /data/v1/schema` returns only the actor/App-visible contracts, including
 stable entity IDs, versions, input/output schemas and generated client types.

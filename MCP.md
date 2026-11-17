@@ -76,6 +76,10 @@ Tool names and input schemas are generated from the authoritative catalog/types
 in [agent_tools.go](internal/control/agent_tools.go). Read the connected server's
 tool schema, not a copied payload definition. Visibility follows the current
 delegation; ordinary user authority is checked again during execution.
+The generated schemas are pinned by
+`internal/control/testdata/mcp_tools.golden.json`; see
+[DEVELOPMENT.md](DEVELOPMENT.md#api-boundaries) for regenerating it after an
+intended change.
 
 | Tool | Purpose |
 | --- | --- |
