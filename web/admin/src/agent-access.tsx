@@ -1,10 +1,7 @@
 import { useState } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
-import { RemoteSelect } from "./remote-select";
-import { Select } from "./select";
-import { NumberInput } from "./number-input";
-import { useDialogFocus } from "./dialog";
+import { RemoteSelect, Select, NumberInput, useDialogFocus } from "./ui";
 import { errorMessage, useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 

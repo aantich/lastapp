@@ -1,8 +1,7 @@
 import { Plus } from "lucide-react";
 import { api } from "../api";
-import { Select } from "../select";
+import { Select, confirmAction } from "../ui";
 import { items, num, text, type Item } from "../api-types";
-import { confirmAction } from "../confirm";
 import { FieldChoices } from "./expression";
 import { EntityRow } from "./editor-dialog";
 import { inputValue, strings, type Designer } from "./shared";

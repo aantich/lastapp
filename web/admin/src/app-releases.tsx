@@ -4,7 +4,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Failure } from "./api";
 import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
-import { FormModal, type Modal } from "./form-modal";
+import { FormModal, type Modal } from "./ui";
 import { status } from "./console-forms";
 import {
   keyOf,

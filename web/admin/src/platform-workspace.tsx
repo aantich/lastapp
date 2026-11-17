@@ -9,14 +9,13 @@ import {
 } from "lucide-react";
 import { ConsoleShell } from "./console-shell";
 import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
-import { FormModal, type Modal } from "./form-modal";
+import { FormModal, type Modal, ErrorBoundary } from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
-import { ErrorBoundary } from "./error-boundary";
 import { text, type Me, type Page, type TenantOverview } from "./api-types";
 import type { PlatformScreen } from "./platform/screen";
 import {

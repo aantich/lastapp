@@ -3,11 +3,11 @@ import { Check, LoaderCircle, X } from "lucide-react";
 import { RemoteSelect } from "./remote-select";
 import { Select } from "./select";
 import { NumberInput } from "./number-input";
-import { useDialogFocus } from "./dialog";
+import { useDialogFocus } from "./use-dialog-focus";
 import { NewPasswordInput } from "./new-password-input";
-import { generatePassword, usePasswordPolicy } from "./console-config";
-import { useAction } from "./use-action";
-import { keyOf, text, type Item } from "./api-types";
+import { generatePassword, usePasswordPolicy } from "../console-config";
+import { useAction } from "../use-action";
+import { keyOf, text, type Item } from "../api-types";
 // A multi-value field's current list; unset means none chosen.
 const listValue = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 export type Field = {

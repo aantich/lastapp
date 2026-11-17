@@ -1,4 +1,4 @@
-import type { Field } from "./form-modal";
+import type { Field } from "./ui";
 import { text, type Item } from "./api-types";
 export const nameFields: Field[] = [
   { key: "display_name", label: "Name", required: true },

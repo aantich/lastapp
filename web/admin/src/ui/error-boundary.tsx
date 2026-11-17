@@ -1,8 +1,8 @@
 import { Component, type ReactNode } from "react";
 import { TriangleAlert } from "lucide-react";
-import { errorMessage } from "./use-action";
-import { queryClient } from "./query";
-import { retryLazyLoads } from "./retryable-lazy";
+import { errorMessage } from "../use-action";
+import { queryClient } from "../query";
+import { retryLazyLoads } from "../retryable-lazy";
 
 // Keeps a page's render failure (or a lazily loaded screen that failed to
 // download) inside the console shell, so navigation and sign-out still work.

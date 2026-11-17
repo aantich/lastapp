@@ -12,17 +12,21 @@ import { api } from "./api";
 import { DevelopmentBanner } from "./development-workspaces";
 import { ConsoleShell } from "./console-shell";
 import { consoleURL, parseTenantURL, useConsoleURL } from "./console-url";
-import { FormModal, type Field, type Modal } from "./form-modal";
+import {
+  FormModal,
+  type Field,
+  type Modal,
+  RemoteSelect,
+  ErrorBoundary,
+} from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
-import { RemoteSelect } from "./remote-select";
 import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
 import { LiveRefresh, refreshQueries, useApiQuery } from "./query";
 import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
-import { ErrorBoundary } from "./error-boundary";
 import {
   num,
   optText,

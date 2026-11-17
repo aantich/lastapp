@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { num, type Item } from "../api-types";
-import type { Field } from "../form-modal";
+import type { Field } from "../ui";
 import {
   accountFields,
   accountPayload,

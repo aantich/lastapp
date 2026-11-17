@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { api } from "./api";
-import { text, type Item, type Page } from "./api-types";
+import { api } from "../api";
+import { text, type Item, type Page } from "../api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
-import { apiKey, useApiQuery } from "./query";
+import { apiKey, useApiQuery } from "../query";
 import { ListboxPopup } from "./select";
 
 type RemoteSelectProps = {

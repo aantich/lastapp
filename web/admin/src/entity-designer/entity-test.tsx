@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { RemoteSelect } from "../remote-select";
-import { Select } from "../select";
+import { RemoteSelect, Select } from "../ui";
 import { isItem, items, text, type Item } from "../api-types";
 import { strings } from "./shared";
 import { ValueInputs } from "./expression";

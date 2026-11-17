@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Layers3, Menu, X, ChevronDown, type LucideIcon } from "lucide-react";
 import { useAppearance } from "./appearance";
 import { AppearancePanel } from "./appearance-panel";
-import { useDialogFocus } from "./dialog";
+import { useDialogFocus } from "./ui";
 import type { Me } from "./api-types";
 export function ConsoleShell({
   me,

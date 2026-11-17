@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ConfirmDialog } from "../../confirm-dialog";
-import type { ConfirmOptions } from "../../confirm";
+import { ConfirmDialog } from "../confirm-dialog";
+import type { ConfirmOptions } from "../confirm";
 
 // confirm-dialog.tsx renders confirmAction() requests (confirm.ts); screens
 // never use window.confirm. Danger dialogs focus Cancel first.

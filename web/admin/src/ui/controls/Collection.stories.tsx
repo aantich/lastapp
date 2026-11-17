@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Collection } from "../../collection";
+import { Collection } from "../collection";
 import { text } from "../../api-types";
 import { nameColumn, statusColumn } from "../../tenant/screen";
 import { policy, spaces } from "../storybook/fixtures";

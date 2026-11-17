@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Select, type ListOption } from "../../select";
+import { Select, type ListOption } from "../select";
 import { dealStages } from "../storybook/fixtures";
 import { StoryField, StoryFields } from "../storybook/console-story";
 

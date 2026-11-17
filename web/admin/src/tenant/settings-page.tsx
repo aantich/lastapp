@@ -1,7 +1,6 @@
 import { AgentAccess } from "../agent-access";
 import { api } from "../api";
-import { Collection } from "../collection";
-import { confirmAction } from "../confirm";
+import { Collection, confirmAction } from "../ui";
 import { num, text } from "../api-types";
 import { statusColumn, type TenantScreen } from "./screen";
 

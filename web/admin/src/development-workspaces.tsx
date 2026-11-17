@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Plus, RefreshCw, ExternalLink } from "lucide-react";
 import { api } from "./api";
-import { Collection } from "./collection";
-import { FormModal, type Modal } from "./form-modal";
+import { Collection, FormModal, type Modal } from "./ui";
 import { status } from "./console-forms";
 import { num, text, type Item } from "./api-types";
 import "./development-workspaces.css";

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, Search } from "lucide-react";
-import { keyOf, type Item, type Page } from "./api-types";
-import { useApiQuery } from "./query";
+import { keyOf, type Item, type Page } from "../api-types";
+import { useApiQuery } from "../query";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
 type CollectionProps = {
   path: string;

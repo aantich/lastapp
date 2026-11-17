@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { X } from "lucide-react";
-import { useDialogFocus } from "./dialog";
+import { useDialogFocus } from "./use-dialog-focus";
 import {
   pendingConfirm,
   subscribeConfirm,

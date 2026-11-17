@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { api } from "./api";
-import { Collection } from "./collection";
-import { FormModal, type Modal } from "./form-modal";
+import { Collection, FormModal, type Modal } from "./ui";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
 import { status } from "./console-forms";

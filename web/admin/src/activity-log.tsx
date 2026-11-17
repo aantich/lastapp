@@ -1,4 +1,4 @@
-import { Collection } from "./collection";
+import { Collection } from "./ui";
 import { text } from "./api-types";
 
 // One audit-event table for Platform and Tenant activity.

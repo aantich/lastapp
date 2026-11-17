@@ -1,5 +1,5 @@
 import { Check, Monitor, Moon, Palette, RotateCcw, Sun, X } from "lucide-react";
-import { useDialogFocus } from "./dialog";
+import { useDialogFocus } from "./ui";
 import type { Appearance, Mode } from "./appearance";
 
 const modeOptions: { id: Mode; name: string; Icon: typeof Sun }[] = [

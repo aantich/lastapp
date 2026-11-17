@@ -1,11 +1,9 @@
 import { useBuiltinRoles } from "./console-config";
 import { useState, type ReactNode } from "react";
 import { api } from "./api";
-import { Collection } from "./collection";
-import { FormModal, type Modal } from "./form-modal";
+import { Collection, FormModal, type Modal, confirmAction } from "./ui";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
-import { confirmAction } from "./confirm";
 import { nameFields, status } from "./console-forms";
 import { num, text, type Item, type TenantCapabilities } from "./api-types";
 export function TenantPeople({

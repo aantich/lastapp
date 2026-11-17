@@ -10,7 +10,7 @@ import {
   type Page,
 } from "../api-types";
 import { useAction } from "../use-action";
-import { confirmAction } from "../confirm";
+import { confirmAction } from "../ui";
 import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 import { api } from "../api";
 import { definitionOf, discardChanges, type Designer } from "./shared";

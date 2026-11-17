@@ -11,7 +11,7 @@ import {
   type EntityCatalog,
   type Item,
 } from "../api-types";
-import { Select } from "../select";
+import { Select } from "../ui";
 import { FieldChoices, Expression } from "./expression";
 import { inputValue, isExpression, optionalText, strings } from "./shared";
 export function AppDataAccess({

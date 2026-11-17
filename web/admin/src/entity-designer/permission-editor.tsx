@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { RemoteSelect } from "../remote-select";
-import { Select } from "../select";
+import { RemoteSelect, Select } from "../ui";
 import { items, text, type EntityCatalog, type Item } from "../api-types";
 import { Expression, FieldChoices } from "./expression";
 import {
