@@ -31,17 +31,23 @@ export function DataTable<Row>({
   rows: Row[];
   rowKey: (row: Row) => Key | undefined;
   actions?: (row: Row) => ReactNode;
-  // Visually hidden name of the table for screen readers.
-  caption?: string;
+  // The table's name: a visually hidden caption and the label of the
+  // scrollable region (focusable, so keyboard users can scroll it).
+  caption: string;
   loading?: boolean;
   empty?: ReactNode;
   skeletonRows?: number;
 }) {
   return (
     <>
-      <div className="table-wrap">
+      <div
+        className="table-wrap"
+        role="region"
+        aria-label={caption}
+        tabIndex={0}
+      >
         <table className="ui-table" aria-busy={loading || undefined}>
-          {caption && <caption className="ui-sr-only">{caption}</caption>}
+          <caption className="ui-sr-only">{caption}</caption>
           <thead>
             <tr>
               {columns.map((c) => (

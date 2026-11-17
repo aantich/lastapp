@@ -74,12 +74,25 @@ function Ratio({ fg, bg, min }: { fg: string; bg: string; min: number }) {
   const pass = ratio >= min;
   return (
     <span className="flex items-center gap-2">
-      <span
-        className="inline-flex h-7 min-w-14 items-center justify-center rounded-md px-2 font-semibold"
-        style={{ color: fg, background: bg }}
-      >
-        Aa
-      </span>
+      {min < 4.5 ? (
+        // A 3:1 pair is a mark or boundary, never text.
+        <span
+          className="inline-flex h-7 min-w-14 items-center justify-center rounded-md"
+          style={{ background: bg }}
+        >
+          <span
+            className="inline-block size-4 rounded-sm"
+            style={{ border: `2px solid ${fg}` }}
+          />
+        </span>
+      ) : (
+        <span
+          className="inline-flex h-7 min-w-14 items-center justify-center rounded-md px-2 font-semibold"
+          style={{ color: fg, background: bg }}
+        >
+          Aa
+        </span>
+      )}
       <strong className={pass ? "text-success" : "text-danger"}>
         {ratio.toFixed(2)}:1 {pass ? "pass" : "FAIL"}
       </strong>

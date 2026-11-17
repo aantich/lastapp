@@ -51,7 +51,7 @@ export function RoleMatrix({
     onChange(next);
   }
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" role="region" aria-label={label} tabIndex={0}>
       <table className="ui-table ui-matrix">
         <caption className="ui-sr-only">{label}</caption>
         <thead>

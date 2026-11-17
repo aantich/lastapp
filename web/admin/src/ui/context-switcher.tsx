@@ -58,7 +58,6 @@ export function ContextSwitcher({
         className="ui-context-trigger"
         aria-haspopup="listbox"
         aria-expanded={list.open}
-        aria-label={`${kind}: ${current?.label || placeholder}. Switch ${kind}`}
         onClick={() => (list.open ? close() : open())}
         onKeyDown={(e) => {
           if (!list.open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {

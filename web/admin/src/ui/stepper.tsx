@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Check, CircleDot, Circle, X } from "lucide-react";
 import { cx } from "./utils";
 
@@ -55,8 +55,10 @@ export function Progress({
 }: {
   value: number;
   max?: number;
+  // Names the progressbar and is shown under it.
   label: ReactNode;
 }) {
+  const id = useId();
   const percent = Math.max(0, Math.min(100, (value / max) * 100));
   return (
     <div className="ui-progress">
@@ -66,10 +68,11 @@ export function Progress({
         aria-valuemax={max}
         aria-valuenow={value}
         aria-valuetext={typeof label === "string" ? label : undefined}
+        aria-labelledby={id}
       >
         <span style={{ width: `${percent}%` }} />
       </div>
-      <span>{label}</span>
+      <span id={id}>{label}</span>
     </div>
   );
 }

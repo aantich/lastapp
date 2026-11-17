@@ -57,6 +57,7 @@ function ScopedCollection({
       </div>
       {error && <Alert>{error}</Alert>}
       <DataTable
+        caption="Records"
         columns={columns.map(([label, render]) => ({
           key: label,
           header: label,
