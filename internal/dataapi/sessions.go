@@ -1,4 +1,4 @@
-package control
+package dataapi
 
 import (
 	"context"
@@ -16,10 +16,10 @@ import (
 
 const (
 	appTokenLifetime = 30 * time.Minute
-	launchLifetime   = 2 * time.Minute
+	LaunchLifetime   = 2 * time.Minute
 )
 
-func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+func (s *Runtime) Launch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		Challenge string `json:"challenge"`
 		Nonce     string `json:"nonce"`
@@ -37,10 +37,10 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if v.State != registry.StateActive {
 		return registry.Missing()
 	}
-	if e = s.WorkspaceGuard(r.Context(), s.DB, p, v.SpaceID); e != nil {
+	if e = s.Access.WorkspaceGuard(r.Context(), s.DB, p, v.SpaceID); e != nil {
 		return e
 	}
-	if e = s.Member(r.Context(), s.DB, p, v.TenantID, true); e != nil {
+	if e = s.Access.Member(r.Context(), s.DB, p, v.TenantID, true); e != nil {
 		return e
 	}
 	var sp string
@@ -59,15 +59,15 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 		return e
 	}
 	code := registry.Token(32)
-	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), registry.TokenHash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
+	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), registry.TokenHash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(LaunchLifetime))
 	if e != nil {
 		return e
 	}
-	httpapi.Send(w, 200, registry.Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(launchLifetime.Seconds())})
+	httpapi.Send(w, 200, registry.Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(LaunchLifetime.Seconds())})
 	return nil
 }
 
-func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
+func (s *Runtime) Exchange(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Code     string `json:"code"`
 		Verifier string `json:"verifier"`
@@ -84,7 +84,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		return e
 	}
 	defer tx.Rollback()
-	v, e := registry.ScanOne[appSession](r.Context(), tx, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", registry.TokenHash(in.Code))
+	v, e := registry.ScanOne[AppSession](r.Context(), tx, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", registry.TokenHash(in.Code))
 	if e != nil {
 		return registry.Problem(401, "invalid_exchange", "Launch code is invalid or expired.")
 	}
@@ -113,9 +113,9 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// appSession is a launch code or App data session with the database
+// AppSession is a launch code or App data session with the database
 // resource of its Space.
-type appSession struct {
+type AppSession struct {
 	UserID, TenantID, SpaceID, AppID, Challenge, Nonce, Resource string
 	OriginGeneration                                             int64
 	Origin, AgentGrant                                           *string
@@ -123,19 +123,56 @@ type appSession struct {
 	ParentHash                                                   []byte
 }
 
-// appSessionColumns selects an appSession from sessions l joined to spaces sp.
+// appSessionColumns selects an AppSession from sessions l joined to spaces sp.
 const appSessionColumns = "l.user_id,l.tenant_id,l.space_id,l.app_id,COALESCE(l.challenge,''),COALESCE(l.nonce,''),sp.database_resource_id,l.origin_generation,l.origin,l.agent_grant_id,l.agent_grant_revision,l.parent_hash"
 
-func (v *appSession) ScanFields() []any {
+func (v *AppSession) ScanFields() []any {
 	return []any{&v.UserID, &v.TenantID, &v.SpaceID, &v.AppID, &v.Challenge, &v.Nonce, &v.Resource, &v.OriginGeneration, &v.Origin, &v.AgentGrant, &v.AgentRevision, &v.ParentHash}
 }
 
-func (s *Server) dataSession(ctx context.Context, r *http.Request) (appSession, error) {
+// Both browser and delegated sessions use the same parent check on exchange and
+// every data request. Agent tokens never authenticate directly to the data API.
+func (s *Runtime) appSessionParent(ctx context.Context, q registry.Queryer, v AppSession) error {
+	denied := registry.Problem(401, "unauthenticated", "App session expired or revoked.")
+	p := access.Principal{ID: v.UserID}
+	if access.Deref(v.AgentGrant) != "" {
+		g, e := s.Access.ReadAgentGrant(ctx, q, access.Deref(v.AgentGrant))
+		if e != nil {
+			return denied
+		}
+		p.Agent = g
+		if g.Revision != access.Deref(v.AgentRevision) || access.RequireAgent(g, "workspaces.test") != nil {
+			return denied
+		}
+		var workspace string
+		if e = q.QueryRowContext(ctx, "SELECT id FROM development_workspaces WHERE backing_space_id=? AND state='ready'", v.SpaceID).Scan(&workspace); e != nil {
+			return denied
+		}
+		if e = s.Access.Authorize(ctx, q, p, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, true); e != nil {
+			return denied
+		}
+	} else {
+		var n int
+		e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions parent JOIN users u ON u.id=parent.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id WHERE parent.token_hash=? AND parent.user_id=? AND parent.purpose='console' AND parent.state='active' AND parent.expires_at>UTC_TIMESTAMP(6) AND (parent.auth_method='oidc' OR la.must_change_password=0)", v.ParentHash, p.ID).Scan(&n)
+		if e != nil {
+			return e
+		}
+		if n != 1 {
+			return denied
+		}
+		if e = s.Access.WorkspaceGuard(ctx, q, p, v.SpaceID); e != nil {
+			return denied
+		}
+	}
+	return nil
+}
+
+func (s *Runtime) Session(ctx context.Context, r *http.Request) (AppSession, error) {
 	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if raw == "" || raw == r.Header.Get("Authorization") || len(raw) > 128 {
-		return appSession{}, registry.Problem(401, "unauthenticated", "An App bearer token is required.")
+		return AppSession{}, registry.Problem(401, "unauthenticated", "An App bearer token is required.")
 	}
-	v, e := registry.ScanOne[appSession](ctx, s.DB, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", registry.TokenHash(raw))
+	v, e := registry.ScanOne[AppSession](ctx, s.DB, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", registry.TokenHash(raw))
 	if e != nil {
 		return v, registry.Problem(401, "unauthenticated", "App session expired or revoked.")
 	}
@@ -148,17 +185,17 @@ func (s *Server) dataSession(ctx context.Context, r *http.Request) (appSession, 
 	return v, nil
 }
 
-func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+func (s *Runtime) LaunchInfo(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var appID, name, space, spaceName, tenant string
 	var access registry.JSONValue
 	e := registry.Lookup(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", []any{r.PathValue("app")}, &appID, &name, &access, &space, &spaceName, &tenant)
 	if e != nil {
 		return e
 	}
-	if e = s.WorkspaceGuard(r.Context(), s.DB, p, space); e != nil {
+	if e = s.Access.WorkspaceGuard(r.Context(), s.DB, p, space); e != nil {
 		return e
 	}
-	if e = s.Member(r.Context(), s.DB, p, tenant, true); e != nil {
+	if e = s.Access.Member(r.Context(), s.DB, p, tenant, true); e != nil {
 		return e
 	}
 	a, e := registry.AccessOf(access)

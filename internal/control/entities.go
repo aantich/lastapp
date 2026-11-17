@@ -30,9 +30,9 @@ func (s *Server) entityRoutes() {
 	s.api("PATCH /v1/apps/{app}/data-access", s.appAccessSave)
 	s.api("GET /v1/apps/{app}/entity-contracts", s.appContracts)
 	s.api("POST /v1/tenants/{tenant}/database-resources/{id}/schema-credentials", s.schemaCredentials)
-	s.api("GET /v1/apps/{app}/launch-info", s.appLaunchInfo)
-	s.api("POST /v1/apps/{app}/launch", s.appLaunch)
-	s.mux.HandleFunc("/data/v1/", s.dataHandler)
+	s.api("GET /v1/apps/{app}/launch-info", s.dataAPI.LaunchInfo)
+	s.api("POST /v1/apps/{app}/launch", s.dataAPI.Launch)
+	s.mux.Handle("/data/v1/", s.dataAPI)
 }
 
 func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p access.Principal) error {

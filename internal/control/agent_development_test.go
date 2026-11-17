@@ -112,7 +112,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	req := httptest.NewRequest("POST", "/data/v1/session/exchange", bytes.NewReader(exchange))
 	req.Header.Set("Origin", "http://localhost:5190")
 	response := httptest.NewRecorder()
-	if e = s.exchange(response, req); e != nil {
+	if e = s.dataAPI.Exchange(response, req); e != nil {
 		t.Fatal("agent PKCE exchange", e)
 	}
 	var session registry.Row
@@ -120,13 +120,13 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	dataRequest := httptest.NewRequest("POST", "/data/v1/entities/company/query", nil)
 	dataRequest.Header.Set("Origin", "http://localhost:5190")
 	dataRequest.Header.Set("Authorization", "Bearer "+registry.Str(session["access_token"]))
-	if _, e = s.dataSession(ctx, dataRequest); e != nil {
+	if _, e = s.dataAPI.Session(ctx, dataRequest); e != nil {
 		t.Fatal("delegated development session", e)
 	}
 	if _, e = s.DB.Exec("UPDATE agent_grants SET revision=revision+1 WHERE id=?", p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.dataSession(ctx, dataRequest); e == nil {
+	if _, e = s.dataAPI.Session(ctx, dataRequest); e == nil {
 		t.Fatal("grant revision did not revoke development session")
 	}
 }

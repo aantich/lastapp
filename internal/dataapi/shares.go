@@ -1,4 +1,4 @@
-package control
+package dataapi
 
 import (
 	"database/sql"
@@ -17,7 +17,7 @@ import (
 
 func base64Encode(b []byte) string          { return base64.RawURLEncoding.EncodeToString(b) }
 func base64Decode(s string) ([]byte, error) { return base64.RawURLEncoding.DecodeString(s) }
-func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dataRuntime) error {
+func (s *Runtime) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dataRuntime) error {
 	var in struct {
 		IDs []string `json:"ids"`
 	}
@@ -27,7 +27,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	if len(in.IDs) > entity.Limits.Bulk {
 		return registry.Bad("Too many records.")
 	}
-	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.Publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -81,7 +81,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	return nil
 }
 
-func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRuntime, record string) error {
+func (s *Runtime) dataShares(w http.ResponseWriter, r *http.Request, rt dataRuntime, record string) error {
 	if !rt.d.Sharing {
 		return registry.Missing()
 	}
@@ -101,7 +101,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 			return registry.Bad("Choose a recipient user or team.")
 		}
 	}
-	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.Publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -222,7 +222,7 @@ func (rt dataRuntime) canDelegate(permission entity.Permission, c entity.Context
 	return false
 }
 
-func (s *Server) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRuntime, c entity.Context, shared map[string]bool) error {
+func (s *Runtime) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRuntime, c entity.Context, shared map[string]bool) error {
 	permissions := []registry.Row{}
 	for _, p := range rt.d.Permissions {
 		if rt.canDelegate(p, c, shared) {

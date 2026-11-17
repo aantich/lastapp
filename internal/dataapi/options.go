@@ -1,4 +1,4 @@
-package control
+package dataapi
 
 import (
 	"net/http"
@@ -12,7 +12,7 @@ import (
 
 // Identity pickers expose only the caller and their teams unless the caller
 // already has the corresponding Tenant-directory control permission.
-func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt dataRuntime) error {
+func (s *Runtime) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt dataRuntime) error {
 	f, ok := rt.d.Field(r.URL.Query().Get("field"))
 	if !ok || !rt.fieldExposed(f.Key) || (f.Type != "user" && f.Type != "team") {
 		return registry.Missing()
@@ -26,7 +26,7 @@ func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt
 	if f.Type == "team" {
 		action = "team.read"
 	}
-	sc, e := s.Scopes(r.Context(), s.DB, access.Principal{ID: rt.actor.Actor}, rt.session.TenantID, action)
+	sc, e := s.Access.Scopes(r.Context(), s.DB, access.Principal{ID: rt.actor.Actor}, rt.session.TenantID, action)
 	if e != nil {
 		return e
 	}
