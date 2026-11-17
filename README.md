@@ -41,6 +41,9 @@ When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/
 ```sh
 make stop                  # stop these local services; preserve data
 make test                  # Go unit tests and compilation; DB tests skip by default
+make lint                  # Go and console linters/type check; make fmt formats Go
+make mcp-test              # MCP/agent regressions against the local MariaDB
+make client                # build the data SDK and the example App's client.js
 make integration           # actual MariaDB backend tests (run make dev first), then make e2e
 make e2e                   # Chrome tests on a disposable MariaDB/API; dev data untouched
 ```
@@ -66,7 +69,7 @@ The `Starter` plan allows one shared managed database, three Spaces and ten Apps
 
 ## Implementation
 
-- `internal/control`: HTTP/MCP transport and wiring, local/OIDC sessions, encrypted database credentials, provisioning workers, workspaces and releases. Domain operations live in `internal/inventory`, `membership`, `roles`, `databases` and `entities`, on top of `internal/op` (actors, mutation runner, errors), `internal/access` (live authorization) and `internal/registry` (typed registry queries); see DEVELOPMENT.md. `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
+- `internal/control`: HTTP/MCP transport and wiring, local/OIDC sessions, encrypted database credentials, provisioning workers, workspaces and releases. Domain operations live in `internal/inventory`, `membership`, `roles`, `databases` and `entities`, on top of `internal/op` (actors, mutation runner, errors), `internal/access` (live authorization) and `internal/registry` (typed registry queries); the full package map and dependency direction are in [DEVELOPMENT.md](DEVELOPMENT.md#contract-and-implementation-map). `internal/authz` defines the shared typed scopes and fixed control catalog. No ORM or policy service.
 - `cmd/lastapp`: `serve`, `migrate`, `bootstrap`, `seed-development`, `runtime-grants`.
 - `cmd/devoidc`: development-only signed OIDC issuer supporting discovery, JWKS, code exchange, PKCE and nonce.
 - `web/admin`: React UI, Tailwind and shared form/table components, served from the Go binary at `/console/`.

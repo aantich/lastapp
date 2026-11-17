@@ -1,6 +1,6 @@
 # Lastapp maintainer guide
 
-Current implementation, 14 November 2026. Start with [AGENTS.md](AGENTS.md).
+Current implementation, 17 November 2026. Start with [AGENTS.md](AGENTS.md).
 This guide maps the running framework to its authoritative contracts. The
 [concept](CONCEPT.md) and historical plans explain intent, not additional shipped
 capabilities.
@@ -105,6 +105,14 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Typed registry reads | `internal/registry`: `ScanAll`/`ScanOne` (and `op.PageScan`) scan hand-written SQL into record structs whose column list is a const beside each type and whose `ScanFields()` returns the scan destinations; `JSONValue` (`*_json` columns), `Bit` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. Plans, Tenant policy, quotas, record locks and the shared `APIError` live there too; `op.Classify` maps MySQL errors. `QueryRow`/`QueryRows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
 | Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes; pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
+| Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`confirm.ts`, `confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `error-boundary.tsx` and `retryable-lazy.ts`; choices and numbers use `select.tsx` / `number-input.tsx` (native `<select>`, date and number inputs are not allowed). No lint suppression file or `//nolint`; the only inline ESLint disable is the documented loose `Item` type in `api-types.ts` |
+
+To add a management operation: write a typed method in its domain package that
+takes an `op.Actor` and runs writes through `Runner.Mutate` (for example
+`inventory.CreateTenant`); add a thin decode → call → send handler in
+`internal/control`; expose it to MCP by an adapter in `agent_tools.go` that calls
+the same method; regenerate the goldens (below) for the new tool schema/response;
+and add a regression test for its authorization boundary.
 
 Do not add a second policy language, ORM, query compiler, permission cache or MCP
 service to make a local feature easier. Extend the existing typed contract and
@@ -128,7 +136,10 @@ handlers decode, call and send, and MCP tools call the same operations. The form
 in-process HTTP adapter (`executeManagement`) is deleted and `TestNoHTTPLoopback`
 keeps it from returning.
 Golden files in `internal/control/testdata` pin the MCP tool schemas and the
-response shapes of representative endpoints; refactors must leave them unchanged.
+response shapes of representative endpoints (`internal/control/golden_test.go`);
+refactors must leave them unchanged. Regenerate them only for an intended contract
+change with `go test ./internal/control -run Golden -update-golden` (the response
+golden also needs `LASTAPP_TEST_CONFIG`) and review the diff.
 
 Important management groups are Tenant/Space/App/micro-app inventory, scoped
 `roles`, `role-assignments`, `recipients`, memberships/teams, database resources,
@@ -157,6 +168,8 @@ rather than replacing the global toolchain.
 
 ```sh
 make test                       # unit/build checks; DB tests may skip
+make lint                       # golangci-lint v2.15.0 + console npm run lint/typecheck
+make fmt                        # gofumpt/gci via golangci-lint fmt
 GOCACHE="$PWD/.local/go-cache" go vet ./...
 make mcp-test                   # TestAgent* only: MCP/OAuth/agent security + agent worker
 make integration                # full backend race/security + browser suite
@@ -166,6 +179,14 @@ python3 design/validate_schema.py --check  # offline DDL parity only
 python3 scripts/verify_driver.py           # pinned driver integrity
 git diff --check
 ```
+
+CI (`.github/workflows/checks.yml`, job `test`) runs the same lint, type, schema,
+driver, race-test and browser checks, plus `govulncheck`.
+
+Integration/database tests, `TestNoHTTPLoopback` and the goldens currently live in
+`internal/control`, so `make integration` and `make mcp-test` target that package.
+The agreed direction is that each layer gets its own tests and its own fixtures;
+do not add a shared test-environment package.
 
 `make mcp-test` and the backend half of `make integration` require the existing
 local development config/server. `make mcp-test` runs only the `TestAgent*` control
@@ -215,6 +236,10 @@ the route pattern, status, bytes and duration. It never logs query strings,
 bodies, cookies or credential headers. Errors are wrapped with `%w`; `diagnostic()`
 logs only the type chain, SQL number/state, network operation and context state,
 never error messages, and unmapped API errors stay a generic 500.
+
+`main` is protected by the GitHub ruleset `main`: changes arrive only through a
+pull request whose required `test` check passed on a branch up to date with
+`main`; force-pushes and deletion are blocked.
 
 Keep `.local/`, keys, passwords, build output, traces and screenshots out of git.
 No routine change requires resetting local data, refreshing the driver snapshot,
