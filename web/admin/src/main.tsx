@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import "./style.css";
 import "./agent-access.css";
 import { ConsoleConfigProvider } from "./console-config-provider";
-import { ConfirmHost } from "./confirm-dialog";
+import { ConfirmHost, Toaster } from "./ui";
 import { queryClient } from "./query";
 import { App } from "./app";
 createRoot(document.getElementById("root")!).render(
@@ -13,6 +13,7 @@ createRoot(document.getElementById("root")!).render(
       <ConsoleConfigProvider>
         <App />
         <ConfirmHost />
+        <Toaster />
       </ConsoleConfigProvider>
     </QueryClientProvider>
   </React.StrictMode>,

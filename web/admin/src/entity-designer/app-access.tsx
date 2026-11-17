@@ -11,7 +11,7 @@ import {
   type EntityCatalog,
   type Item,
 } from "../api-types";
-import { Select } from "../select";
+import { Select, Alert } from "../ui";
 import { FieldChoices, Expression } from "./expression";
 import { inputValue, isExpression, optionalText, strings } from "./shared";
 export function AppDataAccess({
@@ -215,11 +215,7 @@ export function AppDataAccess({
     >
       <h2>App data access</h2>
       <p>The Space defines available authority. App settings can narrow it.</p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert as="p">{error}</Alert>}
       <fieldset disabled={!spaceManager}>
         <legend>Space approval</legend>
         <label className="field">

@@ -7,8 +7,7 @@ import { choiceLabel, inputValue, strings } from "./shared";
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
 const own = (value: Item, key: string) =>
   Object.hasOwn(value, key) ? value[key] : undefined;
-import { Select } from "../select";
-import { NumberInput } from "../number-input";
+import { Select, NumberInput } from "../ui";
 const booleanOptions = ["true", "false"].map((v) => ({ value: v, label: v }));
 export function Expression({
   value,

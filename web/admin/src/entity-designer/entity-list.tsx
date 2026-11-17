@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
-import { Select } from "../select";
+import { Select } from "../ui";
 import { text, type EntityCatalog, type Item } from "../api-types";
 import { emptyDefinition, keyOf } from "./shared";
 

@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { num, text } from "../api-types";
-import { Collection } from "../collection";
+import { Checkbox, Collection } from "../ui";
 import { useBuiltinRoles } from "../console-config";
 import { addToTenant, editTenant, planForm, serverForm } from "./forms";
 import { columnsName, columnsStatus, type PlatformScreen } from "./screen";
@@ -148,8 +148,7 @@ export function UsersPage({ p }: { p: PlatformScreen }) {
         [
           "Platform admin",
           (r) => (
-            <input
-              type="checkbox"
+            <Checkbox
               aria-label={"Platform administrator for " + r.display_name}
               checked={!!r.platform_admin}
               disabled={

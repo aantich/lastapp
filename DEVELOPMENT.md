@@ -105,7 +105,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Typed registry reads | `internal/registry`: `ScanAll`/`ScanOne` (and `op.PageScan`) scan hand-written SQL into record structs whose column list is a const beside each type and whose `ScanFields()` returns the scan destinations; `JSONValue` (`*_json` columns), `Bit` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. Plans, Tenant policy, quotas, record locks and the shared `APIError` live there too; `op.Classify` maps MySQL errors. `QueryRow`/`QueryRows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
 | Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors; Signal tokens in `themes.css` and the UI library entry `src/ui/` (see [Console UI library](#console-ui-library)); pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
-| Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`confirm.ts`, `confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `error-boundary.tsx` and `retryable-lazy.ts`; choices and numbers use `select.tsx` / `number-input.tsx` (native `<select>`, date and number inputs are not allowed). No lint suppression file, `//nolint` or inline ESLint disable; the loose `Item` row type in `api-types.ts` is `Record<string, unknown>`, narrowed at use sites (`text`, `num`, `isItem`, `items` or a named shape) |
+| Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`ui/confirm.ts`, `ui/confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `ui/error-boundary.tsx` and `retryable-lazy.ts`; screens use the `src/ui` kit only; choices and numbers use `Select` / `NumberInput` (native `<select>`, date and number inputs are not allowed). No lint suppression file, `//nolint` or inline ESLint disable; the loose `Item` row type in `api-types.ts` is `Record<string, unknown>`, narrowed at use sites (`text`, `num`, `isItem`, `items` or a named shape) |
 
 To add a management operation: write a typed method in its domain package that
 takes an `op.Actor` and runs writes through `Runner.Mutate` (for example
@@ -223,15 +223,50 @@ and system color modes. New console UI follows these rules:
   JetBrains Mono (identifiers) come from the pinned `@fontsource-variable`
   packages. Vite emits fonts as files (`vite.config.ts`), because the console CSP
   allows no `data:` fonts. No font is loaded from a CDN.
-- **Components.** `web/admin/src/ui/` is the library home and `src/ui/index.ts`
-  its entry point. New UI imports shared controls from there (Select,
-  RemoteSelect, NumberInput, NewPasswordInput, ConfirmDialog/`confirmAction`,
-  FormModal, Collection) instead of building parallel ones. They are still
-  re-exported from their original modules; move a control into `src/ui/` only
-  together with its consumers. Native `<select>`, date and number inputs stay
-  forbidden.
-- **Stories.** Every shared control has stories beside the library
-  (`src/ui/controls/*.stories.tsx`) with realistic Northstar data;
+- **Kit only.** `web/admin/src/ui/` is the console UI kit and `src/ui/index.ts`
+  its single entry point (no re-exports from old module paths). Screens are
+  built only from kit components and `--ui-*` tokens: a screen that needs a new
+  control, layout part or state gets it added to the kit, with stories, rather
+  than hand-written markup. Kit styles live in `src/ui/kit.css`; kit components
+  keep the established class names that screens and e2e tests match on
+  (`.primary`, `.secondary`, `.danger`, `.icon`, `.badge`, `.error`,
+  `.overlay`/`.modal`, `.tabs`, `.empty`, `.panel`, `.sidebar-collapsed`);
+  everything new is `ui-`-prefixed. Native `<select>`, date and number inputs
+  stay forbidden; TextField offers no number/date type.
+- **Inventory.**
+  - Primitives: `Button`/`IconButton` (primary, secondary, ghost, danger, link;
+    sm/md; loading; the icon button's label is required), `StatusBadge` with
+    the one state → tone map `statusTone` (`status-tone.ts`: success, warning
+    for work in progress and suspension, danger, info for drafts/review,
+    neutral; a different mark shape per tone), `Badge` (tag, mono, count),
+    `Card`/`CardHeader`/`CardBody`/`CardFooter`, `StatCard`, `AttentionCard`,
+    `PageHeader`, `Breadcrumbs`, `Tabs` (WAI-ARIA tablist, roving tabindex,
+    automatic or manual activation), `EmptyState`, `Alert` (danger keeps
+    `.error` and role=alert) and `InlineError`, `Dialog` (the one modal shell
+    on `useDialogFocus`; FormModal, ConfirmDialog, the agent access editor and
+    the entity designer's editors wrap it), `toast()` and `Toaster` (aria-live
+    regions without alert/status roles), `Checkbox` (native input, custom
+    17 px face, indeterminate), `Switch` (role=switch), `RadioGroup`,
+    `FormField`/`TextField`/`Textarea` (label, hint and error wired by id),
+    `Stepper`, `Progress`, `Timeline`, `Avatar` (person, agent, system),
+    `Tooltip`, `Spinner`, `Skeleton`, `Kbd`.
+  - Composites: `SidebarNav`/`SidebarFooter` and `useSidebarCollapse` (the
+    68 px rail, remembered in the browser as `lastapp-sidebar`; ConsoleShell
+    uses them), `ContextSwitcher` (Tenant/Space popover: filter combobox over a
+    listbox), `CommandPalette` and `useCommandPaletteShortcut` (⌘K/Ctrl+K),
+    `DataTable` (Collection adds server search and paging on top) and
+    `RoleMatrix`.
+  - Form controls and services: Select, ListboxPopup/`useListbox`
+    (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput,
+    ConfirmDialog/ConfirmHost/`confirmAction`, FormModal, Collection,
+    ErrorBoundary, `useDialogFocus`.
+- **Not yet on the kit.** Screens still hand-write page headings, tab strips
+  (their tests click tabs as buttons, so moving them to `Tabs` changes the
+  e2e selectors), most buttons and the Tenant switcher (a paged
+  RemoteSelect). The screen rewrites move these onto the kit.
+- **Stories.** Every kit component has stories
+  (`src/ui/controls/*.stories.tsx`, grouped as Primitives, Composites and
+  Controls) with realistic Northstar data;
   `src/ui/foundations/` shows the tokens (read from `themes.css`, both modes,
   contrast ratios), typography, spacing/radius and the lucide icons in use.
   Stories supply the password policy and mock list APIs (`src/ui/storybook/`);

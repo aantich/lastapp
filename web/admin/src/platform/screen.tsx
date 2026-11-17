@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Modal } from "../form-modal";
+import type { Modal } from "../ui";
 import { text, type Item, type Me, type TenantOverview } from "../api-types";
 import type { parsePlatformURL } from "../console-url";
 import { status } from "../console-forms";

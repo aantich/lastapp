@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
-import { RemoteSelect } from "./remote-select";
-import { Select } from "./select";
-import { NumberInput } from "./number-input";
-import { useDialogFocus } from "./dialog";
+import {
+  RemoteSelect,
+  Select,
+  NumberInput,
+  Dialog,
+  Alert,
+  Checkbox,
+} from "./ui";
 import { errorMessage, useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 
@@ -197,12 +201,11 @@ function AgentGrantForm({
         </div>
         {permissionList.map((permission) => (
           <label className="agent-permission" key={permission.code}>
-            <input
-              type="checkbox"
+            <Checkbox
               checked={values.permissions.includes(permission.code)}
-              onChange={(e) =>
+              onChange={(checked) =>
                 permissions(
-                  e.target.checked
+                  checked
                     ? [...values.permissions, permission.code]
                     : values.permissions.filter((p) => p !== permission.code),
                 )
@@ -309,11 +312,7 @@ function AgentGrantForm({
           does not revoke this connection.
         </small>
       </label>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       <div className="agent-form-actions">
         <button
           type="button"
@@ -374,11 +373,7 @@ export function AgentConsent({ me }: { me: Me }) {
             <p>Choose exactly what this client may do as {me.display_name}.</p>
           </div>
         </div>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
+        {error && <Alert>{error}</Alert>}
         {info && config ? (
           <>
             <div className="agent-client">
@@ -437,50 +432,36 @@ function AgentGrantDialog({
   close: () => void;
   done: () => void;
 }) {
-  const ref = useDialogFocus(close);
   return (
-    <div className="overlay">
-      <section
-        className="modal agent-edit-modal"
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="agent-dialog-title"
-      >
-        <header>
-          <div>
-            <h2 id="agent-dialog-title">Agent access</h2>
-            <p>{grant.client_name}</p>
-          </div>
-          <button
-            className="icon"
-            aria-label="Close agent access"
-            onClick={close}
-          >
-            <X />
-          </button>
-        </header>
-        <div className="modal-body">
-          <AgentGrantForm
-            config={config}
-            me={me}
-            initial={initialGrant(config, me, grant)}
-            locked
-            submit={async (values) => {
-              await api(
-                `/v1/agent-access/${grant.id}`,
-                "PATCH",
-                values,
-                grant.revision,
-              );
-              done();
-            }}
-            cancel={close}
-            label="Save access"
-          />
-        </div>
-      </section>
-    </div>
+    <Dialog
+      title="Agent access"
+      description={grant.client_name}
+      titleId="agent-dialog-title"
+      closeLabel="Close agent access"
+      className="agent-edit-modal"
+      closeOnBackdrop={false}
+      onClose={close}
+    >
+      <div className="modal-body">
+        <AgentGrantForm
+          config={config}
+          me={me}
+          initial={initialGrant(config, me, grant)}
+          locked
+          submit={async (values) => {
+            await api(
+              `/v1/agent-access/${grant.id}`,
+              "PATCH",
+              values,
+              grant.revision,
+            );
+            done();
+          }}
+          cancel={close}
+          label="Save access"
+        />
+      </div>
+    </Dialog>
   );
 }
 export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {
@@ -554,11 +535,7 @@ export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {
           </small>
         </div>
       )}
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       {loading ? (
         <p className="muted">Loading agent connections…</p>
       ) : loadFailed ? null : items.length === 0 ? (

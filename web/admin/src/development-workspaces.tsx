@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Plus, RefreshCw, ExternalLink } from "lucide-react";
 import { api } from "./api";
-import { Collection } from "./collection";
-import { FormModal, type Modal } from "./form-modal";
+import { Collection, FormModal, type Modal, Alert } from "./ui";
 import { status } from "./console-forms";
 import { num, text, type Item } from "./api-types";
 import "./development-workspaces.css";
@@ -74,11 +73,7 @@ export function DevelopmentWorkspaces({
           </button>
         </div>
       </div>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       <Collection
         key={space}
         path={`/v1/spaces/${space}/workspaces`}
@@ -92,7 +87,9 @@ export function DevelopmentWorkspaces({
                   <small className="muted">Agent workspace</small>
                 )}
                 {text(r.error_message) && (
-                  <p className="error">{text(r.error_message)}</p>
+                  <Alert as="p" live={false}>
+                    {text(r.error_message)}
+                  </Alert>
                 )}
               </div>
             ),

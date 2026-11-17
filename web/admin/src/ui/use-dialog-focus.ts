@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Everything a keyboard user can reach inside a dialog. Custom Select
 // triggers are buttons; JSON fields are textareas.
@@ -22,6 +22,9 @@ const stack: object[] = [];
 // closes on Escape and returns focus to the element that opened it.
 export function useDialogFocus(close: () => void, active = true) {
   const ref = useRef<HTMLElement>(null);
+  // The element focused when the dialog first rendered: a control inside
+  // the dialog with autoFocus takes focus before the effect below runs.
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
   const onClose = useRef(close);
   useLayoutEffect(() => {
     onClose.current = close;
@@ -30,7 +33,9 @@ export function useDialogFocus(close: () => void, active = true) {
     if (!active) return;
     const token = {};
     stack.push(token);
-    const previous = document.activeElement as HTMLElement | null;
+    const focused = document.activeElement as HTMLElement | null;
+    const previous =
+      focused && ref.current?.contains(focused) ? opener : focused;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const focusable = () =>
@@ -79,6 +84,6 @@ export function useDialogFocus(close: () => void, active = true) {
       document.body.style.overflow = overflow;
       if (previous?.isConnected) previous.focus();
     };
-  }, [active]);
+  }, [active, opener]);
   return ref;
 }

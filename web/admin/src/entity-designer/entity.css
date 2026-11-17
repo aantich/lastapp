@@ -305,20 +305,8 @@
 :is(.entity-designer, .entity-dialog) .error {
   margin: 0;
 }
-dialog.entity-dialog {
-  width: min(680px, calc(100vw - 32px));
-  max-height: 90dvh;
-  overflow: auto;
-  margin: auto;
-  padding: 0;
-  color: var(--ui-text);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-card);
-}
-dialog.entity-dialog::backdrop {
-  background: var(--ui-overlay);
-  backdrop-filter: blur(3px);
+.modal.entity-dialog {
+  width: 680px;
 }
 .entity-dialog > header {
   padding: 20px var(--entity-padding);

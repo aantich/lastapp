@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Layers3, Menu, X, ChevronDown, type LucideIcon } from "lucide-react";
 import { useAppearance } from "./appearance";
 import { AppearancePanel } from "./appearance-panel";
-import { useDialogFocus } from "./dialog";
+import { SidebarNav, useDialogFocus, useSidebarCollapse } from "./ui";
 import type { Me } from "./api-types";
 export function ConsoleShell({
   me,
@@ -37,7 +37,7 @@ export function ConsoleShell({
       () => matchMedia("(max-width:800px)").matches,
     ),
     [open, setOpen] = useState(false),
-    [collapsed, setCollapsed] = useState(false),
+    [collapsed, setCollapsed] = useSidebarCollapse(),
     [appearanceOpen, setAppearanceOpen] = useState(false);
   const ref = useDialogFocus(() => setOpen(false), mobile && open);
   const profile = useRef<HTMLDetailsElement>(null);
@@ -73,7 +73,7 @@ export function ConsoleShell({
       className={
         "shell tenant-console" +
         (open ? " navigation-open" : "") +
-        (collapsed ? " sidebar-collapsed" : "")
+        (collapsed && !mobile ? " sidebar-collapsed" : "")
       }
     >
       <a className="skip-link" href="#main-content">
@@ -112,24 +112,16 @@ export function ConsoleShell({
           )}
         </div>
         {context && <div className="tenant-switch">{context}</div>}
-        <nav aria-label="Console screens">
-          <div className="nav-group">
-            {nav.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                className={active === id ? "selected" : ""}
-                aria-current={active === id ? "page" : undefined}
-                onClick={() => {
-                  navigate(id);
-                  setOpen(false);
-                }}
-              >
-                <Icon size={19} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-        </nav>
+        <SidebarNav
+          label="Console screens"
+          items={nav}
+          active={active}
+          collapsed={collapsed && !mobile}
+          onSelect={(id) => {
+            navigate(id);
+            setOpen(false);
+          }}
+        />
       </aside>
       <main className="main">
         <header className="topbar">

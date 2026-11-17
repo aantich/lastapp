@@ -1,6 +1,6 @@
 import { AppReleases } from "../app-releases";
 import { AppDataAccess } from "../entity-designer/app-access";
-import { Collection } from "../collection";
+import { Collection } from "../ui";
 import { AccessControl } from "../access-control";
 import { status as badge } from "../console-forms";
 import { refreshQueries } from "../query";

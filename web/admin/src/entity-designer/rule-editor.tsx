@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Select } from "../select";
+import { Select } from "../ui";
 import { text, type EntityCatalog, type Item } from "../api-types";
 import { Expression } from "./expression";
 import { inputValue, isExpression, keyOf, optionalText } from "./shared";

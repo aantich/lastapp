@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { FolderOpen, Search } from "lucide-react";
-import { keyOf, type Item, type Page } from "./api-types";
-import { useApiQuery } from "./query";
+import { Search } from "lucide-react";
+import { Alert } from "./alert";
+import { Button } from "./button";
+import { DataTable } from "./data-table";
+import { keyOf, type Item, type Page } from "../api-types";
+import { useApiQuery } from "../query";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
 type CollectionProps = {
   path: string;
@@ -52,62 +55,37 @@ function ScopedCollection({
         </label>
         <span>{loading ? "Loading…" : `${items.length} records`}</span>
       </div>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              {columns.map(([label]) => (
-                <th key={label}>{label}</th>
-              ))}
-              {actions && <th className="actions-column">Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row) => (
-              <tr key={keyOf(row.id || row.user_id)}>
-                {columns.map(([label, render]) => (
-                  <td key={label}>{render(row)}</td>
-                ))}
-                {actions && (
-                  <td className="actions-column">
-                    <div className="row-actions">{actions(row)}</div>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!loading && !items.length && (
-        <div className="empty">
-          <FolderOpen size={28} />
-          <p>{empty}</p>
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
+      <DataTable
+        caption="Records"
+        columns={columns.map(([label, render]) => ({
+          key: label,
+          header: label,
+          render,
+        }))}
+        rows={items}
+        rowKey={(row) => keyOf(row.id || row.user_id)}
+        actions={actions}
+        loading={loading}
+        empty={empty}
+      />
       {(page > 1 || more) && (
         <div className="pagination">
-          <button
-            className="secondary"
+          <Button
             aria-label="Previous records"
             disabled={loading || page === 1}
             onClick={() => setPage((p) => p - 1)}
           >
             Previous
-          </button>
+          </Button>
           <span>Page {page}</span>
-          <button
-            className="secondary"
+          <Button
             aria-label="Next records"
             disabled={loading || !more}
             onClick={() => setPage((p) => p + 1)}
           >
             Next
-          </button>
+          </Button>
         </div>
       )}
     </section>

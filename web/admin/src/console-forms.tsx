@@ -1,4 +1,4 @@
-import type { Field } from "./form-modal";
+import { StatusBadge, type Field } from "./ui";
 import { text, type Item } from "./api-types";
 export const nameFields: Field[] = [
   { key: "display_name", label: "Name", required: true },
@@ -7,12 +7,7 @@ export const nameFields: Field[] = [
 export const stateOptions = ["active", "suspended", "archived"].map(
   (value) => ({ value, label: value }),
 );
-export const status = (state: unknown) => (
-  <span className={"badge " + String(state)}>
-    <i />
-    {text(state)}
-  </span>
-);
+export const status = (state: unknown) => <StatusBadge state={text(state)} />;
 export function initialPasswordField(key = "password"): Field {
   return {
     key,

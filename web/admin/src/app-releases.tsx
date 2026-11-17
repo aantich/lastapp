@@ -4,7 +4,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Failure } from "./api";
 import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
-import { FormModal, type Modal } from "./form-modal";
+import { FormModal, type Modal, Alert } from "./ui";
 import { status } from "./console-forms";
 import {
   keyOf,
@@ -328,16 +328,16 @@ export function AppReleases({
         </div>
       </div>
       {(error || listError || deploymentError) && (
-        <div className="error" role="alert">
-          {error || listError || deploymentError}
-        </div>
+        <Alert>{error || listError || deploymentError}</Alert>
       )}
       {deployment && (
         <div className="panel deployment-status" role="status">
           <strong>Production deployment</strong>
           {status(deployment.state)}
           {deployment.error_message && (
-            <p className="error">{deployment.error_message}</p>
+            <Alert as="p" live={false}>
+              {deployment.error_message}
+            </Alert>
           )}
           {deployment.state === "active" && (
             <a href={deployment.url} target="_blank" rel="noreferrer">

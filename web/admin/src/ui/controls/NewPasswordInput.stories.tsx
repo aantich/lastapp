@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { NewPasswordInput } from "../../new-password-input";
+import { NewPasswordInput } from "../new-password-input";
 import { policy } from "../storybook/fixtures";
 import {
   ConsoleStory,

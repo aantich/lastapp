@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Field, Modal } from "../form-modal";
+import type { Field, Modal } from "../ui";
 import {
   text,
   type Item,

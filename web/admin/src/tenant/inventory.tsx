@@ -1,4 +1,4 @@
-import { Collection } from "../collection";
+import { Collection } from "../ui";
 import { text } from "../api-types";
 import { status as badge } from "../console-forms";
 import { createSpace } from "./forms";

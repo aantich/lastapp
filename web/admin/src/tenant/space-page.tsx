@@ -2,7 +2,7 @@ import { Suspense, type ComponentProps } from "react";
 import { retryableLazy } from "../retryable-lazy";
 import type { EntityDesigner as Designer } from "../entity-designer/designer";
 import { DevelopmentWorkspaces } from "../development-workspaces";
-import { Collection } from "../collection";
+import { Collection } from "../ui";
 import { AccessControl } from "../access-control";
 import { status as badge } from "../console-forms";
 import { keyOf, text } from "../api-types";

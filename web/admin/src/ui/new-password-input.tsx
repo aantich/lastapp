@@ -1,5 +1,5 @@
 import { useEffect, useRef, type InputHTMLAttributes } from "react";
-import { usePasswordPolicy } from "./console-config";
+import { usePasswordPolicy } from "../console-config";
 
 // Native minlength/maxlength count UTF-16 units; the API counts Unicode code
 // points. Use one shared control with the server's limits for every NEW password.

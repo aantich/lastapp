@@ -39,19 +39,40 @@
   --ui-primary-soft: #e8eefd;
   --ui-focus: #2f5bea;
 
-  /* Status: foreground on its soft background (AA) */
-  --ui-success: #1f6b45;
+  /*
+   * Status: foreground on its soft background (AA). The three status text
+   * colors differ in lightness (L* 27 / 36 / 45), not hue alone; info is the
+   * Signal hue and neutral is achromatic. StatusBadge adds a distinct mark
+   * shape per tone (ui/status.tsx).
+   */
+  --ui-success: #1a603d;
   --ui-success-soft: #eaf5ef;
-  --ui-warning: #7a4706;
+  --ui-warning: #935e00;
   --ui-warning-soft: #fdf1dc;
-  --ui-danger: #9a1c12;
+  --ui-danger: #7d150d;
   --ui-danger-soft: #fcebe9;
+  --ui-danger-border: #f1c9c4;
+  --ui-info: #2f5bea;
+  --ui-info-soft: #e8eefd;
+  --ui-neutral: #3a3d44;
+  --ui-neutral-soft: #f1efea;
 
   /* Graphic marks without text (dots, charts): lightness differs per status */
   --ui-chart-primary: #2f5bea;
   --ui-chart-success: #2e8b57;
   --ui-chart-warning: #bc8420;
   --ui-chart-danger: #a52a1f;
+
+  /* Controls: boundaries of checkboxes, switches and radios need 3:1 */
+  --ui-control-border: #8a8d94;
+  --ui-control-checked: #2f5bea;
+  --ui-on-control-checked: #ffffff;
+  --ui-skeleton: #ebe9e4;
+
+  /* Inverse surface (toasts, tooltips) */
+  --ui-inverse: #111113;
+  --ui-on-inverse: #ffffff;
+  --ui-inverse-muted: #b9bcc4;
 
   /* Shape */
   --ui-radius: 9px;
@@ -60,6 +81,8 @@
   --ui-shadow: 0 1px 2px rgb(17 17 19 / 4%);
   --ui-button-shadow: 0 1px 2px rgb(17 17 19 / 6%);
   --ui-sidebar-width: 244px;
+  --ui-sidebar-rail: 68px;
+  --ui-shadow-pop: 0 12px 32px rgb(17 17 19 / 18%);
 }
 
 :root[data-mode="dark"] {
@@ -91,6 +114,20 @@
   --ui-warning-soft: #33270f;
   --ui-danger: #f07b70;
   --ui-danger-soft: #3b1b18;
+  --ui-danger-border: #6b2a24;
+  --ui-info: #7b9bff;
+  --ui-info-soft: #1f2a4d;
+  --ui-neutral: #c9cbd1;
+  --ui-neutral-soft: #2a2c31;
+
+  --ui-control-border: #74787f;
+  --ui-control-checked: #7b9bff;
+  --ui-on-control-checked: #0b1433;
+  --ui-skeleton: #2a2c31;
+
+  --ui-inverse: #ededef;
+  --ui-on-inverse: #111113;
+  --ui-inverse-muted: #4a4d55;
 
   --ui-chart-primary: #7b9bff;
   --ui-chart-success: #52b985;
@@ -99,6 +136,7 @@
 
   --ui-shadow: none;
   --ui-button-shadow: none;
+  --ui-shadow-pop: 0 12px 32px rgb(0 0 0 / 45%);
 }
 
 /*
@@ -120,6 +158,9 @@
   --ui-primary: #9db4ff;
   --ui-primary-soft: #1f2a4d;
   --ui-focus: #9db4ff;
+  --ui-control-border: #74787f;
+  --ui-control-checked: #9db4ff;
+  --ui-on-control-checked: #0b1433;
 }
 
 /* `inline` resolves the runtime variable on the element using the utility. */
@@ -142,6 +183,10 @@
   --color-danger-soft: var(--ui-danger-soft);
   --color-warning: var(--ui-warning);
   --color-warning-soft: var(--ui-warning-soft);
+  --color-info: var(--ui-info);
+  --color-info-soft: var(--ui-info-soft);
+  --color-neutral: var(--ui-neutral);
+  --color-neutral-soft: var(--ui-neutral-soft);
   --radius-panel: var(--ui-radius-card);
   --shadow-panel: var(--ui-shadow);
 }

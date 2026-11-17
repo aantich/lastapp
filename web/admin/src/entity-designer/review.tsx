@@ -2,6 +2,7 @@ import { api } from "../api";
 import { isItem, items, num, text, type Item } from "../api-types";
 import { EditorDialog } from "./editor-dialog";
 import type { Designer } from "./shared";
+import { Alert } from "../ui";
 
 // Reviews the draft against the published definition, validates and
 // publishes it.
@@ -53,9 +54,9 @@ export function ReviewDialog({ d }: { d: Designer }) {
         </p>
       )}
       {items(record?.diagnostics).map((d, i) => (
-        <p className="error" key={i}>
+        <Alert as="p" live={false} key={i}>
           {text(d.path)}: {text(d.message)}
-        </p>
+        </Alert>
       ))}
       <div className="entity-dialog-actions">
         <button

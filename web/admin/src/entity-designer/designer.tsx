@@ -10,7 +10,7 @@ import {
   type Page,
 } from "../api-types";
 import { useAction } from "../use-action";
-import { confirmAction } from "../confirm";
+import { confirmAction, Alert } from "../ui";
 import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 import { api } from "../api";
 import { definitionOf, discardChanges, type Designer } from "./shared";
@@ -224,11 +224,7 @@ export function EntityDesigner({
     );
   return (
     <section className="entity-designer">
-      {shownError && (
-        <div className="error" role="alert">
-          {shownError}
-        </div>
-      )}
+      {shownError && <Alert>{shownError}</Alert>}
       {!draft || !d ? (
         <EntityList
           space={space}
@@ -321,11 +317,11 @@ export function EntityDesigner({
           )}
           {review && <ReviewDialog d={d} />}
           {itemsOf(record?.publications)[0]?.state === "failed" && (
-            <div className="error" role="alert">
+            <Alert>
               Publishing failed:{" "}
               {text(itemsOf(record?.publications)[0]?.error_message)} Review
               changes and publish again.
-            </div>
+            </Alert>
           )}
           {editField && (
             <EditorDialog

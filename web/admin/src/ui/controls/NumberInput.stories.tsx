@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { NumberInput } from "../../number-input";
+import { NumberInput } from "../number-input";
 import { StoryField, StoryFields } from "../storybook/console-story";
 
 // number-input.tsx: a text field for numbers with no native stepper. Values

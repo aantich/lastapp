@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { isItem, type EntityCatalog, type Item } from "../api-types";
-import { confirmAction } from "../confirm";
+import { confirmAction } from "../ui";
 import type { Expression } from "../../../../packages/client/src/index.ts";
 
 export const keyOf = (name: string) => {

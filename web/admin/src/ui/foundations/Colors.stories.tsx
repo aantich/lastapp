@@ -8,7 +8,11 @@ const groups: [string, RegExp][] = [
   ],
   ["Sidebar (ink)", /^--ui-sidebar/],
   ["Signal blue and focus", /^--ui-(primary|on-primary|focus)/],
-  ["Status", /^--ui-(success|warning|danger)/],
+  ["Status", /^--ui-(success|warning|danger|info|neutral)/],
+  [
+    "Controls and inverse",
+    /^--ui-(control|on-control|skeleton|inverse|on-inverse)/,
+  ],
   ["Graphic marks", /^--ui-chart/],
 ];
 
@@ -31,6 +35,17 @@ const pairs: [string, string, number][] = [
   ["--ui-success", "--ui-surface", 4.5],
   ["--ui-warning", "--ui-surface", 4.5],
   ["--ui-danger", "--ui-surface", 4.5],
+  ["--ui-success", "--ui-canvas", 4.5],
+  ["--ui-warning", "--ui-canvas", 4.5],
+  ["--ui-danger", "--ui-canvas", 4.5],
+  ["--ui-info", "--ui-info-soft", 4.5],
+  ["--ui-neutral", "--ui-neutral-soft", 4.5],
+  ["--ui-on-inverse", "--ui-inverse", 4.5],
+  ["--ui-inverse-muted", "--ui-inverse", 4.5],
+  ["--ui-control-border", "--ui-surface", 3],
+  ["--ui-control-border", "--ui-canvas", 3],
+  ["--ui-control-checked", "--ui-surface", 3],
+  ["--ui-on-control-checked", "--ui-control-checked", 3],
   ["--ui-sidebar-text", "--ui-sidebar", 4.5],
   ["--ui-sidebar-muted", "--ui-sidebar", 4.5],
   ["--ui-sidebar-active-text", "--ui-sidebar-active", 4.5],
@@ -59,12 +74,25 @@ function Ratio({ fg, bg, min }: { fg: string; bg: string; min: number }) {
   const pass = ratio >= min;
   return (
     <span className="flex items-center gap-2">
-      <span
-        className="inline-flex h-7 min-w-14 items-center justify-center rounded-md px-2 font-semibold"
-        style={{ color: fg, background: bg }}
-      >
-        Aa
-      </span>
+      {min < 4.5 ? (
+        // A 3:1 pair is a mark or boundary, never text.
+        <span
+          className="inline-flex h-7 min-w-14 items-center justify-center rounded-md"
+          style={{ background: bg }}
+        >
+          <span
+            className="inline-block size-4 rounded-sm"
+            style={{ border: `2px solid ${fg}` }}
+          />
+        </span>
+      ) : (
+        <span
+          className="inline-flex h-7 min-w-14 items-center justify-center rounded-md px-2 font-semibold"
+          style={{ color: fg, background: bg }}
+        >
+          Aa
+        </span>
+      )}
       <strong className={pass ? "text-success" : "text-danger"}>
         {ratio.toFixed(2)}:1 {pass ? "pass" : "FAIL"}
       </strong>

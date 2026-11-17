@@ -11,6 +11,7 @@ import { AppLaunch } from "./entity-designer/launch";
 import { AgentConsent } from "./agent-access";
 import { consoleURL, isConsolePath } from "./console-url";
 import { queryClient } from "./query";
+import { Alert } from "./ui";
 
 // The console's session gate: loads the signed-in account, then shows sign-in,
 // a required password change, the App launch or agent consent screen, or the
@@ -88,11 +89,7 @@ export function App() {
   if (auth === "out")
     return (
       <>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
+        {error && <Alert>{error}</Alert>}
         <LoginScreen
           done={async () => {
             await refreshConfig();
@@ -108,11 +105,7 @@ export function App() {
     return <AgentConsent me={me!} />;
   return (
     <>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Alert>{error}</Alert>}
       {me?.platform_admin ? (
         <PlatformWorkspace
           me={me}
