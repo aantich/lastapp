@@ -197,7 +197,7 @@ func (s *Service) StoreBuild(ctx context.Context, u Upload, in []artifact.File, 
 		return nil, false, e
 	}
 	defer tx.Rollback()
-	if e = LockTenant(ctx, tx, v.TenantID); e != nil {
+	if e = registry.LockTenant(ctx, tx, v.TenantID); e != nil {
 		return nil, false, e
 	}
 	v, e = registry.ScanOne[uploadTicket](ctx, tx, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", registry.TokenHash(raw))

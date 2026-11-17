@@ -90,9 +90,3 @@ func HostedOrigin(c *config.Config, app string) string {
 
 // HostedOrigin is the dedicated static origin of an App.
 func (s *Service) HostedOrigin(app string) string { return HostedOrigin(s.Config, app) }
-
-// LockTenant takes the Tenant row lock that serializes registry mutations.
-func LockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
-	var v string
-	return tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&v)
-}

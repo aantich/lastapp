@@ -317,7 +317,7 @@ func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v re
 			return e
 		}
 		defer tx.Rollback()
-		if e = LockTenant(ctx, tx, v.TenantID); e != nil {
+		if e = registry.LockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
 		if e = s.Access.WorkspaceOwner(ctx, tx, p, v); e != nil {

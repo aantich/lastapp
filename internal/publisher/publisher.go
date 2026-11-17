@@ -146,8 +146,7 @@ func (s *Publisher) Job(ctx context.Context, q registry.Queryer, cursor ...*stri
 			return true, err
 		}
 		defer tx.Rollback()
-		var locked string
-		if err = tx.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", v.TenantID).Scan(&locked); err != nil {
+		if err = registry.LockTenant(ctx, tx, v.TenantID); err != nil {
 			return true, err
 		}
 		permission := "entities.publish"
@@ -449,8 +448,7 @@ func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *strin
 		return e
 	}
 	defer rt.Rollback()
-	var lockedTenant string
-	if e = rt.QueryRowContext(ctx, "SELECT id FROM tenants WHERE id=? FOR UPDATE", tenant).Scan(&lockedTenant); e != nil {
+	if e = registry.LockTenant(ctx, rt, tenant); e != nil {
 		return e
 	}
 	if v.Deployment != nil {

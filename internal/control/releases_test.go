@@ -189,7 +189,7 @@ func TestReleasePreviewConcurrentConfiguration(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer tx.Rollback()
-	if e = delivery.LockTenant(ctx, tx, f.tenant); e != nil {
+	if e = registry.LockTenant(ctx, tx, f.tenant); e != nil {
 		t.Fatal(e)
 	}
 	r := httptest.NewRequest("POST", "/v1/releases/"+registry.Str(f.release["id"])+"/preview", strings.NewReader("{}"))

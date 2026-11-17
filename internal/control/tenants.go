@@ -103,8 +103,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Pri
 			return e
 		}
 		for _, t := range ts {
-			var v string
-			if e = tx.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE id=? FOR UPDATE", t).Scan(&v); e != nil {
+			if e = registry.LockTenant(r.Context(), tx, t); e != nil {
 				return e
 			}
 		}
