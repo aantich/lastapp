@@ -175,8 +175,9 @@ build farm, arbitrary Node runtime or automatic release rollback.
 
 - `development_workspaces.go`, `workspace_snapshot.go`: ownership, copying,
   identity mapping and shared publication capture.
-- `development_sessions.go`, `app_sessions.go`: console/delegation parent checks,
-  PKCE and live App-session revocation; `packages/client/src/index.ts`: SDK.
+- `development_sessions.go`, `internal/dataapi/sessions.go`: development and
+  console launch codes, console/delegation parent checks, PKCE and live
+  App-session revocation; `packages/client/src/index.ts`: SDK.
 - `artifacts.go`, `internal/artifact`: tickets, bounded immutable storage and
   isolated host routing.
 - `releases.go`, `deployment_worker.go`: captured plans, concurrency fences and

@@ -112,7 +112,7 @@ API key, while management `{entity}` is its registry UUID.
 
 The exact SDK request/response types live in
 [packages/client/src/index.ts](packages/client/src/index.ts); dispatch lives in
-[entity_data.go](internal/control/entity_data.go). Do not hand-maintain another
+[internal/dataapi](internal/dataapi/runtime.go). Do not hand-maintain another
 data API client or treat management pagination as the data query contract.
 
 Management MCP exposes these same authoring operations through typed tools;

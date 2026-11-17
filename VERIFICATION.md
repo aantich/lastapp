@@ -1,5 +1,42 @@
 # Lastapp verification
 
+## App data API extracted from control (P2) — 17 November 2026
+
+- Pure move, no behaviour change: `/data/v1` dispatch, actor/definition
+  loading, record reads and mutations, capabilities, reference options, record
+  shares, the definition cache, Tenant fairness and App sessions (console
+  launch and launch info, PKCE exchange, bearer sessions and the shared
+  browser/delegated parent check) are `dataapi.Runtime` (`internal/dataapi`).
+  `Open` wires it with the registry DB, `access.Checker`, `entities.Authoring`,
+  `publisher.Publisher`, the `Sealer`, config and the console's shared
+  `Limiter` and trusted proxies; control keeps one `/data/v1/` mount and the two
+  console launch routes. Development launch codes (`Server.Launch`) stay in
+  control and use `dataapi.LaunchLifetime`. Inside the package the former
+  `entity_data.go` is split mechanically into `runtime.go`, `records.go` and the
+  SQL builders in `sql.go`.
+- Token hashing and the PKCE verifier/challenge formats moved to
+  `registry.TokenHash`, `registry.PKCEVerifier` and `registry.PKCEChallenge`
+  (one source for control and dataapi) instead of being copied.
+- Layering: `dataapi` is layer 97 (between control and publisher) and a
+  transport package, so it may import `httpapi` (its decode/send, error writer,
+  limiter and client IP) and only control imports it. `TestNoHTTPLoopback`
+  scans all dataapi files for the removed loopback and keeps its non-HTTP files
+  (`sql.go`, `cache.go`, `fairness.go`) free of `net/http`.
+- `internal/dataapi` has database-free tests (cursor, share and team-recipient
+  SQL, App gates, definition cache LRU and hash check, Tenant fairness, the
+  latter moved from control); the `/data/v1` HTTP tests and goldens stay in
+  control.
+- `internal/control` production code: 9,545 → 8,019 lines
+  (`internal/dataapi` production: 1,574).
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 189.1 s; only the CI-only `TestPrepareFixture` skips); the six goldens
+with `-count=2` **PASS** and `internal/control/testdata` is unchanged since the
+P1 commit; `python3 design/validate_schema.py --check`,
+`python3 scripts/verify_driver.py` and `git diff --check` **PASS**; `make e2e`
+**PASS** (34 browser tests on the disposable stack).
+
 ## Entity publisher extracted from control (P1) — 17 November 2026
 
 - Pure move, no behaviour change: the publication job, `publish`, `Activate`,
