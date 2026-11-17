@@ -109,7 +109,10 @@ exists. The current login and management OAuth server are implemented in Lastapp
 
 To add a management operation: write a typed method in its domain package that
 takes an `op.Actor` and runs writes through `Runner.Mutate` (for example
-`inventory.CreateTenant`); add a thin decode → call → send handler in
+`inventory.CreateTenant`) and its reads through `Runner.Authorize`/`Runner.Scopes`
+(never `Checker.Authorize` directly: the Runner attaches the actor's agent call, so
+the grant's tool permissions apply even when the context carries no call,
+`TestAgentAuditAndUserReadsNarrowed`); add a thin decode → call → send handler in
 `internal/control`; expose it to MCP by an adapter in `internal/agent` (the
 domain's file, listed in `Server.Tools`) that calls the same method; regenerate the goldens (below) for the new tool schema/response;
 and add a regression test for its authorization boundary.

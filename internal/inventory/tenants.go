@@ -127,8 +127,7 @@ func (v *User) ScanFields() []any {
 
 // Users pages every global account; platform administrators only.
 func (v *Inventory) Users(ctx context.Context, actor op.Actor, page op.PageRequest) (op.Page[User], error) {
-	p := actor.Principal
-	if e := v.Run.Access.Authorize(ctx, v.DB, p, "platform.admin", access.Resource{}, false); e != nil {
+	if e := v.Run.Authorize(ctx, actor, "platform.admin", access.Resource{}); e != nil {
 		return op.Page[User]{}, e
 	}
 	return op.PageScan[User](ctx, v.DB, page, op.CollectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", access.SuperRole, access.SuperRole, access.SuperRole)
