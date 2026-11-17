@@ -2,6 +2,7 @@
 @import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
 @import "./themes.css";
+@import "./ui/kit.css";
 
 .login-form {
   display: grid;
@@ -1003,28 +1004,6 @@ code {
   color: var(--ui-muted);
   white-space: nowrap;
 }
-.badge i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.badge.active,
-.badge.ready {
-  background: var(--ui-success-soft);
-  color: var(--ui-success);
-}
-.badge.pending,
-.badge.provisioning,
-.badge.suspended {
-  background: var(--ui-warning-soft);
-  color: var(--ui-warning);
-}
-.badge.failed,
-.badge.disabled {
-  background: var(--ui-danger-soft);
-  color: var(--ui-danger);
-}
 .toolbar {
   display: flex;
   justify-content: space-between;
@@ -1320,7 +1299,7 @@ td {
   color: var(--ui-danger);
   font-weight: 400;
 }
-.fields input:not([type="checkbox"]),
+.fields input:not([type="checkbox"], [type="radio"]),
 .fields .select-trigger {
   width: 100%;
   min-height: var(--ui-control-height);
@@ -1663,7 +1642,7 @@ td {
   background: var(--ui-subtle);
 }
 .sidebar-collapsed {
-  --ui-sidebar-width: 72px;
+  --ui-sidebar-width: var(--ui-sidebar-rail);
 }
 .sidebar-collapsed .brand-row {
   padding: 0 20px;
