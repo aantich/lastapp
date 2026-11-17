@@ -363,7 +363,11 @@ never error messages, and unmapped API errors stay a generic 500.
 
 `main` is protected by the GitHub ruleset `main`: changes arrive only through a
 pull request whose required `test` check passed on a branch up to date with
-`main`; force-pushes and deletion are blocked.
+`main`; force-pushes and deletion are blocked. Merges go through the merge
+queue: add a green pull request to the queue (`gh pr merge <n> --merge` or the
+"Merge when ready" button) and GitHub tests it on top of the current `main` (the
+`merge_group` trigger in `checks.yml`) before merging, so there is no manual
+"Update branch" step.
 
 Keep `.local/`, keys, passwords, build output, traces and screenshots out of git.
 No routine change requires resetting local data, refreshing the driver snapshot,

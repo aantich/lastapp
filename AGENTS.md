@@ -45,7 +45,7 @@
 - Run checks appropriate to the change; use the existing local MariaDB for integration tests. Plain `go test ./...` can skip database tests. See DEVELOPMENT.md for commands and prerequisites.
 - Run `make lint`; fix findings instead of adding suppressions.
 - Golden files change only for an intended contract change; regenerate them as DEVELOPMENT.md describes and review the diff.
-- `main` accepts changes only through a pull request with a green `test` check on a branch up to date with `main`.
+- `main` accepts changes only through a pull request with a green `test` check, merged via the merge queue (it tests each change on top of the current `main`).
 - Start each work cycle by checking the docs against the merged state; end it by updating the docs it affected.
 - Verify shared UI in the browser at desktop and mobile sizes when layout/interaction changes. Reuse the console shell, forms, selectors, collections and theme tokens.
 - Keep `design/control_plane.sql` generated from migrations. Run `python3 design/validate_schema.py --check` and `python3 scripts/verify_driver.py`; record meaningful validation in VERIFICATION.md.
