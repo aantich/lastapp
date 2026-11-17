@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { Key, ReactNode } from "react";
 import { cx } from "./utils";
 import { Skeleton } from "./feedback";
 import { EmptyState } from "./empty-state";
@@ -29,7 +29,7 @@ export function DataTable<Row>({
 }: {
   columns: Column<Row>[];
   rows: Row[];
-  rowKey: (row: Row) => string;
+  rowKey: (row: Row) => Key | undefined;
   actions?: (row: Row) => ReactNode;
   // Visually hidden name of the table for screen readers.
   caption?: string;
