@@ -24,6 +24,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/worker"
 )
 
 // Regression tests for the ten independently reproduced security review findings.
@@ -218,7 +219,7 @@ func TestSecurityRegressions(t *testing.T) {
 		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR)", registry.TokenHash(live), operator, registry.TokenHash(registry.Token(32))); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = cleanupSessions(context.Background(), s.DB); e != nil {
+		if _, e = worker.CleanupSessions(context.Background(), s.DB); e != nil {
 			t.Fatal(e)
 		}
 		var count int

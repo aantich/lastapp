@@ -8,7 +8,7 @@ import (
 )
 
 // operationPackages are the transport-independent packages below control.
-var operationPackages = []string{"registry", "access", "op", "config", "databases", "roles", "membership", "inventory", "entities", "publisher", "delivery"}
+var operationPackages = []string{"registry", "access", "op", "config", "databases", "roles", "membership", "inventory", "entities", "publisher", "delivery", "worker"}
 
 // transportIndependentFiles are the files of the HTTP-facing data API package
 // (internal/dataapi) that hold its non-HTTP logic: SQL builders, the definition
