@@ -1,5 +1,48 @@
 # Lastapp verification
 
+## Signal theme, local Storybook and UI library foundations — 18 November 2026
+
+- Signal ("Ink & Signal") replaces the Neo, Studio and Evergreen presets as the
+  only console theme, in light, dark and system modes. `themes.css` keeps the
+  `--ui-*` names and adds heading/mono fonts, card radius, focus, sidebar
+  hover/muted/border/surface tokens and soft status utilities. A stored
+  `{"theme":"evergreen","mode":"dark"}` keeps dark mode and is rewritten as
+  `{"mode":…}` on the next change (new e2e scenario).
+- The production build first emitted small Fontsource subsets as `data:` URIs,
+  which the console CSP blocked (Chrome console error in the e2e traces). Vite
+  now always emits fonts as files; the built CSS has no `data:font`.
+- Storybook 10.6.5 (local only) builds 22 stories. A Playwright probe of the
+  static build at 1440×900 and 390×844, light and dark: no page errors, no
+  horizontal overflow, no story text under 4.5:1; Select keyboard choice,
+  RemoteSelect paging (4 → 9 active members, search, choose), Collection
+  paging/empty/error, NewPasswordInput validity following the supplied policy
+  (12–128 accepts an 18-character password, 20–64 rejects it), FormModal error
+  and 390 px fit, generated password length 40, danger ConfirmDialog focusing
+  Cancel. The Colors story found the light warning mark at 2.2:1; the marks now
+  meet 3:1 with distinct lightness (light L* 37/52/59, dark 52/68/75 for
+  danger/success/warning).
+- A temporary, uncommitted Playwright probe on the disposable e2e stack (Tenants page and Create Tenant
+  form, both modes, 1440 and 390): ink sidebar `rgb(14, 15, 18)`, white/
+  `rgb(27, 28, 32)` cards with 14 px radius, Inter Tight headings, no overflow.
+  It found the sidebar brand inheriting near-black text in light mode (1.02:1);
+  `.sidebar` now restates its text color, and the rerun reports no text under
+  4.5:1.
+
+Executed checks:
+
+- `npm run lint`, `npm run typecheck`, `npm run build`, `npm run build-storybook`
+  (output deleted), `make lint` (0 issues), `python3 design/validate_schema.py
+  --check`, `python3 scripts/verify_driver.py`, `git diff --check` **PASS**.
+- `make e2e` **not green on this machine**, and not attributable to this change.
+  The appearance spec passed 5/5 on a lightly loaded run (before the
+  sidebar-color fix). Two later full runs, with load averages of 10–37, failed
+  30/35 the same way: an element (mostly the post-login `Tenants` heading) did
+  not appear within the 5 s expect timeout. The traces show slow server
+  responses, for example 1.8 s for `/v1/config`. The same subset
+  (`confirm-dialog.spec.ts`, `console-data.spec.ts`) fails 6/6 identically on
+  `origin/main` (6edc683) under the same load. The suite needs a rerun on an
+  idle machine before merge.
+
 ## Package-split findings: directory-scoped share search, agent reads, small DRY fixes — 17 November 2026
 
 - Share-recipient search (`GET .../shares?view=options`) listed every active

@@ -28,15 +28,27 @@ test("appearance changes shared screens, persists and resets with focus restorat
     path: "../../artifacts/simple-platform.png",
     fullPage: true,
   });
+  // Signal is the only theme: light cards are white on the warm canvas and
+  // the sidebar stays ink in both modes.
+  expect(original).toBe("rgb(255, 255, 255)");
+  await expect(page.locator(".sidebar")).toHaveCSS(
+    "background-color",
+    "rgb(14, 15, 18)",
+  );
   const drawer = await appearance(page);
-  await drawer.getByRole("radio", { name: /Studio/ }).check();
+  await expect(drawer.getByRole("radio")).toHaveCount(3);
+  await expect(drawer.getByText("Theme preset")).toHaveCount(0);
   await drawer.getByRole("radio", { name: "Dark", exact: true }).check();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "studio");
   await expect(panel).not.toHaveCSS("background-color", original);
+  await expect(page.locator(".sidebar")).toHaveCSS(
+    "background-color",
+    "rgb(14, 15, 18)",
+  );
   await drawer.getByRole("button", { name: "Done", exact: true }).click();
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "studio");
+  await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.*/);
   await page
     .getByRole("button", { name: "Create Tenant", exact: true })
     .click();
@@ -51,7 +63,6 @@ test("appearance changes shared screens, persists and resets with focus restorat
   await appearance(page);
   await drawer.getByRole("button", { name: "Reset to default" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "light");
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "neo");
   await page.keyboard.press("Escape");
   await expect(page.getByLabel("Account menu", { exact: true })).toBeFocused();
   expect(errors).toEqual([]);
@@ -68,7 +79,6 @@ test("system mode, cross-tab sync and invalid preferences recover", async ({
   );
   await page.emulateMedia({ colorScheme: "dark" });
   await login(page);
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "neo");
   await expect(page.locator("html")).toHaveAttribute("data-mode", "light");
   await appearance(page);
   await page.getByRole("radio", { name: "System", exact: true }).check();
@@ -79,8 +89,6 @@ test("system mode, cross-tab sync and invalid preferences recover", async ({
   const second = await context.newPage();
   await second.goto("/console/");
   await appearance(second);
-  await second.getByRole("radio", { name: /Evergreen/ }).check();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "evergreen");
   await second.getByRole("radio", { name: "Dark", exact: true }).check();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
   await second.close();
@@ -111,7 +119,6 @@ test("mobile navigation, forms and theme drawer fit and trap focus", async ({
   await fits();
   await page.keyboard.press("Escape");
   const drawer = await appearance(page);
-  await drawer.getByRole("radio", { name: /Evergreen/ }).check();
   await drawer.getByRole("radio", { name: "Dark", exact: true }).check();
   await fits();
   await page.screenshot({
@@ -140,13 +147,29 @@ test("navigation and appearance work with browser storage disabled", async ({
   });
   await login(page);
   await appearance(page);
-  await page.getByRole("radio", { name: /Evergreen/ }).check();
   await page.getByRole("radio", { name: "Dark", exact: true }).check();
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await nav(page, "Users");
   await expect(
     page.getByRole("heading", { name: "Users", exact: true, level: 1 }),
   ).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "evergreen");
   await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+});
+test("a saved preference from the former theme presets keeps its mode", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "lastapp-appearance",
+      '{"theme":"evergreen","mode":"dark"}',
+    ),
+  );
+  await login(page);
+  await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.*/);
+  await appearance(page);
+  await page.getByRole("radio", { name: "Light", exact: true }).check();
+  expect(
+    await page.evaluate(() => localStorage.getItem("lastapp-appearance")),
+  ).toBe('{"mode":"light"}');
 });

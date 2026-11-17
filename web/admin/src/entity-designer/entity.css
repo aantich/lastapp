@@ -300,7 +300,7 @@
 }
 :is(.entity-designer, .entity-dialog, .entity-app-access) textarea {
   max-width: 100%;
-  font-family: ui-monospace, monospace;
+  font-family: var(--ui-font-mono);
 }
 :is(.entity-designer, .entity-dialog) .error {
   margin: 0;
@@ -314,7 +314,7 @@ dialog.entity-dialog {
   color: var(--ui-text);
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
-  border-radius: calc(var(--ui-radius) + 3px);
+  border-radius: var(--ui-radius-card);
 }
 dialog.entity-dialog::backdrop {
   background: var(--ui-overlay);

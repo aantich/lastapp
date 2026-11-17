@@ -1,6 +1,12 @@
 import { Check, Monitor, Moon, Palette, RotateCcw, Sun, X } from "lucide-react";
 import { useDialogFocus } from "./dialog";
-import { themes, type Appearance, type Mode } from "./appearance";
+import type { Appearance, Mode } from "./appearance";
+
+const modeOptions: { id: Mode; name: string; Icon: typeof Sun }[] = [
+  { id: "light", name: "Light", Icon: Sun },
+  { id: "dark", name: "Dark", Icon: Moon },
+  { id: "system", name: "System", Icon: Monitor },
+];
 
 export function AppearancePanel({
   value,
@@ -50,18 +56,14 @@ export function AppearancePanel({
           <fieldset>
             <legend>Color mode</legend>
             <div className="mode-options">
-              {[
-                { id: "light", name: "Light", Icon: Sun },
-                { id: "dark", name: "Dark", Icon: Moon },
-                { id: "system", name: "System", Icon: Monitor },
-              ].map(({ id, name, Icon }) => (
+              {modeOptions.map(({ id, name, Icon }) => (
                 <label key={id} className={value.mode === id ? "chosen" : ""}>
                   <input
                     type="radio"
                     name="color-mode"
                     value={id}
                     checked={value.mode === id}
-                    onChange={() => onChange({ ...value, mode: id as Mode })}
+                    onChange={() => onChange({ ...value, mode: id })}
                   />
                   <Icon size={21} />
                   <span>{name}</span>
@@ -69,49 +71,9 @@ export function AppearancePanel({
               ))}
             </div>
           </fieldset>
-          <fieldset>
-            <legend>Theme preset</legend>
-            <div className="theme-options">
-              {themes.map((theme) => (
-                <label
-                  key={theme.id}
-                  className={value.theme === theme.id ? "chosen" : ""}
-                >
-                  <input
-                    type="radio"
-                    name="theme-preset"
-                    value={theme.id}
-                    checked={value.theme === theme.id}
-                    onChange={() => onChange({ ...value, theme: theme.id })}
-                  />
-                  <span
-                    className={"theme-preview preview-" + theme.id}
-                    aria-hidden="true"
-                  >
-                    <i />
-                    <span>
-                      <b />
-                      <b />
-                      <b />
-                    </span>
-                  </span>
-                  <span className="theme-description">
-                    <strong>
-                      {theme.name}
-                      {theme.id === "neo" && <em>Default</em>}
-                    </strong>
-                    <small>{theme.description}</small>
-                  </span>
-                  {value.theme === theme.id && (
-                    <Check size={17} className="text-primary" />
-                  )}
-                </label>
-              ))}
-            </div>
-          </fieldset>
           <div className="rounded-panel border border-line bg-subtle p-4 text-sm text-muted leading-6">
-            Your theme follows you across all console screens, forms and
-            resource tables.
+            The Signal theme follows you across all console screens, forms and
+            resource tables. System mode follows your device setting.
           </div>
         </div>
         <footer className="drawer-footer">

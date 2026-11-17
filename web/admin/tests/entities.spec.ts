@@ -171,7 +171,6 @@ test("entity designer creates, tests and publishes a real shared backend", async
     name: "Appearance",
     exact: true,
   });
-  await appearance.getByRole("radio", { name: /Studio/ }).check();
   await appearance.getByRole("radio", { name: "Dark", exact: true }).check();
   await appearance.getByRole("button", { name: "Done", exact: true }).click();
   await capture("entity-designer-dark.png");

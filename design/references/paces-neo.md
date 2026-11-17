@@ -17,12 +17,11 @@ Source observations came from the rendered demo, `assets/css/app.min.css` and `d
 
 Typography is locally bundled from the [official Inter repository](https://github.com/rsms/inter), under its included SIL Open Font License. The font requires no third-party runtime requests.
 
-## Theme contract
+## Theme contract (superseded)
 
-`web/admin/src/themes.css` defines semantic `--ui-*` tokens, with Neo, Studio and Evergreen presets and light/dark overrides. Tailwind 4's `@theme inline` maps these to utilities such as `bg-surface`, `text-ink`, `text-primary`, `border-line`, `rounded-panel` and `shadow-panel`. Existing component classes consume the same variables. Prefer semantic tokens over fixed palette colors when adding UI.
-
-`data-theme` chooses the preset; `data-mode` is the resolved light/dark mode. The custom `dark:` variant uses the latter. The default is Neo/light. Appearance offers Light, Dark and System and saves a validated `{ theme, mode }` preference in browser-local `lastapp-appearance`. System changes and preference changes from other tabs are observed. Invalid values fall back to defaults; disabled storage still allows switching during the session. `public/appearance-init.js` applies validated attributes before CSS loads, through a same-origin script allowed by the existing CSP.
-
-To add a preset, add its ID/name/description in `appearance.tsx`, include its ID in the early bootstrap allowlist in `public/appearance-init.js`, define its token overrides in `themes.css`, and add a small `.preview-*` swatch in `style.css`. Define a dark override when its accent needs different contrast. Keep status colors independent of brand colors.
+The Neo, Studio and Evergreen presets described by this reference were replaced
+by the single Signal theme in November 2026. The current token contract, color
+modes and UI library rules are in the
+[console UI library section of DEVELOPMENT.md](../../DEVELOPMENT.md#console-ui-library).
 
 Sources: [Tailwind theme variables](https://tailwindcss.com/docs/theme), [Tailwind dark mode](https://tailwindcss.com/docs/dark-mode).

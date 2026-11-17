@@ -8,7 +8,7 @@
   margin: 0 auto;
   padding: 32px;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: var(--ui-radius-card);
 }
 .agent-consent-card > .muted {
   margin: 0 0 24px;

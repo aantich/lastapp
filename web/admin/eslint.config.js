@@ -8,7 +8,12 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores(["dist", "test-results", "playwright-report"]),
+  globalIgnores([
+    "dist",
+    "test-results",
+    "playwright-report",
+    "storybook-static",
+  ]),
   {
     files: ["src/**/*.{ts,tsx}"],
     extends: [
@@ -20,6 +25,16 @@ export default defineConfig([
     languageOptions: { ecmaVersion: 2022, globals: globals.browser },
     // Stale closures in effects are real bugs here; fail instead of warning.
     rules: { "react-hooks/exhaustive-deps": "error" },
+  },
+  {
+    // Local Storybook configuration (stories themselves are under src/).
+    files: [".storybook/**/*.{ts,tsx}"],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommended,
+      reactHooks.configs.flat.recommended,
+    ],
+    languageOptions: { ecmaVersion: 2022, globals: globals.browser },
   },
   {
     files: ["tests/**/*.ts", "*.config.{ts,js}"],
