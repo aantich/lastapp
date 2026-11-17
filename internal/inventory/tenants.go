@@ -206,7 +206,7 @@ func (v *Inventory) CreateTenant(ctx context.Context, a op.Actor, in TenantCreat
 			return op.Ref{}, e
 		}
 		var e error
-		account, e = v.PrepareAccount(*in.Account)
+		account, e = v.Passwords.PrepareAccount(*in.Account)
 		if e != nil {
 			return op.Ref{}, e
 		}

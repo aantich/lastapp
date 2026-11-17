@@ -24,7 +24,7 @@ func (m *Members) AddAdministrator(ctx context.Context, a op.Actor, tenant strin
 	var account PreparedAccount
 	var e error
 	if in.Account != nil {
-		account, e = m.PrepareAccount(*in.Account)
+		account, e = m.Passwords.PrepareAccount(*in.Account)
 	} else {
 		e = registry.ID(in.User)
 	}

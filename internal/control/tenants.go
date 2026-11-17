@@ -8,6 +8,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
+	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -50,6 +51,40 @@ func (s *Server) Users(ctx context.Context, actor op.Actor, page op.PageRequest)
 		return op.Page[inventory.User]{}, e
 	}
 	return op.PageScan[inventory.User](ctx, s.DB, page, op.CollectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", access.SuperRole, access.SuperRole, access.SuperRole)
+}
+
+// createLocalUser creates a global email/password account without
+// memberships or roles; platform administrators only.
+func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+	if e := s.Authorize(r.Context(), s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
+		return e
+	}
+	var in membership.AccountInput
+	if e := httpapi.Decode(w, r, &in); e != nil {
+		return e
+	}
+	if in.Password == "" {
+		return registry.Bad("A new account requires a name and initial password.")
+	}
+	account, e := s.members.Passwords.PrepareAccount(in)
+	if e != nil {
+		return e
+	}
+	ctx, cancel := op.RenewDeadline(r.Context())
+	defer cancel()
+	var user string
+	e = s.mutate(ctx, p, "platform.admin", access.Resource{}, r.Header.Get("X-Request-ID"), func(tx *sql.Tx) error {
+		var e error
+		user, e = membership.LocalAccount(ctx, tx, account, true)
+		if e != nil {
+			return e
+		}
+		return op.Audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), registry.Row{"display_name": account.Name, "email": account.Email})
+	})
+	if e == nil {
+		httpapi.Send(w, 201, registry.Row{"id": user, "display_name": account.Name, "email": account.Email, "state": registry.StateActive})
+	}
+	return e
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, p access.Principal) error {

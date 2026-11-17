@@ -21,8 +21,9 @@ import (
 type Members struct {
 	DB  *sql.DB
 	Run *op.Runner
-	// Collaborator of a domain not yet extracted, passed explicitly.
-	PrepareAccount func(AccountInput) (PreparedAccount, error)
+	// Passwords prepares supplied local accounts within the shared PBKDF2
+	// work bound.
+	Passwords *Passwords
 }
 
 // AccountChoice selects an existing user or supplies a local account.
@@ -137,7 +138,7 @@ func (m *Members) AddMembership(ctx context.Context, a op.Actor, tenant string, 
 			}
 		}
 		var e error
-		account, e = m.PrepareAccount(*in.Account)
+		account, e = m.Passwords.PrepareAccount(*in.Account)
 		if e != nil {
 			return memberRef{}, e
 		}

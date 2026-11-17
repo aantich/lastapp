@@ -3,7 +3,6 @@ package control
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/session"
 )
 
 func TestPasswordLengthBounds(t *testing.T) {
@@ -84,9 +84,9 @@ func TestLoginDeadlineExcludesPasswordDerivation(t *testing.T) {
 	derivation := time.Since(start)
 	// Each database phase is far shorter than half a derivation; the derivation
 	// itself is longer than this deadline.
-	previous := loginDatabaseTimeout
-	loginDatabaseTimeout = derivation / 2
-	t.Cleanup(func() { loginDatabaseTimeout = previous })
+	previous := session.LoginDatabaseTimeout
+	session.LoginDatabaseTimeout = derivation / 2
+	t.Cleanup(func() { session.LoginDatabaseTimeout = previous })
 	passwordSignIn(platform, email, password, 200)
 	passwordSignIn(platform, email, "Wrong derivation 8!", 401)
 	var sessions int
@@ -176,7 +176,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 	}
 	// Exhaust just the email budget at a fixed timestamp, without expensive hashes.
 	for range 8 {
-		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(registry.TokenHash("limited@example.test")), time.Now(), 8, 1.0/30)
+		s.sessions.LoginLimiter.AllowRate(session.LoginEmailKey("limited@example.test"), time.Now(), 8, 1.0/30)
 	}
 	passwordSignIn(c, "limited@example.test", password, 429)
 	wrong := httptest.NewRequest("GET", "/auth/login", nil)

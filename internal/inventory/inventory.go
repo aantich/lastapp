@@ -52,9 +52,10 @@ type MicroappCreateInput struct {
 type Inventory struct {
 	DB  *sql.DB
 	Run *op.Runner
-	// Collaborators of domains not yet extracted, passed explicitly.
+	// Collaborator of a domain not yet extracted, passed explicitly.
 	AllocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databases.DatabaseInput, policy registry.Policy, workspace *access.Resource) error
-	PrepareAccount   func(membership.AccountInput) (membership.PreparedAccount, error)
+	// Passwords prepares a new Tenant's initial administrator account.
+	Passwords *membership.Passwords
 }
 
 // Space is a Space read with its Tenant's name and its database binding.

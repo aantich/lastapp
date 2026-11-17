@@ -13,11 +13,12 @@ const module = "github.com/aantich/lastapp/"
 
 // layers is the documented dependency direction (DEVELOPMENT.md, package
 // layout): an internal package may import only internal packages of a strictly
-// lower layer. control → dataapi → delivery → publisher → entities → inventory → membership → roles → databases
+// lower layer. control → session → dataapi → delivery → publisher → entities → inventory → membership → roles → databases
 // → op → access → registry, with config, sealer and the entity/data/authz/
 // artifact leaves below them. A new internal package must be placed here.
 var layers = map[string]int{
 	"control":    100,
+	"session":    98,
 	"dataapi":    97,
 	"delivery":   96,
 	"publisher":  95,
@@ -43,7 +44,15 @@ var layers = map[string]int{
 // (/data/v1, App launch/sessions): it serves requests itself, so it may use the
 // shared httpapi plumbing (decode/send, error writer, limiter, proxies) instead
 // of duplicating it, and only control (which mounts it) may import it.
-var transportOnly = map[string]bool{"control": true, "dataapi": true, "httpapi": true}
+// session (console login, sessions, CSRF/origin checks, password login and
+// change) is HTTP-facing for the same reason: its handlers set cookies,
+// redirect through OIDC and write errors with httpapi. It sits directly below
+// control, so only control (which registers its routes and wires it in Open)
+// may import it. Agent OAuth consent also authenticates console users, but it
+// receives session.Manager.Principal through httpapi.Session from control
+// rather than importing session; an extracted agent OAuth package (P6) would
+// keep that wiring or sit between control and session.
+var transportOnly = map[string]bool{"control": true, "session": true, "dataapi": true, "httpapi": true}
 
 type listedPackage struct {
 	ImportPath   string
@@ -88,7 +97,7 @@ func TestPackageLayering(t *testing.T) {
 			case strings.HasPrefix(from, "cmd/"):
 				// Binaries wire the service together.
 			case transportOnly[name] && (!fromInternal || !transportOnly[strings.TrimPrefix(from, "internal/")]):
-				t.Errorf("%s imports %s: only cmd/ and transport packages (control, dataapi) may import transport packages", from, to)
+				t.Errorf("%s imports %s: only cmd/ and transport packages (control, session, dataapi) may import transport packages", from, to)
 			case !fromInternal:
 				// Non-internal module packages (packages/, web/) may use leaves only.
 				if toLayer > layers["config"] {

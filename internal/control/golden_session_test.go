@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/session"
 )
 
 // Console session, password and OIDC login, CSRF/origin and agent OAuth
@@ -79,33 +79,33 @@ func TestSessionShapeGolden(t *testing.T) {
 	login("POST /auth/login/password malformed", registry.Row{"user": email}, s.Config.PublicURL, 400)
 	login("POST /auth/login/password wrong password", registry.Row{"email": email, "password": "Wrong password 8!"}, s.Config.PublicURL, 401)
 	w := login("POST /auth/login/password", registry.Row{"email": email, "password": password}, s.Config.PublicURL, 200)
-	var session, csrf string
+	var token, csrf string
 	for _, cookie := range w.Result().Cookies() {
 		switch cookie.Name {
 		case httpapi.CookieName(s.Config.PublicURL, "lastapp_session"):
-			session = cookie.Value
+			token = cookie.Value
 		case httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"):
 			csrf = cookie.Value
 		}
 	}
-	send("GET /v1/me password change required", "GET", "/v1/me", nil, 200, signedIn(session, ""))
-	send("GET /v1/my-tenants password change required", "GET", "/v1/my-tenants", nil, 403, signedIn(session, ""))
-	send("POST /auth/password wrong current", "POST", "/auth/password", registry.Row{"current_password": "Wrong password 8!", "new_password": "Golden changed 9!"}, 401, signedIn(session, csrf))
-	send("POST /auth/password weak", "POST", "/auth/password", registry.Row{"current_password": password, "new_password": "short"}, 400, signedIn(session, csrf))
-	w = send("POST /auth/password", "POST", "/auth/password", registry.Row{"current_password": password, "new_password": "Golden changed 9!"}, 200, signedIn(session, csrf))
+	send("GET /v1/me password change required", "GET", "/v1/me", nil, 200, signedIn(token, ""))
+	send("GET /v1/my-tenants password change required", "GET", "/v1/my-tenants", nil, 403, signedIn(token, ""))
+	send("POST /auth/password wrong current", "POST", "/auth/password", registry.Row{"current_password": "Wrong password 8!", "new_password": "Golden changed 9!"}, 401, signedIn(token, csrf))
+	send("POST /auth/password weak", "POST", "/auth/password", registry.Row{"current_password": password, "new_password": "short"}, 400, signedIn(token, csrf))
+	w = send("POST /auth/password", "POST", "/auth/password", registry.Row{"current_password": password, "new_password": "Golden changed 9!"}, 200, signedIn(token, csrf))
 	for _, cookie := range w.Result().Cookies() {
 		switch cookie.Name {
 		case httpapi.CookieName(s.Config.PublicURL, "lastapp_session"):
-			session = cookie.Value
+			token = cookie.Value
 		case httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"):
 			csrf = cookie.Value
 		}
 	}
-	send("POST /auth/logout", "POST", "/auth/logout", nil, 200, signedIn(session, csrf))
-	send("GET /v1/me after logout", "GET", "/v1/me", nil, 401, signedIn(session, ""))
+	send("POST /auth/logout", "POST", "/auth/logout", nil, 200, signedIn(token, csrf))
+	send("GET /v1/me after logout", "GET", "/v1/me", nil, 401, signedIn(token, ""))
 	limited := "limited-" + registry.NewID()[:8] + "@example.test"
 	for range 8 {
-		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(registry.TokenHash(limited)), time.Now(), 8, 1.0/30)
+		s.sessions.LoginLimiter.AllowRate(session.LoginEmailKey(limited), time.Now(), 8, 1.0/30)
 	}
 	login("POST /auth/login/password rate limited", registry.Row{"email": limited, "password": password}, s.Config.PublicURL, 429)
 
@@ -119,9 +119,9 @@ func TestSessionShapeGolden(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	}))
 	defer provider.Close()
-	saved := s.auth
-	s.auth = &oidcAuth{config: oauth2.Config{ClientID: "golden", Endpoint: oauth2.Endpoint{AuthURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token"}, RedirectURL: s.Config.PublicURL + "/auth/callback", Scopes: []string{"openid"}}}
-	defer func() { s.auth = saved }()
+	saved := s.sessions.OIDC
+	s.sessions.OIDC = &session.OIDC{Config: oauth2.Config{ClientID: "golden", Endpoint: oauth2.Endpoint{AuthURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token"}, RedirectURL: s.Config.PublicURL + "/auth/callback", Scopes: []string{"openid"}}}
+	defer func() { s.sessions.OIDC = saved }()
 	send("GET /auth/login invalid return origin", "GET", "/auth/login?return_origin="+url.QueryEscape("https://untrusted.example"), nil, 400, nil)
 	start := send("GET /auth/login", "GET", "/auth/login", nil, 302, nil)
 	var flow *http.Cookie
