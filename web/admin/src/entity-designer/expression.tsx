@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { EntityCatalog, Item } from "../api-types";
+import { text, type EntityCatalog, type Item } from "../api-types";
 import "./entity.css";
 import { useListKeys } from "../list-keys";
-import { choiceLabel } from "./shared";
+import { choiceLabel, inputValue, strings } from "./shared";
 // One expression shape for the SDK and the console (packages/client).
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
 const own = (value: Item, key: string) =>
@@ -67,10 +67,10 @@ export function Expression({
               m === "op"
                 ? {
                     op: "eq",
-                    args: [{ field: fields[0]?.key || "" }, { literal: "" }],
+                    args: [{ field: text(fields[0]?.key) }, { literal: "" }],
                   }
                 : m === "field"
-                  ? { field: fields[0]?.key || "" }
+                  ? { field: text(fields[0]?.key) }
                   : m === "context"
                     ? { context: providers[0]?.key || "" }
                     : m === "decimal"
@@ -94,7 +94,10 @@ export function Expression({
             value={value.field}
             onChange={(field) => onChange({ field })}
             options={[
-              ...fields.map((f) => ({ value: f.key, label: f.label })),
+              ...fields.map((f) => ({
+                value: text(f.key),
+                label: text(f.label),
+              })),
               ...(transition
                 ? fields.flatMap((f) =>
                     ["old", "new"].map((p) => ({
@@ -264,22 +267,25 @@ export function FieldChoices({
 }) {
   return (
     <div className="field-choices">
-      {fields.map((f) => (
-        <label key={f.key}>
-          <input
-            type="checkbox"
-            checked={value.includes(f.key)}
-            onChange={(e) =>
-              onChange(
-                e.target.checked
-                  ? [...value, f.key]
-                  : value.filter((x) => x !== f.key),
-              )
-            }
-          />
-          {f.label}
-        </label>
-      ))}
+      {fields.map((f) => {
+        const key = text(f.key);
+        return (
+          <label key={key}>
+            <input
+              type="checkbox"
+              checked={value.includes(key)}
+              onChange={(e) =>
+                onChange(
+                  e.target.checked
+                    ? [...value, key]
+                    : value.filter((x) => x !== key),
+                )
+              }
+            />
+            {text(f.label)}
+          </label>
+        );
+      })}
     </div>
   );
 }
@@ -296,73 +302,76 @@ export function ValueInputs({
     <div className="entity-value-inputs">
       {fields
         .filter((f) => !f.calculation)
-        .map((f) => (
-          <label className="field" key={f.key}>
-            <span>{f.label}</span>
-            {f.type === "boolean" ? (
-              <Select
-                value={
-                  own(value, f.key) === undefined
-                    ? ""
-                    : String(own(value, f.key))
-                }
-                onChange={(v) =>
-                  onChange({
-                    ...value,
-                    [f.key]: v === "" ? undefined : v === "true",
-                  })
-                }
-                options={[{ value: "", label: "Omit" }, ...booleanOptions]}
-              />
-            ) : f.type === "choice" ? (
-              <Select
-                value={own(value, f.key) ?? ""}
-                onChange={(v) =>
-                  onChange({ ...value, [f.key]: v || undefined })
-                }
-                options={[
-                  { value: "", label: "Omit" },
-                  ...(f.values || []).map((v: string) => ({
-                    value: v,
-                    label: choiceLabel(f, v),
-                  })),
-                ]}
-              />
-            ) : f.type === "json" ? (
-              <JSONInput
-                value={own(value, f.key)}
-                label={f.label}
-                allowEmpty
-                onChange={(v) => onChange({ ...value, [f.key]: v })}
-              />
-            ) : f.type === "integer" ? (
-              <NumberInput
-                placeholder={f.default ? "Omit to use default" : "Omit"}
-                value={own(value, f.key)}
-                onChange={(n) =>
-                  onChange({ ...value, [f.key]: n === "" ? undefined : n })
-                }
-              />
-            ) : (
-              // Dates are typed as ISO text; the console has no native date picker.
-              <input
-                placeholder={
-                  (f.type === "date" ? "YYYY-MM-DD, or omit" : "Omit") +
-                  (f.default ? " to use default" : "")
-                }
-                pattern={f.type === "date" ? "\\d{4}-\\d{2}-\\d{2}" : undefined}
-                inputMode={f.type === "date" ? "numeric" : undefined}
-                value={own(value, f.key) ?? ""}
-                onChange={(e) =>
-                  onChange({
-                    ...value,
-                    [f.key]: e.target.value === "" ? undefined : e.target.value,
-                  })
-                }
-              />
-            )}
-          </label>
-        ))}
+        .map((f) => {
+          const key = text(f.key);
+          return (
+            <label className="field" key={key}>
+              <span>{text(f.label)}</span>
+              {f.type === "boolean" ? (
+                <Select
+                  value={
+                    own(value, key) === undefined ? "" : String(own(value, key))
+                  }
+                  onChange={(v) =>
+                    onChange({
+                      ...value,
+                      [key]: v === "" ? undefined : v === "true",
+                    })
+                  }
+                  options={[{ value: "", label: "Omit" }, ...booleanOptions]}
+                />
+              ) : f.type === "choice" ? (
+                <Select
+                  value={text(own(value, key))}
+                  onChange={(v) =>
+                    onChange({ ...value, [key]: v || undefined })
+                  }
+                  options={[
+                    { value: "", label: "Omit" },
+                    ...strings(f.values).map((v) => ({
+                      value: v,
+                      label: choiceLabel(f, v),
+                    })),
+                  ]}
+                />
+              ) : f.type === "json" ? (
+                <JSONInput
+                  value={own(value, key)}
+                  label={text(f.label)}
+                  allowEmpty
+                  onChange={(v) => onChange({ ...value, [key]: v })}
+                />
+              ) : f.type === "integer" ? (
+                <NumberInput
+                  placeholder={f.default ? "Omit to use default" : "Omit"}
+                  value={inputValue(own(value, key))}
+                  onChange={(n) =>
+                    onChange({ ...value, [key]: n === "" ? undefined : n })
+                  }
+                />
+              ) : (
+                // Dates are typed as ISO text; the console has no native date picker.
+                <input
+                  placeholder={
+                    (f.type === "date" ? "YYYY-MM-DD, or omit" : "Omit") +
+                    (f.default ? " to use default" : "")
+                  }
+                  pattern={
+                    f.type === "date" ? "\\d{4}-\\d{2}-\\d{2}" : undefined
+                  }
+                  inputMode={f.type === "date" ? "numeric" : undefined}
+                  value={inputValue(own(value, key)) ?? ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...value,
+                      [key]: e.target.value === "" ? undefined : e.target.value,
+                    })
+                  }
+                />
+              )}
+            </label>
+          );
+        })}
     </div>
   );
 }

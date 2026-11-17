@@ -15,6 +15,7 @@ import (
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -32,15 +33,15 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
-	if !s.limiter.allowRate("data-ip:"+s.loginClientIP(r), time.Now(), 600, 200) {
-		writeError(w, r, rateLimited(w))
+	if !s.limiter.AllowRate("data-ip:"+s.trustedProxies.ClientIP(r), time.Now(), 600, 200) {
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return
 	}
 	select {
 	case s.dataSlots <- struct{}{}:
 		defer func() { <-s.dataSlots }()
 	default:
-		writeError(w, r, rateLimited(w))
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return
 	}
 	origin := r.Header.Get("Origin")
@@ -48,7 +49,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 		var n int
 		e := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM apps WHERE state='active' AND approved_origin=?", origin).Scan(&n)
 		if e != nil {
-			writeError(w, r, e)
+			httpapi.WriteError(w, r, e)
 			return
 		}
 		if n > 0 {
@@ -60,7 +61,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "OPTIONS" {
 		if w.Header().Get("Access-Control-Allow-Origin") == "" {
-			writeError(w, r, registry.Problem(403, "invalid_origin", "Unregistered App origin."))
+			httpapi.WriteError(w, r, registry.Problem(403, "invalid_origin", "Unregistered App origin."))
 		} else {
 			w.WriteHeader(204)
 		}
@@ -68,8 +69,8 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	if r.URL.Path == "/data/v1/session/exchange" && r.Method == "POST" {
-		if e := s.limitRequest(w, access.Principal{ID: "exchange:" + s.loginClientIP(r)}, r); e != nil {
-			writeError(w, r, e)
+		if e := s.limiter.LimitRequest(w, r, s.Checker, s.DB, access.Principal{ID: "exchange:" + s.trustedProxies.ClientIP(r)}); e != nil {
+			httpapi.WriteError(w, r, e)
 			return
 		}
 		err = s.exchange(w, r)
@@ -78,12 +79,12 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 		se, err = s.dataSession(ctx, r)
 		if err == nil {
 			r.SetPathValue("tenant", se.TenantID)
-			err = s.limitRequest(w, access.Principal{ID: se.UserID}, r)
+			err = s.limiter.LimitRequest(w, r, s.Checker, s.DB, access.Principal{ID: se.UserID})
 		}
 		if err == nil {
 			release, ok := s.tenantDataSlots.reserve(se.TenantID)
 			if !ok {
-				err = rateLimited(w)
+				err = httpapi.RateLimited(w)
 			} else {
 				defer release()
 				err = s.dataDispatch(w, r, se)
@@ -91,7 +92,7 @@ func (s *Server) dataHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		writeError(w, r, err)
+		httpapi.WriteError(w, r, err)
 	}
 }
 
@@ -106,7 +107,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 	if e = tx.QueryRowContext(ctx, "SELECT origin_generation FROM apps WHERE id=? AND state='active'", se.AppID).Scan(&generation); e != nil || generation != se.OriginGeneration {
 		return rt, registry.Problem(401, "unauthenticated", "App origin approval changed. Reconnect the App.")
 	}
-	rt.actor, rt.access, e = s.actorContext(ctx, tx, se.UserID, se.TenantID, se.SpaceID, se.AppID)
+	rt.actor, rt.access, e = s.authoring.ActorContext(ctx, tx, se.UserID, se.TenantID, se.SpaceID, se.AppID)
 	if e != nil {
 		return rt, e
 	}
@@ -212,7 +213,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 			}
 			out = append(out, registry.Row{"id": rt.entityID, "entity": public, "version": rt.version, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 		}
-		send(w, 200, registry.Row{"entities": out, "capabilities": entity.Capabilities()})
+		httpapi.Send(w, 200, registry.Row{"entities": out, "capabilities": entity.Capabilities()})
 		return nil
 	}
 	parts := strings.Split(path, "/")
@@ -228,7 +229,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 		return s.dataReferenceOptions(w, r, rt)
 	case len(parts) == 3 && parts[2] == "query" && r.Method == "POST":
 		var q dataQuery
-		if e = decode(w, r, &q); e != nil {
+		if e = httpapi.Decode(w, r, &q); e != nil {
 			return e
 		}
 		return s.queryData(w, r, rt, q)
@@ -240,7 +241,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 		return s.queryData(w, r, rt, dataQuery{Select: selects, Filter: &entity.Expr{Op: "eq", Args: []entity.Expr{{Field: "id"}, {Literal: parts[3]}}}, Limit: 1, single: true})
 	case len(parts) == 3 && parts[2] == "records" && r.Method == "POST":
 		var in dataMutation
-		if e = decode(w, r, &in); e != nil {
+		if e = httpapi.Decode(w, r, &in); e != nil {
 			return e
 		}
 		in.Operation = "create"
@@ -248,13 +249,13 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 	case len(parts) == 4 && parts[2] == "records" && (r.Method == "PATCH" || r.Method == "DELETE"):
 		in := dataMutation{ID: parts[3], Operation: "delete"}
 		if r.Method == "PATCH" {
-			if e = decode(w, r, &in); e != nil {
+			if e = httpapi.Decode(w, r, &in); e != nil {
 				return e
 			}
 			in.ID = parts[3]
 			in.Operation = "update"
 		}
-		in.Revision, e = expectedRevision(r)
+		in.Revision, e = httpapi.ExpectedRevision(r)
 		if e != nil {
 			return e
 		}
@@ -263,7 +264,7 @@ func (s *Server) dataDispatch(w http.ResponseWriter, r *http.Request, se appSess
 		var in struct {
 			Items []dataMutation `json:"items"`
 		}
-		if e = decode(w, r, &in); e != nil {
+		if e = httpapi.Decode(w, r, &in); e != nil {
 			return e
 		}
 		return s.mutateData(w, r, rt, in.Items)
@@ -540,7 +541,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 			return registry.Bad("Invalid cursor.")
 		}
 		var cur dataCursor
-		if e = s.unseal("data_cursor", rt.entityID, rt.session.TenantID, b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
+		if e = s.sealer.Unseal("data_cursor", rt.entityID, rt.session.TenantID, b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
 			return registry.Bad("Cursor does not match this query or definition.")
 		}
 		cs, ca := cursorSQL(rt.d, q.Sort, cur.Values)
@@ -582,7 +583,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		for _, so := range q.Sort {
 			values = append(values, last[so.Field])
 		}
-		b, e := s.seal("data_cursor", rt.entityID, rt.session.TenantID, dataCursor{hash, values})
+		b, e := s.sealer.Seal("data_cursor", rt.entityID, rt.session.TenantID, dataCursor{hash, values})
 		if e != nil {
 			return e
 		}
@@ -597,9 +598,9 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		if len(items) == 0 {
 			return registry.Missing()
 		}
-		send(w, 200, items[0])
+		httpapi.Send(w, 200, items[0])
 	} else {
-		send(w, 200, out)
+		httpapi.Send(w, 200, out)
 	}
 	return nil
 }
@@ -861,7 +862,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	send(w, 200, registry.Row{"items": out})
+	httpapi.Send(w, 200, registry.Row{"items": out})
 	return nil
 }
 

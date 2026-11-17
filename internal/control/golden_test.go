@@ -1,22 +1,27 @@
 package control
 
 // Golden contracts for refactors: the generated MCP tool schemas and the JSON
-// key/type shape of representative console and MCP responses. A refactor must
-// leave both files byte-identical. Regenerate deliberately with
+// key/type shape of representative console, App data, session/OAuth and MCP
+// responses (response_shapes, delivery_shapes, data_shapes, session_shapes),
+// plus normalised audit attribution (audit_attribution). A refactor must leave
+// every file byte-identical. Regenerate deliberately with
 //
 //	go test ./internal/control -run Golden -update-golden
 //
-// (the response golden also needs LASTAPP_TEST_CONFIG) and review the diff.
+// (all but the tool schema golden need LASTAPP_TEST_CONFIG) and review the diff.
 
 import (
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -78,9 +83,12 @@ func TestAgentToolSchemaGolden(t *testing.T) {
 	compareGolden(t, "mcp_tools.golden.json", append(b, '\n'))
 }
 
+// goldenUUID normalises identifiers inside recorded values.
+var goldenUUID = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
 // jsonShape records every key path of v with its JSON type (and the value of
-// error codes and messages). Array elements share the path suffix "[]";
-// differing element shapes are merged.
+// error codes and messages, including OAuth's string error fields). Array
+// elements share the path suffix "[]"; differing element shapes are merged.
 func jsonShape(v any, path string, out map[string]map[string]bool) {
 	kind := "null"
 	switch x := v.(type) {
@@ -96,8 +104,8 @@ func jsonShape(v any, path string, out map[string]map[string]bool) {
 		}
 	case string:
 		kind = "string"
-		if strings.HasSuffix(path, ".error.code") || strings.HasSuffix(path, ".error.message") {
-			kind += "=" + x // error codes and messages are part of the contract
+		if strings.HasSuffix(path, ".error.code") || strings.HasSuffix(path, ".error.message") || path == ".error" || path == ".error_description" {
+			kind += "=" + goldenUUID.ReplaceAllString(x, "{id}") // error codes and messages are part of the contract
 		}
 	case float64, json.Number:
 		kind = "number"
@@ -116,7 +124,13 @@ type shapeRecorder struct {
 	shapes map[string][]string
 }
 
-func (r *shapeRecorder) record(label string, status int, body any) {
+func newShapeRecorder(t *testing.T, h http.Handler) *shapeRecorder {
+	return &shapeRecorder{t: t, h: h, shapes: map[string][]string{}}
+}
+
+// record stores the JSON shape of body under "label -> status", followed by
+// any extra (already normalised) lines such as response headers.
+func (r *shapeRecorder) record(label string, status int, body any, extra ...string) {
 	r.t.Helper()
 	b, e := json.Marshal(body)
 	if e != nil {
@@ -126,8 +140,16 @@ func (r *shapeRecorder) record(label string, status int, body any) {
 	if e = json.Unmarshal(b, &v); e != nil {
 		r.t.Fatal(e)
 	}
+	r.recordShape(label, status, v, extra...)
+}
+
+// recordShape records v's shape; a nil v (non-JSON body) records only extra.
+func (r *shapeRecorder) recordShape(label string, status int, v any, extra ...string) {
+	r.t.Helper()
 	paths := map[string]map[string]bool{}
-	jsonShape(v, "", paths)
+	if v != nil {
+		jsonShape(v, "", paths)
+	}
 	lines := []string{}
 	for path, kinds := range paths {
 		list := []string{}
@@ -140,6 +162,7 @@ func (r *shapeRecorder) record(label string, status int, body any) {
 		}
 		lines = append(lines, path+" "+strings.Join(list, "|"))
 	}
+	lines = append(lines, extra...)
 	sort.Strings(lines)
 	key := fmt.Sprintf("%s -> %d", label, status)
 	if _, ok := r.shapes[key]; ok {
@@ -185,9 +208,117 @@ func (r *shapeRecorder) mcp(s *Server, access, label, tool string, args any, ok 
 	return v
 }
 
+// raw serves a hand-built request (bearer, form, cookie or binary endpoints)
+// and records its status, body shape and contract-relevant response headers.
+// Non-JSON bodies record only their media type.
+func (r *shapeRecorder) raw(label string, req *http.Request, status int) *httptest.ResponseRecorder {
+	r.t.Helper()
+	w := httptest.NewRecorder()
+	r.h.ServeHTTP(w, req)
+	if w.Code != status {
+		r.t.Fatalf("%s: got %d want %d: %s", label, w.Code, status, w.Body.String())
+	}
+	var v any
+	extra := goldenHeaders(w)
+	if w.Body.Len() == 0 {
+		extra = append(extra, "$ body empty")
+	} else if e := json.Unmarshal(w.Body.Bytes(), &v); e != nil {
+		media, _, _ := mime.ParseMediaType(w.Header().Get("Content-Type"))
+		extra = append(extra, "$ body "+media)
+	}
+	r.recordShape(label, w.Code, v, extra...)
+	return w
+}
+
+// goldenHeaders keeps header names and attributes, never secret values:
+// cookies by name and attributes, redirects by path and query keys.
+func goldenHeaders(w *httptest.ResponseRecorder) []string {
+	out := []string{}
+	for _, c := range w.Result().Cookies() {
+		value := "set"
+		if c.Value == "" {
+			value = "empty"
+		}
+		sameSite := map[http.SameSite]string{http.SameSiteDefaultMode: "default", http.SameSiteLaxMode: "lax", http.SameSiteStrictMode: "strict", http.SameSiteNoneMode: "none"}[c.SameSite]
+		out = append(out, fmt.Sprintf("header Set-Cookie %s value=%s path=%s max-age=%d http-only=%v secure=%v same-site=%s", c.Name, value, c.Path, c.MaxAge, c.HttpOnly, c.Secure, sameSite))
+	}
+	if v := w.Header().Get("Location"); v != "" {
+		u, e := url.Parse(v)
+		loc := "unparsable"
+		if e == nil {
+			keys := []string{}
+			for k := range u.Query() {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			loc = goldenUUID.ReplaceAllString(u.Path, "{id}") + "?" + strings.Join(keys, "&")
+			if u.Host != "" {
+				loc = "//{host}" + loc
+			}
+		}
+		out = append(out, "header Location "+loc)
+	}
+	if v := w.Header().Get("WWW-Authenticate"); v != "" {
+		scheme, _, _ := strings.Cut(v, " ")
+		names := regexp.MustCompile(`([a-z_]+)=`).FindAllStringSubmatch(v, -1)
+		params := []string{}
+		for _, n := range names {
+			params = append(params, n[1])
+		}
+		out = append(out, "header WWW-Authenticate "+scheme+" "+strings.Join(params, ","))
+	}
+	for _, name := range []string{"Cache-Control", "Retry-After"} {
+		if v := w.Header().Get(name); v != "" {
+			out = append(out, "header "+name+" "+v)
+		}
+	}
+	if v := w.Header().Get("Content-Type"); v != "" {
+		media, _, _ := mime.ParseMediaType(v)
+		out = append(out, "header Content-Type "+media)
+	}
+	if w.Header().Get("Access-Control-Allow-Origin") != "" {
+		out = append(out, "header Access-Control-Allow-Origin set")
+	}
+	return out
+}
+
+// golden compares every recorded shape, sorted by label, with testdata/name.
+func (r *shapeRecorder) golden(name string) {
+	r.t.Helper()
+	labels := make([]string, 0, len(r.shapes))
+	for label := range r.shapes {
+		labels = append(labels, label)
+	}
+	slices.Sort(labels)
+	var out bytes.Buffer
+	for _, label := range labels {
+		out.WriteString(label + "\n")
+		for _, line := range r.shapes[label] {
+			out.WriteString("  " + line + "\n")
+		}
+	}
+	compareGolden(r.t, name, out.Bytes())
+}
+
+// goldenGrant inserts a delegation of user from the "golden" client and
+// returns an MCP access token for it and its grant ID.
+func goldenGrant(t *testing.T, s *Server, user, kind, tenantID string, permissions ...string) (string, string) {
+	t.Helper()
+	id := registry.NewID()
+	perms, _ := json.Marshal(permissions)
+	if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'golden','Golden client',?,?,?,'{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", id, user, registry.Nullable(tenantID), kind, perms, s.mcpURL()); e != nil {
+		t.Fatal(e)
+	}
+	g, e := s.ReadAgentGrant(t.Context(), s.DB, id)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return agentFixtureToken(t, s, access.Principal{ID: user, Agent: g}), id
+}
+
 func TestResponseShapeGolden(t *testing.T) {
 	s, c, operator, owner, joe := foundationFixture(t)
-	rec := &shapeRecorder{t: t, h: c.h, shapes: map[string][]string{}}
+	rec := newShapeRecorder(t, c.h)
 	oc := c.as(owner)
 
 	// Platform: plans, Tenants and Tenant administrators.
@@ -254,16 +385,8 @@ func TestResponseShapeGolden(t *testing.T) {
 	// Tenant inventory, memberships and teams.
 	grant := func(user, kind, tenantID string, permissions ...string) string {
 		t.Helper()
-		id := registry.NewID()
-		perms, _ := json.Marshal(permissions)
-		if _, e := s.DB.Exec("INSERT INTO agent_grants(id,user_id,client_id,client_name,tenant_id,scope_kind,permissions_json,limits_json,expires_at,audience_uri) VALUES(?,?,'golden','Golden client',?,?,?,'{}',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 DAY),?)", id, user, registry.Nullable(tenantID), kind, perms, s.mcpURL()); e != nil {
-			t.Fatal(e)
-		}
-		g, e := s.ReadAgentGrant(t.Context(), s.DB, id)
-		if e != nil {
-			t.Fatal(e)
-		}
-		return agentFixtureToken(t, s, access.Principal{ID: user, Agent: g})
+		token, _ := goldenGrant(t, s, user, kind, tenantID, permissions...)
+		return token
 	}
 	platform := grant(operator, "platform", "", "read", "platform.manage")
 	key := registry.NewID()
@@ -310,17 +433,5 @@ func TestResponseShapeGolden(t *testing.T) {
 	rec.mcp(s, owned, "lastapp_list tenant_member", "lastapp_list", registry.Row{"resource": "tenant_member"}, true)
 	rec.mcp(s, owned, "lastapp_lifecycle team", "lastapp_lifecycle", registry.Row{"resource": "team", "id": team2, "state": "disabled", "expected_revision": 3, "request_key": registry.NewID()}, true)
 
-	labels := make([]string, 0, len(rec.shapes))
-	for label := range rec.shapes {
-		labels = append(labels, label)
-	}
-	slices.Sort(labels)
-	var out bytes.Buffer
-	for _, label := range labels {
-		out.WriteString(label + "\n")
-		for _, line := range rec.shapes[label] {
-			out.WriteString("  " + line + "\n")
-		}
-	}
-	compareGolden(t, "response_shapes.golden.txt", out.Bytes())
+	rec.golden("response_shapes.golden.txt")
 }

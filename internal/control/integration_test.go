@@ -15,6 +15,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -35,7 +36,7 @@ func (c testClient) req(method, path string, body any, revision int64) (int, reg
 	if revision > 0 {
 		r.Header.Set("If-Match", registry.Str(revision))
 	}
-	r.AddCookie(&http.Cookie{Name: c.s.cookieName("lastapp_session"), Value: c.session})
+	r.AddCookie(&http.Cookie{Name: httpapi.CookieName(c.s.Config.PublicURL, "lastapp_session"), Value: c.session})
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
 	var out registry.Row
@@ -269,7 +270,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if e := s.DB.QueryRow("SELECT runtime_credentials_enc FROM database_resources WHERE id=?", registered).Scan(&enc); e != nil {
 		t.Fatal(e)
 	}
-	if e := s.unseal("database", registered, tenant, enc, &runtime); e != nil {
+	if e := s.sealer.Unseal("database", registered, tenant, enc, &runtime); e != nil {
 		t.Fatal(e)
 	}
 	targetRow, _ := databases.TargetEndpoint(ctx, s.DB, target)
@@ -368,7 +369,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": registry.NewID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 403)
 	t.Log("plan quotas, cross-Tenant isolation and suspended lifecycle passed")
 	// Encryption AAD is checked independently of SQL ownership constraints.
-	if s.unseal("database", registered, starter, enc, &runtime) == nil {
+	if s.sealer.Unseal("database", registered, starter, enc, &runtime) == nil {
 		t.Fatal("credential moved across Tenants")
 	}
 	if strings.Contains(registry.Str(c.want("GET", base+"/database-resources", nil, 0, 200)), state.Legacy) {

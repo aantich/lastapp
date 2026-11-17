@@ -3,7 +3,7 @@ import { Layers3, Menu, X, ChevronDown, type LucideIcon } from "lucide-react";
 import { useAppearance } from "./appearance";
 import { AppearancePanel } from "./appearance-panel";
 import { useDialogFocus } from "./dialog";
-import type { Item } from "./api-types";
+import type { Me } from "./api-types";
 export function ConsoleShell({
   me,
   kind,
@@ -19,7 +19,7 @@ export function ConsoleShell({
   account,
   signOut,
 }: {
-  me: Item;
+  me: Me;
   kind: string;
   title: string;
   nav: { id: string; label: string; icon: LucideIcon }[];

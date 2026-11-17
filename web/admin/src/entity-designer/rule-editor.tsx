@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Select } from "../select";
-import type { EntityCatalog, Item } from "../api-types";
+import { text, type EntityCatalog, type Item } from "../api-types";
 import { Expression } from "./expression";
-import { keyOf } from "./shared";
+import { inputValue, isExpression, keyOf, optionalText } from "./shared";
 
 // Adds or edits one validation or allowed-change rule.
 export function RuleEditor({
@@ -29,7 +29,7 @@ export function RuleEditor({
         <input
           autoFocus
           required
-          value={r.name || ""}
+          value={text(r.name)}
           onChange={(e) =>
             set({
               ...r,
@@ -42,7 +42,7 @@ export function RuleEditor({
       <label className="field">
         <span>Rule type</span>
         <Select
-          value={r.kind}
+          value={optionalText(r.kind)}
           onChange={(kind) => set({ ...r, kind })}
           options={[
             { value: "validation", label: "Validate resulting record" },
@@ -68,7 +68,7 @@ export function RuleEditor({
         />{" "}
         Apply only when
       </label>
-      {r.when && (
+      {isExpression(r.when) && (
         <Expression
           value={r.when}
           onChange={(v) => set({ ...r, when: v })}
@@ -79,31 +79,36 @@ export function RuleEditor({
           allowContext={false}
         />
       )}
-      <Expression
-        value={r.assert}
-        onChange={(v) => set({ ...r, assert: v })}
-        fields={fields}
-        catalog={catalog}
-        transition={r.kind === "change"}
-        label="Must be true"
-        allowContext={false}
-      />
+      {isExpression(r.assert) && (
+        <Expression
+          value={r.assert}
+          onChange={(v) => set({ ...r, assert: v })}
+          fields={fields}
+          catalog={catalog}
+          transition={r.kind === "change"}
+          label="Must be true"
+          allowContext={false}
+        />
+      )}
       <label className="field">
         <span>Message shown to the user</span>
         <input
           required
-          value={r.message}
+          value={inputValue(r.message)}
           onChange={(e) => set({ ...r, message: e.target.value })}
         />
       </label>
       <label className="field">
         <span>Show error on field</span>
         <Select
-          value={r.field || ""}
+          value={text(r.field)}
           onChange={(field) => set({ ...r, field })}
           options={[
             { value: "", label: "Whole record" },
-            ...fields.map((f) => ({ value: f.key, label: f.label })),
+            ...fields.map((f) => ({
+              value: text(f.key),
+              label: text(f.label),
+            })),
           ]}
         />
       </label>

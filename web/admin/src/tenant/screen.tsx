@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import type { Field, Modal } from "../form-modal";
-import type {
-  Item,
-  Me,
-  TenantCapabilities,
-  TenantOverview,
+import {
+  text,
+  type Item,
+  type Me,
+  type TenantCapabilities,
+  type TenantOverview,
 } from "../api-types";
 import { stateOptions, status as badge } from "../console-forms";
 
@@ -66,10 +67,10 @@ export function computeField(dedicated: boolean): Field {
   };
 }
 export const options = (items: Item[], key = "id", label = "display_name") =>
-  items.map((x) => ({ value: x[key], label: x[label] }));
+  items.map((x) => ({ value: text(x[key]), label: text(x[label]) }));
 export const nameColumn: [string, (r: Item) => ReactNode] = [
     "Name",
-    (r) => <strong>{r.display_name}</strong>,
+    (r) => <strong>{text(r.display_name)}</strong>,
   ],
   statusColumn: [string, (r: Item) => ReactNode] = [
     "Status",

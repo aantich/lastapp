@@ -6,7 +6,18 @@ import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
 import { FormModal, type Modal } from "./form-modal";
 import { status } from "./console-forms";
-import type { Item, Page } from "./api-types";
+import {
+  keyOf,
+  num,
+  text,
+  type Build,
+  type Deployment,
+  type Item,
+  type Page,
+  type Release,
+  type ReleaseManifest,
+  type UploadTicket,
+} from "./api-types";
 import "./development-workspaces.css";
 import { errorMessage, useAction } from "./use-action";
 
@@ -28,7 +39,7 @@ export function AppReleases({
   refresh: () => void;
   openWorkspaces: () => void;
 }) {
-  const [selected, setSelected] = useState<Item>(),
+  const [selected, setSelected] = useState<Release>(),
     [error, setError] = useState(""),
     [modal, setModal] = useState<Modal | null>(null);
   const { config } = useConsoleConfig();
@@ -60,14 +71,14 @@ export function AppReleases({
     hasMore = !!releasePages.hasNextPage,
     listError = releasePages.error?.message || "";
   const builds =
-    useApiQuery<Page>(development ? `/v1/apps/${app.id}/builds` : null).data
-      ?.items || [];
+    useApiQuery<Page<Build>>(development ? `/v1/apps/${app.id}/builds` : null)
+      .data?.items || [];
   // Production deployment status: poll while it is in progress, backing off
   // from 1.5 s to 10 s after failures, and stop at a final state or when
   // access is gone. refetchInterval never overlaps requests.
   const deploymentPath = `/v1/apps/${app.id}/deployment`,
     failures = useRef({ at: 0, count: 0 });
-  const deploymentQuery = useApiQuery<{ deployment?: Item | null }>(
+  const deploymentQuery = useApiQuery<{ deployment?: Deployment | null }>(
     deploymentPath,
     {
       refetchInterval: (q) => {
@@ -94,7 +105,7 @@ export function AppReleases({
       ? `Could not refresh deployment status: ${errorMessage(deploymentQuery.error)}`
       : "";
   // When this deployment finishes, the App itself changed: refresh it.
-  const previousDeployment = useRef<Item | undefined>(undefined);
+  const previousDeployment = useRef<Deployment | undefined>(undefined);
   useEffect(() => {
     const previous = previousDeployment.current;
     previousDeployment.current = deployment;
@@ -113,7 +124,7 @@ export function AppReleases({
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     await run(async () => {
-      const ticket = await api<Item>(
+      const ticket = await api<UploadTicket>(
           `/v1/apps/${app.id}/upload-tickets`,
           "POST",
           {},
@@ -158,10 +169,11 @@ export function AppReleases({
       activeMicros.length > config.development_policy.max_release_microapps
     )
       throw new Error("This App exceeds the release micro-app limit.");
-    let previous: Item = {};
+    let previous: ReleaseManifest = {};
     if (releases[0])
       previous =
-        (await api<Item>("/v1/releases/" + releases[0].id)).manifest_json || {};
+        (await api<Release>("/v1/releases/" + releases[0].id)).manifest_json ||
+        {};
     setModal({
       title: "Create release",
       description:
@@ -172,7 +184,7 @@ export function AppReleases({
         ...Object.fromEntries(
           activeMicros.map((m) => [
             "micro_" + m.id,
-            previous.microapps?.[m.slug] || "1.0.0",
+            previous.microapps?.[String(m.slug)] || "1.0.0",
           ]),
         ),
       },
@@ -195,7 +207,7 @@ export function AppReleases({
       ],
       submit: "Create release",
       save: async (v) => {
-        const rel = await api<Item>(
+        const rel = await api<Release>(
           `/v1/apps/${app.id}/releases`,
           "POST",
           {
@@ -205,10 +217,10 @@ export function AppReleases({
               microapps: Object.fromEntries(
                 activeMicros.map((m) => [m.slug, v["micro_" + m.id]]),
               ),
-              dependencies: JSON.parse(v.dependencies || "{}"),
+              dependencies: JSON.parse(String(v.dependencies || "{}")),
             },
           },
-          latest.revision,
+          num(latest.revision),
         );
         setSelected(rel);
       },
@@ -221,7 +233,7 @@ export function AppReleases({
         `/v1/releases/${selected.id}/preview`,
         "POST",
         {},
-        current.revision,
+        num(current.revision),
       );
     refresh();
     window.open(result.url, "_blank", "noopener,noreferrer");
@@ -236,16 +248,16 @@ export function AppReleases({
       fields: [],
       submit: "Deploy to production",
       save: async () => {
-        let revision = 1;
+        let revision: number | undefined = 1;
         try {
           const target = await api<Item>(
             `/v1/tenants/${tenant}/apps/${selected.production_app_id}`,
           );
-          revision = target.revision;
+          revision = num(target.revision);
         } catch (e) {
           if ((e as { status?: number }).status !== 404) throw e;
         }
-        const result = await api<Item>(
+        const result = await api<Deployment>(
           `/v1/releases/${selected.id}/deploy`,
           "POST",
           {},
@@ -340,18 +352,18 @@ export function AppReleases({
           {!releases.length && <p className="muted">No releases yet.</p>}
           {releases.map((r) => (
             <button
-              key={r.id}
+              key={keyOf(r.id)}
               className={
                 "release-item " + (selected?.id === r.id ? "selected" : "")
               }
               onClick={() =>
                 run(async () =>
-                  setSelected(await api<Item>("/v1/releases/" + r.id)),
+                  setSelected(await api<Release>("/v1/releases/" + r.id)),
                 )
               }
             >
-              <strong>{r.display_name}</strong>
-              <small>{new Date(r.created_at).toLocaleString()}</small>
+              <strong>{text(r.display_name)}</strong>
+              <small>{new Date(text(r.created_at)).toLocaleString()}</small>
             </button>
           ))}
           {hasMore && (
@@ -385,7 +397,7 @@ export function AppReleases({
               {selected.snapshot_json.apps.length} Apps
             </p>
             <div className="release-entities">
-              {selected.snapshot_json.entities.map((e: Item) => (
+              {selected.snapshot_json.entities.map((e) => (
                 <details key={e.id}>
                   <summary>
                     {e.definition.label}{" "}
@@ -395,11 +407,11 @@ export function AppReleases({
                     </span>
                   </summary>
                   <div className="release-field-list">
-                    {e.definition.fields.map((f: Item) => (
-                      <div key={f.key}>
-                        <strong>{f.label}</strong>
+                    {e.definition.fields.map((f) => (
+                      <div key={keyOf(f.key)}>
+                        <strong>{text(f.label)}</strong>
                         <span>
-                          {f.type}
+                          {text(f.type)}
                           {f.required ? " · Required" : ""}
                         </span>
                       </div>

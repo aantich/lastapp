@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	mariadb "github.com/aantich/go-mariadb"
@@ -48,15 +47,4 @@ func (s *Server) oidcClient() *http.Client {
 		}
 	}
 	return c
-}
-
-func (s *Server) allowedOrigin(origin string) bool {
-	return origin == s.Config.PublicURL || (s.Config.Development && s.Config.DevelopmentUIOrigin != "" && origin == s.Config.DevelopmentUIOrigin)
-}
-
-func (s *Server) cookieName(name string) string {
-	if strings.HasPrefix(s.Config.PublicURL, "https://") {
-		return "__Host-" + name
-	}
-	return name
 }

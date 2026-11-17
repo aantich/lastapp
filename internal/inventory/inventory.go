@@ -283,6 +283,12 @@ func (v *Inventory) Apps(ctx context.Context, a op.Actor, tenant, space string, 
 	return op.PageScan[AppItem](ctx, v.DB, page, op.CollectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
 }
 
+// AppRow reads an App's full registry row through q (a transaction or the
+// pool), without authorization: callers have already checked access.
+func AppRow(ctx context.Context, q registry.Queryer, app string) (registry.AppRecord, error) {
+	return registry.ScanOne[registry.AppRecord](ctx, q, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE id=?", app)
+}
+
 func (v *Inventory) App(ctx context.Context, a op.Actor, tenant, app string) (App, error) {
 	if e := v.Run.Authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, App: app}); e != nil {
 		return App{}, e

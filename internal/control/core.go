@@ -2,24 +2,17 @@ package control
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"database/sql"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,11 +25,13 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
+	"github.com/aantich/lastapp/internal/sealer"
 )
 
 //go:embed migrations/*.sql
@@ -49,19 +44,19 @@ type Server struct {
 	agentBootstrapSlots    chan struct{}
 	agentTokenSlots        chan struct{}
 	agentValidationSlots   chan struct{}
-	agentBootstrapLimiter  requestLimiter
-	agentValidationLimiter requestLimiter
+	agentBootstrapLimiter  httpapi.Limiter
+	agentValidationLimiter httpapi.Limiter
 	tenantDataSlots        inFlightTenants
 	dataSlots              chan struct{}
 	dataPools              data.Pools
 	definitions            definitionCache
-	limiter                requestLimiter
-	loginLimiter           requestLimiter
+	limiter                httpapi.Limiter
+	loginLimiter           httpapi.Limiter
 	passwordSlots          chan struct{}
-	trustedProxies         []netip.Prefix
+	trustedProxies         httpapi.TrustedProxies
 	DB                     *sql.DB
 	Config                 config.Config
-	key                    cipher.AEAD
+	sealer                 *sealer.Sealer
 	registryName           string
 	mux                    *http.ServeMux
 	auth                   *oidcAuth
@@ -100,7 +95,7 @@ func Open(c config.Config) (*Server, error) {
 			}
 		}
 	}
-	proxies, e := parseTrustedProxies(c.TrustedProxies)
+	proxies, e := httpapi.ParseTrustedProxies(c.TrustedProxies)
 	if e != nil {
 		return nil, e
 	}
@@ -129,21 +124,9 @@ func Open(c config.Config) (*Server, error) {
 	} else if !strings.HasPrefix(c.PublicURL, "https://") {
 		return nil, fmt.Errorf("production public_url requires HTTPS")
 	}
-	raw, e := base64.StdEncoding.DecodeString(c.EncryptionKey)
+	seal, e := sealer.New(c.EncryptionKey, c.EncryptionKeyID)
 	if e != nil {
-		// base64 errors report only an input offset, never key material.
-		return nil, fmt.Errorf("encryption_key must encode 32 bytes: %w", e)
-	}
-	if len(raw) != 32 {
-		return nil, fmt.Errorf("encryption_key must encode 32 bytes")
-	}
-	block, e := aes.NewCipher(raw)
-	if e != nil {
-		return nil, fmt.Errorf("encryption_key cipher setup failed: %w", e)
-	}
-	key, e := cipher.NewGCM(block)
-	if e != nil {
-		return nil, fmt.Errorf("encryption_key cipher setup failed: %w", e)
+		return nil, e
 	}
 	cfg, e := mariadb.ParseDSN(c.RegistryDSN)
 	if e != nil {
@@ -182,11 +165,11 @@ func Open(c config.Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
-	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, key: key, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
+	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), passwordSlots: make(chan struct{}, 2), dataSlots: make(chan struct{}, entity.Limits.DataRequests), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
-	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.queueDefinition, ActorContext: s.actorContext}
-	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.seal, Config: &s.Config, RegistryName: cfg.DBName}
+	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.queueDefinition}
+	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.sealer.Seal, Config: &s.Config, RegistryName: cfg.DBName}
 	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, PrepareAccount: s.prepareAccount}
 	s.members = &membership.Members{DB: db, Run: s.run, PrepareAccount: s.prepareAccount}
 	s.authority = &roles.Authority{DB: db, Run: s.run}
@@ -241,101 +224,6 @@ func CheckSchema(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("registry uses an earlier development schema; initialize a fresh registry: %w", e)
 	}
 	return nil
-}
-
-func (s *Server) encryptionKeyID() string {
-	if s.Config.EncryptionKeyID != "" {
-		return s.Config.EncryptionKeyID
-	}
-	return "primary-v1"
-}
-
-func (s *Server) seal(purpose, record, tenant string, value any) ([]byte, error) {
-	b, e := json.Marshal(value)
-	if e != nil {
-		return nil, e
-	}
-	nonce := make([]byte, s.key.NonceSize())
-	if _, e = rand.Read(nonce); e != nil {
-		return nil, e
-	}
-	out := s.key.Seal(nil, nonce, b, []byte(purpose+"|"+record+"|"+tenant))
-	return json.Marshal(struct {
-		Version     int    `json:"v"`
-		KeyID       string `json:"key_id"`
-		Nonce, Data []byte
-	}{1, s.encryptionKeyID(), nonce, out})
-}
-
-func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) error {
-	var env struct {
-		Version     int    `json:"v"`
-		KeyID       string `json:"key_id"`
-		Nonce, Data []byte
-	}
-	if e := json.Unmarshal(data, &env); e != nil {
-		return fmt.Errorf("invalid encrypted envelope: %w", e)
-	}
-	if (env.KeyID != "" && env.KeyID != s.encryptionKeyID()) || env.Version != 1 || len(env.Nonce) != s.key.NonceSize() {
-		return fmt.Errorf("invalid encrypted envelope")
-	}
-	b, e := s.key.Open(nil, env.Nonce, env.Data, []byte(purpose+"|"+record+"|"+tenant))
-	if e != nil {
-		return fmt.Errorf("credential decryption failed: %w", e)
-	}
-	return json.Unmarshal(b, out)
-}
-
-func decode(w http.ResponseWriter, r *http.Request, out any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	d := json.NewDecoder(r.Body)
-	d.DisallowUnknownFields()
-	if e := d.Decode(out); e != nil {
-		return registry.Bad("Invalid or unsupported JSON request fields.")
-	}
-	var extra any
-	if e := d.Decode(&extra); !errors.Is(e, io.EOF) {
-		return registry.Bad("Request must contain one JSON object.")
-	}
-	return nil
-}
-
-func send(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	// Headers are already sent; a failed write means the client went away.
-	_ = json.NewEncoder(w).Encode(value)
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, err error) {
-	o := op.Classify(err)
-	if o.Unmapped {
-		fields := []any{"operation", r.Method + " " + r.Pattern}
-		if rid := r.Header.Get("X-Request-ID"); rid != requestIDFrom(r.Context()) {
-			// MCP tool calls run operations under their own request IDs.
-			fields = append(fields, "operation_request_id", rid)
-		}
-		requestLogger(r.Context()).Error("request failed", append(fields, diagnostic(err)...)...)
-	}
-	if o.Status == 429 {
-		w.Header().Set("Retry-After", "1")
-	}
-	send(w, o.Status, registry.Row{"error": o.Payload(r.Header.Get("X-Request-ID"))})
-}
-
-func expectedRevision(r *http.Request) (int64, error) {
-	v := strings.Trim(r.Header.Get("If-Match"), `"`)
-	n, e := strconv.ParseInt(v, 10, 64)
-	if e != nil || n < 1 {
-		return 0, op.RevisionRequired()
-	}
-	return n, nil
-}
-
-// ifMatch returns the If-Match revision, or 0 for the operation to reject.
-func ifMatch(r *http.Request) int64 {
-	n, _ := expectedRevision(r)
-	return n
 }
 
 // mutate is the context shim of runner.mutate for handlers not yet migrated

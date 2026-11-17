@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { apiKey, queryClient, useApiQuery } from "../query";
-import type { EntityCatalog, Item, Page } from "../api-types";
+import {
+  items as itemsOf,
+  num,
+  text,
+  type EntityCatalog,
+  type Item,
+  type Page,
+} from "../api-types";
 import { useAction } from "../use-action";
 import { confirmAction } from "../confirm";
 import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 import { api } from "../api";
-import { discardChanges, type Designer } from "./shared";
+import { definitionOf, discardChanges, type Designer } from "./shared";
 import { EditorDialog } from "./editor-dialog";
 import { EntityList } from "./entity-list";
 import { AccessTab, FieldsTab, RulesTab } from "./tabs";
@@ -65,7 +72,7 @@ export function EntityDesigner({
     setLinkHandled(true);
     if (!record && linkedQuery.data.space_id === space) {
       setRecord(linkedQuery.data);
-      setDraft(linkedQuery.data.draft_json);
+      setDraft(definitionOf(linkedQuery.data.draft_json));
     }
   }
   // While a publication is pending, poll the entity every 1.5 s until the
@@ -100,7 +107,7 @@ export function EntityDesigner({
           }
         : v,
     );
-    if (!dirty) setDraft(v.draft_json);
+    if (!dirty) setDraft(definitionOf(v.draft_json));
     if (!v.pending_version_id) void load();
   }
   const readError =
@@ -138,11 +145,11 @@ export function EntityDesigner({
     await run(async () => {
       const v = await api<Item>("/v1/entities/" + id);
       setRecord(v);
-      setDraft(v.draft_json);
+      setDraft(definitionOf(v.draft_json));
       history.replaceState(
         null,
         "",
-        location.pathname + "?entity=" + encodeURIComponent(v.id),
+        location.pathname + "?entity=" + encodeURIComponent(text(v.id)),
       );
       setReview(false);
       setTab("fields");
@@ -153,21 +160,21 @@ export function EntityDesigner({
       "/v1/entities/" + record!.id,
       "PATCH",
       { definition: draft },
-      record!.revision,
+      num(record!.revision),
     );
     setRecord(v);
-    setDraft(v.draft_json);
+    setDraft(definitionOf(v.draft_json));
     return v;
   }
   const replace = (list: string, key: string, v: Item) =>
     setDraft((d) => ({
       ...d,
-      ...(list === "fields" && d!.fields.length === 0
+      ...(list === "fields" && itemsOf(d!.fields).length === 0
         ? { default_projection: [v.key] }
         : {}),
-      [list]: d![list].some((x: Item) => x.key === key)
-        ? d![list].map((x: Item) => (x.key === key ? v : x))
-        : [...d![list], v],
+      [list]: itemsOf(d![list]).some((x) => x.key === key)
+        ? itemsOf(d![list]).map((x) => (x.key === key ? v : x))
+        : [...itemsOf(d![list]), v],
     }));
   const remove = async (list: string, key: string) => {
     const kind = list === "fields" ? "field" : "definition";
@@ -181,7 +188,7 @@ export function EntityDesigner({
     )
       setDraft((d) => ({
         ...d,
-        [list]: d![list].filter((x: Item) => x.key !== key),
+        [list]: itemsOf(d![list]).filter((x) => x.key !== key),
       }));
   };
   const d: Designer | null =
@@ -232,7 +239,7 @@ export function EntityDesigner({
           open={(id) => void open(id)}
           opened={(v) => {
             setRecord(v);
-            setDraft(v.draft_json);
+            setDraft(definitionOf(v.draft_json));
           }}
         />
       ) : (
@@ -252,7 +259,7 @@ export function EntityDesigner({
                 <ArrowLeft size={14} /> Entities
               </button>
               <div className="entity-title-copy">
-                <h2>{draft.label}</h2>
+                <h2>{text(draft.label)}</h2>
                 <small>
                   {dirty
                     ? "Unsaved changes"
@@ -313,9 +320,10 @@ export function EntityDesigner({
             />
           )}
           {review && <ReviewDialog d={d} />}
-          {record?.publications?.[0]?.state === "failed" && (
+          {itemsOf(record?.publications)[0]?.state === "failed" && (
             <div className="error" role="alert">
-              Publishing failed: {record.publications[0].error_message} Review
+              Publishing failed:{" "}
+              {text(itemsOf(record?.publications)[0]?.error_message)} Review
               changes and publish again.
             </div>
           )}
@@ -326,16 +334,14 @@ export function EntityDesigner({
             >
               <FieldEditor
                 field={editField}
-                fields={draft.fields}
+                fields={itemsOf(draft.fields)}
                 catalog={catalog}
                 space={space}
-                published={
-                  !!record?.active_definition?.fields.some(
-                    (f: Item) => f.key === editField.key,
-                  )
-                }
+                published={itemsOf(
+                  definitionOf(record?.active_definition)?.fields,
+                ).some((f) => f.key === editField.key)}
                 save={(f) => {
-                  replace("fields", editField.key, f);
+                  replace("fields", text(editField.key), f);
                   setEditField(null);
                 }}
               />
@@ -353,7 +359,7 @@ export function EntityDesigner({
                 catalog={catalog}
                 tenant={tenant}
                 save={(v) => {
-                  replace("permissions", editPermission.key, v);
+                  replace("permissions", text(editPermission.key), v);
                   setEditPermission(null);
                 }}
               />
@@ -363,10 +369,10 @@ export function EntityDesigner({
             <EditorDialog title="Business rule" close={() => setEditRule(null)}>
               <RuleEditor
                 value={editRule}
-                fields={draft.fields}
+                fields={itemsOf(draft.fields)}
                 catalog={catalog}
                 save={(v) => {
-                  replace("rules", editRule.key, v);
+                  replace("rules", text(editRule.key), v);
                   setEditRule(null);
                 }}
               />

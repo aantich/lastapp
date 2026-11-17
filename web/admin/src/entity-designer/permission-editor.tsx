@@ -1,9 +1,15 @@
 import { useState } from "react";
 import { RemoteSelect } from "../remote-select";
 import { Select } from "../select";
-import type { EntityCatalog, Item } from "../api-types";
+import { items, text, type EntityCatalog, type Item } from "../api-types";
 import { Expression, FieldChoices } from "./expression";
-import { keyOf } from "./shared";
+import {
+  inputValue,
+  isExpression,
+  keyOf,
+  optionalText,
+  strings,
+} from "./shared";
 
 // Adds or edits one access rule: who, which operation, which fields and when.
 export function PermissionEditor({
@@ -23,6 +29,8 @@ export function PermissionEditor({
 }) {
   const [p, set] = useState({ ...value });
   const patch = (v: Item) => set({ ...p, ...v });
+  const fields = items(definition.fields),
+    roleIDs = strings(p.roles);
   return (
     <form
       onSubmit={(e) => {
@@ -35,7 +43,7 @@ export function PermissionEditor({
         <input
           autoFocus
           required
-          value={p.label}
+          value={inputValue(p.label)}
           onChange={(e) =>
             patch({
               label: e.target.value,
@@ -47,7 +55,7 @@ export function PermissionEditor({
       <label className="field">
         <span>Who</span>
         <Select
-          value={p.roles ? "roles" : p.relationship}
+          value={p.roles ? "roles" : optionalText(p.relationship)}
           onChange={(who) =>
             patch(
               who === "roles"
@@ -75,22 +83,22 @@ export function PermissionEditor({
           ]}
         />
       </label>
-      {p.roles && (
+      {!!p.roles && (
         <div className="field-choices">
           {roles.map((role) => (
-            <label key={role.id}>
+            <label key={text(role.id)}>
               <input
                 type="checkbox"
-                checked={p.roles.includes(role.id)}
+                checked={roleIDs.includes(text(role.id))}
                 onChange={(e) =>
                   patch({
                     roles: e.target.checked
-                      ? [...p.roles, role.id]
-                      : p.roles.filter((v: string) => v !== role.id),
+                      ? [...roleIDs, role.id]
+                      : roleIDs.filter((v) => v !== role.id),
                   })
                 }
               />
-              {role.display_name}
+              {text(role.display_name)}
             </label>
           ))}
           {!roles.length && (
@@ -98,7 +106,7 @@ export function PermissionEditor({
           )}
         </div>
       )}
-      {["user", "team"].includes(p.relationship) && (
+      {["user", "team"].includes(text(p.relationship)) && (
         <label className="field">
           <span>Recipient</span>
           <RemoteSelect
@@ -109,7 +117,7 @@ export function PermissionEditor({
               (p.relationship === "user" ? "/recipients" : "/teams")
             }
             label="Recipient"
-            value={p.subject || ""}
+            value={text(p.subject)}
             onChange={(v) => patch({ subject: v })}
           />
         </label>
@@ -117,7 +125,7 @@ export function PermissionEditor({
       <label className="field">
         <span>Can</span>
         <Select
-          value={p.operation}
+          value={optionalText(p.operation)}
           onChange={(operation) => patch({ operation })}
           options={catalog.operations.map((op: string) => ({
             value: op,
@@ -125,14 +133,14 @@ export function PermissionEditor({
           }))}
         />
       </label>
-      {["read", "create", "update"].includes(p.operation) && (
+      {["read", "create", "update"].includes(text(p.operation)) && (
         <>
           <p>Which fields</p>
           <FieldChoices
-            fields={definition.fields.filter(
-              (f: Item) => p.operation === "read" || !f.calculation,
+            fields={fields.filter(
+              (f) => p.operation === "read" || !f.calculation,
             )}
-            value={p.fields || []}
+            value={strings(p.fields)}
             onChange={(v) => patch({ fields: v })}
           />
         </>
@@ -146,10 +154,7 @@ export function PermissionEditor({
               when: e.target.checked
                 ? {
                     op: "eq",
-                    args: [
-                      { field: definition.fields[0]?.key || "" },
-                      { literal: "" },
-                    ],
+                    args: [{ field: fields[0]?.key || "" }, { literal: "" }],
                   }
                 : undefined,
             })
@@ -157,11 +162,11 @@ export function PermissionEditor({
         />{" "}
         Limit to records matching a condition
       </label>
-      {p.when && (
+      {isExpression(p.when) && (
         <Expression
           value={p.when}
           onChange={(v) => patch({ when: v })}
-          fields={definition.fields}
+          fields={fields}
           catalog={catalog}
         />
       )}
@@ -177,7 +182,7 @@ export function PermissionEditor({
                     ? {
                         op: "eq",
                         args: [
-                          { field: "old." + (definition.fields[0]?.key || "") },
+                          { field: "old." + (fields[0]?.key || "") },
                           { literal: "" },
                         ],
                       }
@@ -187,11 +192,11 @@ export function PermissionEditor({
             />{" "}
             Authorize a particular change
           </label>
-          {p.change_when && (
+          {isExpression(p.change_when) && (
             <Expression
               value={p.change_when}
               onChange={(v) => patch({ change_when: v })}
-              fields={definition.fields}
+              fields={fields}
               catalog={catalog}
               transition
             />
@@ -202,14 +207,15 @@ export function PermissionEditor({
         <>
           <p>Permissions this user can share</p>
           <FieldChoices
-            fields={definition.permissions
+            fields={items(definition.permissions)
               .filter(
-                (v: Item) =>
-                  v.roles?.length &&
-                  !["create", "acl.manage"].includes(v.operation),
+                (v) =>
+                  Array.isArray(v.roles) &&
+                  v.roles.length > 0 &&
+                  !["create", "acl.manage"].includes(text(v.operation)),
               )
-              .map((v: Item) => ({ key: v.key, label: v.label }))}
-            value={p.delegable || []}
+              .map((v) => ({ key: v.key, label: v.label }))}
+            value={strings(p.delegable)}
             onChange={(v) => patch({ delegable: v })}
           />
         </>

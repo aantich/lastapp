@@ -9,6 +9,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
 )
@@ -19,7 +20,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	var in struct {
 		IDs []string `json:"ids"`
 	}
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
 	if len(in.IDs) > entity.Limits.Bulk {
@@ -75,7 +76,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 		}
 		out = append(out, result)
 	}
-	send(w, 200, registry.Row{"items": out})
+	httpapi.Send(w, 200, registry.Row{"items": out})
 	return nil
 }
 
@@ -92,7 +93,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 		Kind       string `json:"recipient_kind"`
 	}
 	if r.Method != "GET" {
-		if e := decode(w, r, &in); e != nil {
+		if e := httpapi.Decode(w, r, &in); e != nil {
 			return e
 		}
 		if registry.ID(in.Recipient) != nil || !slices.Contains([]string{"user", "team"}, in.Kind) {
@@ -137,7 +138,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 		for _, grant := range vs {
 			grant["permission_current"] = registry.Integer(grant["security_revision"]) == rt.permissionRevisions[registry.Str(grant["permission_id"])]
 		}
-		send(w, 200, registry.Row{"items": vs})
+		httpapi.Send(w, 200, registry.Row{"items": vs})
 		return nil
 	}
 	if r.Method == "DELETE" { // Revocation must remain possible after a base permission is disabled/removed.
@@ -150,7 +151,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 		if e = tx.Commit(); e != nil {
 			return e
 		}
-		send(w, 200, registry.Row{"ok": true})
+		httpapi.Send(w, 200, registry.Row{"ok": true})
 		return nil
 	}
 	var permission *entity.Permission
@@ -195,7 +196,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	send(w, 200, registry.Row{"ok": true})
+	httpapi.Send(w, 200, registry.Row{"ok": true})
 	return nil
 }
 
@@ -248,6 +249,6 @@ func (s *Server) shareOptions(w http.ResponseWriter, r *http.Request, rt dataRun
 	if e != nil {
 		return e
 	}
-	send(w, 200, registry.Row{"permissions": permissions, "recipients": recipients})
+	httpapi.Send(w, 200, registry.Row{"permissions": permissions, "recipients": recipients})
 	return nil
 }

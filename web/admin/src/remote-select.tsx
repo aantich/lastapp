@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "./api";
-import type { Item, Page } from "./api-types";
+import { text, type Item, type Page } from "./api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
 import { apiKey, useApiQuery } from "./query";
 import { ListboxPopup } from "./select";
@@ -59,10 +59,12 @@ function PathSelect({
             )),
       )
       .map((x) => ({
-        value: x[valueKey],
+        value: text(x[valueKey]),
         label:
           String(x[labelKey] || "") +
-          (x.email && labelKey === "display_name" ? ` (${x.email})` : ""),
+          (x.email && labelKey === "display_name"
+            ? ` (${String(x.email)})`
+            : ""),
       }));
   // Typing waits briefly before searching so each keystroke is not a request.
   useEffect(() => {

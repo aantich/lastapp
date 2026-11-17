@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, Search } from "lucide-react";
-import type { Item, Page } from "./api-types";
+import { keyOf, type Item, type Page } from "./api-types";
 import { useApiQuery } from "./query";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
 type CollectionProps = {
@@ -69,7 +69,7 @@ function ScopedCollection({
           </thead>
           <tbody>
             {items.map((row) => (
-              <tr key={row.id || row.user_id}>
+              <tr key={keyOf(row.id || row.user_id)}>
                 {columns.map(([label, render]) => (
                   <td key={label}>{render(row)}</td>
                 ))}

@@ -4,7 +4,7 @@ import { api } from "./api";
 import { Collection } from "./collection";
 import { FormModal, type Modal } from "./form-modal";
 import { status } from "./console-forms";
-import type { Item } from "./api-types";
+import { num, text, type Item } from "./api-types";
 import "./development-workspaces.css";
 import { useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
@@ -27,7 +27,7 @@ export function DevelopmentWorkspaces({
       `/v1/workspaces/${row.id}/${retry ? "retry" : "archive"}`,
       "POST",
       {},
-      row.revision,
+      num(row.revision),
     );
   return (
     <section className="development-page">
@@ -87,11 +87,13 @@ export function DevelopmentWorkspaces({
             "Workspace",
             (r) => (
               <div>
-                <strong>{r.display_name}</strong>
-                {r.owner_agent_grant_id && (
+                <strong>{text(r.display_name)}</strong>
+                {!!r.owner_agent_grant_id && (
                   <small className="muted">Agent workspace</small>
                 )}
-                {r.error_message && <p className="error">{r.error_message}</p>}
+                {text(r.error_message) && (
+                  <p className="error">{text(r.error_message)}</p>
+                )}
               </div>
             ),
           ],
@@ -103,7 +105,7 @@ export function DevelopmentWorkspaces({
             {r.state === "ready" && (
               <button
                 className="text-button"
-                onClick={() => openSpace(r.backing_space_id)}
+                onClick={() => openSpace(text(r.backing_space_id))}
               >
                 Open workspace
               </button>
@@ -171,7 +173,7 @@ export function DevelopmentBanner({
         <span>Changes and test records are isolated from production.</span>
       </div>
       {info && (
-        <button onClick={() => openSpace(info.production_space_id)}>
+        <button onClick={() => openSpace(text(info.production_space_id))}>
           Production Space <ExternalLink size={14} />
         </button>
       )}

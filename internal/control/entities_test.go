@@ -22,37 +22,15 @@ func TestEntityRuntime(t *testing.T) {
 	ctx := context.Background()
 	defer s.dataPools.Close()
 	oc := c.as(owner)
-	tenant, space, app, resource, target := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
+	tenant, space, app := registry.NewID(), registry.NewID(), registry.NewID()
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "entities-" + tenant, "display_name": "Entity tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
-	name := "entity_test_" + strings.ReplaceAll(registry.NewID(), "-", "")
-	runtime, ddl := databases.Credentials{Username: "er_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}, databases.Credentials{Username: "es_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, e := s.DB.Exec(q, args...); e != nil {
 			t.Fatal(e)
 		}
 	}
-	exec("CREATE DATABASE `" + name + "`")
-	for _, cred := range []databases.Credentials{runtime, ddl} {
-		exec("CREATE USER '" + cred.Username + "'@'" + s.Config.RuntimeAccountHost + "' IDENTIFIED BY '" + cred.Password + "'")
-	}
-	exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + runtime.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
-	exec("GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + ddl.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
-	t.Cleanup(func() {
-		s.dataPools.Close()
-		if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
-			t.Error("fixture database cleanup failed", err)
-		}
-		for _, cr := range []databases.Credentials{runtime, ddl} {
-			if _, err := s.DB.Exec("DROP USER '" + cr.Username + "'@'" + s.Config.RuntimeAccountHost + "'"); err != nil {
-				t.Error("fixture account cleanup failed", err)
-			}
-		}
-	})
-	enc, _ := s.seal("database", resource, tenant, runtime)
-	schema, _ := s.seal("schema", resource, tenant, ddl)
-	exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES(?,'Test','127.0.0.1',33317,'disabled')", target)
-	exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,schema_credentials_enc) VALUES(?,?,?,?,'registered','shared','ready',?,?)", resource, tenant, target, name, enc, schema)
+	resource, _ := businessDatabaseFixture(t, s, tenant, false)
 	base := "/v1/tenants/" + tenant
 	oc.want("POST", base+"/memberships", registry.Row{"user_id": outsider}, 0, 201)
 	oc.want("POST", base+"/spaces", registry.Row{"id": space, "slug": "crm", "display_name": "CRM", "initial_manager_user_id": owner, "database": registry.Row{"resource_id": resource}}, 0, 201)
@@ -377,6 +355,48 @@ func TestEntityRuntime(t *testing.T) {
 	request(bearer2, "GET", "/schema", nil, 0, 401)
 	request(sharedBearer, "GET", "/schema", nil, 0, 401)
 	_ = operator
+}
+
+// businessDatabaseFixture registers a real, empty business database on the
+// local server with separate runtime and schema accounts, owned and dropped by
+// the test. A managed-enabled target lets workspaces allocate beside it.
+func businessDatabaseFixture(t *testing.T, s *Server, tenant string, managed bool) (resource, target string) {
+	t.Helper()
+	resource, target = registry.NewID(), registry.NewID()
+	name := "entity_test_" + strings.ReplaceAll(registry.NewID(), "-", "")
+	runtime, ddl := databases.Credentials{Username: "er_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}, databases.Credentials{Username: "es_" + strings.ReplaceAll(registry.NewID(), "-", "")[:20], Password: registry.Token(32)}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, e := s.DB.Exec(q, args...); e != nil {
+			t.Fatal(e)
+		}
+	}
+	exec("CREATE DATABASE `" + name + "`")
+	for _, cred := range []databases.Credentials{runtime, ddl} {
+		exec("CREATE USER '" + cred.Username + "'@'" + s.Config.RuntimeAccountHost + "' IDENTIFIED BY '" + cred.Password + "'")
+	}
+	exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + runtime.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
+	exec("GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + ddl.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
+	t.Cleanup(func() {
+		s.dataPools.Close()
+		if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
+			t.Error("fixture database cleanup failed", err)
+		}
+		for _, cr := range []databases.Credentials{runtime, ddl} {
+			if _, err := s.DB.Exec("DROP USER '" + cr.Username + "'@'" + s.Config.RuntimeAccountHost + "'"); err != nil {
+				t.Error("fixture account cleanup failed", err)
+			}
+		}
+	})
+	enc, _ := s.sealer.Seal("database", resource, tenant, runtime)
+	schema, _ := s.sealer.Seal("schema", resource, tenant, ddl)
+	if managed {
+		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Test','127.0.0.1',33317,'disabled',1,X'00')", target)
+	} else {
+		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES(?,'Test','127.0.0.1',33317,'disabled')", target)
+	}
+	exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,schema_credentials_enc) VALUES(?,?,?,?,'registered','shared','ready',?,?)", resource, tenant, target, name, enc, schema)
+	return resource, target
 }
 
 func TestTenantDataFairness(t *testing.T) {

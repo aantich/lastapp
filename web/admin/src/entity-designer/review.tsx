@@ -1,5 +1,5 @@
 import { api } from "../api";
-import type { Item } from "../api-types";
+import { isItem, items, num, text, type Item } from "../api-types";
 import { EditorDialog } from "./editor-dialog";
 import type { Designer } from "./shared";
 
@@ -23,12 +23,22 @@ export function ReviewDialog({ d }: { d: Designer }) {
         Apps inherit the published definition. Your current draft stays separate
         until publication succeeds.
       </p>
-      <ReviewDiff before={record?.active_definition} after={draft} />
-      {draft.fields.some(
-        (f: Item) =>
+      <ReviewDiff
+        before={
+          isItem(record?.active_definition)
+            ? record.active_definition
+            : undefined
+        }
+        after={draft}
+      />
+      {items(draft.fields).some(
+        (f) =>
           f.calculation &&
-          draft.permissions.some(
-            (p: Item) => p.operation === "read" && p.fields?.includes(f.key),
+          items(draft.permissions).some(
+            (p) =>
+              p.operation === "read" &&
+              Array.isArray(p.fields) &&
+              p.fields.includes(f.key),
           ),
       ) && (
         <p className="muted">
@@ -36,15 +46,15 @@ export function ReviewDialog({ d }: { d: Designer }) {
           inputs. Review their access alongside the formula.
         </p>
       )}
-      {record?.diagnostics?.length > 0 && (
+      {items(record?.diagnostics).length > 0 && (
         <p className="muted">
           Saved draft has diagnostics. Validation below checks your latest
           changes.
         </p>
       )}
-      {record?.diagnostics?.map((d: Item, i: number) => (
+      {items(record?.diagnostics).map((d, i) => (
         <p className="error" key={i}>
-          {d.path}: {d.message}
+          {text(d.path)}: {text(d.message)}
         </p>
       ))}
       <div className="entity-dialog-actions">
@@ -59,7 +69,7 @@ export function ReviewDialog({ d }: { d: Designer }) {
                 { definition: draft },
               );
               setRecord({ ...record, diagnostics: v.diagnostics });
-              if (!v.diagnostics.length)
+              if (!items(v.diagnostics).length)
                 setError("Validation passed. Ready to publish.");
             })
           }
@@ -76,7 +86,7 @@ export function ReviewDialog({ d }: { d: Designer }) {
                 "/v1/entities/" + saved.id + "/publications",
                 "POST",
                 {},
-                saved.revision,
+                num(saved.revision),
               );
               const v = await api<Item>("/v1/entities/" + saved.id);
               setRecord(v);
@@ -96,8 +106,9 @@ function ReviewDiff({ before, after }: { before?: Item; after: Item }) {
       <div className="panel">
         <strong>New entity</strong>
         <p>
-          {after.fields.length} fields · {after.permissions.length} access rules
-          · {after.rules.length} business rules
+          {items(after.fields).length} fields ·{" "}
+          {items(after.permissions).length} access rules ·{" "}
+          {items(after.rules).length} business rules
         </p>
         <p>No data is accessible until an access rule grants it.</p>
       </div>
@@ -105,37 +116,37 @@ function ReviewDiff({ before, after }: { before?: Item; after: Item }) {
   return (
     <ul className="entity-diff">
       {["fields", "permissions", "rules"].flatMap((k) => {
-        const previous = before[k] || [],
-          next = after[k] || [];
+        const previous = items(before[k]),
+          next = items(after[k]);
         return [
           ...next
-            .filter((n: Item) => !previous.some((p: Item) => p.key === n.key))
-            .map((v: Item) => (
+            .filter((n) => !previous.some((p) => p.key === n.key))
+            .map((v) => (
               <li key={k + v.key}>
-                Add {k}: {v.label || v.name || v.key}
+                Add {k}: {text(v.label || v.name || v.key)}
                 {k === "fields" ? " — select access explicitly" : ""}
               </li>
             )),
           ...next
-            .filter((n: Item) =>
+            .filter((n) =>
               previous.some(
-                (p: Item) =>
+                (p) =>
                   p.key === n.key && JSON.stringify(n) !== JSON.stringify(p),
               ),
             )
-            .map((v: Item) => (
+            .map((v) => (
               <li key={k + v.key}>
-                Change {k}: {v.label || v.name || v.key}
+                Change {k}: {text(v.label || v.name || v.key)}
                 {k === "permissions"
                   ? " — review recipients, fields and conditions; existing shares may become inactive"
                   : ""}
               </li>
             )),
           ...previous
-            .filter((p: Item) => !next.some((n: Item) => n.key === p.key))
-            .map((v: Item) => (
+            .filter((p) => !next.some((n) => n.key === p.key))
+            .map((v) => (
               <li key={k + v.key}>
-                Remove {k}: {v.label || v.name || v.key}
+                Remove {k}: {text(v.label || v.name || v.key)}
                 {k === "fields" ? " — unsupported for published fields" : ""}
               </li>
             )),

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Modal } from "../form-modal";
-import type { Item, Me, TenantOverview } from "../api-types";
+import { text, type Item, type Me, type TenantOverview } from "../api-types";
 import type { parsePlatformURL } from "../console-url";
 import { status } from "../console-forms";
 
@@ -22,8 +22,8 @@ export const columnsName: [string, (r: Item) => ReactNode] = [
   "Name",
   (r) => (
     <>
-      <strong>{r.display_name}</strong>
-      {r.email && <small>{r.email}</small>}
+      <strong>{text(r.display_name)}</strong>
+      {text(r.email) && <small>{text(r.email)}</small>}
     </>
   ),
 ];

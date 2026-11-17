@@ -1,4 +1,4 @@
-package control
+package httpapi
 
 import (
 	"net/http"
@@ -13,18 +13,22 @@ type rateEntry struct {
 	tokens float64
 	at     time.Time
 }
-type requestLimiter struct {
+
+// Limiter is a bounded per-process token bucket keyed by caller.
+type Limiter struct {
 	mu      sync.Mutex
 	entries map[string]rateEntry
 }
 
+// Allow spends the administrative budget for key.
 // Per-process fairness, not a distributed billing quota. The bounded map evicts
 // idle entries; a full map rejects new keys instead of allocating without limit.
-func (l *requestLimiter) allow(key string, now time.Time) bool {
-	return l.allowRate(key, now, 120, 20)
+func (l *Limiter) Allow(key string, now time.Time) bool {
+	return l.AllowRate(key, now, 120, 20)
 }
 
-func (l *requestLimiter) allowRate(key string, now time.Time, burst, refill float64) bool {
+// AllowRate spends one token from key's bucket of burst refilled per second.
+func (l *Limiter) AllowRate(key string, now time.Time, burst, refill float64) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.entries == nil {
@@ -54,27 +58,45 @@ func (l *requestLimiter) allowRate(key string, now time.Time, burst, refill floa
 	return allowed
 }
 
-func (s *Server) limitRequest(w http.ResponseWriter, p access.Principal, r *http.Request) error {
+// Reset forgets every bucket.
+func (l *Limiter) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.entries = nil
+}
+
+// Has reports whether key currently has a bucket.
+func (l *Limiter) Has(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.entries[key]
+	return ok
+}
+
+// LimitRequest spends the per-user budget of p and, for a request naming a
+// Tenant, that Tenant's shared budget after checking live membership.
+func (l *Limiter) LimitRequest(w http.ResponseWriter, r *http.Request, c *access.Checker, q registry.Queryer, p access.Principal) error {
 	now := time.Now()
-	if !s.limiter.allow("user:"+p.ID, now) {
-		return rateLimited(w)
+	if !l.Allow("user:"+p.ID, now) {
+		return RateLimited(w)
 	}
 	if tenant := r.PathValue("tenant"); tenant != "" {
 		// Bound unauthorized traffic per user, but never let an untrusted Tenant
 		// ID allocate or consume another Tenant's shared request budget.
 		if !p.Platform {
-			if e := s.Member(r.Context(), s.DB, p, tenant, false); e != nil {
+			if e := c.Member(r.Context(), q, p, tenant, false); e != nil {
 				return e
 			}
 		}
-		if !s.limiter.allow("tenant:"+tenant, time.Now()) {
-			return rateLimited(w)
+		if !l.Allow("tenant:"+tenant, time.Now()) {
+			return RateLimited(w)
 		}
 	}
 	return nil
 }
 
-func rateLimited(w http.ResponseWriter) error {
+// RateLimited sets Retry-After and returns the rate_limited problem.
+func RateLimited(w http.ResponseWriter) error {
 	w.Header().Set("Retry-After", "1")
 	return registry.Problem(429, "rate_limited", "Too many requests. Retry shortly.")
 }

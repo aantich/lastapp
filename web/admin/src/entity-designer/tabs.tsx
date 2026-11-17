@@ -1,11 +1,11 @@
 import { Plus } from "lucide-react";
 import { api } from "../api";
 import { Select } from "../select";
-import type { Item } from "../api-types";
+import { items, num, text, type Item } from "../api-types";
 import { confirmAction } from "../confirm";
 import { FieldChoices } from "./expression";
 import { EntityRow } from "./editor-dialog";
-import type { Designer } from "./shared";
+import { inputValue, strings, type Designer } from "./shared";
 
 // The Fields tab: the draft's fields and entity-wide settings.
 export function FieldsTab({ d }: { d: Designer }) {
@@ -29,7 +29,7 @@ export function FieldsTab({ d }: { d: Designer }) {
         <label className="field">
           <span>Name</span>
           <input
-            value={draft.label}
+            value={inputValue(draft.label)}
             onChange={(e) => setDraft({ ...draft, label: e.target.value })}
           />
         </label>
@@ -48,23 +48,23 @@ export function FieldsTab({ d }: { d: Designer }) {
         </button>
       </div>
       <div className="entity-rows">
-        {draft.fields.map((f: Item) => (
+        {items(draft.fields).map((f) => (
           <EntityRow
-            key={f.key}
-            title={f.label}
+            key={text(f.key)}
+            title={text(f.label)}
             summary={
               <>
-                {f.type}
+                {text(f.type)}
                 {f.required ? " · Required" : ""}
                 {f.default ? " · Default" : ""}
                 {f.calculation ? " · Calculated" : ""}
               </>
             }
             edit={() => setEditField({ ...f })}
-            remove={() => remove("fields", f.key)}
+            remove={() => remove("fields", text(f.key))}
           />
         ))}
-        {!draft.fields.length && (
+        {!items(draft.fields).length && (
           <p className="entity-empty">
             Add your first field to start defining this entity.
           </p>
@@ -80,15 +80,15 @@ export function FieldsTab({ d }: { d: Designer }) {
             <label className="field">
               <span>Owner field</span>
               <Select
-                value={draft.owner_field || ""}
+                value={text(draft.owner_field)}
                 onChange={(owner_field) => setDraft({ ...draft, owner_field })}
                 options={[
                   { value: "", label: "None" },
-                  ...draft.fields
-                    .filter((f: Item) => f.type === "user")
-                    .map((f: Item) => ({
-                      value: f.key,
-                      label: f.label,
+                  ...items(draft.fields)
+                    .filter((f) => f.type === "user")
+                    .map((f) => ({
+                      value: text(f.key),
+                      label: text(f.label),
                     })),
                 ]}
               />
@@ -96,15 +96,15 @@ export function FieldsTab({ d }: { d: Designer }) {
             <label className="field">
               <span>Owning team field</span>
               <Select
-                value={draft.team_field || ""}
+                value={text(draft.team_field)}
                 onChange={(team_field) => setDraft({ ...draft, team_field })}
                 options={[
                   { value: "", label: "None" },
-                  ...draft.fields
-                    .filter((f: Item) => f.type === "team")
-                    .map((f: Item) => ({
-                      value: f.key,
-                      label: f.label,
+                  ...items(draft.fields)
+                    .filter((f) => f.type === "team")
+                    .map((f) => ({
+                      value: text(f.key),
+                      label: text(f.label),
                     })),
                 ]}
               />
@@ -116,8 +116,8 @@ export function FieldsTab({ d }: { d: Designer }) {
               Included when an App doesn't select specific fields.
             </p>
             <FieldChoices
-              fields={draft.fields}
-              value={draft.default_projection || []}
+              fields={items(draft.fields)}
+              value={strings(draft.default_projection)}
               onChange={(v) => setDraft({ ...draft, default_projection: v })}
             />
           </section>
@@ -135,7 +135,7 @@ export function FieldsTab({ d }: { d: Designer }) {
           </section>
           <div className="entity-settings-footer">
             <p className="muted">
-              API key <code>{draft.key}</code>
+              API key <code>{text(draft.key)}</code>
             </p>
             <button
               className="secondary danger"
@@ -169,7 +169,7 @@ export function FieldsTab({ d }: { d: Designer }) {
                         state:
                           record?.state === "archived" ? "active" : "archived",
                       },
-                      saved.revision,
+                      num(saved.revision),
                     );
                     setRecord(v);
                   });
@@ -211,27 +211,29 @@ export function AccessTab({ d }: { d: Designer }) {
         </button>
       </div>
       <div className="entity-rows">
-        {draft.permissions.map((p: Item) => (
+        {items(draft.permissions).map((p) => (
           <EntityRow
-            key={p.key}
-            title={p.label}
+            key={text(p.key)}
+            title={text(p.label)}
             summary={
               <>
-                {p.relationship ||
-                  p.roles
-                    ?.map(
-                      (id: string) =>
-                        roles.find((r) => r.id === id)?.display_name || id,
+                {text(p.relationship) ||
+                  strings(p.roles)
+                    .map(
+                      (id) =>
+                        text(roles.find((r) => r.id === id)?.display_name) ||
+                        id,
                     )
                     .join(", ")}{" "}
-                · {p.operation} · {(p.fields || []).join(", ") || "Record"}
+                · {text(p.operation)} ·{" "}
+                {strings(p.fields).join(", ") || "Record"}
               </>
             }
             edit={() => setEditPermission({ ...p })}
-            remove={() => remove("permissions", p.key)}
+            remove={() => remove("permissions", text(p.key))}
           />
         ))}
-        {!draft.permissions.length && (
+        {!items(draft.permissions).length && (
           <div className="entity-empty">
             Add a Viewer or Editor rule by choosing who, what they can do, and
             which fields.
@@ -258,7 +260,7 @@ export function RulesTab({ d }: { d: Designer }) {
               kind: "validation",
               assert: {
                 op: "is_not_null",
-                args: [{ field: draft.fields[0]?.key || "" }],
+                args: [{ field: items(draft.fields)[0]?.key || "" }],
               },
               message: "",
             })
@@ -268,32 +270,32 @@ export function RulesTab({ d }: { d: Designer }) {
         </button>
       </div>
       <div className="entity-rows">
-        {draft.fields
-          .filter((f: Item) => f.default || f.calculation)
-          .map((f: Item) => (
+        {items(draft.fields)
+          .filter((f) => f.default || f.calculation)
+          .map((f) => (
             <EntityRow
-              key={f.key}
-              title={f.label}
+              key={text(f.key)}
+              title={text(f.label)}
               summary={f.calculation ? "Calculation" : "Default"}
               edit={() => setEditField({ ...f })}
             />
           ))}
-        {draft.rules.map((rule: Item) => (
+        {items(draft.rules).map((rule) => (
           <EntityRow
-            key={rule.key}
-            title={rule.name || rule.key}
+            key={text(rule.key)}
+            title={text(rule.name || rule.key)}
             summary={
               <>
                 {rule.kind === "change" ? "Allowed change" : "Validation"} ·{" "}
-                {rule.message}
+                {text(rule.message)}
               </>
             }
             edit={() => setEditRule({ ...rule })}
-            remove={() => remove("rules", rule.key)}
+            remove={() => remove("rules", text(rule.key))}
           />
         ))}
-        {!draft.rules.length &&
-          !draft.fields.some((f: Item) => f.default || f.calculation) && (
+        {!items(draft.rules).length &&
+          !items(draft.fields).some((f) => f.default || f.calculation) && (
             <p className="entity-empty">
               Add validation or allowed-change rules here. Set defaults and
               calculations in a field's editor.

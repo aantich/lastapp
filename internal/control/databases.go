@@ -14,92 +14,93 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/httpapi"
 )
 
 func (s *Server) targets(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.storage.Targets(r.Context(), httpActor(r, p), pageRequest(r.URL.Query()))
+	v, e := s.storage.Targets(r.Context(), httpapi.Actor(r, p), httpapi.PageRequest(r.URL.Query()))
 	if e == nil {
-		send(w, 200, v)
+		httpapi.Send(w, 200, v)
 	}
 	return e
 }
 
 func (s *Server) availableTargets(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.storage.AvailableTargets(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.URL.Query().Get("managed") == "true", pageRequest(r.URL.Query()))
+	v, e := s.storage.AvailableTargets(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), r.URL.Query().Get("managed") == "true", httpapi.PageRequest(r.URL.Query()))
 	if e == nil {
-		send(w, 200, v)
+		httpapi.Send(w, 200, v)
 	}
 	return e
 }
 
 func (s *Server) createTarget(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in databases.TargetInput
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	v, e := s.storage.CreateTarget(r.Context(), httpActor(r, p), in)
+	v, e := s.storage.CreateTarget(r.Context(), httpapi.Actor(r, p), in)
 	if e == nil {
-		sendRef(w, 201, v)
+		httpapi.SendRef(w, 201, v)
 	}
 	return e
 }
 
 func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in databases.TargetPatch
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	v, e := s.storage.UpdateTarget(r.Context(), httpActor(r, p), r.PathValue("id"), in, ifMatch(r))
+	v, e := s.storage.UpdateTarget(r.Context(), httpapi.Actor(r, p), r.PathValue("id"), in, httpapi.IfMatch(r))
 	if e == nil {
-		sendRef(w, 200, v)
+		httpapi.SendRef(w, 200, v)
 	}
 	return e
 }
 
 func (s *Server) databases(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.storage.Databases(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
+	v, e := s.storage.Databases(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(r.URL.Query()))
 	if e == nil {
-		send(w, 200, v)
+		httpapi.Send(w, 200, v)
 	}
 	return e
 }
 
 func (s *Server) getDatabase(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.storage.Database(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"))
+	v, e := s.storage.Database(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), r.PathValue("id"))
 	if e == nil {
-		send(w, 200, v)
+		httpapi.Send(w, 200, v)
 	}
 	return e
 }
 
 func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in databases.DatabaseInput
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	v, e := s.storage.CreateDatabase(r.Context(), httpActor(r, p), r.PathValue("tenant"), in)
+	v, e := s.storage.CreateDatabase(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), in)
 	if e == nil {
-		sendRef(w, 202, v)
+		httpapi.SendRef(w, 202, v)
 	}
 	return e
 }
 
 func (s *Server) retryDatabase(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.storage.RetryDatabase(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"), ifMatch(r))
+	v, e := s.storage.RetryDatabase(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), r.PathValue("id"), httpapi.IfMatch(r))
 	if e == nil {
-		sendRef(w, 202, v)
+		httpapi.SendRef(w, 202, v)
 	}
 	return e
 }
 
 func (s *Server) updateDatabase(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in databases.DatabaseChange
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	v, e := s.storage.UpdateDatabase(r.Context(), httpActor(r, p), r.PathValue("tenant"), r.PathValue("id"), in, ifMatch(r))
+	v, e := s.storage.UpdateDatabase(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), r.PathValue("id"), in, httpapi.IfMatch(r))
 	if e == nil {
-		sendRef(w, 202, v)
+		httpapi.SendRef(w, 202, v)
 	}
 	return e
 }

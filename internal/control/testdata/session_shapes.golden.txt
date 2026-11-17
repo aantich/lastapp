@@ -1,0 +1,551 @@
+GET /.well-known/oauth-authorization-server -> 200
+  $ object
+  .authorization_endpoint string
+  .authorization_response_iss_parameter_supported bool
+  .client_id_metadata_document_supported bool
+  .code_challenge_methods_supported array
+  .code_challenge_methods_supported[] string
+  .grant_types_supported array
+  .grant_types_supported[] string
+  .issuer string
+  .registration_endpoint string
+  .response_types_supported array
+  .response_types_supported[] string
+  .revocation_endpoint string
+  .scopes_supported array
+  .scopes_supported[] string
+  .token_endpoint string
+  .token_endpoint_auth_methods_supported array
+  .token_endpoint_auth_methods_supported[] string
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /.well-known/oauth-protected-resource/mcp -> 200
+  $ object
+  .authorization_servers array
+  .authorization_servers[] string
+  .bearer_methods_supported array
+  .bearer_methods_supported[] string
+  .resource string
+  .scopes_supported array
+  .scopes_supported[] string
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /auth/callback rejected code -> 401
+  $ object
+  .error object
+  .error.code string=login_failed
+  .error.message string=The identity provider rejected this login.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header Set-Cookie lastapp_flow value=empty path=/ max-age=-1 http-only=true secure=false same-site=lax
+GET /auth/callback without flow -> 400
+  $ object
+  .error object
+  .error.code string=login_expired
+  .error.message string=Start login again.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /auth/callback without provider -> 404
+  $ object
+  .error object
+  .error.code string=oidc_unavailable
+  .error.message string=Single sign-on is not configured.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /auth/callback wrong state -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid or expired login state.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header Set-Cookie lastapp_flow value=empty path=/ max-age=-1 http-only=true secure=false same-site=lax
+GET /auth/login -> 302
+  $ body text/html
+  header Cache-Control no-store
+  header Content-Type text/html
+  header Location //{host}/authorize?client_id&code_challenge&code_challenge_method&nonce&redirect_uri&response_type&scope&state
+  header Set-Cookie lastapp_flow value=set path=/ max-age=300 http-only=true secure=false same-site=lax
+GET /auth/login invalid return origin -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid return origin.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /auth/login without provider -> 404
+  $ object
+  .error object
+  .error.code string=oidc_unavailable
+  .error.message string=Single sign-on is not configured.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /oauth/authorize -> 302
+  $ body text/html
+  header Cache-Control no-store
+  header Content-Type text/html
+  header Location /console/agent-consent?request
+GET /oauth/authorize unknown client -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Use a pre-registered client ID or a public HTTPS client metadata URL.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /oauth/authorize unregistered redirect -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /oauth/authorize without PKCE -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/agent-access -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].client_id string
+  .items[].client_name string
+  .items[].created_at string
+  .items[].expires_at string
+  .items[].id string
+  .items[].last_used_at null
+  .items[].limits_json object
+  .items[].limits_json.max_databases number
+  .items[].limits_json.target_ids null
+  .items[].owner_name string
+  .items[].permissions_json array
+  .items[].permissions_json[] string
+  .items[].revision number
+  .items[].scope_id null
+  .items[].scope_kind string
+  .items[].scope_name string
+  .items[].state string
+  .items[].tenant_id null
+  .items[].tenant_name null
+  .items[].user_id string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/agent-access/config -> 200
+  $ object
+  .access_token_seconds number
+  .default_days number
+  .default_limits object
+  .default_limits.max_databases number
+  .default_limits.target_ids array
+  .default_permissions array
+  .default_permissions[] string
+  .docs object
+  .docs.access string
+  .docs.client string
+  .docs.development string
+  .docs.entities string
+  .docs.hierarchy string
+  .docs.reuse string
+  .docs.safety string
+  .max_databases number
+  .max_days number
+  .max_targets number
+  .mcp_url string
+  .permissions array
+  .permissions[] object
+  .permissions[].code string
+  .permissions[].description string
+  .permissions[].label string
+  .permissions[].scope_kinds array
+  .permissions[].scope_kinds[] string
+  .presets array
+  .presets[] object
+  .presets[].label string
+  .presets[].permissions array
+  .presets[].permissions[] string
+GET /v1/agent-access/requests/{request} -> 200
+  $ object
+  .client_id string
+  .client_identity_verified bool
+  .client_name string
+  .default_days number
+  .expires_at string
+  .id string
+  .max_days number
+  .permissions array
+  .permissions[] object
+  .permissions[].code string
+  .permissions[].description string
+  .permissions[].label string
+  .permissions[].scope_kinds array
+  .permissions[].scope_kinds[] string
+  .redirect_uri string
+  .resource_uri string
+  .scopes string
+GET /v1/agent-access/requests/{request} missing -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/config -> 200
+  $ object
+  .csrf_cookie string
+  .development bool
+  .development_policy object
+  .development_policy.max_app_builds number
+  .development_policy.max_app_releases number
+  .development_policy.max_owned_workspaces number
+  .development_policy.max_release_dependencies number
+  .development_policy.max_release_microapps number
+  .development_policy.max_snapshot_bytes number
+  .development_policy.max_space_workspaces number
+  .development_policy.max_workspace_apps number
+  .development_policy.upload object
+  .development_policy.upload.max_body_bytes number
+  .development_policy.upload.max_bytes number
+  .development_policy.upload.max_file_bytes number
+  .development_policy.upload.max_files number
+  .login_url string
+  .name string
+  .oidc_enabled bool
+  .password_policy object
+  .password_policy.length_hint string
+  .password_policy.max_length number
+  .password_policy.min_length number
+  .role_catalog array
+  .role_catalog[] object
+  .role_catalog[].code string
+  .role_catalog[].display_name string
+  .role_catalog[].id string
+  .role_catalog[].permissions array
+  .role_catalog[].permissions[] string
+  .role_catalog[].scope_kind string
+  .version string
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/me -> 200
+  $ object
+  .auth_method string
+  .display_name string
+  .email string
+  .id string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+  .password_change_required bool
+  .platform_admin bool
+  .tenants array
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/me after logout -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=Sign in to continue.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/me password change required -> 200
+  $ object
+  .auth_method string
+  .display_name string
+  .email string
+  .id string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+  .password_change_required bool
+  .platform_admin bool
+  .tenants array
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/me unknown session -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=Sign in to continue.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/me without session -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=Sign in to continue.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/my-tenants password change required -> 403
+  $ object
+  .error object
+  .error.code string=password_change_required
+  .error.message string=Change your initial password before using this account.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+PATCH /v1/agent-access/{grant} -> 200
+  $ object
+  .id string
+  .revision number
+PATCH /v1/agent-access/{grant} stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+POST /admin/v1/users -> 201
+  $ object
+  .display_name string
+  .email string
+  .id string
+  .state string
+POST /admin/v1/users without session -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=Sign in to continue.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/login/password -> 200
+  $ object
+  .ok bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header Set-Cookie lastapp_csrf value=set path=/ max-age=28800 http-only=false secure=false same-site=lax
+  header Set-Cookie lastapp_session value=set path=/ max-age=28800 http-only=true secure=false same-site=lax
+POST /auth/login/password foreign origin -> 403
+  $ object
+  .error object
+  .error.code string=invalid_origin
+  .error.message string=Request origin is not allowed.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/login/password malformed -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid or unsupported JSON request fields.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/login/password rate limited -> 429
+  $ object
+  .error object
+  .error.code string=rate_limited
+  .error.message string=Too many requests. Retry shortly.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header Retry-After 1
+POST /auth/login/password wrong password -> 401
+  $ object
+  .error object
+  .error.code string=invalid_credentials
+  .error.message string=Email or password is incorrect.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/logout -> 200
+  $ object
+  .ok bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header Set-Cookie lastapp_csrf value=empty path=/ max-age=-1 http-only=false secure=false same-site=lax
+  header Set-Cookie lastapp_session value=empty path=/ max-age=-1 http-only=true secure=false same-site=lax
+POST /auth/logout foreign origin -> 403
+  $ object
+  .error object
+  .error.code string=invalid_origin
+  .error.message string=Request origin is not allowed.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/logout invalid CSRF -> 403
+  $ object
+  .error object
+  .error.code string=csrf_failed
+  .error.message string=Invalid CSRF token.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/logout without CSRF -> 403
+  $ object
+  .error object
+  .error.code string=csrf_failed
+  .error.message string=Missing CSRF token.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/password -> 200
+  $ object
+  .ok bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header Set-Cookie lastapp_csrf value=set path=/ max-age=28800 http-only=false secure=false same-site=lax
+  header Set-Cookie lastapp_session value=set path=/ max-age=28800 http-only=true secure=false same-site=lax
+POST /auth/password weak -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Use a password of 8–128 characters.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /auth/password wrong current -> 401
+  $ object
+  .error object
+  .error.code string=invalid_credentials
+  .error.message string=Email or password is incorrect.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /mcp invalid token -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=Invalid or expired MCP access token.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header WWW-Authenticate Bearer resource_metadata
+POST /mcp revoked token -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=Invalid or expired MCP access token.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header WWW-Authenticate Bearer resource_metadata
+POST /mcp without token -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=An MCP access token is required.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+  header WWW-Authenticate Bearer resource_metadata
+POST /oauth/register -> 201
+  $ object
+  .client_id string
+  .client_id_issued_at number
+  .client_name string
+  .grant_types array
+  .grant_types[] string
+  .redirect_uris array
+  .redirect_uris[] string
+  .response_types array
+  .response_types[] string
+  .scope string
+  .token_endpoint_auth_method string
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/register unsafe redirect -> 400
+  $ object
+  .error string=invalid_redirect_uri
+  .error_description string=Redirects must be exact HTTPS or HTTP loopback URLs without wildcards, credentials or fragments.
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/revoke -> 200
+  $ object
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/token -> 200
+  $ object
+  .access_token string
+  .expires_in number
+  .refresh_token string
+  .scope string
+  .token_type string
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/token code replay -> 400
+  $ object
+  .error string=invalid_grant
+  .error_description string=OAuth request rejected. Reconnect through Lastapp if necessary.
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/token refresh -> 200
+  $ object
+  .access_token string
+  .expires_in number
+  .refresh_token string
+  .scope string
+  .token_type string
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/token refresh replay -> 400
+  $ object
+  .error string=invalid_grant
+  .error_description string=OAuth request rejected. Reconnect through Lastapp if necessary.
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/token unsupported grant -> 400
+  $ object
+  .error string=invalid_target
+  .error_description string=OAuth request rejected. Reconnect through Lastapp if necessary.
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /oauth/token wrong verifier -> 400
+  $ object
+  .error string=invalid_grant
+  .error_description string=OAuth request rejected. Reconnect through Lastapp if necessary.
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /v1/agent-access/requests/{request} -> 200
+  $ object
+  .redirect_url string
+POST /v1/agent-access/requests/{request} invalid scope -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid platform scope.
+  .error.request_id string
+  .error.retryable bool

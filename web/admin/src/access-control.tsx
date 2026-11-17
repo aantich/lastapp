@@ -5,7 +5,13 @@ import { FormModal, type Modal } from "./form-modal";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
 import { status } from "./console-forms";
-import type { Item } from "./api-types";
+import {
+  items,
+  num,
+  text,
+  type Item,
+  type TenantCapabilities,
+} from "./api-types";
 const spaceManager = "00000000-0000-4000-8000-000000000005",
   appManager = "00000000-0000-4000-8000-000000000006";
 export function AccessControl({
@@ -15,7 +21,7 @@ export function AccessControl({
   scopeId,
 }: {
   tenant: string;
-  caps: Item;
+  caps: TenantCapabilities;
   scopeKind: "space" | "app";
   scopeId: string;
 }) {
@@ -33,14 +39,16 @@ export function AccessControl({
   const canManage =
     !!caps["authorization.manage"]?.all ||
     (caps["authorization.manage"]?.spaces || []).includes(
-      scopeKind === "space" ? scopeId : meta.space_id,
+      scopeKind === "space" ? scopeId : text(meta.space_id),
     ) ||
     (caps["authorization.manage"]?.apps || []).includes(scopeId);
   const canDelegate =
     !!caps["authorization.manage"]?.all ||
     (scopeKind === "app" &&
-      (caps["authorization.manage"]?.spaces || []).includes(meta.space_id));
-  const isManager = (role: string) =>
+      (caps["authorization.manage"]?.spaces || []).includes(
+        text(meta.space_id),
+      ));
+  const isManager = (role: unknown) =>
     role === spaceManager || role === appManager;
   function changed() {
     setModal(null);
@@ -136,7 +144,7 @@ export function AccessControl({
                 display_name: v.display_name,
                 state: v.state,
               },
-          role?.revision,
+          num(role?.revision),
         ),
     });
   }
@@ -175,7 +183,7 @@ export function AccessControl({
         columns={
           view === "roles"
             ? [
-                ["Role", (r) => <strong>{r.display_name}</strong>],
+                ["Role", (r) => <strong>{text(r.display_name)}</strong>],
                 [
                   "Type",
                   (r) => (r.domain === "control" ? "Manager" : "Custom"),
@@ -186,8 +194,8 @@ export function AccessControl({
                   (r) =>
                     r.domain === "control"
                       ? "Administrative"
-                      : (r.data_permissions || [])
-                          .map((p: Item) => p.description || p.code)
+                      : items(r.data_permissions)
+                          .map((p) => text(p.description || p.code))
                           .join(", ") || "Configure in Entity → Access",
                 ],
               ]
@@ -196,12 +204,12 @@ export function AccessControl({
                   "Person or team",
                   (r) => (
                     <>
-                      <strong>{r.principal_name}</strong>
+                      <strong>{text(r.principal_name)}</strong>
                       <small>{r.group_id ? "Team" : "Person"}</small>
                     </>
                   ),
                 ],
-                ["Role", (r) => r.access_name],
+                ["Role", (r) => text(r.access_name)],
               ]
         }
         actions={
@@ -226,7 +234,7 @@ export function AccessControl({
                               path + "/role-assignments/" + r.id,
                               "DELETE",
                               undefined,
-                              r.revision,
+                              num(r.revision),
                             ),
                           )
                         }

@@ -48,7 +48,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	base := "/v1/tenants/" + tenant
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "work-" + tenant, "display_name": "Workspace tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	oc.want("POST", base+"/memberships", registry.Row{"user_id": joe}, 0, 201)
-	enc, e := s.seal("target", target, "", databases.Credentials{Username: dsn.User, Password: dsn.Passwd})
+	enc, e := s.sealer.Seal("target", target, "", databases.Credentials{Username: dsn.User, Password: dsn.Passwd})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -60,7 +60,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		rs, _ := registry.QueryRows(ctx, s.DB, "SELECT id,database_name,runtime_credentials_enc FROM database_resources WHERE tenant_id=? AND management_mode='managed'", tenant)
 		for _, v := range rs {
 			var cr databases.Credentials
-			_ = s.unseal("database", registry.Str(v["id"]), tenant, []byte(registry.Str(v["runtime_credentials_enc"])), &cr)
+			_ = s.sealer.Unseal("database", registry.Str(v["id"]), tenant, []byte(registry.Str(v["runtime_credentials_enc"])), &cr)
 			if generatedRE.MatchString(registry.Str(v["database_name"])) {
 				_, _ = s.DB.Exec("DROP DATABASE `" + registry.Str(v["database_name"]) + "`")
 			}
@@ -280,7 +280,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": definition}, 3, 409)
 	assertSecurity := func() {
 		t.Helper()
-		actor, access, err := s.actorContext(ctx, s.DB, joe, tenant, space, app)
+		actor, access, err := s.authoring.ActorContext(ctx, s.DB, joe, tenant, space, app)
 		if err != nil {
 			t.Fatal(err)
 		}

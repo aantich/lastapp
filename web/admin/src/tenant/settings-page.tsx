@@ -2,6 +2,7 @@ import { AgentAccess } from "../agent-access";
 import { api } from "../api";
 import { Collection } from "../collection";
 import { confirmAction } from "../confirm";
+import { num, text } from "../api-types";
 import { statusColumn, type TenantScreen } from "./screen";
 
 // Tenant settings: General, Databases and Agent access.
@@ -17,16 +18,16 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
         <section className="panel workspace-section">
           <dl className="workspace-facts">
             <dt>Name</dt>
-            <dd>{profile.display_name}</dd>
+            <dd>{text(profile.display_name)}</dd>
             <dt>Plan</dt>
-            <dd>{profile.plan_name}</dd>
+            <dd>{text(profile.plan_name)}</dd>
             <dt>Status</dt>
-            <dd>{profile.state}</dd>
+            <dd>{text(profile.state)}</dd>
             <dt>Spaces / Apps / Databases</dt>
             <dd>
-              {profile.max_spaces ?? "Unlimited"} /{" "}
-              {profile.max_apps ?? "Unlimited"} /{" "}
-              {profile.max_databases ?? "Unlimited"}
+              {text(profile.max_spaces ?? "Unlimited")} /{" "}
+              {text(profile.max_apps ?? "Unlimited")} /{" "}
+              {text(profile.max_databases ?? "Unlimited")}
             </dd>
           </dl>
           {all("tenant.manage") && (
@@ -51,21 +52,21 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
               "Database",
               (r) => (
                 <>
-                  <strong>{r.database_name}</strong>
+                  <strong>{text(r.database_name)}</strong>
                   <small>
-                    {r.management_mode} · {r.layout}
+                    {text(r.management_mode)} · {text(r.layout)}
                   </small>
                 </>
               ),
             ],
             statusColumn,
-            ["Last result", (r) => r.last_error_message || "—"],
+            ["Last result", (r) => text(r.last_error_message) || "—"],
           ]}
           actions={
             all("database.manage")
               ? (r) => (
                   <>
-                    {["ready", "failed"].includes(r.state) && (
+                    {["ready", "failed"].includes(text(r.state)) && (
                       <button
                         className="text-button"
                         disabled={busy}
@@ -75,7 +76,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                               base + "/database-resources/" + r.id + "/retry",
                               "POST",
                               {},
-                              r.revision,
+                              num(r.revision),
                             ),
                           )
                         }
@@ -84,7 +85,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                       </button>
                     )}
                     {r.management_mode === "registered" &&
-                      !["provisioning", "retired"].includes(r.state) && (
+                      !["provisioning", "retired"].includes(text(r.state)) && (
                         <button
                           className="text-button"
                           onClick={() =>
@@ -115,7 +116,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                                       password: v.password,
                                     },
                                   },
-                                  r.revision,
+                                  num(r.revision),
                                 ),
                             })
                           }
@@ -153,7 +154,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                                     "/schema-credentials",
                                   "POST",
                                   v,
-                                  r.revision,
+                                  num(r.revision),
                                 ),
                             })
                           }
@@ -161,7 +162,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                           Set schema credentials
                         </button>
                       )}
-                    {!["provisioning", "retired"].includes(r.state) && (
+                    {!["provisioning", "retired"].includes(text(r.state)) && (
                       <button
                         className="text-button danger"
                         disabled={busy}
@@ -180,7 +181,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                                 base + "/database-resources/" + r.id,
                                 "PATCH",
                                 { state: "retired" },
-                                r.revision,
+                                num(r.revision),
                               ),
                             );
                         }}

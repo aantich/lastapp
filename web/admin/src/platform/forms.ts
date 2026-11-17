@@ -1,5 +1,5 @@
 import { api } from "../api";
-import type { Item } from "../api-types";
+import { num, type Item } from "../api-types";
 import type { Field } from "../form-modal";
 import {
   accountFields,
@@ -146,7 +146,7 @@ export function editTenant(p: PlatformScreen) {
           state: v.state,
           default_layout: v.default_layout,
         },
-        profile.revision,
+        num(profile.revision),
       ),
   });
 }
@@ -221,7 +221,7 @@ export function planForm(p: PlatformScreen, plan?: Item) {
         "/admin/v1/plans" + (plan ? "/" + plan.id : ""),
         plan ? "PATCH" : "POST",
         out,
-        plan?.revision,
+        num(plan?.revision),
       );
     },
   });
@@ -304,7 +304,7 @@ export function serverForm(p: PlatformScreen, server?: Item) {
             ? { credentials: { username: v.username, password: v.password } }
             : {}),
         },
-        server?.revision,
+        num(server?.revision),
       ),
   });
 }

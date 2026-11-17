@@ -4,6 +4,7 @@ import { Collection } from "../collection";
 import { AccessControl } from "../access-control";
 import { status as badge } from "../console-forms";
 import { refreshQueries } from "../query";
+import { keyOf, optText, text } from "../api-types";
 import {
   computeField,
   editFields,
@@ -21,12 +22,12 @@ export function AppPage({ t }: { t: TenantScreen }) {
     <>
       {route.tab === "releases" && (
         <AppReleases
-          key={app.id}
+          key={keyOf(app.id)}
           app={app}
           tenant={tenant}
           refresh={refresh}
           openWorkspaces={() =>
-            go("space", { space: app.space_id, tab: "development" })
+            go("space", { space: optText(app.space_id), tab: "development" })
           }
         />
       )}
@@ -78,11 +79,11 @@ export function AppPage({ t }: { t: TenantScreen }) {
       )}
       {route.tab === "access" && (
         <AccessControl
-          key={app.id}
+          key={keyOf(app.id)}
           tenant={tenant}
           caps={caps}
           scopeKind="app"
-          scopeId={app.id}
+          scopeId={text(app.id)}
         />
       )}
       {route.tab === "settings" && (
@@ -112,15 +113,15 @@ export function AppPage({ t }: { t: TenantScreen }) {
             </div>
             <details>
               <summary>Advanced</summary>
-              <p>Slug: {app.slug}</p>
-              <p>Compute preference: {app.compute_mode}</p>
+              <p>Slug: {text(app.slug)}</p>
+              <p>Compute preference: {text(app.compute_mode)}</p>
             </details>
           </section>
           {scoped("app.manage") && (
             <AppDataAccess
-              key={app.id}
-              app={app.id}
-              spaceManager={scoped("entity.manage", app.space_id, "")}
+              key={keyOf(app.id)}
+              app={text(app.id)}
+              spaceManager={scoped("entity.manage", optText(app.space_id), "")}
             />
           )}
         </>

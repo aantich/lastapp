@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { EntityCatalog, Item } from "../api-types";
+import { isItem, type EntityCatalog, type Item } from "../api-types";
 import { confirmAction } from "../confirm";
+import type { Expression } from "../../../../packages/client/src/index.ts";
 
 export const keyOf = (name: string) => {
   const bare = name
@@ -20,10 +21,30 @@ export const keyOf = (name: string) => {
 // A choice value's display label; keys without one show as themselves.
 // Only the labels object's own keys count, never inherited properties.
 export const choiceLabel = (field: Item, key: string): string => {
-  const labels = field.value_labels || {},
+  const labels = isItem(field.value_labels) ? field.value_labels : {},
     label = Object.hasOwn(labels, key) ? labels[key] : undefined;
   return typeof label === "string" ? label : key;
 };
+// Narrowing for the loose definition documents the designer edits. They are
+// written by the backend's entity model (internal/entity/model.go), so these
+// only give the checker the shape the values already have.
+
+// An entity record's draft_json or active_definition: the definition object,
+// or null when there is none.
+export const definitionOf = (v: unknown): Item | null => (isItem(v) ? v : null);
+// A list of strings (field keys, role IDs, choice values); [] when absent.
+export const strings = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+// A loose value as a controlled input's value: strings and numbers as they
+// are, anything else unset (undefined), as React treats null or undefined.
+export const inputValue = (v: unknown): string | number | undefined =>
+  typeof v === "string" || typeof v === "number" ? v : undefined;
+// A loose value that is a string, else undefined (a Select's value).
+export const optionalText = (v: unknown): string | undefined =>
+  typeof v === "string" ? v : undefined;
+// An expression document (a condition, formula or default). The backend
+// validates its structure; the editor only needs it to be an object.
+export const isExpression = (v: unknown): v is Expression => isItem(v);
 export const fieldLabel = (key: string) => key[0].toUpperCase() + key.slice(1);
 export const discardChanges = () =>
   confirmAction({

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { api } from "../api";
 import { RemoteSelect } from "../remote-select";
 import { Select } from "../select";
-import type { Item } from "../api-types";
+import { isItem, items, text, type Item } from "../api-types";
+import { strings } from "./shared";
 import { ValueInputs } from "./expression";
 
 // Runs the backend evaluator against the draft with synthetic values.
@@ -53,7 +54,7 @@ export function EntityTest({
           initial={[]}
           path={"/v1/tenants/" + tenant + "/recipients"}
           label="Test as user"
-          value={scenario.user_id}
+          value={text(scenario.user_id)}
           onChange={(v) => set({ ...scenario, user_id: v })}
         />
       </label>
@@ -63,14 +64,14 @@ export function EntityTest({
           initial={[]}
           path={"/v1/tenants/" + tenant + "/apps?space_id=" + space}
           label="App context"
-          value={scenario.app_id}
+          value={text(scenario.app_id)}
           onChange={(v) => set({ ...scenario, app_id: v })}
         />
       </label>
       <label className="field">
         <span>Operation</span>
         <Select
-          value={scenario.operation}
+          value={text(scenario.operation)}
           onChange={(operation) => set({ ...scenario, operation })}
           options={["create", "read", "update", "delete"].map((v) => ({
             value: v,
@@ -82,18 +83,18 @@ export function EntityTest({
         <>
           <h4>Existing sample record</h4>
           <ValueInputs
-            fields={draft.fields}
-            value={scenario.record}
+            fields={items(draft.fields)}
+            value={isItem(scenario.record) ? scenario.record : {}}
             onChange={(v) => set({ ...scenario, record: v })}
           />
         </>
       )}
-      {["create", "update"].includes(scenario.operation) && (
+      {["create", "update"].includes(text(scenario.operation)) && (
         <>
           <h4>Proposed values</h4>
           <ValueInputs
-            fields={draft.fields}
-            value={scenario.values}
+            fields={items(draft.fields)}
+            value={isItem(scenario.values) ? scenario.values : {}}
             onChange={(v) => set({ ...scenario, values: v })}
           />
         </>
@@ -107,20 +108,20 @@ export function EntityTest({
       {result && (
         <section className="entity-result">
           <h3>{result.allowed ? "Allowed" : "Denied or invalid"}</h3>
-          {result.error && <p>{result.error}</p>}
-          {result.diagnostics?.map((d: Item, i: number) => (
+          {!!result.error && <p>{text(result.error)}</p>}
+          {items(result.diagnostics).map((d, i) => (
             <p key={i}>
-              {d.path}: {d.message}
+              {text(d.path)}: {text(d.message)}
             </p>
           ))}
-          <p>Not checked: {result.not_checked?.join(", ")}</p>
-          {result.permission_paths?.map((p: Item) => (
-            <p key={p.key}>
-              {p.matches_complete_path ? "✓" : "–"} {p.label} ·{" "}
-              {(p.fields || []).join(", ") || "Record"}
+          <p>Not checked: {strings(result.not_checked).join(", ")}</p>
+          {items(result.permission_paths).map((p) => (
+            <p key={text(p.key)}>
+              {p.matches_complete_path ? "✓" : "–"} {text(p.label)} ·{" "}
+              {strings(p.fields).join(", ") || "Record"}
             </p>
           ))}
-          {result.candidate && (
+          {!!result.candidate && (
             <pre>{JSON.stringify(result.candidate, null, 2)}</pre>
           )}
         </section>

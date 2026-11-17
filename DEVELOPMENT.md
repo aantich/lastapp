@@ -1,6 +1,6 @@
 # Lastapp maintainer guide
 
-Current implementation, 14 November 2026. Start with [AGENTS.md](AGENTS.md).
+Current implementation, 17 November 2026. Start with [AGENTS.md](AGENTS.md).
 This guide maps the running framework to its authoritative contracts. The
 [concept](CONCEPT.md) and historical plans explain intent, not additional shipped
 capabilities.
@@ -86,8 +86,8 @@ exists. The current login and management OAuth server are implemented in Lastapp
 
 | Change area | Authoritative source / reuse point |
 | --- | --- |
-| Package layout and dependency direction | `cmd/lastapp` → `internal/control` (transport and wiring: routes, sessions/CSRF, decode/send, the HTTP error writer, MCP adapters, `/data/v1`, workspaces/releases) → domain packages `internal/entities` → `internal/inventory` → `internal/membership` → `internal/roles` → `internal/databases` → `internal/op` → `internal/access` → `internal/registry`, with `internal/config` beside them and `internal/entity`, `data`, `authz`, `artifact` as leaves. A lower package never imports a higher one; shared queries move down into `registry` rather than behind interfaces. `TestNoHTTPLoopback` fails if an operation package imports `net/http` or `internal/control` |
-| Management routes and console-session wrapper | `internal/control/http.go`; domain handlers in `internal/control` |
+| Package layout and dependency direction | `cmd/lastapp` → `internal/control` (wiring: routes, sessions/CSRF, MCP adapters, `/data/v1`, workspaces/releases, workers) → domain packages `internal/entities` → `internal/inventory` → `internal/membership` → `internal/roles` → `internal/databases` → `internal/op` → `internal/access` → `internal/registry`. Below control sit `internal/httpapi` (shared HTTP plumbing: `Decode`/`Send`/`Reply`/`SendRef`, the single error writer `WriteError` over `op.Classify`, the console-session wrapper `Session`, page shims, `Observe`/request loggers/`Diagnostic`, `Limiter`, `TrustedProxies.ClientIP`, `AllowedOrigin`/`CookieName`), `internal/sealer` (`Sealer`: owner-bound AES-GCM envelopes from `encryption_key`; format pinned by a fixed vector) and `internal/config`; `internal/entity`, `data`, `authz`, `artifact` are leaves. A lower package never imports a higher one; only `cmd/` and `internal/control` import `internal/control` or `internal/httpapi`; shared queries move down into `registry` (or the owning domain package, e.g. `inventory.AppRow`) rather than behind interfaces. `TestPackageLayering` (`internal/layering_test.go`, `go list`) enforces this table and names the offending import; a new internal package must be added to it. `TestNoHTTPLoopback` fails if an operation package imports `net/http` or `internal/control` |
+| Management routes and console-session wrapper | Routes in `internal/control/http.go`; the wrapper (deadline, authentication, limits, initial-password gate, CSRF, error writing) is `httpapi.Session`; domain handlers in `internal/control` |
 | Operations shared by console and MCP | `internal/op`: `Actor`, `Runner.Mutate` (lock, live authorization, production guard, receipt, audit), one error `Classify`, `PageRequest`/`Page`, request deadlines; live checks in `internal/access` (`Checker`: `Authorize`, `Scopes`, `CheckAgent`, production/workspace guards; `Principal`, `AgentCall`, agent grants). Domain services `inventory.Inventory` (`internal/inventory`), `membership.Members` (`internal/membership`, also local accounts and the password policy), `roles.Authority` (`internal/roles`, with security audit snapshots), `databases.Storage` (`internal/databases`) and `entities.Authoring` (`internal/entities`); console handlers for them stay in same-named files of `internal/control`. Workspace, release, deployment, starter and audit operations are `Server` methods in `internal/control` (`development_workspaces.go`, `releases.go`, `artifacts.go`, `starters.go`, `http.go`) because they share snapshot and hosting internals. Handlers decode → call the operation → send; MCP adapters call the same operation directly |
 | Fixed role IDs/actions/scope categories | `internal/authz/catalog.go`; `internal/access/auth.go`, `internal/roles` resolve current authority |
 | Password policy and public settings | `internal/membership/accounts.go` (served by `internal/control/passwords.go`) → `GET /v1/config`; shared frontend controls |
@@ -95,7 +95,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Generated JSON Schema / TypeScript | `internal/entity/contracts.go`; entity/App contract endpoints |
 | SQL query/storage compilation and pools | `internal/data`; runtime orchestration in `internal/control/entity_data.go` |
 | Publication and database provisioning | `internal/entities`, `internal/databases`; publisher and workers in `internal/control` (`entity_publisher.go`, `worker.go`) |
-| App origin approval, launch/session authentication | `internal/entities` (App access), `internal/control/app_sessions.go`, `entity_data.go`; `packages/client/src/index.ts` |
+| App origin approval, launch/session authentication | `internal/entities` (App access, `Authoring.ActorContext`), `internal/control/app_sessions.go`, `entity_data.go`; `packages/client/src/index.ts` |
 | MCP schemas, tool catalog and typed adapters | `agent_tools.go`; schemas derive from shared Go input types |
 | Agent permissions, limits and live checks | `internal/control/agents.go` → `GET /v1/agent-access/config`; grant checks in `internal/access/delegation.go` |
 | OAuth consent, code/refresh flow and client registration | `agent_oauth.go`, `agent_clients.go` |
@@ -105,6 +105,14 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Typed registry reads | `internal/registry`: `ScanAll`/`ScanOne` (and `op.PageScan`) scan hand-written SQL into record structs whose column list is a const beside each type and whose `ScanFields()` returns the scan destinations; `JSONValue` (`*_json` columns), `Bit` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. Plans, Tenant policy, quotas, record locks and the shared `APIError` live there too; `op.Classify` maps MySQL errors. `QueryRow`/`QueryRows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
 | Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes; pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
+| Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`confirm.ts`, `confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `error-boundary.tsx` and `retryable-lazy.ts`; choices and numbers use `select.tsx` / `number-input.tsx` (native `<select>`, date and number inputs are not allowed). No lint suppression file, `//nolint` or inline ESLint disable; the loose `Item` row type in `api-types.ts` is `Record<string, unknown>`, narrowed at use sites (`text`, `num`, `isItem`, `items` or a named shape) |
+
+To add a management operation: write a typed method in its domain package that
+takes an `op.Actor` and runs writes through `Runner.Mutate` (for example
+`inventory.CreateTenant`); add a thin decode → call → send handler in
+`internal/control`; expose it to MCP by an adapter in `agent_tools.go` that calls
+the same method; regenerate the goldens (below) for the new tool schema/response;
+and add a regression test for its authorization boundary.
 
 Do not add a second policy language, ORM, query compiler, permission cache or MCP
 service to make a local feature easier. Extend the existing typed contract and
@@ -128,7 +136,15 @@ handlers decode, call and send, and MCP tools call the same operations. The form
 in-process HTTP adapter (`executeManagement`) is deleted and `TestNoHTTPLoopback`
 keeps it from returning.
 Golden files in `internal/control/testdata` pin the MCP tool schemas and the
-response shapes of representative endpoints; refactors must leave them unchanged.
+response shapes of representative endpoints (`internal/control/golden_test.go`):
+inventory/MCP management (`response_shapes`), workspaces/builds/releases/
+deployments/starters and the MCP workspace/release tools (`delivery_shapes`),
+`/data/v1` (`data_shapes`), console sessions, password/OIDC login, CSRF and agent
+OAuth including cookie names/attributes (`session_shapes`), and normalised
+`audit_events` attribution for human, agent and worker steps (`audit_attribution`).
+Refactors must leave them unchanged. Regenerate them only for an intended contract
+change with `go test ./internal/control -run Golden -update-golden` (all but the
+tool schema golden need `LASTAPP_TEST_CONFIG`) and review the diff.
 
 Important management groups are Tenant/Space/App/micro-app inventory, scoped
 `roles`, `role-assignments`, `recipients`, memberships/teams, database resources,
@@ -157,6 +173,8 @@ rather than replacing the global toolchain.
 
 ```sh
 make test                       # unit/build checks; DB tests may skip
+make lint                       # golangci-lint v2.15.0 + console npm run lint/typecheck
+make fmt                        # gofumpt/gci via golangci-lint fmt
 GOCACHE="$PWD/.local/go-cache" go vet ./...
 make mcp-test                   # TestAgent* only: MCP/OAuth/agent security + agent worker
 make integration                # full backend race/security + browser suite
@@ -166,6 +184,14 @@ python3 design/validate_schema.py --check  # offline DDL parity only
 python3 scripts/verify_driver.py           # pinned driver integrity
 git diff --check
 ```
+
+CI (`.github/workflows/checks.yml`, job `test`) runs the same lint, type, schema,
+driver, race-test and browser checks, plus `govulncheck`.
+
+Integration/database tests, `TestNoHTTPLoopback` and the goldens currently live in
+`internal/control`, so `make integration` and `make mcp-test` target that package.
+The agreed direction is that each layer gets its own tests and its own fixtures;
+do not add a shared test-environment package.
 
 `make mcp-test` and the backend half of `make integration` require the existing
 local development config/server. `make mcp-test` runs only the `TestAgent*` control
@@ -208,13 +234,17 @@ Capture meaningful results in [VERIFICATION.md](VERIFICATION.md), including skip
 failures and reruns; do not substitute a plan or old receipt for executed checks.
 
 Logging uses `log/slog`: text in development, JSON lines otherwise (stderr;
-`make dev` writes `.local/lastapp.log`). The outer handler (`internal/control/logging.go`)
+`make dev` writes `.local/lastapp.log`). The outer handler (`httpapi.Observe`, `internal/httpapi/logging.go`)
 is the single source of `X-Request-ID`, puts a request-scoped logger
 (`request_id`, `method`) into the context and writes one `http request` line with
 the route pattern, status, bytes and duration. It never logs query strings,
-bodies, cookies or credential headers. Errors are wrapped with `%w`; `diagnostic()`
+bodies, cookies or credential headers. Errors are wrapped with `%w`; `httpapi.Diagnostic`
 logs only the type chain, SQL number/state, network operation and context state,
 never error messages, and unmapped API errors stay a generic 500.
+
+`main` is protected by the GitHub ruleset `main`: changes arrive only through a
+pull request whose required `test` check passed on a branch up to date with
+`main`; force-pushes and deletion are blocked.
 
 Keep `.local/`, keys, passwords, build output, traces and screenshots out of git.
 No routine change requires resetting local data, refreshing the driver snapshot,

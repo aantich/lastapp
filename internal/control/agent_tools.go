@@ -20,6 +20,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
@@ -240,8 +241,8 @@ func (s *Server) mcpHandler() http.Handler {
 		ctx, cancel := op.WithRequestDeadline(r.Context())
 		defer cancel()
 		r = r.WithContext(ctx)
-		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {
-			writeError(w, r, registry.Problem(403, "invalid_origin", "Unapproved MCP browser Origin."))
+		if origin := r.Header.Get("Origin"); origin != "" && !httpapi.AllowedOrigin(&s.Config, origin) {
+			httpapi.WriteError(w, r, registry.Problem(403, "invalid_origin", "Unapproved MCP browser Origin."))
 			return
 		}
 		if !s.admitAgent(w, r, &s.agentValidationLimiter, s.agentValidationSlots, "mcp-auth", 60, 10) {
@@ -251,19 +252,19 @@ func (s *Server) mcpHandler() http.Handler {
 		<-s.agentValidationSlots
 		if e != nil {
 			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+s.Config.PublicURL+`/.well-known/oauth-protected-resource/mcp"`)
-			writeError(w, r, e)
+			httpapi.WriteError(w, r, e)
 			return
 		}
 		r.SetPathValue("tenant", p.Agent.Tenant)
-		if e = s.limitRequest(w, p, r); e != nil {
-			writeError(w, r, e)
+		if e = s.limiter.LimitRequest(w, r, s.Checker, s.DB, p); e != nil {
+			httpapi.WriteError(w, r, e)
 			return
 		}
 		select {
 		case s.agentSlots <- struct{}{}:
 			defer func() { <-s.agentSlots }()
 		default:
-			writeError(w, r, rateLimited(w))
+			httpapi.WriteError(w, r, httpapi.RateLimited(w))
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -277,12 +278,12 @@ func (s *Server) mcpHandler() http.Handler {
 				if errors.As(err, &tooLarge) {
 					err = registry.Problem(413, "request_limit", "MCP request exceeds its size limit.")
 				}
-				writeError(w, r, err)
+				httpapi.WriteError(w, r, err)
 				return
 			}
 			trimmed := bytes.TrimSpace(payload)
 			if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
-				writeError(w, r, registry.Bad("Send exactly one MCP message object per HTTP request; batching is not supported."))
+				httpapi.WriteError(w, r, registry.Bad("Send exactly one MCP message object per HTTP request; batching is not supported."))
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(payload))
@@ -294,7 +295,7 @@ func (s *Server) mcpHandler() http.Handler {
 			}
 			schema, e := agentInputSchema(spec.Input)
 			if e != nil {
-				writeError(w, r, e)
+				httpapi.WriteError(w, r, e)
 				return
 			}
 			cached, _ := agentSchemaContracts.Load(spec.Input)
@@ -323,7 +324,7 @@ func (s *Server) mcpHandler() http.Handler {
 					rid := registry.NewID()
 					if o.Unmapped {
 						fields := []any{"operation", "mcp " + current.Name, "operation_request_id", rid}
-						requestLogger(call).Error("request failed", append(fields, diagnostic(e)...)...)
+						httpapi.RequestLogger(call).Error("request failed", append(fields, httpapi.Diagnostic(e)...)...)
 					}
 					result["error"] = o.Payload(rid)
 					if o.Code == "needs_authorization" {

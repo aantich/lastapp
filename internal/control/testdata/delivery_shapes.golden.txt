@@ -1,0 +1,933 @@
+GET /v1/apps/{app}/builds -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].content_hash string
+  .items[].created_at string
+  .items[].entrypoint string
+  .items[].id string
+  .items[].size_bytes number
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/apps/{app}/builds other user -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/apps/{app}/deployment finished -> 200
+  $ object
+  .deployment object
+  .deployment.created_at string
+  .deployment.error_message null
+  .deployment.finished_at string
+  .deployment.id string
+  .deployment.release_id string
+  .deployment.revision number
+  .deployment.space_id string
+  .deployment.state string
+  .deployment.target_app_id string
+  .deployment.tenant_id string
+  .deployment.url string
+GET /v1/apps/{app}/deployment none -> 200
+  $ object
+  .deployment null
+GET /v1/apps/{app}/deployment other user -> 403
+  $ object
+  .error object
+  .error.code string=forbidden
+  .error.message string=This action is not permitted in this scope.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/apps/{app}/deployment queued -> 200
+  $ object
+  .deployment object
+  .deployment.created_at string
+  .deployment.error_message null
+  .deployment.finished_at null
+  .deployment.id string
+  .deployment.release_id string
+  .deployment.revision number
+  .deployment.space_id string
+  .deployment.state string
+  .deployment.target_app_id string
+  .deployment.tenant_id string
+  .deployment.url string
+GET /v1/apps/{app}/releases -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].build_id string
+  .items[].created_at string
+  .items[].display_name string
+  .items[].id string
+  .items[].snapshot_hash string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/apps/{app}/starter -> 200
+  $ object
+  .app_id string
+  .development_origin string
+  .files object
+  .files..gitignore string
+  .files.README.md string
+  .files.index.html string
+  .files.lastapp.local.json string
+  .files.package.json string
+  .files.scripts/upload.mjs string
+  .files.src/lastapp.ts string
+  .files.src/main.tsx string
+  .files.src/style.css string
+  .files.src/ui.tsx string
+  .files.tsconfig.json string
+  .files.vite.config.ts string
+  .instructions array
+  .instructions[] string
+  .space_id string
+  .workspace_id string
+GET /v1/apps/{app}/starter production -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/apps/{app}/starter.zip -> 200
+  $ body application/zip
+  header Cache-Control no-store
+  header Content-Type application/zip
+GET /v1/deployments/{deployment} finished -> 200
+  $ object
+  .created_at string
+  .error_message null
+  .finished_at string
+  .id string
+  .release_id string
+  .revision number
+  .space_id string
+  .state string
+  .target_app_id string
+  .tenant_id string
+  .url string
+GET /v1/deployments/{deployment} other user -> 403
+  $ object
+  .error object
+  .error.code string=forbidden
+  .error.message string=This action is not permitted in this scope.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/deployments/{deployment} queued -> 200
+  $ object
+  .created_at string
+  .error_message null
+  .finished_at null
+  .id string
+  .release_id string
+  .revision number
+  .space_id string
+  .state string
+  .target_app_id string
+  .tenant_id string
+  .url string
+GET /v1/releases/{release} -> 200
+  $ object
+  .app_id string
+  .backing_space_id string
+  .base_hash string
+  .build_id string
+  .created_at string
+  .created_by string
+  .display_name string
+  .id string
+  .manifest_json object
+  .manifest_json.dependencies object
+  .manifest_json.dependencies.react string
+  .manifest_json.microapps object
+  .owner_agent_grant_id null
+  .owner_user_id string
+  .preview_url string
+  .production_app_id string
+  .production_space_id string
+  .production_url string
+  .snapshot_hash string
+  .snapshot_json object
+  .snapshot_json.apps array
+  .snapshot_json.apps[] object
+  .snapshot_json.apps[].access object
+  .snapshot_json.apps[].access.ceiling null
+  .snapshot_json.apps[].access.inherit bool
+  .snapshot_json.apps[].access.origin string
+  .snapshot_json.apps[].access.restricted bool
+  .snapshot_json.apps[].access.restrictions null
+  .snapshot_json.apps[].display_name string
+  .snapshot_json.apps[].id string
+  .snapshot_json.apps[].revision number
+  .snapshot_json.apps[].slug string
+  .snapshot_json.apps[].state string
+  .snapshot_json.entities array
+  .snapshot_json.microapps array
+  .snapshot_json.revision number
+  .snapshot_json.roles array
+  .tenant_id string
+  .workspace_id string
+GET /v1/releases/{release} missing -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/releases/{release} other user -> 403
+  $ object
+  .error object
+  .error.code string=forbidden
+  .error.message string=This action is not permitted in this scope.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/spaces/{space}/workspaces -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].backing_space_id string
+  .items[].created_at string
+  .items[].display_name string
+  .items[].error_message null
+  .items[].id string
+  .items[].owner_agent_grant_id null
+  .items[].production_space_id string
+  .items[].revision number
+  .items[].state string
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/spaces/{space}/workspaces empty -> 200
+  $ object
+  .items array
+  .pagination object
+  .pagination.has_more bool
+  .pagination.limit number
+  .pagination.page number
+GET /v1/workspaces/{workspace} other user -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+GET /v1/workspaces/{workspace} provisioning -> 200
+  $ object
+  .backing_space_id string
+  .base_hash string
+  .created_at string
+  .database_resource_id string
+  .database_state string
+  .display_name string
+  .error_message null
+  .id string
+  .mappings array
+  .mappings[] object
+  .mappings[].development_id string
+  .mappings[].kind string
+  .mappings[].production_id string
+  .owner_agent_grant_id null
+  .owner_user_id string
+  .production_space_id string
+  .revision number
+  .state string
+  .tenant_id string
+GET /v1/workspaces/{workspace} ready -> 200
+  $ object
+  .backing_space_id string
+  .base_hash string
+  .created_at string
+  .database_resource_id string
+  .database_state string
+  .display_name string
+  .error_message null
+  .id string
+  .mappings array
+  .mappings[] object
+  .mappings[].development_id string
+  .mappings[].kind string
+  .mappings[].production_id string
+  .owner_agent_grant_id null
+  .owner_user_id string
+  .production_space_id string
+  .revision number
+  .state string
+  .tenant_id string
+POST /artifact/v1/upload -> 201
+  $ object
+  .content_hash string
+  .id string
+  .size_bytes number
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /artifact/v1/upload agent ticket -> 201
+  $ object
+  .content_hash string
+  .id string
+  .size_bytes number
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /artifact/v1/upload invalid ticket -> 401
+  $ object
+  .error object
+  .error.code string=invalid_upload
+  .error.message string=Upload ticket expired or invalid.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /artifact/v1/upload replay -> 200
+  $ object
+  .content_hash string
+  .id string
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /artifact/v1/upload unsafe path -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=invalid, duplicate or oversized file
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /v1/apps/{app}/development-launch human session -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Use ordinary browser App sign-in; development launch codes require a delegated agent connection.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/apps/{app}/development-launch unapproved origin -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Use ordinary browser App sign-in; development launch codes require a delegated agent connection.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/apps/{app}/releases -> 200
+  $ object
+  .app_id string
+  .backing_space_id string
+  .base_hash string
+  .build_id string
+  .created_at string
+  .created_by string
+  .display_name string
+  .id string
+  .manifest_json object
+  .manifest_json.dependencies object
+  .manifest_json.dependencies.react string
+  .manifest_json.microapps object
+  .owner_agent_grant_id null
+  .owner_user_id string
+  .preview_url string
+  .production_app_id string
+  .production_space_id string
+  .production_url string
+  .snapshot_hash string
+  .snapshot_json object
+  .snapshot_json.apps array
+  .snapshot_json.apps[] object
+  .snapshot_json.apps[].access object
+  .snapshot_json.apps[].access.ceiling null
+  .snapshot_json.apps[].access.inherit bool
+  .snapshot_json.apps[].access.origin string
+  .snapshot_json.apps[].access.restricted bool
+  .snapshot_json.apps[].access.restrictions null
+  .snapshot_json.apps[].display_name string
+  .snapshot_json.apps[].id string
+  .snapshot_json.apps[].revision number
+  .snapshot_json.apps[].slug string
+  .snapshot_json.apps[].state string
+  .snapshot_json.entities array
+  .snapshot_json.microapps array
+  .snapshot_json.revision number
+  .snapshot_json.roles array
+  .tenant_id string
+  .workspace_id string
+POST /v1/apps/{app}/releases stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/apps/{app}/releases without If-Match -> 428
+  $ object
+  .error object
+  .error.code string=revision_required
+  .error.message string=Send If-Match with the current resource revision.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/apps/{app}/upload-tickets -> 201
+  $ object
+  .expires_in number
+  .instructions string
+  .limits object
+  .limits.max_body_bytes number
+  .limits.max_bytes number
+  .limits.max_file_bytes number
+  .limits.max_files number
+  .upload_token string
+  .upload_url string
+POST /v1/apps/{app}/upload-tickets production -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/releases/{release}/deploy -> 202
+  $ object
+  .id string
+  .instruction string
+  .state string
+POST /v1/releases/{release}/deploy stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/releases/{release}/deploy while queued -> 409
+  $ object
+  .error object
+  .error.code string=conflict
+  .error.message string=A deployment is preparing this Space. Wait for its result before changing configuration.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/releases/{release}/preview -> 200
+  $ object
+  .id string
+  .url string
+POST /v1/releases/{release}/preview stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/spaces/{space}/workspaces -> 200
+  $ object
+  .backing_space_id string
+  .base_hash string
+  .created_at string
+  .database_resource_id string
+  .database_state string
+  .display_name string
+  .error_message null
+  .id string
+  .mappings array
+  .mappings[] object
+  .mappings[].development_id string
+  .mappings[].kind string
+  .mappings[].production_id string
+  .owner_agent_grant_id null
+  .owner_user_id string
+  .production_space_id string
+  .revision number
+  .state string
+  .tenant_id string
+POST /v1/spaces/{space}/workspaces invalid -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=IDs must be canonical UUIDs.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/spaces/{space}/workspaces on backing space -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Workspaces cannot contain workspaces.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/workspaces/{workspace}/archive -> 200
+  $ object
+  .backing_space_id string
+  .base_hash string
+  .created_at string
+  .database_resource_id string
+  .database_state string
+  .display_name string
+  .error_message null
+  .id string
+  .mappings array
+  .mappings[] object
+  .mappings[].development_id string
+  .mappings[].kind string
+  .mappings[].production_id string
+  .owner_agent_grant_id null
+  .owner_user_id string
+  .production_space_id string
+  .revision number
+  .state string
+  .tenant_id string
+POST /v1/workspaces/{workspace}/archive stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/workspaces/{workspace}/archive without If-Match -> 428
+  $ object
+  .error object
+  .error.code string=revision_required
+  .error.message string=Send If-Match with the current resource revision.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/workspaces/{workspace}/retry not failed -> 409
+  $ object
+  .error object
+  .error.code string=conflict
+  .error.message string=Only failed preparation can be retried.
+  .error.request_id string
+  .error.retryable bool
+mcp lastapp_get app_deployment -> 200
+  $ object
+  .data object
+  .data.deployment object
+  .data.deployment.created_at string
+  .data.deployment.error_message null
+  .data.deployment.finished_at null
+  .data.deployment.id string
+  .data.deployment.release_id string
+  .data.deployment.revision number
+  .data.deployment.space_id string
+  .data.deployment.state string
+  .data.deployment.target_app_id string
+  .data.deployment.tenant_id string
+  .data.deployment.url string
+  .ok bool
+mcp lastapp_get deployment missing -> 200
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_get deployment queued -> 200
+  $ object
+  .data object
+  .data.created_at string
+  .data.error_message null
+  .data.finished_at null
+  .data.id string
+  .data.release_id string
+  .data.revision number
+  .data.space_id string
+  .data.state string
+  .data.target_app_id string
+  .data.tenant_id string
+  .data.url string
+  .ok bool
+mcp lastapp_get release -> 200
+  $ object
+  .data object
+  .data.app_id string
+  .data.backing_space_id string
+  .data.base_hash string
+  .data.build_id string
+  .data.created_at string
+  .data.created_by string
+  .data.display_name string
+  .data.id string
+  .data.manifest_json object
+  .data.manifest_json.dependencies object
+  .data.manifest_json.dependencies.react string
+  .data.manifest_json.microapps object
+  .data.owner_agent_grant_id string
+  .data.owner_user_id string
+  .data.preview_url string
+  .data.production_app_id string
+  .data.production_space_id string
+  .data.production_url string
+  .data.snapshot_hash string
+  .data.snapshot_json object
+  .data.snapshot_json.apps array
+  .data.snapshot_json.apps[] object
+  .data.snapshot_json.apps[].access object
+  .data.snapshot_json.apps[].access.ceiling null
+  .data.snapshot_json.apps[].access.inherit bool
+  .data.snapshot_json.apps[].access.origin string
+  .data.snapshot_json.apps[].access.restricted bool
+  .data.snapshot_json.apps[].access.restrictions null
+  .data.snapshot_json.apps[].display_name string
+  .data.snapshot_json.apps[].id string
+  .data.snapshot_json.apps[].revision number
+  .data.snapshot_json.apps[].slug string
+  .data.snapshot_json.apps[].state string
+  .data.snapshot_json.entities array
+  .data.snapshot_json.microapps array
+  .data.snapshot_json.revision number
+  .data.snapshot_json.roles array
+  .data.tenant_id string
+  .data.workspace_id string
+  .ok bool
+mcp lastapp_get release sibling -> 200
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_get starter -> 200
+  $ object
+  .data object
+  .data.app_id string
+  .data.development_origin string
+  .data.files object
+  .data.files..gitignore string
+  .data.files.README.md string
+  .data.files.index.html string
+  .data.files.lastapp.local.json string
+  .data.files.package.json string
+  .data.files.scripts/upload.mjs string
+  .data.files.src/lastapp.ts string
+  .data.files.src/main.tsx string
+  .data.files.src/style.css string
+  .data.files.src/ui.tsx string
+  .data.files.tsconfig.json string
+  .data.files.vite.config.ts string
+  .data.instructions array
+  .data.instructions[] string
+  .data.space_id string
+  .data.workspace_id string
+  .ok bool
+mcp lastapp_get workspace -> 200
+  $ object
+  .data object
+  .data.backing_space_id string
+  .data.base_hash string
+  .data.created_at string
+  .data.database_resource_id string
+  .data.database_state string
+  .data.display_name string
+  .data.error_message null
+  .data.id string
+  .data.mappings array
+  .data.mappings[] object
+  .data.mappings[].development_id string
+  .data.mappings[].kind string
+  .data.mappings[].production_id string
+  .data.owner_agent_grant_id string
+  .data.owner_user_id string
+  .data.production_space_id string
+  .data.revision number
+  .data.state string
+  .data.tenant_id string
+  .ok bool
+mcp lastapp_get workspace before archive -> 200
+  $ object
+  .data object
+  .data.backing_space_id string
+  .data.base_hash string
+  .data.created_at string
+  .data.database_resource_id string
+  .data.database_state string
+  .data.display_name string
+  .data.error_message null
+  .data.id string
+  .data.mappings array
+  .data.mappings[] object
+  .data.mappings[].development_id string
+  .data.mappings[].kind string
+  .data.mappings[].production_id string
+  .data.owner_agent_grant_id string
+  .data.owner_user_id string
+  .data.production_space_id string
+  .data.revision number
+  .data.state string
+  .data.tenant_id string
+  .ok bool
+mcp lastapp_get workspace sibling -> 200
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_list build -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].content_hash string
+  .data.items[].created_at string
+  .data.items[].entrypoint string
+  .data.items[].id string
+  .data.items[].size_bytes number
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list release -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].build_id string
+  .data.items[].created_at string
+  .data.items[].display_name string
+  .data.items[].id string
+  .data.items[].snapshot_hash string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_list workspace -> 200
+  $ object
+  .data object
+  .data.complete bool
+  .data.items array
+  .data.items[] object
+  .data.items[].backing_space_id string
+  .data.items[].created_at string
+  .data.items[].display_name string
+  .data.items[].error_message null
+  .data.items[].id string
+  .data.items[].owner_agent_grant_id string
+  .data.items[].production_space_id string
+  .data.items[].revision number
+  .data.items[].state string
+  .data.pagination object
+  .data.pagination.has_more bool
+  .data.pagination.limit number
+  .data.pagination.page number
+  .ok bool
+mcp lastapp_release capture -> 200
+  $ object
+  .data object
+  .data.app_id string
+  .data.backing_space_id string
+  .data.base_hash string
+  .data.build_id string
+  .data.created_at string
+  .data.created_by string
+  .data.display_name string
+  .data.id string
+  .data.manifest_json object
+  .data.manifest_json.dependencies object
+  .data.manifest_json.dependencies.react string
+  .data.manifest_json.microapps object
+  .data.owner_agent_grant_id string
+  .data.owner_user_id string
+  .data.preview_url string
+  .data.production_app_id string
+  .data.production_space_id string
+  .data.production_url string
+  .data.snapshot_hash string
+  .data.snapshot_json object
+  .data.snapshot_json.apps array
+  .data.snapshot_json.apps[] object
+  .data.snapshot_json.apps[].access object
+  .data.snapshot_json.apps[].access.ceiling null
+  .data.snapshot_json.apps[].access.inherit bool
+  .data.snapshot_json.apps[].access.origin string
+  .data.snapshot_json.apps[].access.restricted bool
+  .data.snapshot_json.apps[].access.restrictions null
+  .data.snapshot_json.apps[].display_name string
+  .data.snapshot_json.apps[].id string
+  .data.snapshot_json.apps[].revision number
+  .data.snapshot_json.apps[].slug string
+  .data.snapshot_json.apps[].state string
+  .data.snapshot_json.entities array
+  .data.snapshot_json.microapps array
+  .data.snapshot_json.revision number
+  .data.snapshot_json.roles array
+  .data.tenant_id string
+  .data.workspace_id string
+  .ok bool
+mcp lastapp_release capture missing parameters -> 200
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=capture parameters required.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_release capture stale -> 200
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_release deploy -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.instruction string
+  .data.state string
+  .ok bool
+mcp lastapp_release deploy stale -> 200
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_release deploy without production.deploy -> 200
+  $ object
+  .authorization_url string
+  .error object
+  .error.code string=needs_authorization
+  .error.message string=Additional delegated scopes required: production.deploy
+  .error.request_id string
+  .error.retryable bool
+  .guidance string
+  .ok bool
+  .required_scopes array
+  .required_scopes[] string
+mcp lastapp_release preview -> 200
+  $ object
+  .data object
+  .data.id string
+  .data.url string
+  .ok bool
+mcp lastapp_release upload_ticket -> 200
+  $ object
+  .data object
+  .data.expires_in number
+  .data.instructions string
+  .data.limits object
+  .data.limits.max_body_bytes number
+  .data.limits.max_bytes number
+  .data.limits.max_file_bytes number
+  .data.limits.max_files number
+  .data.upload_token string
+  .data.upload_url string
+  .ok bool
+mcp lastapp_release upload_ticket production -> 200
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_workspace archive -> 200
+  $ object
+  .data object
+  .data.backing_space_id string
+  .data.base_hash string
+  .data.created_at string
+  .data.database_resource_id string
+  .data.database_state string
+  .data.display_name string
+  .data.error_message null
+  .data.id string
+  .data.mappings array
+  .data.mappings[] object
+  .data.mappings[].development_id string
+  .data.mappings[].kind string
+  .data.mappings[].production_id string
+  .data.owner_agent_grant_id string
+  .data.owner_user_id string
+  .data.production_space_id string
+  .data.revision number
+  .data.state string
+  .data.tenant_id string
+  .ok bool
+mcp lastapp_workspace archive stale -> 200
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_workspace create -> 200
+  $ object
+  .data object
+  .data.backing_space_id string
+  .data.base_hash string
+  .data.created_at string
+  .data.database_resource_id string
+  .data.database_state string
+  .data.display_name string
+  .data.error_message null
+  .data.id string
+  .data.mappings array
+  .data.mappings[] object
+  .data.mappings[].development_id string
+  .data.mappings[].kind string
+  .data.mappings[].production_id string
+  .data.owner_agent_grant_id string
+  .data.owner_user_id string
+  .data.production_space_id string
+  .data.revision number
+  .data.state string
+  .data.tenant_id string
+  .ok bool
+mcp lastapp_workspace create replay -> 200
+  $ object
+  .data object
+  .data.committed bool
+  .data.next string
+  .data.replayed bool
+  .data.resource object
+  .data.resource.id string
+  .data.resource.operation string
+  .ok bool
+mcp lastapp_workspace create without space -> 200
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=create needs production space_id.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_workspace launch -> 200
+  $ object
+  .data object
+  .data.code string
+  .data.expires_in number
+  .data.instruction string
+  .data.nonce string
+  .data.origin string
+  .ok bool
+mcp lastapp_workspace launch sibling -> 200
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_workspace retry not failed -> 200
+  $ object
+  .error object
+  .error.code string=conflict
+  .error.message string=Only failed preparation can be retried.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_workspace unknown action -> 200
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=action is create, archive, retry or launch.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool

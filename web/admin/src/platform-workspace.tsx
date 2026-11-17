@@ -17,7 +17,7 @@ import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
 import { ErrorBoundary } from "./error-boundary";
-import type { Me, Page, TenantOverview } from "./api-types";
+import { text, type Me, type Page, type TenantOverview } from "./api-types";
 import type { PlatformScreen } from "./platform/screen";
 import {
   addAdmin,
@@ -95,7 +95,7 @@ export function PlatformWorkspace({
     act,
   };
   const title = tenant
-    ? profile.display_name || "Tenant"
+    ? text(profile.display_name) || "Tenant"
     : page === "account"
       ? "My account"
       : nav.find((p) => p.id === page)?.label || "Tenants";
@@ -141,7 +141,7 @@ export function PlatformWorkspace({
             <button className="text-button" onClick={() => go("tenants")}>
               Tenants
             </button>
-            <span> / {profile.display_name || "Tenant"}</span>
+            <span> / {text(profile.display_name) || "Tenant"}</span>
           </>
         ) : (
           "Platform"

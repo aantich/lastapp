@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	clientsdk "github.com/aantich/lastapp/packages/client"
@@ -75,7 +76,7 @@ func (s *Server) Starter(ctx context.Context, actor op.Actor, app string) (regis
 }
 
 func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	data, e := s.Starter(r.Context(), httpActor(r, p), r.PathValue("app"))
+	data, e := s.Starter(r.Context(), httpapi.Actor(r, p), r.PathValue("app"))
 	if e != nil {
 		return e
 	}
@@ -110,6 +111,6 @@ func (s *Server) appStarterArchive(w http.ResponseWriter, r *http.Request, p acc
 }
 
 func (s *Server) appStarter(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Starter(r.Context(), httpActor(r, p), r.PathValue("app"))
-	return reply(w, 200, v, e)
+	v, e := s.Starter(r.Context(), httpapi.Actor(r, p), r.PathValue("app"))
+	return httpapi.Reply(w, 200, v, e)
 }

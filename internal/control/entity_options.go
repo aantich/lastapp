@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
 )
@@ -49,7 +50,7 @@ func (s *Server) dataReferenceOptions(w http.ResponseWriter, r *http.Request, rt
 		out, e = registry.ScanAll[roles.Named](r.Context(), s.DB, "SELECT g.display_name,g.id FROM groups g WHERE g.tenant_id=? AND g.state='active' AND (g.display_name LIKE ? OR g.id=?)"+where+" ORDER BY g.display_name,g.id LIMIT 50", args...)
 	}
 	if e == nil {
-		send(w, 200, registry.Row{"items": out})
+		httpapi.Send(w, 200, registry.Row{"items": out})
 	}
 	return e
 }

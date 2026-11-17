@@ -11,6 +11,8 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -218,7 +220,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 		for _, app := range plan.Snapshot.Apps {
 			// Preserve external origins for sibling Apps. Only this deployment's App
 			// switches to the platform's dedicated static host.
-			current, e := s.appRow(attempt, tx, app.ID)
+			current, e := inventory.AppRow(attempt, tx, app.ID)
 			if e != nil {
 				return e
 			}
@@ -277,7 +279,7 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
 	} else {
-		s.logger(ctx).Warn("release deployment failed", diagnostic(e)...)
+		httpapi.Logger(ctx, s.Log).Warn("release deployment failed", httpapi.Diagnostic(e)...)
 	}
 	return s.failDeployment(ctx, v, message)
 }

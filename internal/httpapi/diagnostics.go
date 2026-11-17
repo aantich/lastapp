@@ -1,4 +1,4 @@
-package control
+package httpapi
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 )
 
-// Never log Error(): server messages can include SQL containing credentials.
+// Diagnostic describes err for logs. Never log Error(): server messages can include SQL containing credentials.
 // Wrapped errors are described by the types along their chain and by
 // structured codes (SQL number, network operation, context state) only.
-func diagnostic(err error) []any {
+func Diagnostic(err error) []any {
 	fields := []any{"error_type", fmt.Sprintf("%T", err)}
 	if chain := errorTypes(err, nil); len(chain) > 1 {
 		fields = append(fields, "error_chain", strings.Join(chain, " > "))

@@ -1,5 +1,63 @@
 # Lastapp verification
 
+## Shared-helper extraction before the control split (P0b) — 17 November 2026
+
+- Pure moves, no behaviour change: `internal/httpapi` now holds the HTTP
+  plumbing every surface shares (decode/send/reply, `WriteError` over
+  `op.Classify`, the console `Session` wrapper, page shims, request logging and
+  `Diagnostic`, `Limiter`, trusted-proxy `ClientIP`, `AllowedOrigin`,
+  `CookieName`); `internal/sealer` holds credential sealing as a `Sealer` built
+  in `Open` from the same key and key ID (same envelope; a fixed vector sealed by
+  the previous code is decrypted in `TestDecryptsFixedVector`); the App row read
+  is `inventory.AppRow` (also used by `entities`); the entity actor context is
+  `entities.Authoring.ActorContext`, removing its injected func. Unit tests of
+  the moved helpers moved with them.
+- `TestPackageLayering` (`internal/layering_test.go`) runs `go list` and fails
+  on any import against the documented direction, naming the import; checked to
+  fail on a deliberately added upward import.
+- Console: `Item` is `Record<string, unknown>` with narrowing at use sites and
+  named release/agent-access shapes; the last inline ESLint disable is gone.
+  Narrowing differs only for values the backend never sends (documented in the
+  commit review: e.g. a missing `created_at` or a string revision).
+- `internal/control` production code: 10,825 → 10,265 lines.
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 196.6 s); the six goldens with `-count=2` **PASS** and
+`internal/control/testdata` is unchanged since the P0a commit; `npm run lint`,
+`npm run typecheck`, `npm run build` in `web/admin` **PASS**; `make e2e`
+**PASS** (34 browser tests on the disposable stack).
+
+## Behaviour-pinning goldens before the control split (P0a) — 17 November 2026
+
+- Tests only; no production code changed. The response-shape recorder gained
+  `raw` requests (bearer, form, cookie, binary) that also record normalised
+  headers: cookie names and attributes (never values), redirect path and query
+  keys, `WWW-Authenticate` parameter names, `Cache-Control`, `Retry-After`,
+  media type and CORS presence. OAuth `error`/`error_description` strings and
+  UUIDs inside recorded messages are normalised like console error messages.
+- New goldens: `delivery_shapes` (75 entries: console workspaces, starters,
+  development launch, upload tickets/uploads, builds, releases, preview, deploy,
+  deployment status after the synchronous worker, and the MCP workspace/release
+  tools with stale, missing-scope, sibling-grant and not-found failures),
+  `data_shapes` (49: PKCE exchange and replay, CORS preflight, schema, records,
+  bulk, query, capabilities, reference options, shares/share options for an
+  owner and a denied member), `session_shapes` (54: config, sessions, CSRF and
+  origin failures, password login/change/logout, rate limiting, OIDC
+  login/callback errors against a stub token endpoint, agent OAuth discovery,
+  registration, authorize, consent, token/refresh/replay, revoke, grant update)
+  and `audit_attribution` (12 rows in 10 phases: console, MCP with request-key
+  replays and a denied call, and publication-worker rows with agent attribution).
+- `businessDatabaseFixture` (real registered database with runtime and schema
+  accounts, dropped on cleanup) is now shared by `TestEntityRuntime` and the
+  new goldens. `response_shapes` and `mcp_tools` are byte-identical.
+
+Executed checks: the new goldens with `LASTAPP_TEST_CONFIG` and `-count=2`
+**PASS** (deterministic); `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config
+**PASS** (control package 201.3 s); `make lint` **PASS**. `make e2e` was not
+run (no browser-facing change).
+
 ## Package split — 16 November 2026
 
 - `internal/control` is split by mechanical moves (one commit per package,
@@ -29,6 +87,22 @@ golangci-lint v2.15.0 **0 issues**; schema `--check` and driver verification
 `make e2e` (`scripts/e2e.py`, disposable MariaDB) **PASS**, 34 Playwright tests.
 `git diff --check` clean.
 
+## Typed registry review follow-ups — 16 November 2026
+
+- `TestAccountDeadlineRenewsOnlyAfterDerivation`: choosing an existing account
+  keeps the request deadline; only a derived password renews it
+  (`preparedAccount.deadline`, used by membership, administrator and Tenant
+  creation).
+- `TestEntityRuntime` now makes the publisher's workspace read fail with a
+  database error: the job returns the error and the version stays `queued`.
+  With the previous "any error means no workspace" code it fails.
+- Rebased on the updated `refactor/operations`. `go build`, `go vet`,
+  golangci-lint v2.15.0 (0 issues), `validate_schema.py --check`,
+  `verify_driver.py` passed; `go test -race -count=1 ./internal/...` on the
+  development MariaDB: 5 packages, 82 top-level tests passed, 1 skipped
+  (`TestPrepareFixture`); golden snapshots unchanged. `make e2e`: **34 of 34**
+  Playwright scenarios passed in 2.6 minutes; no e2e listener remained.
+
 ## Typed registry reads — 16 November 2026
 
 - The PBKDF2 key derivation honours the request deadline (separate commit).
@@ -50,6 +124,22 @@ golangci-lint **0 issues**; schema `--check` and driver verification (42 files)
 with the local config **PASS** (only `TestPrepareFixture` skipped); `make
 mcp-test` **PASS**. Browser e2e was not run: the shared dev stack on 8787 serves
 another branch from the main checkout.
+
+## Operation review follow-ups — 16 November 2026
+
+- `TestAgentOperationResponseLimit` replaces the coverage removed with the MCP
+  loopback: an over-limit read returns `response_limit` without data; an
+  over-limit result after a committed mutation returns the compact `committed`
+  + `resource` reply (an uncommitted one returns the error). Removing the
+  `Committed` condition, or the committed branch, makes it fail.
+- `TestActorIsTheAgentSource`: an Actor whose agent call differs from (or omits)
+  the one already in its context fails `mutate`, `authorize` and `scopes` with
+  `errActorAgentMismatch`; the context is no longer a fallback.
+- Rebased on origin/main 87a8ecd. `go build`, `go vet`, golangci-lint v2.15.0
+  (0 issues), `validate_schema.py --check`, `verify_driver.py` passed;
+  `go test -race -count=1 ./internal/...` on the development MariaDB: 5
+  packages, 78 top-level tests passed, 1 skipped (`TestPrepareFixture`, e2e
+  only); golden snapshots unchanged.
 
 ## Operation extraction, steps 4–5 (loopback removed) — 16 November 2026
 
@@ -107,40 +197,6 @@ clean; `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test
 `TestPrepareFixture` skipped). Browser e2e (`make integration`) was not run: the
 shared dev stack belongs to another session and no console source changed.
 
-## Minor Go/docs review fixes — 16 November 2026
-
-- `CheckSchema` derives the required registry version from the newest embedded
-  migration (`TestRequiredSchemaVersionFollowsMigrations` compares it with
-  goose's own collection).
-- `/v1/me` and `/v1/my-tenants` share one membership query; Go-side state
-  comparisons and written values use named constants and one `enabledState`.
-- Runtime UPDATE,DELETE grants cover every migrated table except the explicit
-  append-only set, derived once in Go (`RuntimeGrantStatements`). The CI fixture
-  applies them and checks the migration-derived table list against
-  `information_schema`; `scripts/dev.py` applies the output of the new
-  `lastapp runtime-grants` subcommand instead of its own Python table list.
-  `TestRuntimeGrantStatements` **PASS**; the subcommand's 27 tables equal the
-  removed Python list, and dev.py's grant step was dry-run against a scratch
-  binary with a stub SQL runner (the dev stack was not restarted).
-  `TestPrepareFixture` itself only runs in CI (opt-in disposable server) and was
-  not executed locally.
-- Flaky `TestTenantAdministratorTask` under `-race`: one 600k PBKDF2 derivation
-  measured about 2.8 s with the race detector on an idle 10-core machine, and an
-  earlier loaded run took 50 s for the test. The 15 s login deadline spanned
-  that uncancellable derivation, so the session transaction could start with an
-  expired context (500 `deadline_exceeded`). The deadline now bounds each
-  database phase. `TestLoginDeadlineExcludesPasswordDerivation` sets the
-  database deadline to half a measured derivation: it failed with the old
-  structure (500) and passes now.
-- `devoidc` logs through `slog`; the Makefile uses node/npm from PATH.
-
-Executed checks: `go build ./...`, `go vet ./...` **PASS**; golangci-lint
-**0 issues** (the web half of `make lint` was not run: no `web/admin`
-node_modules in this worktree and no console source changed); schema validator
-`--check` and driver verification (42 files) **PASS**;
-`LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./internal/...`
-**PASS** (control package 146.8 s; only `TestPrepareFixture` skipped).
-
 ## Console data-layer tails and dependency audit — 16 November 2026
 
 - RemoteSelect, Agent access/consent and the console config provider no
@@ -172,6 +228,23 @@ lint tooling with repository-controlled globs; `npm audit --omit=dev` reports 0
 and nothing reaches the console bundle. `npm audit fix` (no `--force`) changes
 nothing: no fixed version is in range. `--force` would move `typescript-eslint`
 to 8.36.0, outside the declared range, so it was not applied.
+
+## Browser regressions on a disposable database — 16 November 2026
+
+- `make e2e` (`scripts/e2e.py`) started a fresh tmpfs MariaDB (`mariadb-e2e`
+  Compose service, profile `e2e`, port 33318), prepared it with `scripts/ci_config.py` and
+  `TestPrepareFixture`, built the console and binaries, and ran the API on 8797,
+  the development issuer on 8798 and Vite on 5183: **29 of 29** Playwright
+  scenarios passed in 2.2 minutes, including `app-runtime.spec.ts` (the data App
+  is now pointed at the e2e API origin). Afterwards no e2e container or listener
+  remained.
+- The development registry was not used: tenants with the e2e `ui-` slug stayed
+  at 177 (newest created before the run) and `ui_*` schemas at 17. The total
+  tenant count moved 240 → 242 only because of concurrently running Go
+  integration tests (`test-`/`starter-` slugs).
+- `npm run lint`, `npm run typecheck`, `go build ./...`, golangci-lint (0 issues)
+  and `python3 -m py_compile` on the touched scripts passed. The CI workflow
+  change (browser step via `scripts/e2e.py`) was not executed on GitHub here.
 
 ## Console data layer and component split — 16 November 2026
 
@@ -206,6 +279,50 @@ passed after each data-layer and split commit; **32/32** with the new
 The ErrorBoundary and chunk-failure gaps noted here are covered by the
 entry above.
 
+## Minor Go/docs review fixes — 16 November 2026
+
+- `CheckSchema` derives the required registry version from the newest embedded
+  migration (`TestRequiredSchemaVersionFollowsMigrations` compares it with
+  goose's own collection).
+- `/v1/me` and `/v1/my-tenants` share one membership query; Go-side state
+  comparisons and written values use named constants and one `enabledState`.
+- Runtime UPDATE,DELETE grants cover every migrated table except the explicit
+  append-only set, derived once in Go (`RuntimeGrantStatements`). The CI fixture
+  applies them and checks the migration-derived table list against
+  `information_schema`; `scripts/dev.py` applies the output of the new
+  `lastapp runtime-grants` subcommand instead of its own Python table list.
+  `TestRuntimeGrantStatements` **PASS**; the subcommand's 27 tables equal the
+  removed Python list, and dev.py's grant step was dry-run against a scratch
+  binary with a stub SQL runner (the dev stack was not restarted).
+  `TestPrepareFixture` itself only runs in CI (opt-in disposable server) and was
+  not executed locally.
+- Flaky `TestTenantAdministratorTask` under `-race`: one 600k PBKDF2 derivation
+  measured about 2.8 s with the race detector on an idle 10-core machine, and an
+  earlier loaded run took 50 s for the test. The 15 s login deadline spanned
+  that uncancellable derivation, so the session transaction could start with an
+  expired context (500 `deadline_exceeded`). The deadline now bounds each
+  database phase. `TestLoginDeadlineExcludesPasswordDerivation` sets the
+  database deadline to half a measured derivation: it failed with the old
+  structure (500) and passes now.
+- `devoidc` logs through `slog`; the Makefile uses node/npm from PATH.
+
+Executed checks: `go build ./...`, `go vet ./...` **PASS**; golangci-lint
+**0 issues** (the web half of `make lint` was not run: no `web/admin`
+node_modules in this worktree and no console source changed); schema validator
+`--check` and driver verification (42 files) **PASS**;
+`LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG=.local/config.json go test -race -count=1 ./internal/...`
+**PASS** (control package 146.8 s; only `TestPrepareFixture` skipped).
+
+## GitHub ruleset on main — 16 November 2026
+
+- Repository ruleset `main` (id 27382055, active, created 16 November 2026)
+  targets the default branch: pull request required (no approving review
+  required), required status check `test` (the `Checks` workflow job) with the
+  branch up to date with `main`, and force-push (`non_fast_forward`) and deletion
+  blocked. Repository administrators keep a bypass. Read back with
+  `gh api repos/getmarina/lastapp/rulesets/27382055`; PRs #2–#8 were merged
+  after it took effect.
+
 ## Error wrapping and structured request logging — 16 November 2026
 
 - Underlying errors are wrapped with `%w` (registry ping, cipher setup, schema
@@ -228,6 +345,46 @@ control integration suite with the local fixture configuration
 Restarted with `scripts/dev.py`: `/readyz` 200, access lines in
 `.local/lastapp.log`, and a probe with a secret in query/cookie/Authorization
 left no password/token/cookie/Authorization text in the new log lines.
+
+## Console useAction and ConfirmDialog — 16 November 2026
+
+- Screen mutations share `web/admin/src/use-action.ts` (double-submit guard,
+  stale-route/unmounted guard, one `errorMessage()` helper). A browser check
+  double-clicked "Recheck connection" on a Tenant database resource with the
+  request delayed 400 ms and counted exactly **one** POST.
+- `window.confirm()` is replaced by `ConfirmDialog` (`confirm.ts`,
+  `confirm-dialog.tsx`, focus handling in `dialog.ts`). `tests/confirm-dialog.spec.ts`
+  checks at 1280×800 and 390×844 that the dialog fits the viewport, focuses Cancel
+  for destructive actions, traps Tab, cancels on Escape without a request,
+  returns focus to the trigger and proceeds on confirm. A one-off designer check
+  confirmed remove-field, back-to-list and guarded console navigation (URL
+  unchanged while asking, unchanged on Cancel, navigates on confirm).
+- `npm run lint`, `npm run typecheck` and `npm run build` passed. Full Playwright
+  suite: 27 of 29 passed. `workspace-regressions.spec.ts` still used the removed
+  native dev-SSO select; its selector was updated and the test passed on rerun.
+  `app-runtime.spec.ts` still fails as it does on main (popup on port 8789 times
+  out).
+
+## Lint baseline — 16 November 2026 (PR #1)
+
+- `.golangci.yml` (golangci-lint v2.15.0: govet, errcheck, ineffassign,
+  staticcheck SA/S1, unused; gofumpt and gci formatters; `third_party` excluded)
+  and `make lint` / `make fmt` (c90fbf1); Go sources reformatted by `make fmt`
+  (4c8f06d). errcheck findings handled or discarded with a reason, and tests fail
+  on unchecked Exec/Scan/Unmarshal (6d45bb1); two lookup errors hidden by
+  shadowing/unchecked Scan now return (0c14507). CI runs both linters (1ae5e25).
+- Console: ESLint (typescript-eslint, react-hooks with exhaustive-deps as an
+  error, react-refresh) plus `noUnusedLocals`/`noUnusedParameters`/
+  `noFallthroughCasesInSwitch`; 73 existing findings went into
+  `eslint-suppressions.json` (3698834), removed later in PR #5 (53e8175).
+- Native `<select>` and number fields replaced by `Select`/`NumberInput` on a
+  shared listbox (b648a2e, then the entity designer and agent access form);
+  console URLs built and parsed from one route table, `console-url.ts` (c4ff3cc).
+- `make dev` starts MariaDB from `docker-compose.yaml` when no local `mariadbd`
+  exists or `LASTAPP_MARIADB=docker` (623e571).
+- Executed: the `test` check of the `Checks` workflow passed on the PR (final head
+  ab7f4f4, two runs, 16 November 2026). No other result for these commits is
+  recorded here.
 
 ## Follow-up workspace/release review fixes — 14 November 2026
 
@@ -889,71 +1046,3 @@ Evidence stays ignored locally: `.local/workspaces-final-go.log`,
 state and must not be published. Native-client remote SaaS setup, wildcard TLS,
 shared-volume replica operation, production load and object storage were not
 exercised by these local checks. No commit, push or remote deployment was made.
-
-## Console useAction and ConfirmDialog — 16 November 2026
-
-- Screen mutations share `web/admin/src/use-action.ts` (double-submit guard,
-  stale-route/unmounted guard, one `errorMessage()` helper). A browser check
-  double-clicked "Recheck connection" on a Tenant database resource with the
-  request delayed 400 ms and counted exactly **one** POST.
-- `window.confirm()` is replaced by `ConfirmDialog` (`confirm.ts`,
-  `confirm-dialog.tsx`, focus handling in `dialog.ts`). `tests/confirm-dialog.spec.ts`
-  checks at 1280×800 and 390×844 that the dialog fits the viewport, focuses Cancel
-  for destructive actions, traps Tab, cancels on Escape without a request,
-  returns focus to the trigger and proceeds on confirm. A one-off designer check
-  confirmed remove-field, back-to-list and guarded console navigation (URL
-  unchanged while asking, unchanged on Cancel, navigates on confirm).
-- `npm run lint`, `npm run typecheck` and `npm run build` passed. Full Playwright
-  suite: 27 of 29 passed. `workspace-regressions.spec.ts` still used the removed
-  native dev-SSO select; its selector was updated and the test passed on rerun.
-  `app-runtime.spec.ts` still fails as it does on main (popup on port 8789 times
-  out).
-
-## Browser regressions on a disposable database — 16 November 2026
-
-- `make e2e` (`scripts/e2e.py`) started a fresh tmpfs MariaDB (`mariadb-e2e`
-  Compose service, profile `e2e`, port 33318), prepared it with `scripts/ci_config.py` and
-  `TestPrepareFixture`, built the console and binaries, and ran the API on 8797,
-  the development issuer on 8798 and Vite on 5183: **29 of 29** Playwright
-  scenarios passed in 2.2 minutes, including `app-runtime.spec.ts` (the data App
-  is now pointed at the e2e API origin). Afterwards no e2e container or listener
-  remained.
-- The development registry was not used: tenants with the e2e `ui-` slug stayed
-  at 177 (newest created before the run) and `ui_*` schemas at 17. The total
-  tenant count moved 240 → 242 only because of concurrently running Go
-  integration tests (`test-`/`starter-` slugs).
-- `npm run lint`, `npm run typecheck`, `go build ./...`, golangci-lint (0 issues)
-  and `python3 -m py_compile` on the touched scripts passed. The CI workflow
-  change (browser step via `scripts/e2e.py`) was not executed on GitHub here.
-
-## Operation review follow-ups — 16 November 2026
-
-- `TestAgentOperationResponseLimit` replaces the coverage removed with the MCP
-  loopback: an over-limit read returns `response_limit` without data; an
-  over-limit result after a committed mutation returns the compact `committed`
-  + `resource` reply (an uncommitted one returns the error). Removing the
-  `Committed` condition, or the committed branch, makes it fail.
-- `TestActorIsTheAgentSource`: an Actor whose agent call differs from (or omits)
-  the one already in its context fails `mutate`, `authorize` and `scopes` with
-  `errActorAgentMismatch`; the context is no longer a fallback.
-- Rebased on origin/main 87a8ecd. `go build`, `go vet`, golangci-lint v2.15.0
-  (0 issues), `validate_schema.py --check`, `verify_driver.py` passed;
-  `go test -race -count=1 ./internal/...` on the development MariaDB: 5
-  packages, 78 top-level tests passed, 1 skipped (`TestPrepareFixture`, e2e
-  only); golden snapshots unchanged.
-
-## Typed registry review follow-ups — 16 November 2026
-
-- `TestAccountDeadlineRenewsOnlyAfterDerivation`: choosing an existing account
-  keeps the request deadline; only a derived password renews it
-  (`preparedAccount.deadline`, used by membership, administrator and Tenant
-  creation).
-- `TestEntityRuntime` now makes the publisher's workspace read fail with a
-  database error: the job returns the error and the version stays `queued`.
-  With the previous "any error means no workspace" code it fails.
-- Rebased on the updated `refactor/operations`. `go build`, `go vet`,
-  golangci-lint v2.15.0 (0 issues), `validate_schema.py --check`,
-  `verify_driver.py` passed; `go test -race -count=1 ./internal/...` on the
-  development MariaDB: 5 packages, 82 top-level tests passed, 1 skipped
-  (`TestPrepareFixture`); golden snapshots unchanged. `make e2e`: **34 of 34**
-  Playwright scenarios passed in 2.6 minutes; no e2e listener remained.
