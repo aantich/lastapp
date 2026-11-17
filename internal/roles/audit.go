@@ -3,7 +3,9 @@ package roles
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -72,4 +74,40 @@ func AuditChangeAs(ctx context.Context, q registry.Queryer, a op.Actor, tenant, 
 		return e
 	}
 	return op.AuditAs(ctx, q, a, tenant, action, kind, record, registry.Row{"before": before, "after": after})
+}
+
+// AuditEvent is an audit trail entry with its actor's name.
+type AuditEvent struct {
+	Action       string             `json:"action"`
+	ActorName    string             `json:"actor_name"`
+	CreatedAt    time.Time          `json:"created_at"`
+	Details      registry.JSONValue `json:"details_json"`
+	ID           int64              `json:"id"`
+	RequestID    string             `json:"request_id"`
+	ResourceID   *string            `json:"resource_id"`
+	ResourceType string             `json:"resource_type"`
+	TenantID     *string            `json:"tenant_id"`
+}
+
+func (v *AuditEvent) ScanFields() []any {
+	return []any{&v.Action, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
+}
+
+// Audits pages a Tenant's audit trail (tenant set) or the whole platform's.
+func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, page op.PageRequest) (op.Page[AuditEvent], error) {
+	p := actor.Principal
+	action := "audit.read"
+	if tenant == "" {
+		action = "platform.admin"
+	}
+	if e := v.Run.Access.Authorize(ctx, v.DB, p, action, access.Resource{Tenant: tenant}, false); e != nil {
+		return op.Page[AuditEvent]{}, e
+	}
+	args := []any{}
+	where := "1=1"
+	if tenant != "" {
+		where = "a.tenant_id=?"
+		args = append(args, tenant)
+	}
+	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 }

@@ -73,7 +73,7 @@ workflow DSL or copy backend rules into generated clients.
 ## Tools and contracts
 
 Tool names and input schemas are generated from the authoritative catalog/types
-in [agent_tools.go](internal/control/agent_tools.go). Read the connected server's
+in [internal/agent/tools.go](internal/agent/tools.go). Read the connected server's
 tool schema, not a copied payload definition. Visibility follows the current
 delegation; ordinary user authority is checked again during execution.
 The generated schemas are pinned by
@@ -103,7 +103,7 @@ intended change.
 Authoritative guides are served through `lastapp_describe` and the same
 `lastapp://docs/{hierarchy,entities,access,client,reuse,safety,development}` resources. Describe
 also exposes `capabilities`, `roles`, `entity_schema` and `tools`. They derive
-from the current Go catalogs. [agent_context.go](internal/control/agent_context.go)
+from the current Go catalogs. [internal/agent/context.go](internal/agent/context.go)
 is their source; update it when changing agent-facing behavior.
 
 For large entities, get `section=definition` with `version=draft|published` at
@@ -200,11 +200,16 @@ family. Neither tools nor documentation can edit MCP delegations or OAuth client
 
 ## Implementation and verification
 
-These files are in `internal/control`. `agents.go` owns permission/limit catalogs;
-the live grant checks are in `internal/access/delegation.go`; `agent_oauth.go`
-owns consent and tokens; `agent_clients.go` owns registration/retention;
-`agent_tools.go` owns typed schemas, transport and adapters; `agent_context.go`
-owns authorized context and canonical agent guides. Shared domain operations
+These files are in `internal/agent` (`agent.Server`, wired and mounted by
+`internal/control`). `permissions.go` owns the permission catalog and presets
+and `server.go` the limits, routes, bearer authentication and admission; the
+live grant checks are in `internal/access/delegation.go`; `oauth.go` owns
+consent and tokens; `clients.go` owns registration/retention; `tools.go` owns
+the tool catalog and typed schemas, `mcp.go` the transport and `writes.go`
+request keys, receipts and the response bound; the adapters are grouped by
+domain in `resources.go`, `entities.go`, `access.go`, `databases.go` and
+`development.go`; `context.go` owns authorized context, reads and canonical
+agent guides. Shared domain operations
 (`internal/op` and the domain packages `inventory`, `membership`, `roles`,
 `databases`, `entities`, with workspaces, builds, releases and deployments in
 `internal/delivery`), mutation receipts and workers enforce the actual

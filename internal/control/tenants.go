@@ -1,7 +1,6 @@
 package control
 
 import (
-	"context"
 	"database/sql"
 	"net/http"
 
@@ -43,14 +42,6 @@ func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request, p access.Pri
 		httpapi.SendRef(w, 200, v)
 	}
 	return e
-}
-
-func (s *Server) Users(ctx context.Context, actor op.Actor, page op.PageRequest) (op.Page[inventory.User], error) {
-	p := actor.Principal
-	if e := s.Authorize(ctx, s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
-		return op.Page[inventory.User]{}, e
-	}
-	return op.PageScan[inventory.User](ctx, s.DB, page, op.CollectionFor("users"), "SELECT created_at,display_name,email,id,oidc_issuer,oidc_subject,EXISTS(SELECT 1 FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_admin,(SELECT pg.id FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_id,(SELECT pg.revision FROM access_grants pg WHERE pg.user_id=users.id AND pg.role_id=?) AS platform_assignment_revision,revision,state FROM users ORDER BY display_name,id", access.SuperRole, access.SuperRole, access.SuperRole)
 }
 
 // createLocalUser creates a global email/password account without
@@ -203,6 +194,6 @@ func (s *Server) updateTenantProfile(w http.ResponseWriter, r *http.Request, p a
 }
 
 func (s *Server) users(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Users(r.Context(), httpapi.Actor(r, p), httpapi.PageRequest(r.URL.Query()))
+	v, e := s.inv.Users(r.Context(), httpapi.Actor(r, p), httpapi.PageRequest(r.URL.Query()))
 	return httpapi.Reply(w, 200, v, e)
 }

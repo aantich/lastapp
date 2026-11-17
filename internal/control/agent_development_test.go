@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
@@ -39,9 +40,9 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	callWorkspace := func(actor access.Principal, name string) registry.Row {
 		t.Helper()
 		key := registry.NewID()
-		input := agentWorkspaceInput{Action: "create", Space: space, Name: name, RequestKey: key}
+		input := agent.WorkspaceInput{Action: "create", Space: space, Name: name, RequestKey: key}
 		raw, _ := json.Marshal(input)
-		result, e := s.toolAgentWorkspace(ctx, actor, raw)
+		result, e := agentTool(s, "lastapp_workspace")(ctx, actor, raw)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -49,7 +50,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 		if b, e := json.Marshal(result); e != nil || json.Unmarshal(b, &ws) != nil {
 			t.Fatal("workspace result", e)
 		}
-		if _, e = s.toolAgentWorkspace(ctx, actor, raw); e != nil {
+		if _, e = agentTool(s, "lastapp_workspace")(ctx, actor, raw); e != nil {
 			t.Fatal("workspace replay", e)
 		}
 		if _, e = s.DB.Exec("UPDATE development_workspaces SET state='ready' WHERE id=?", ws["id"]); e != nil {
@@ -65,32 +66,32 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 		t.Fatal("agent accessed sibling workspace")
 	}
 	d := entity.Templates()[0]
-	save := agentEntityInput{Target: &agentTarget{Kind: "space", ID: registry.Str(own["backing_space_id"])}, Definition: &d, RequestKey: registry.NewID()}
+	save := agent.EntityInput{Target: &agent.Target{Kind: "space", ID: registry.Str(own["backing_space_id"])}, Definition: &d, RequestKey: registry.NewID()}
 	raw, _ := json.Marshal(save)
-	if _, e := s.toolAgentEntitySave(ctx, p, raw); e != nil {
+	if _, e := agentTool(s, "lastapp_entity_save")(ctx, p, raw); e != nil {
 		t.Fatal("owned workspace draft", e)
 	}
 	save.Target.ID = space
 	save.RequestKey = registry.NewID()
 	raw, _ = json.Marshal(save)
-	if _, e := s.toolAgentEntitySave(ctx, p, raw); e == nil {
+	if _, e := agentTool(s, "lastapp_entity_save")(ctx, p, raw); e == nil {
 		t.Fatal("development grant wrote production")
 	}
 	save.Target.ID = registry.Str(foreign["backing_space_id"])
 	save.RequestKey = registry.NewID()
 	raw, _ = json.Marshal(save)
-	if _, e := s.toolAgentEntitySave(ctx, p, raw); e == nil {
+	if _, e := agentTool(s, "lastapp_entity_save")(ctx, p, raw); e == nil {
 		t.Fatal("development grant wrote another agent workspace")
 	}
-	raw, _ = json.Marshal(agentReadInput{Target: &agentTarget{Kind: "space", ID: registry.Str(own["backing_space_id"])}})
-	if _, e := s.toolAgentContext(ctx, p, raw); e != nil {
+	raw, _ = json.Marshal(agent.ReadInput{Target: &agent.Target{Kind: "space", ID: registry.Str(own["backing_space_id"])}})
+	if _, e := agentTool(s, "lastapp_context")(ctx, p, raw); e != nil {
 		t.Fatal("workspace context", e)
 	}
 	app := registry.NewID()
 	oc.want("POST", "/v1/tenants/"+tenant+"/spaces/"+registry.Str(own["backing_space_id"])+"/apps", registry.Row{"id": app, "slug": "client", "display_name": "Client", "initial_manager_user_id": p.ID}, 0, 201)
 	for _, actor := range []access.Principal{p, other} {
-		raw, _ = json.Marshal(agentReadInput{Resource: "app_deployment", ID: app})
-		result, err := s.toolAgentGet(ctx, actor, raw)
+		raw, _ = json.Marshal(agent.ReadInput{Resource: "app_deployment", ID: app})
+		result, err := agentTool(s, "lastapp_get")(ctx, actor, raw)
 		if actor.Agent.ID == p.Agent.ID {
 			if err != nil || result.(registry.Row)["deployment"] != nil {
 				t.Fatal("owned App deployment recovery", result, err)
@@ -104,8 +105,8 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	s.Config.Development = false
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5190", Inherit: true}, 1, 200)
 	verifier, nonce := registry.Token(32), registry.Token(32)
-	raw, _ = json.Marshal(agentWorkspaceInput{Action: "launch", App: app, Launch: &delivery.DevelopmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
-	launch, e := s.toolAgentWorkspace(ctx, p, raw)
+	raw, _ = json.Marshal(agent.WorkspaceInput{Action: "launch", App: app, Launch: &delivery.DevelopmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
+	launch, e := agentTool(s, "lastapp_workspace")(ctx, p, raw)
 	if e != nil {
 		t.Fatal(e)
 	}

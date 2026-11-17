@@ -1,11 +1,6 @@
-package control
+package agent
 
 import (
-	"net/http"
-	"time"
-
-	"github.com/aantich/lastapp/internal/access"
-	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -65,72 +60,11 @@ func agentPermissionCatalog() []registry.Row {
 	return out
 }
 
-func agentScopeCodes() []string {
+// ScopeCodes are the OAuth scopes: the agent permission codes.
+func ScopeCodes() []string {
 	out := make([]string, 0, len(agentPermissions))
 	for _, permission := range agentPermissions {
 		out = append(out, registry.Str(permission["code"]))
 	}
 	return out
-}
-
-const (
-	agentAccessLifetime           = 15 * time.Minute
-	agentGrantDays                = 7
-	agentMaxGrantDays             = 30
-	agentCodeLifetime             = 5 * time.Minute
-	agentMaxResponse              = 2 << 20
-	agentMaxDatabases             = 20
-	agentMaxTargets               = 32
-	agentMaxConnections           = 100
-	agentMaxConcurrent            = 16
-	agentMaxTokenRotations        = 4096
-	agentMaxSyntheticCases        = 10
-	agentMaxClients               = 1000
-	agentUnapprovedClientLifetime = 10 * time.Minute
-	agentBootstrapConcurrent      = 4
-	agentTokenConcurrent          = 4
-	agentValidationConcurrent     = 8
-	agentClientIdleLifetime       = 30 * 24 * time.Hour
-	agentMaxClientRedirects       = 16
-	agentMaxClientMetadata        = 65536
-)
-
-func (s *Server) agentPrincipal(r *http.Request) (access.Principal, error) {
-	var p access.Principal
-	raw := r.Header.Get("Authorization")
-	if len(raw) < 8 || len(raw) > 512 || raw[:7] != "Bearer " {
-		return p, registry.Problem(401, "unauthenticated", "An MCP access token is required.")
-	}
-	// Load the token-bound grant and its permissions in one statement/snapshot.
-	// A later grant edit fails checkAgent; it cannot upgrade this access token.
-	var e error
-	p.Agent, e = access.ScanAgentGrant(r.Context(), s.DB, `SELECT `+access.AgentGrantColumns+`,u.display_name,COALESCE(u.email,'') FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, []any{registry.TokenHash(raw[7:])}, &p.Name, &p.Email)
-	if p.Agent == nil {
-		return p, registry.Problem(401, "unauthenticated", "Invalid or expired MCP access token.")
-	}
-	if e != nil {
-		return p, e
-	}
-	p.ID = p.Agent.User
-	p.Platform, e = access.IsPlatform(r.Context(), s.DB, p.ID)
-	if e != nil {
-		return p, e
-	}
-	return p, s.CheckAgent(r.Context(), s.DB, p, access.Resource{Tenant: p.Agent.Tenant}, false)
-}
-
-// Admission happens before token/database work. Anonymous discovery/metadata
-// fetching cannot consume authenticated MCP slots or all registry connections.
-func (s *Server) admitAgent(w http.ResponseWriter, r *http.Request, limiter *httpapi.Limiter, slots chan struct{}, prefix string, burst int, refill float64) bool {
-	if !limiter.AllowRate(prefix+":"+s.trustedProxies.ClientIP(r), time.Now(), float64(burst), refill) {
-		httpapi.WriteError(w, r, httpapi.RateLimited(w))
-		return false
-	}
-	select {
-	case slots <- struct{}{}:
-		return true
-	default:
-		httpapi.WriteError(w, r, httpapi.RateLimited(w))
-		return false
-	}
 }

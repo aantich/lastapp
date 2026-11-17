@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -191,6 +192,13 @@ var (
 	PKCEVerifier  = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
 	PKCEChallenge = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
+
+// PKCEMatches reports in constant time whether verifier hashes to the S256
+// challenge (RFC 7636: BASE64URL(SHA256(verifier)) without padding). App
+// launch exchange and agent OAuth code exchange both check it.
+func PKCEMatches(verifier, challenge string) bool {
+	return subtle.ConstantTimeCompare([]byte(base64.RawURLEncoding.EncodeToString(TokenHash(verifier))), []byte(challenge)) == 1
+}
 
 // LockedRecord is the revision and lifecycle state of a record locked for
 // update.

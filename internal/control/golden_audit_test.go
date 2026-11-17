@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -98,23 +99,23 @@ func TestAuditAttributionGolden(t *testing.T) {
 	}
 	phase("worker: publish the human-requested entity")
 
-	agent, grant := goldenGrant(t, s, owner, "tenant", tenant, "read", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "production.deploy")
+	agentToken, grant := goldenGrant(t, s, owner, "tenant", tenant, "read", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "production.deploy")
 	readOnly, readGrant := goldenGrant(t, s, owner, "tenant", tenant, "read", "access.manage")
 	labels[grant], labels[readGrant] = "agent", "read-only"
 	create := registry.Row{"target": registry.Row{"kind": "app", "id": app}, "request_key": registry.NewID(), "microapp": registry.Row{"id": microapp, "slug": "audit", "display_name": "Audit"}}
-	rec.mcp(s, agent, "create", "lastapp_create", create, true)
+	rec.mcp(s, agentToken, "create", "lastapp_create", create, true)
 	phase("mcp: create a micro-app with a request key")
-	rec.mcp(s, agent, "create replay", "lastapp_create", create, true)
+	rec.mcp(s, agentToken, "create replay", "lastapp_create", create, true)
 	phase("mcp: replay the same request key")
 	rec.mcp(s, readOnly, "create denied", "lastapp_create", registry.Row{"target": registry.Row{"kind": "app", "id": app}, "request_key": registry.NewID(), "microapp": registry.Row{"id": registry.NewID(), "slug": "denied", "display_name": "Denied"}}, false)
 	phase("mcp: denied without resources.write")
 	contact := entity.Templates()[1]
-	saved := rec.mcp(s, agent, "entity save", "lastapp_entity_save", agentEntityInput{Target: &agentTarget{Kind: "space", ID: space}, Definition: &contact, RequestKey: registry.NewID()}, true)
+	saved := rec.mcp(s, agentToken, "entity save", "lastapp_entity_save", agent.EntityInput{Target: &agent.Target{Kind: "space", ID: space}, Definition: &contact, RequestKey: registry.NewID()}, true)
 	agentEntity := registry.Str(mcpData(saved)["id"])
 	labels[agentEntity] = "agent"
-	publish := agentPublishInput{Entity: agentEntity, Revision: 1, RequestKey: registry.NewID()}
-	rec.mcp(s, agent, "entity publish", "lastapp_entity_publish", publish, true)
-	rec.mcp(s, agent, "entity publish replay", "lastapp_entity_publish", publish, true)
+	publish := agent.PublishInput{Entity: agentEntity, Revision: 1, RequestKey: registry.NewID()}
+	rec.mcp(s, agentToken, "entity publish", "lastapp_entity_publish", publish, true)
+	rec.mcp(s, agentToken, "entity publish replay", "lastapp_entity_publish", publish, true)
 	phase("mcp: draft and queue an entity publication, then replay it")
 	for range 2 {
 		if _, e := s.publisher.Job(ctx, s.DB); e != nil {

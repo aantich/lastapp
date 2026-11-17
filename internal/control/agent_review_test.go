@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/inventory"
@@ -72,18 +74,18 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	}
 	p := access.Principal{ID: operator, Platform: true, Agent: g}
 	// The honest platform target must demand platform.manage.
-	normal := agentAssignmentInput{Action: "grant", Target: &agentTarget{Kind: "platform"}, ID: registry.NewID(), Role: access.SuperRole, User: candidate, RequestKey: registry.NewID()}
+	normal := agent.AssignmentInput{Action: "grant", Target: &agent.Target{Kind: "platform"}, ID: registry.NewID(), Role: access.SuperRole, User: candidate, RequestKey: registry.NewID()}
 	raw, _ := json.Marshal(normal)
-	_, e = s.toolAgentAssignment(context.Background(), p, raw)
+	_, e = agentTool(s, "lastapp_role_assignment")(context.Background(), p, raw)
 	var authority *access.AgentAuthorityError
 	if !errors.As(e, &authority) {
 		t.Fatal("normal platform target did not require explicit platform authority", e)
 	}
 	// The API adapter must not infer platform scope from a missing Tenant ID.
-	normal.Target = &agentTarget{Kind: "tenant"}
+	normal.Target = &agent.Target{Kind: "tenant"}
 	normal.RequestKey = registry.NewID()
 	args, _ := json.Marshal(normal)
-	schema, e := agentInputSchema(agentType[agentAssignmentInput]())
+	schema, e := agent.InputSchema(reflect.TypeFor[agent.AssignmentInput]())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -126,9 +128,9 @@ func TestAgentPlatformScopePermissionBoundary(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	normal.Target = &agentTarget{Kind: "platform"}
+	normal.Target = &agent.Target{Kind: "platform"}
 	normal.RequestKey = registry.NewID()
-	if _, e = s.toolAgentAssignment(context.Background(), p, agentTestJSON(t, normal)); e != nil {
+	if _, e = agentTool(s, "lastapp_role_assignment")(context.Background(), p, agentTestJSON(t, normal)); e != nil {
 		t.Fatal("explicitly approved platform assignment failed", e)
 	}
 	if e = s.DB.QueryRow("SELECT COUNT(*) FROM access_grants WHERE role_id=? AND user_id=?", access.SuperRole, candidate).Scan(&count); e != nil || count != 1 {
@@ -172,15 +174,15 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 			first = eid
 		}
 	}
-	raw := agentTestJSON(t, agentReadInput{Resource: "entity", ID: first, Target: &agentTarget{Kind: "app", ID: app}, Section: "definition"})
-	if _, e := s.toolAgentGet(context.Background(), p, raw); e != nil {
+	raw := agentTestJSON(t, agent.ReadInput{Resource: "entity", ID: first, Target: &agent.Target{Kind: "app", ID: app}, Section: "definition"})
+	if _, e := agentTool(s, "lastapp_get")(context.Background(), p, raw); e != nil {
 		t.Fatal("one valid App definition must be inspectable", e)
 	}
-	for _, in := range []agentReadInput{
-		{Resource: "entity", Target: &agentTarget{Kind: "app", ID: app}, Limit: 1},
-		{Resource: "entity", Target: &agentTarget{Kind: "app", ID: app}, Limit: 1, Q: "inventory_0"},
+	for _, in := range []agent.ReadInput{
+		{Resource: "entity", Target: &agent.Target{Kind: "app", ID: app}, Limit: 1},
+		{Resource: "entity", Target: &agent.Target{Kind: "app", ID: app}, Limit: 1, Q: "inventory_0"},
 	} {
-		v, e := s.agentList(context.Background(), p, in)
+		v, e := agentList(t, s, context.Background(), p, in)
 		if e != nil {
 			t.Fatal("valid inventory failed before paging/search", e)
 		}
@@ -195,7 +197,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for page := 1; page <= 12; page++ {
-		v, e := s.agentList(context.Background(), p, agentReadInput{Resource: "entity", Target: &agentTarget{Kind: "app", ID: app}, Limit: 1, Page: page})
+		v, e := agentList(t, s, context.Background(), p, agent.ReadInput{Resource: "entity", Target: &agent.Target{Kind: "app", ID: app}, Limit: 1, Page: page})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -217,7 +219,7 @@ func TestAgentAppInventoryPaging(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, query := range []string{"", "inventory_0"} {
-		v, e := s.agentList(context.Background(), p, agentReadInput{Resource: "entity", Target: &agentTarget{Kind: "app", ID: app}, Limit: 1, Q: query})
+		v, e := agentList(t, s, context.Background(), p, agent.ReadInput{Resource: "entity", Target: &agent.Target{Kind: "app", ID: app}, Limit: 1, Q: query})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -259,8 +261,8 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	}
 	p.Agent = g
 	ctx := context.WithValue(context.Background(), access.AgentContextKey{}, &access.AgentCall{Grant: g, Permission: []string{"entities.check"}, Operation: "lastapp_entity_check"})
-	raw := agentTestJSON(t, agentCheckInput{Entity: eid, Cases: []agentCase{{Operation: "create", Values: map[string]any{"choice_0": d.Fields[0].Values[0]}}}})
-	checked, e := s.toolAgentEntityCheck(ctx, p, raw)
+	raw := agentTestJSON(t, agent.CheckInput{Entity: eid, Cases: []agent.Case{{Operation: "create", Values: map[string]any{"choice_0": d.Fields[0].Values[0]}}}})
+	checked, e := agentTool(s, "lastapp_entity_check")(ctx, p, raw)
 	if e != nil {
 		t.Fatal("large saved entity cannot be checked", e)
 	}
@@ -271,7 +273,7 @@ func TestAgentLargeEntityCheck(t *testing.T) {
 	candidate := d
 	candidate.Fields = append([]entity.Field(nil), d.Fields...)
 	candidate.Fields[0].Type = "invalid"
-	checked, e = s.toolAgentEntityCheck(ctx, p, agentTestJSON(t, agentCheckInput{Entity: eid, Definition: &candidate}))
+	checked, e = agentTool(s, "lastapp_entity_check")(ctx, p, agentTestJSON(t, agent.CheckInput{Entity: eid, Definition: &candidate}))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -301,7 +303,7 @@ func TestAgentBatchAdmission(t *testing.T) {
 	eid := agentPublishedFixture(t, s, p, tenant, space, d)
 	access := agentFixtureToken(t, s, p)
 	calls := []registry.Row{}
-	for i := 0; i < agentMaxConcurrent+8; i++ {
+	for i := 0; i < agent.MaxConcurrent+8; i++ {
 		calls = append(calls, registry.Row{"jsonrpc": "2.0", "id": i + 1, "method": "tools/call", "params": registry.Row{"name": "lastapp_get", "arguments": registry.Row{"resource": "entity", "id": eid, "section": "definition"}}})
 	}
 	raw := agentTestJSON(t, calls)
@@ -313,7 +315,7 @@ func TestAgentBatchAdmission(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	w := httptest.NewRecorder()
-	s.mcpHandler().ServeHTTP(w, r)
+	s.agent.MCPHandler().ServeHTTP(w, r)
 	if w.Code == 200 {
 		var result []registry.Row
 		if e := json.Unmarshal(w.Body.Bytes(), &result); e != nil {
@@ -327,7 +329,7 @@ func TestAgentBatchAdmission(t *testing.T) {
 				}
 			}
 		}
-		t.Fatalf("one %d-byte HTTP request admitted %d/%d tool executions through one slot and returned %d bytes (configured context cap %d); omitted protocol header allowed legacy batching", len(raw), succeeded, len(calls), w.Body.Len(), agentMaxResponse)
+		t.Fatalf("one %d-byte HTTP request admitted %d/%d tool executions through one slot and returned %d bytes (configured context cap %d); omitted protocol header allowed legacy batching", len(raw), succeeded, len(calls), w.Body.Len(), agent.MaxResponse)
 	}
 	if w.Code != 400 {
 		t.Fatal("batch must be explicitly rejected", w.Code)
@@ -337,7 +339,7 @@ func TestAgentBatchAdmission(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+access)
 		r.Header.Set("MCP-Protocol-Version", version)
 		w = httptest.NewRecorder()
-		s.mcpHandler().ServeHTTP(w, r)
+		s.agent.MCPHandler().ServeHTTP(w, r)
 		if w.Code != 400 {
 			t.Fatal("version-dependent batch bypass", version, w.Code)
 		}
@@ -345,7 +347,7 @@ func TestAgentBatchAdmission(t *testing.T) {
 	r = httptest.NewRequest("POST", s.mcpURL(), strings.NewReader(`{"jsonrpc":"2.0","params":"`+strings.Repeat("x", 1<<20)+`"}`))
 	r.Header.Set("Authorization", "Bearer "+access)
 	w = httptest.NewRecorder()
-	s.mcpHandler().ServeHTTP(w, r)
+	s.agent.MCPHandler().ServeHTTP(w, r)
 	if w.Code != 413 {
 		t.Fatal("oversized request was not bounded", w.Code)
 	}
@@ -376,8 +378,8 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 	input.ID = registry.NewID()
 	input.Slug = "reuse-agent"
 	input.Name = "Reuse agent"
-	raw := agentTestJSON(t, agentCreateInput{Space: &input, RequestKey: registry.NewID()})
-	if _, e = s.toolAgentCreate(context.Background(), p, raw); e != nil {
+	raw := agentTestJSON(t, agent.CreateInput{Space: &input, RequestKey: registry.NewID()})
+	if _, e = agentTool(s, "lastapp_create")(context.Background(), p, raw); e != nil {
 		t.Fatal("shared reuse demanded provisioning permission", e)
 	}
 	var count int
@@ -389,7 +391,7 @@ func TestAgentSharedSpaceReuse(t *testing.T) {
 	}
 	input.ID = registry.NewID()
 	input.Slug = "unapproved-allocation"
-	_, e = s.toolAgentCreate(context.Background(), p, agentTestJSON(t, agentCreateInput{Space: &input, RequestKey: registry.NewID()}))
+	_, e = agentTool(s, "lastapp_create")(context.Background(), p, agentTestJSON(t, agent.CreateInput{Space: &input, RequestKey: registry.NewID()}))
 	var apiError *registry.APIError
 	if !errors.As(e, &apiError) || apiError.Code != "needs_authorization" {
 		t.Fatal("new allocation did not enforce provisioning delegation", e)

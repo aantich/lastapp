@@ -13,11 +13,12 @@ const module = "github.com/aantich/lastapp/"
 
 // layers is the documented dependency direction (DEVELOPMENT.md, package
 // layout): an internal package may import only internal packages of a strictly
-// lower layer. control → session → dataapi → delivery → publisher → entities → inventory → membership → roles → databases
+// lower layer. control → agent → session → dataapi → delivery → publisher → entities → inventory → membership → roles → databases
 // → op → access → registry, with config, sealer and the entity/data/authz/
 // artifact leaves below them. A new internal package must be placed here.
 var layers = map[string]int{
 	"control":    100,
+	"agent":      99,
 	"session":    98,
 	"dataapi":    97,
 	"delivery":   96,
@@ -46,13 +47,19 @@ var layers = map[string]int{
 // of duplicating it, and only control (which mounts it) may import it.
 // session (console login, sessions, CSRF/origin checks, password login and
 // change) is HTTP-facing for the same reason: its handlers set cookies,
-// redirect through OIDC and write errors with httpapi. It sits directly below
-// control, so only control (which registers its routes and wires it in Open)
-// may import it. Agent OAuth consent also authenticates console users, but it
-// receives session.Manager.Principal through httpapi.Session from control
-// rather than importing session; an extracted agent OAuth package (P6) would
-// keep that wiring or sit between control and session.
-var transportOnly = map[string]bool{"control": true, "session": true, "dataapi": true, "httpapi": true}
+// redirect through OIDC and write errors with httpapi. agent (the OAuth
+// authorization server for MCP clients, the console agent-access endpoints and
+// the streamable-HTTP MCP server) is HTTP-facing too: it serves token,
+// registration and MCP requests itself and reuses httpapi for decode/send,
+// errors, admission limits, origins and client IPs. Agent OAuth consent also
+// authenticates console users, but it receives the console session wrapper
+// (httpapi.Session over session.Manager.Principal) from control rather than
+// importing session.
+var transportOnly = map[string]bool{"control": true, "agent": true, "session": true, "dataapi": true, "httpapi": true}
+
+// mountedByControl are the HTTP-facing packages control wires and mounts. They
+// are siblings: none imports another, and only control (or cmd/) imports them.
+var mountedByControl = map[string]bool{"agent": true, "session": true, "dataapi": true}
 
 type listedPackage struct {
 	ImportPath   string
@@ -96,8 +103,10 @@ func TestPackageLayering(t *testing.T) {
 			switch {
 			case strings.HasPrefix(from, "cmd/"):
 				// Binaries wire the service together.
+			case mountedByControl[name] && from != "internal/control":
+				t.Errorf("%s imports %s: only control may import the packages it mounts (agent, session, dataapi)", from, to)
 			case transportOnly[name] && (!fromInternal || !transportOnly[strings.TrimPrefix(from, "internal/")]):
-				t.Errorf("%s imports %s: only cmd/ and transport packages (control, session, dataapi) may import transport packages", from, to)
+				t.Errorf("%s imports %s: only cmd/ and transport packages (control, agent, session, dataapi) may import transport packages", from, to)
 			case !fromInternal:
 				// Non-internal module packages (packages/, web/) may use leaves only.
 				if toLayer > layers["config"] {

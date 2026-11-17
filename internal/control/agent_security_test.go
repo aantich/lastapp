@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
@@ -53,8 +53,8 @@ func TestAgentRetryTargetGuard(t *testing.T) {
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,ownership_token) VALUES(?,?,?,'la_review_never_provisioned','managed','shared','failed',X'00',UNHEX(REPEAT('01',16)))", record, tenant, denied); e != nil {
 		t.Fatal(e)
 	}
-	raw, _ := json.Marshal(agentDatabaseInput{Action: "retry", ID: record, Revision: 1, RequestKey: registry.NewID()})
-	result, e := s.toolAgentDatabase(context.Background(), p, raw)
+	raw, _ := json.Marshal(agent.DatabaseInput{Action: "retry", ID: record, Revision: 1, RequestKey: registry.NewID()})
+	result, e := agentTool(s, "lastapp_database_provision")(context.Background(), p, raw)
 	var ae *registry.APIError
 	if e != nil && (!errors.As(e, &ae) || ae.Code != "needs_authorization") {
 		t.Fatal("retry failed for the wrong reason", e)
@@ -95,8 +95,8 @@ func TestAgentLargeEntityResponse(t *testing.T) {
 		t.Fatal("probe entity exceeds supported limit")
 	}
 	requestKey := registry.NewID()
-	raw, _ := json.Marshal(agentEntityInput{Target: &agentTarget{Kind: "space", ID: space}, Definition: &d, RequestKey: requestKey})
-	result, e := s.toolAgentEntitySave(context.Background(), p, raw)
+	raw, _ := json.Marshal(agent.EntityInput{Target: &agent.Target{Kind: "space", ID: space}, Definition: &d, RequestKey: requestKey})
+	result, e := agentTool(s, "lastapp_entity_save")(context.Background(), p, raw)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -104,14 +104,14 @@ func TestAgentLargeEntityResponse(t *testing.T) {
 	if receipt["committed"] != true || receipt["response_error"] == nil {
 		t.Fatal("missing committed receipt and response limit", receipt)
 	}
-	key := stableAgentID(p, requestKey)
+	key := agent.StableID(p, requestKey)
 	for _, section := range []string{"definition", "json_schema", "create_schema", "update_schema", "typescript"} {
-		args := agentReadInput{Resource: "entity", ID: key, Target: &agentTarget{Kind: "space", ID: space}, Section: section, Version: "draft"}
+		args := agent.ReadInput{Resource: "entity", ID: key, Target: &agent.Target{Kind: "space", ID: space}, Section: section, Version: "draft"}
 		if section != "definition" {
 			args.Field = "choice_0"
 		}
 		b, _ := json.Marshal(args)
-		v, err := s.toolAgentGet(context.Background(), p, b)
+		v, err := agentTool(s, "lastapp_get")(context.Background(), p, b)
 		if err != nil {
 			t.Fatal(section, err)
 		}
@@ -119,7 +119,7 @@ func TestAgentLargeEntityResponse(t *testing.T) {
 			t.Fatal("missing bounded section", section)
 		}
 	}
-	replay, err := s.toolAgentEntitySave(context.Background(), p, raw)
+	replay, err := agentTool(s, "lastapp_entity_save")(context.Background(), p, raw)
 	if err != nil || replay.(registry.Row)["replayed"] != true {
 		t.Fatal("large committed write could not be replayed", err)
 	}
@@ -154,11 +154,11 @@ func TestAgentTeamRecipientDiscovery(t *testing.T) {
 	if !strings.Contains(string(encoded), team) {
 		t.Fatal("probe setup did not expose the normal team's recipient option")
 	}
-	viaRecipients, e := s.agentList(context.Background(), p, agentReadInput{Resource: "recipient", RecipientType: "team"})
+	viaRecipients, e := agentList(t, s, context.Background(), p, agent.ReadInput{Resource: "recipient", RecipientType: "team"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	viaTeams, e := s.agentList(context.Background(), p, agentReadInput{Resource: "team"})
+	viaTeams, e := agentList(t, s, context.Background(), p, agent.ReadInput{Resource: "team"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -186,8 +186,8 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	}
 	retry := func(key string, revision int64) error {
 		t.Helper()
-		raw, _ := json.Marshal(agentDatabaseInput{Action: "retry", ID: key, Revision: revision, RequestKey: registry.NewID()})
-		_, e := s.toolAgentDatabase(ctx, p, raw)
+		raw, _ := json.Marshal(agent.DatabaseInput{Action: "retry", ID: key, Revision: revision, RequestKey: registry.NewID()})
+		_, e := agentTool(s, "lastapp_database_provision")(ctx, p, raw)
 		return e
 	}
 	first, second, registered := makeResource("managed"), makeResource("managed"), makeResource("registered")
@@ -236,6 +236,27 @@ func TestAgentRetryBindingAndQuota(t *testing.T) {
 	}
 }
 
+// agentTool returns the adapter of a catalog tool by name, as the MCP server
+// runs it after the grant check.
+func agentTool(s *Server, name string) func(context.Context, access.Principal, json.RawMessage) (any, error) {
+	for _, spec := range s.agent.Tools() {
+		if spec.Name == name {
+			return spec.Run
+		}
+	}
+	panic("unknown agent tool " + name)
+}
+
+// agentList lists through the lastapp_list tool.
+func agentList(t *testing.T, s *Server, ctx context.Context, p access.Principal, in agent.ReadInput) (registry.Row, error) {
+	t.Helper()
+	v, e := agentTool(s, "lastapp_list")(ctx, p, agentTestJSON(t, in))
+	if e != nil {
+		return nil, e
+	}
+	return v.(registry.Row), nil
+}
+
 func agentFixtureToken(t *testing.T, s *Server, p access.Principal) string {
 	t.Helper()
 	access := registry.Token(32)
@@ -250,7 +271,7 @@ func TestAgentTokenRevisionBinding(t *testing.T) {
 	accessToken := agentFixtureToken(t, s, p)
 	r := httptest.NewRequest("POST", s.mcpURL(), nil)
 	r.Header.Set("Authorization", "Bearer "+accessToken)
-	snapshot, e := s.agentPrincipal(r)
+	snapshot, e := s.agent.Principal(r)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -266,7 +287,7 @@ func TestAgentTokenRevisionBinding(t *testing.T) {
 	if e = s.CheckAgent(context.Background(), s.DB, snapshot, access.Resource{Tenant: p.Agent.Tenant}, false); e == nil {
 		t.Fatal("stale snapshot remained authorized")
 	}
-	if _, e = s.agentPrincipal(r); e == nil {
+	if _, e = s.agent.Principal(r); e == nil {
 		t.Fatal("old token upgraded to changed grant")
 	}
 }
@@ -285,25 +306,25 @@ func TestAgentBootstrapIsolation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer data.ReleasePinnedLock(held, lock)
-	done := make(chan struct{}, agentBootstrapConcurrent)
-	for i := 0; i < agentBootstrapConcurrent; i++ {
+	done := make(chan struct{}, agent.BootstrapConcurrent)
+	for i := 0; i < agent.BootstrapConcurrent; i++ {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			r := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(`{"redirect_uris":["http://localhost/cb"]}`))
 			r.Header.Set("Content-Type", "application/json")
-			s.agentRegisterClient(httptest.NewRecorder(), r)
+			s.agent.RegisterClient(httptest.NewRecorder(), r)
 		}()
 	}
 	defer func() {
-		for i := 0; i < agentBootstrapConcurrent; i++ {
+		for i := 0; i < agent.BootstrapConcurrent; i++ {
 			<-done
 		}
 	}()
 	deadline := time.Now().Add(time.Second)
-	for len(s.agentBootstrapSlots) < agentBootstrapConcurrent && time.Now().Before(deadline) {
+	for len(s.agent.BootstrapSlots) < agent.BootstrapConcurrent && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if len(s.agentBootstrapSlots) != agentBootstrapConcurrent {
+	if len(s.agent.BootstrapSlots) != agent.BootstrapConcurrent {
 		t.Fatal("bootstrap fixture did not occupy its budget")
 	}
 	r := httptest.NewRequest("POST", s.mcpURL(), strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"regression","version":"1"}}}`))
@@ -311,50 +332,25 @@ func TestAgentBootstrapIsolation(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	w := httptest.NewRecorder()
-	s.mcpHandler().ServeHTTP(w, r)
+	s.agent.MCPHandler().ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatal("anonymous bootstrap blocked authenticated MCP", w.Code)
 	}
 	r = httptest.NewRequest("POST", "/oauth/register", strings.NewReader(`{}`))
 	w = httptest.NewRecorder()
-	s.agentRegisterClient(w, r)
+	s.agent.RegisterClient(w, r)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatal("anonymous admission budget was not bounded", w.Code)
-	}
-}
-
-func TestAgentPreauthenticationAdmission(t *testing.T) {
-	// No database: these denied requests must never reach token lookup.
-	s := &Server{agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
-	r := httptest.NewRequest("POST", "http://localhost/mcp", nil)
-	r.Header.Set("Authorization", "Bearer unknown")
-	for i := 0; i < agentValidationConcurrent; i++ {
-		s.agentValidationSlots <- struct{}{}
-	}
-	w := httptest.NewRecorder()
-	s.mcpHandler().ServeHTTP(w, r)
-	if w.Code != 429 {
-		t.Fatal("validation concurrency admission was not enforced")
-	}
-	for i := 0; i < agentValidationConcurrent; i++ {
-		<-s.agentValidationSlots
-	}
-	for s.agentValidationLimiter.AllowRate("mcp-auth:"+s.trustedProxies.ClientIP(r), time.Now(), 60, 0) {
-	}
-	w = httptest.NewRecorder()
-	s.mcpHandler().ServeHTTP(w, r)
-	if w.Code != 429 {
-		t.Fatal("invalid bearer rate admission was not enforced before database work")
 	}
 }
 
 func TestAgentUnapprovedClientRetention(t *testing.T) {
 	s, _, p, _, _, _ := agentSecurityFixture(t)
 	ctx := context.Background()
-	old := time.Now().UTC().Add(-agentUnapprovedClientLifetime - time.Minute)
+	old := time.Now().UTC().Add(-agent.UnapprovedClientLifetime - time.Minute)
 	args := []any{}
 	tuples := []string{}
-	for i := 0; i < agentMaxClients; i++ {
+	for i := 0; i < agent.MaxClients; i++ {
 		tuples = append(tuples, "(?,?,?,?)")
 		args = append(args, "lastapp-client-"+registry.NewID(), `{}`, old, old)
 	}
@@ -375,17 +371,17 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 	if _, e := s.DB.Exec("INSERT INTO agent_oauth_requests(id,client_id,client_name,redirect_uri,challenge,state_value,scopes,expires_at,resource_uri) VALUES(?,?,'Pending','http://localhost/cb',?,'','read',DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 5 MINUTE),?)", registry.NewID(), pending, strings.Repeat("a", 43), s.mcpURL()); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.resolveAgentClient(ctx, pending); e == nil {
+	if _, e := s.agent.ResolveClient(ctx, pending); e == nil {
 		t.Fatal("unapproved registration could be kept alive indefinitely with authorize requests")
 	}
 	r := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(`{"redirect_uris":["http://localhost/cb"]}`))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	s.agentRegisterClient(w, r)
+	s.agent.RegisterClient(w, r)
 	if w.Code != 201 {
 		t.Fatal("expired anonymous quota blocked a new registration", w.Code)
 	}
-	if e := cleanupAgentClients(ctx, s.DB); e != nil {
+	if e := agent.CleanupClients(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	for _, key := range []string{approved, pending} {
@@ -394,63 +390,8 @@ func TestAgentUnapprovedClientRetention(t *testing.T) {
 			t.Fatal("cleanup evicted approved/in-progress identity", e)
 		}
 	}
-	if _, e := s.resolveAgentClient(ctx, approved); e != nil {
+	if _, e := s.agent.ResolveClient(ctx, approved); e != nil {
 		t.Fatal("approved client could not reconnect", e)
-	}
-}
-
-// TestAgentOperationResponseLimit pins the MCP response bound on operation
-// results: an over-limit read fails without content, and an over-limit result
-// of a committed mutation still reports the commit and its compact resource so
-// the agent does not retry a mutation that already happened.
-func TestAgentOperationResponseLimit(t *testing.T) {
-	large := registry.Row{"payload": strings.Repeat("x", agentMaxResponse)}
-	isLimit := func(e error) bool {
-		var ae *registry.APIError
-		return errors.As(e, &ae) && ae.Code == "response_limit" && ae.Status == 413
-	}
-	if v, e := agentSized(registry.Row{"id": "small"}, nil); e != nil || v.(registry.Row)["id"] != "small" {
-		t.Fatal("in-limit result was not passed through", v, e)
-	}
-	failed := errors.New("operation failed")
-	if v, e := agentSized(large, failed); v != nil || !errors.Is(e, failed) {
-		t.Fatal("operation error was not returned unchanged", v, e)
-	}
-	// A read has no agent receipt: the over-limit result is an error with no data.
-	v, e := agentSized(large, nil)
-	if v != nil || !isLimit(e) {
-		t.Fatal("over-limit read result was returned", e)
-	}
-	ref := registry.Row{"kind": "app", "id": registry.NewID()}
-	call := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
-	ctx := context.WithValue(context.Background(), access.AgentContextKey{}, call)
-	// The mutation did not commit: the agent sees the limit error and may retry.
-	data, limit := agentSized(large, nil)
-	if v, e := agentWriteResult(ctx, data, limit); v != nil || !isLimit(e) {
-		t.Fatal("uncommitted over-limit mutation reported success", v, e)
-	}
-	// The mutation committed: the reply is the compact committed outcome.
-	call.Committed = true
-	v, e = agentWriteResult(ctx, data, limit)
-	if e != nil {
-		t.Fatal("committed over-limit mutation returned an error an agent would retry", e)
-	}
-	out := v.(registry.Row)
-	if out["committed"] != true || !reflect.DeepEqual(out["resource"], ref) || out["response_error"].(registry.Row)["code"] != "response_limit" {
-		t.Fatal("committed over-limit mutation lost its committed resource", out)
-	}
-	if e = agentFits(out); e != nil {
-		t.Fatal("compact committed reply exceeds the response bound", e)
-	}
-	// Other errors after a commit pass through unchanged.
-	if _, e = agentWriteResult(ctx, nil, failed); !errors.Is(e, failed) {
-		t.Fatal("non-limit error was rewritten", e)
-	}
-	// A replayed request reports the stored receipt and marks the call committed.
-	replayed := &access.AgentCall{Operation: "lastapp_create", Key: registry.NewID(), ResultRef: ref}
-	v, e = agentWriteResult(context.WithValue(context.Background(), access.AgentContextKey{}, replayed), nil, op.ErrAgentReplay)
-	if e != nil || v.(registry.Row)["replayed"] != true || v.(registry.Row)["committed"] != true || !replayed.Committed {
-		t.Fatal("replayed mutation was not reported as committed", v, e)
 	}
 }
 

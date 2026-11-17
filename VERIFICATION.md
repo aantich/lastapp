@@ -1,5 +1,50 @@
 # Lastapp verification
 
+## Agent OAuth and management MCP extracted from control (P6) — 17 November 2026
+
+- Pure move, no behaviour change: the OAuth authorization server for MCP
+  clients (discovery, registration/retention, consent, code/refresh exchange,
+  revocation), the console agent-access endpoints, bearer authentication,
+  admission slots/limiters and the MCP server with its tool catalog and typed
+  adapters are `agent.Server` (`internal/agent`), wired in `Open` with the
+  registry DB, `access.Checker`, config, the domain services, the shared
+  `Limiter` and trusted proxies. Control mounts it with
+  `Routes(mux, console)`; route paths are unchanged and consent receives the
+  console-session wrapper instead of importing session. `agent_tools.go` was
+  split mechanically by domain (`tools.go`, `mcp.go`, `writes.go`,
+  `context.go`, `resources.go`, `entities.go`, `access.go`, `databases.go`,
+  `development.go`); a declaration-by-declaration comparison against the old
+  files (modulo renames) found only the route function and `mcpURL` changed.
+- Tool input types, `Tools`, `InputSchema`, `Instructions` and the handlers the
+  control integration tests drive are exported (types do not appear in the
+  generated schemas; `mcp_tools` is unchanged). Control tests call tools
+  through `Server.Tools`.
+- Prep: the account list and audit-trail reads moved from control into
+  `inventory.Inventory.Users` and `roles.Authority.Audits` (same SQL and
+  authorization calls) so MCP reads need no control import.
+- `registry.PKCEMatches` is now the single S256 check of agent OAuth code
+  exchange and App launch exchange; both previously computed
+  `BASE64URL(SHA256(verifier))` inline with a constant-time compare. Fixed
+  vectors pin it against both former implementations.
+- Layering: `agent` is layer 99 and a transport package; agent, session and
+  dataapi are siblings that only control may import (new check in
+  `TestPackageLayering`). `TestNoHTTPLoopback` scans agent. `make mcp-test`
+  now also runs `./internal/agent`.
+- New tests in `internal/agent` (database-free): tool table invariants and
+  visibility, permission catalog and scope normalization, configured-client
+  validation, plus the moved schema/redirect/SSRF, pre-database admission and
+  response-bound tests.
+- `internal/control` production code: 5,485 → 2,709 lines
+  (`internal/agent` production: 3,159 with doc comments and the split).
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 186.2 s); goldens with `-count=2` **PASS** and
+`git diff edde6f5 -- internal/control/testdata` is empty; `make mcp-test`
+**PASS** (agent and control); `make e2e` **PASS** (34 browser tests, including agent access screens);
+`python3 design/validate_schema.py --check`, `python3 scripts/verify_driver.py`
+and `git diff --check` **PASS**.
+
 ## Console sessions and login extracted from control (P5) — 17 November 2026
 
 - Pure move, no behaviour change: password login, OIDC login/callback with the

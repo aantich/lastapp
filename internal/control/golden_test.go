@@ -28,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -69,14 +70,14 @@ func compareGolden(t *testing.T, name string, got []byte) {
 func TestAgentToolSchemaGolden(t *testing.T) {
 	s := &Server{}
 	tools := []registry.Row{}
-	for _, tool := range s.agentTools() {
-		schema, e := agentInputSchema(tool.Input)
+	for _, tool := range s.agent.Tools() {
+		schema, e := agent.InputSchema(tool.Input)
 		if e != nil {
 			t.Fatal(e)
 		}
 		tools = append(tools, registry.Row{"name": tool.Name, "description": tool.Description, "read_only": tool.Read, "permissions": tool.Permissions, "input_schema": schema})
 	}
-	b, e := json.MarshalIndent(registry.Row{"instructions": agentInstructions, "tools": tools}, "", "  ")
+	b, e := json.MarshalIndent(registry.Row{"instructions": agent.Instructions, "tools": tools}, "", "  ")
 	if e != nil {
 		t.Fatal(e)
 	}

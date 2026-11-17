@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/delivery"
@@ -80,8 +81,8 @@ func TestReleaseWorkspaceOwnership(t *testing.T) {
 	f.c.want("GET", path, nil, 0, 200)
 	read := func(p access.Principal, want int) {
 		t.Helper()
-		raw, _ := json.Marshal(agentReadInput{Resource: "release", ID: registry.Str(f.release["id"])})
-		result, e := f.s.toolAgentGet(ctx, p, raw)
+		raw, _ := json.Marshal(agent.ReadInput{Resource: "release", ID: registry.Str(f.release["id"])})
+		result, e := agentTool(f.s, "lastapp_get")(ctx, p, raw)
 		if want == 200 {
 			if e != nil || result.(delivery.Release).Snapshot.Value() == nil {
 				t.Fatal("authorized release inspection", e)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -46,7 +47,7 @@ func TestAgentAutomaticConnection(t *testing.T) {
 		t.Fatal("automatic discovery incomplete")
 	}
 	offered := resource["scopes_supported"].([]any)
-	if len(offered) != len(agentScopeCodes()) || !slices.Contains(offered, any("resources.write")) {
+	if len(offered) != len(agent.ScopeCodes()) || !slices.Contains(offered, any("resources.write")) {
 		t.Fatal("authoring capabilities cannot be discovered")
 	}
 	register := func(scope string) registry.Row {
@@ -139,13 +140,13 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	if info["scopes"] != "read" {
 		t.Fatal("explicit client scope restriction was ignored")
 	}
-	if _, e = s.DB.Exec("UPDATE agent_oauth_clients SET last_used_at=?,created_at=?", time.Now().UTC().Add(-agentClientIdleLifetime-time.Hour), time.Now().UTC().Add(-agentClientIdleLifetime-time.Hour)); e != nil {
+	if _, e = s.DB.Exec("UPDATE agent_oauth_clients SET last_used_at=?,created_at=?", time.Now().UTC().Add(-agent.ClientIdleLifetime-time.Hour), time.Now().UTC().Add(-agent.ClientIdleLifetime-time.Hour)); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.DB.Exec("UPDATE agent_oauth_requests SET expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 MINUTE) WHERE client_id=?", limited["client_id"]); e != nil {
 		t.Fatal(e)
 	}
-	if e = cleanupAgentClients(context.Background(), s.DB); e != nil {
+	if e = agent.CleanupClients(context.Background(), s.DB); e != nil {
 		t.Fatal(e)
 	}
 	var count int
@@ -170,7 +171,7 @@ func TestAgentRegistrationRejectsUnsafeMetadata(t *testing.T) {
 		`{"redirect_uris":["http://localhost/cb"],"scope":"superuser"}`,
 		`null`,
 		`{} {}`,
-		`{"client_name":"` + strings.Repeat("x", agentMaxClientMetadata) + `"}`,
+		`{"client_name":"` + strings.Repeat("x", agent.MaxClientMetadata) + `"}`,
 	} {
 		r := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(body))
 		r.RemoteAddr = "198.51.100." + registry.Str(i+1) + ":1234"
