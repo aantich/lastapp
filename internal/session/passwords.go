@@ -148,20 +148,17 @@ func (m *Manager) ChangePassword(w http.ResponseWriter, r *http.Request, p acces
 	if in.Current == in.Next {
 		return registry.Bad("Choose a different password.")
 	}
-	// Read under the request deadline before waiting for the derivation pool;
-	// the write below renews the deadline after the derivations and fences on
-	// this revision, so the two phases are bounded the same way.
+	release, e := m.Passwords.Work()
+	if e != nil {
+		return e
+	}
+	defer release()
 	var expected, salt []byte
 	var iterations int
 	var revision int64
 	if e := m.DB.QueryRowContext(r.Context(), "SELECT password_hash,password_salt,password_iterations,revision FROM local_accounts WHERE user_id=?", p.ID).Scan(&expected, &salt, &iterations, &revision); e != nil {
 		return e
 	}
-	release, e := m.Passwords.Work()
-	if e != nil {
-		return e
-	}
-	defer release()
 	if subtle.ConstantTimeCompare(membership.PasswordKey(in.Current, salt, iterations), expected) != 1 {
 		return invalidLogin()
 	}
