@@ -1,4 +1,4 @@
-package control
+package agent
 
 import (
 	"context"
@@ -23,29 +23,6 @@ import (
 	"github.com/aantich/lastapp/internal/registry"
 )
 
-func (s *Server) mcpURL() string { return s.Config.PublicURL + "/mcp" }
-func (s *Server) agentRoutes() {
-	s.mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", func(w http.ResponseWriter, r *http.Request) {
-		httpapi.Send(w, 200, registry.Row{"resource": s.mcpURL(), "authorization_servers": []string{s.Config.PublicURL}, "scopes_supported": agentScopeCodes(), "bearer_methods_supported": []string{"header"}})
-	})
-	s.mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		httpapi.Send(w, 200, registry.Row{"issuer": s.Config.PublicURL, "authorization_endpoint": s.Config.PublicURL + "/oauth/authorize", "token_endpoint": s.Config.PublicURL + "/oauth/token", "registration_endpoint": s.Config.PublicURL + "/oauth/register", "revocation_endpoint": s.Config.PublicURL + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": agentScopeCodes(), "client_id_metadata_document_supported": true, "authorization_response_iss_parameter_supported": true})
-	})
-	s.mux.HandleFunc("POST /oauth/register", s.agentRegisterClient)
-	s.mux.HandleFunc("GET /oauth/authorize", s.agentAuthorize)
-	s.mux.HandleFunc("POST /oauth/token", s.agentToken)
-	s.mux.HandleFunc("POST /oauth/revoke", s.agentRevokeToken)
-	s.api("GET /v1/agent-access/config", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-		httpapi.Send(w, 200, registry.Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": access.AgentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
-		return nil
-	})
-	s.api("GET /v1/agent-access", s.agentGrantList)
-	s.api("PATCH /v1/agent-access/{grant}", s.agentGrantUpdate)
-	s.api("GET /v1/agent-access/requests/{request}", s.agentConsentInfo)
-	s.api("POST /v1/agent-access/requests/{request}", s.agentConsent)
-	s.mux.Handle("/mcp", s.mcpHandler())
-}
-
 func validAgentRedirect(raw string) bool {
 	u, e := url.Parse(raw)
 	if e != nil || len(raw) > 1500 || u.User != nil || u.Fragment != "" || u.Host == "" {
@@ -57,7 +34,9 @@ func validAgentRedirect(raw string) bool {
 	return u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
 }
 
-func (s *Server) resolveAgentClient(ctx context.Context, key string) (config.AgentClient, error) {
+// ResolveClient resolves an OAuth client ID: configured, development,
+// automatically registered or a Client ID Metadata Document URL.
+func (s *Server) ResolveClient(ctx context.Context, key string) (config.AgentClient, error) {
 	for _, c := range s.Config.AgentClients {
 		if c.ID == key {
 			return c, nil
@@ -68,7 +47,7 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (config.Age
 	}
 	if strings.HasPrefix(key, "lastapp-client-") {
 		var metadata []byte
-		if e := s.DB.QueryRowContext(ctx, "SELECT metadata_json FROM agent_oauth_clients c WHERE id=? AND (created_at>? OR EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id))", key, time.Now().UTC().Add(-agentUnapprovedClientLifetime)).Scan(&metadata); e != nil {
+		if e := s.DB.QueryRowContext(ctx, "SELECT metadata_json FROM agent_oauth_clients c WHERE id=? AND (created_at>? OR EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id))", key, time.Now().UTC().Add(-UnapprovedClientLifetime)).Scan(&metadata); e != nil {
 			return config.AgentClient{}, registry.Bad("Unknown OAuth client. Reconnect from your agent to register automatically.")
 		}
 		var c config.AgentClient
@@ -114,8 +93,8 @@ func (s *Server) resolveAgentClient(ctx context.Context, key string) (config.Age
 	if response.StatusCode != 200 {
 		return config.AgentClient{}, registry.Bad("Client metadata could not be verified.")
 	}
-	b, e := io.ReadAll(io.LimitReader(response.Body, agentMaxClientMetadata+1))
-	if e != nil || len(b) > agentMaxClientMetadata {
+	b, e := io.ReadAll(io.LimitReader(response.Body, MaxClientMetadata+1))
+	if e != nil || len(b) > MaxClientMetadata {
 		return config.AgentClient{}, registry.Bad("Client metadata exceeds its limit.")
 	}
 	var c config.AgentClient
@@ -174,7 +153,7 @@ func agentScopeNames(raw string) ([]string, error) {
 	if len(out) == 0 {
 		// Offer capabilities at consent; only the user's checked choices become
 		// a grant. General-purpose MCP clients need no Lastapp scope configuration.
-		out = agentScopeCodes()
+		out = ScopeCodes()
 	}
 	for _, code := range out {
 		found := false
@@ -194,12 +173,12 @@ func (s *Server) agentAuthorize(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
-	if !s.admitAgent(w, r, &s.agentBootstrapLimiter, s.agentBootstrapSlots, "oauth-authorize", 20, 1) {
+	if !s.admitAgent(w, r, &s.bootstrapLimiter, s.BootstrapSlots, "oauth-authorize", 20, 1) {
 		return
 	}
-	defer func() { <-s.agentBootstrapSlots }()
+	defer func() { <-s.BootstrapSlots }()
 	q := r.URL.Query()
-	c, e := s.resolveAgentClient(ctx, q.Get("client_id"))
+	c, e := s.ResolveClient(ctx, q.Get("client_id"))
 	if e != nil {
 		httpapi.WriteError(w, r, e)
 		return
@@ -453,8 +432,8 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p access.P
 	return nil
 }
 
-// AgentGrantItem is an agent connection in its owner's or Tenant's list.
-type AgentGrantItem struct {
+// GrantItem is an agent connection in its owner's or Tenant's list.
+type GrantItem struct {
 	ClientID    string             `json:"client_id"`
 	ClientName  string             `json:"client_name"`
 	CreatedAt   time.Time          `json:"created_at"`
@@ -474,7 +453,7 @@ type AgentGrantItem struct {
 	UserID      string             `json:"user_id"`
 }
 
-func (v *AgentGrantItem) ScanFields() []any {
+func (v *GrantItem) ScanFields() []any {
 	return []any{&v.ClientID, &v.ClientName, &v.CreatedAt, &v.ExpiresAt, &v.ID, &v.LastUsedAt, &v.Limits, &v.OwnerName, &v.Permissions, &v.Revision, &v.ScopeID, &v.ScopeKind, &v.ScopeName, &v.State, &v.TenantID, &v.TenantName, &v.UserID}
 }
 
@@ -489,7 +468,7 @@ func (s *Server) agentGrantList(w http.ResponseWriter, r *http.Request, p access
 		filter = "g.tenant_id=?"
 		args = []any{tenant}
 	}
-	items, e := httpapi.PageRows[AgentGrantItem](r.Context(), s.DB, r, `SELECT g.client_id,g.client_name,g.created_at,g.expires_at,g.id,g.last_used_at,g.limits_json,u.display_name AS owner_name,g.permissions_json,g.revision,g.scope_id,g.scope_kind,
+	items, e := httpapi.PageRows[GrantItem](r.Context(), s.DB, r, `SELECT g.client_id,g.client_name,g.created_at,g.expires_at,g.id,g.last_used_at,g.limits_json,u.display_name AS owner_name,g.permissions_json,g.revision,g.scope_id,g.scope_kind,
  COALESCE(sp.display_name,a.display_name,team.display_name,t.display_name,'Platform') AS scope_name,g.state,g.tenant_id,t.display_name AS tenant_name,g.user_id
  FROM agent_grants g JOIN users u ON u.id=g.user_id LEFT JOIN tenants t ON t.id=g.tenant_id
  LEFT JOIN spaces sp ON g.scope_kind='space' AND sp.id=g.scope_id AND sp.tenant_id=g.tenant_id
@@ -572,14 +551,15 @@ func oauthError(w http.ResponseWriter, code string) {
 	httpapi.Send(w, 400, registry.Row{"error": code, "error_description": "OAuth request rejected. Reconnect through Lastapp if necessary."})
 }
 
-func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
+// Token is the OAuth token endpoint (authorization_code and refresh_token).
+func (s *Server) Token(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
-	if !s.admitAgent(w, r, &s.agentBootstrapLimiter, s.agentTokenSlots, "oauth-token", 30, 5) {
+	if !s.admitAgent(w, r, &s.bootstrapLimiter, s.TokenSlots, "oauth-token", 30, 5) {
 		return
 	}
-	defer func() { <-s.agentTokenSlots }()
+	defer func() { <-s.TokenSlots }()
 	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	if r.ParseForm() != nil {
 		oauthError(w, "invalid_request")
@@ -682,10 +662,10 @@ func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
-	if !s.admitAgent(w, r, &s.agentBootstrapLimiter, s.agentTokenSlots, "oauth-revoke", 30, 5) {
+	if !s.admitAgent(w, r, &s.bootstrapLimiter, s.TokenSlots, "oauth-revoke", 30, 5) {
 		return
 	}
-	defer func() { <-s.agentTokenSlots }()
+	defer func() { <-s.TokenSlots }()
 	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	if r.ParseForm() != nil {
 		oauthError(w, "invalid_request")

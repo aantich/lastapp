@@ -20,61 +20,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
-
-func TestAgentToolContracts(t *testing.T) {
-	s := &Server{}
-	tools := s.agentTools()
-	if len(tools) != 16 {
-		t.Fatal("unexpected tool surface", len(tools))
-	}
-	for _, tool := range tools {
-		t.Run(tool.Name, func(t *testing.T) {
-			schema, e := agentInputSchema(tool.Input)
-			if e != nil {
-				t.Fatal(e)
-			}
-			if _, e = schema.Resolve(nil); e != nil {
-				t.Fatal(e)
-			}
-			if len(tool.Description) < 100 {
-				t.Fatal("missing agent guidance")
-			}
-		})
-	}
-	schema, e := agentInputSchema(agentType[agentEntityInput]())
-	if e != nil {
-		t.Fatal(e)
-	}
-	resolved, e := schema.Resolve(nil)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var instance any
-	encoded, _ := json.Marshal(agentEntityInput{Definition: &entity.Templates()[2], RequestKey: registry.NewID()})
-	if e = json.Unmarshal(encoded, &instance); e != nil {
-		t.Fatal(e)
-	}
-	if e = resolved.Validate(instance); e != nil {
-		t.Fatal("default/calculated expression pointers are not representable", e)
-	}
-	for _, raw := range []string{"http://evil.example/callback", "https://u:p@example.com/cb", "file:///tmp/cb", "https://example.com/cb#fragment"} {
-		if validAgentRedirect(raw) {
-			t.Fatal("unsafe redirect", raw)
-		}
-	}
-	if !agentRedirectMatches("http://127.0.0.1:8790/callback", "http://127.0.0.1:12345/callback") || agentRedirectMatches("http://127.0.0.1:8790/callback", "http://localhost:12345/callback") {
-		t.Fatal("loopback redirect mismatch")
-	}
-	for _, ip := range []string{"127.0.0.1", "::1", "10.0.0.1", "169.254.169.254", "100.64.0.2", "::ffff:127.0.0.1", "2001:db8::1", "64:ff9b::7f00:1"} {
-		if publicAgentIP(ip) {
-			t.Fatal("SSRF address accepted", ip)
-		}
-	}
-}
 
 type agentRoundTripper struct{ token string }
 
@@ -193,26 +144,27 @@ func TestAgentManagementMCP(t *testing.T) {
 	}
 	permissions := []string{"production.deploy", "read", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}
 	session, grant, accessToken, refresh := connect(permissions, "space", space)
-	otherEndpoint := &Server{DB: s.DB, Config: s.Config, agentTokenSlots: make(chan struct{}, agentTokenConcurrent)}
-	otherEndpoint.Config.PublicURL = "http://127.0.0.1:8999"
-	otherEndpoint.Checker = &access.Checker{Audience: otherEndpoint.mcpURL()}
-	foreignRequest := httptest.NewRequest("POST", otherEndpoint.mcpURL(), strings.NewReader(`{}`))
+	otherConfig := s.Config
+	otherConfig.PublicURL = "http://127.0.0.1:8999"
+	otherEndpoint := &agent.Server{DB: s.DB, Config: &otherConfig, Proxies: &httpapi.TrustedProxies{}, TokenSlots: make(chan struct{}, agent.TokenConcurrent)}
+	otherEndpoint.Checker = &access.Checker{Audience: agent.MCPURL(otherConfig.PublicURL)}
+	foreignRequest := httptest.NewRequest("POST", agent.MCPURL(otherConfig.PublicURL), strings.NewReader(`{}`))
 	foreignRequest.Header.Set("Authorization", "Bearer "+accessToken)
-	if _, e := otherEndpoint.agentPrincipal(foreignRequest); e == nil {
+	if _, e := otherEndpoint.Principal(foreignRequest); e == nil {
 		t.Fatal("MCP audience crossed endpoint boundary")
 	}
-	foreignForm := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}, "client_id": {"lastapp-development"}, "resource": {otherEndpoint.mcpURL()}}
+	foreignForm := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}, "client_id": {"lastapp-development"}, "resource": {agent.MCPURL(otherConfig.PublicURL)}}
 	foreignRequest = httptest.NewRequest("POST", otherEndpoint.Config.PublicURL+"/oauth/token", strings.NewReader(foreignForm.Encode()))
 	foreignRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	foreignResponse := httptest.NewRecorder()
-	otherEndpoint.agentToken(foreignResponse, foreignRequest)
+	otherEndpoint.Token(foreignResponse, foreignRequest)
 	if foreignResponse.Code != 400 {
 		t.Fatal("refresh audience crossed endpoint boundary", foreignResponse.Code)
 	}
 	tools, e := session.ListTools(context.Background(), nil)
 	expectedTools := 0
-	for _, spec := range s.agentTools() {
-		if agentToolVisible(spec, &access.AgentGrant{Permissions: permissions}) {
+	for _, spec := range s.agent.Tools() {
+		if agent.ToolVisible(spec, &access.AgentGrant{Permissions: permissions}) {
 			expectedTools++
 		}
 	}

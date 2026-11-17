@@ -20,6 +20,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/dataapi"
 	"github.com/aantich/lastapp/internal/databases"
@@ -42,31 +43,26 @@ var migrationFiles embed.FS
 
 type Server struct {
 	*access.Checker
-	uploadSlots            chan struct{}
-	agentSlots             chan struct{}
-	agentBootstrapSlots    chan struct{}
-	agentTokenSlots        chan struct{}
-	agentValidationSlots   chan struct{}
-	agentBootstrapLimiter  httpapi.Limiter
-	agentValidationLimiter httpapi.Limiter
-	limiter                httpapi.Limiter
-	trustedProxies         httpapi.TrustedProxies
-	DB                     *sql.DB
-	Config                 config.Config
-	sealer                 *sealer.Sealer
-	registryName           string
-	mux                    *http.ServeMux
-	Log                    *slog.Logger
-	run                    *op.Runner
-	inv                    *inventory.Inventory
-	members                *membership.Members
-	sessions               *session.Manager
-	authority              *roles.Authority
-	storage                *databases.Storage
-	authoring              *entities.Authoring
-	publisher              *publisher.Publisher
-	dataAPI                *dataapi.Runtime
-	delivery               *delivery.Service
+	uploadSlots    chan struct{}
+	limiter        httpapi.Limiter
+	trustedProxies httpapi.TrustedProxies
+	DB             *sql.DB
+	Config         config.Config
+	sealer         *sealer.Sealer
+	registryName   string
+	mux            *http.ServeMux
+	Log            *slog.Logger
+	run            *op.Runner
+	inv            *inventory.Inventory
+	members        *membership.Members
+	sessions       *session.Manager
+	authority      *roles.Authority
+	storage        *databases.Storage
+	authoring      *entities.Authoring
+	publisher      *publisher.Publisher
+	dataAPI        *dataapi.Runtime
+	delivery       *delivery.Service
+	agent          *agent.Server
 }
 
 func LoadConfig(path string) (config.Config, error) {
@@ -83,17 +79,8 @@ func Open(c config.Config) (*Server, error) {
 	if c.WorkspaceDatabaseTarget != "" && registry.ID(c.WorkspaceDatabaseTarget) != nil {
 		return nil, fmt.Errorf("invalid workspace_database_target_id")
 	}
-	seenClients := map[string]bool{}
-	for _, client := range c.AgentClients {
-		if client.ID == "" || len(client.ID) > 500 || client.Name == "" || len(client.Name) > 160 || seenClients[client.ID] || len(client.Redirects) == 0 || len(client.Redirects) > agentMaxClientRedirects {
-			return nil, fmt.Errorf("invalid or duplicate agent client registration")
-		}
-		seenClients[client.ID] = true
-		for _, redirect := range client.Redirects {
-			if !validAgentRedirect(redirect) {
-				return nil, fmt.Errorf("invalid agent client redirect")
-			}
-		}
+	if e := agent.ValidateClients(c.AgentClients); e != nil {
+		return nil, e
 	}
 	proxies, e := httpapi.ParseTrustedProxies(c.TrustedProxies)
 	if e != nil {
@@ -165,7 +152,7 @@ func Open(c config.Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
-	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), trustedProxies: proxies, agentSlots: make(chan struct{}, agentMaxConcurrent), agentBootstrapSlots: make(chan struct{}, agentBootstrapConcurrent), agentTokenSlots: make(chan struct{}, agentTokenConcurrent), agentValidationSlots: make(chan struct{}, agentValidationConcurrent)}
+	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), trustedProxies: proxies}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
 	warn := func(ctx context.Context, msg string, err error, attrs ...any) {
@@ -187,8 +174,12 @@ func Open(c config.Config) (*Server, error) {
 	s.sessions = &session.Manager{DB: db, Config: &s.Config, Sealer: seal, Passwords: passwords, Proxies: &s.trustedProxies}
 	s.authority = &roles.Authority{DB: db, Run: s.run}
 	s.dataAPI = &dataapi.Runtime{DB: db, Access: s.Checker, Authoring: s.authoring, Publisher: s.publisher, Sealer: seal, Config: &s.Config, Limiter: &s.limiter, Proxies: &s.trustedProxies, Slots: make(chan struct{}, entity.Limits.DataRequests)}
+	s.agent = &agent.Server{Checker: s.Checker, DB: db, Config: &s.Config, Inventory: s.inv, Members: s.members, Authority: s.authority, Storage: s.storage, Authoring: s.authoring, Delivery: s.delivery, Limiter: &s.limiter, Proxies: &s.trustedProxies, Slots: make(chan struct{}, agent.MaxConcurrent), BootstrapSlots: make(chan struct{}, agent.BootstrapConcurrent), TokenSlots: make(chan struct{}, agent.TokenConcurrent), ValidationSlots: make(chan struct{}, agent.ValidationConcurrent)}
 	return s, nil
 }
+
+// mcpURL is this deployment's MCP resource URI (the agent grant audience).
+func (s *Server) mcpURL() string { return agent.MCPURL(s.Config.PublicURL) }
 
 func (s *Server) Close() error { s.publisher.Close(); return s.DB.Close() }
 

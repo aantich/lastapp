@@ -19,10 +19,15 @@ import (
 	admin "github.com/aantich/lastapp/web/admin"
 )
 
-func (s *Server) api(pattern string, fn httpapi.Endpoint) {
-	s.mux.HandleFunc(pattern, httpapi.Session{Principal: s.sessions.Principal, Limit: func(w http.ResponseWriter, p access.Principal, r *http.Request) error {
+// console is the console-session wrapper of every authenticated console route.
+func (s *Server) console() httpapi.Session {
+	return httpapi.Session{Principal: s.sessions.Principal, Limit: func(w http.ResponseWriter, p access.Principal, r *http.Request) error {
 		return s.limiter.LimitRequest(w, r, s.Checker, s.DB, p)
-	}, CSRF: s.sessions.CSRF}.Handle(fn))
+	}, CSRF: s.sessions.CSRF}
+}
+
+func (s *Server) api(pattern string, fn httpapi.Endpoint) {
+	s.mux.HandleFunc(pattern, s.console().Handle(fn))
 }
 
 func (s *Server) Handler() http.Handler {
@@ -60,7 +65,7 @@ func (s *Server) Handler() http.Handler {
 		return e
 	})
 	s.entityRoutes()
-	s.agentRoutes()
+	s.agent.Routes(s.mux, s.console())
 	s.workspaceRoutes()
 	s.releaseRoutes()
 	s.api("GET /v1/roles/catalog", s.roleCatalog)

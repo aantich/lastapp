@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/delivery"
@@ -418,7 +419,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		sameJSON(t, s.DB, detail, "SELECT * FROM entity_definitions WHERE id=?", key)
 	}
 	// The agent inventory summarizes each draft as the untyped read did.
-	drafts, e := registry.ScanAll[agentEntity](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	drafts, e := registry.ScanAll[agent.EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -448,7 +449,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if _, e = s.DB.Exec("INSERT INTO permissions(id,code,domain,description,owner_key,tenant_id,space_id,entity_id,version_id) SELECT ?,'order.read','data','Read orders',CONCAT('e:',id),tenant_id,space_id,id,active_version_id FROM entity_definitions WHERE id=?", registry.NewID(), entityID); e != nil {
 		t.Fatal(e)
 	}
-	permissions, e := registry.ScanAll[agentPermission](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
+	permissions, e := registry.ScanAll[agent.PermissionRecord](ctx, s.DB, "SELECT code,description,entity_id,id,state,version_id FROM permissions WHERE tenant_id=? AND space_id=? AND domain='data' ORDER BY code,id", tenant, reviewSpace)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -544,7 +545,7 @@ func jsonKeys(t reflect.Type) []string {
 // members must therefore be declared in sorted order (snapshot records keep
 // their own documented order and are not Row replacements).
 func TestRegistryRecordKeysAreSorted(t *testing.T) {
-	for _, v := range []any{registry.Plan{}, inventory.Tenant{}, inventory.TenantItem{}, inventory.Space{}, inventory.SpaceItem{}, inventory.App{}, inventory.AppItem{}, inventory.Microapp{}, inventory.MicroappItem{}, membership.Membership{}, membership.Team{}, membership.TeamMember{}, membership.Administrator{}, inventory.User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, entities.EntityDefinition{}, entities.EntityItem{}, entities.PublicationItem{}, entities.Publication{}, agentEntity{}, agentPermission{}, registry.AppRecord{}, registry.Workspace{}, delivery.WorkspaceItem{}, registry.WorkspaceMapping{}, delivery.Deployment{}, delivery.Release{}, delivery.ReleaseItem{}, delivery.Build{}, TenantRef{}, AgentGrantItem{}, stateCount{}, recentDatabase{}, roles.AuditEvent{}} {
+	for _, v := range []any{registry.Plan{}, inventory.Tenant{}, inventory.TenantItem{}, inventory.Space{}, inventory.SpaceItem{}, inventory.App{}, inventory.AppItem{}, inventory.Microapp{}, inventory.MicroappItem{}, membership.Membership{}, membership.Team{}, membership.TeamMember{}, membership.Administrator{}, inventory.User{}, roles.Role{}, roles.RoleItem{}, roles.RolePermission{}, roles.Assignment{}, roles.AssignmentItem{}, roles.Recipient{}, roles.Named{}, access.EffectiveAssignment{}, databases.Target{}, databases.AvailableTarget{}, databases.Database{}, databaseAttention{}, recentApp{}, tenantProfile{}, entities.EntityDefinition{}, entities.EntityItem{}, entities.PublicationItem{}, entities.Publication{}, agent.EntityRecord{}, agent.PermissionRecord{}, registry.AppRecord{}, registry.Workspace{}, delivery.WorkspaceItem{}, registry.WorkspaceMapping{}, delivery.Deployment{}, delivery.Release{}, delivery.ReleaseItem{}, delivery.Build{}, TenantRef{}, agent.GrantItem{}, stateCount{}, recentDatabase{}, roles.AuditEvent{}} {
 		keys := jsonKeys(reflect.TypeOf(v))
 		if len(keys) == 0 || !slices.IsSorted(keys) {
 			t.Errorf("%T JSON members are not in sorted order: %v", v, keys)

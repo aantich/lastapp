@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/delivery"
 	"github.com/aantich/lastapp/internal/entity"
@@ -164,51 +165,51 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	if p.Agent, e = s.ReadAgentGrant(ctx, s.DB, p.Agent.ID); e != nil {
 		t.Fatal(e)
 	}
-	agent := agentFixtureToken(t, s, p)
+	agentToken := agentFixtureToken(t, s, p)
 	other := agentFixtureToken(t, s, sibling("golden-other", "read", "workspaces.write", "workspaces.test", "releases.write"))
 	noDeploy := other
 	key := registry.NewID()
-	create := agentWorkspaceInput{Action: "create", Space: space, Name: "Golden agent workspace", RequestKey: key}
-	aws := rec.mcp(s, agent, "lastapp_workspace create", "lastapp_workspace", create, true)
-	rec.mcp(s, agent, "lastapp_workspace create replay", "lastapp_workspace", create, true)
-	rec.mcp(s, agent, "lastapp_workspace create without space", "lastapp_workspace", agentWorkspaceInput{Action: "create", RequestKey: registry.NewID()}, false)
-	rec.mcp(s, agent, "lastapp_workspace unknown action", "lastapp_workspace", agentWorkspaceInput{Action: "delete", RequestKey: registry.NewID()}, false)
+	create := agent.WorkspaceInput{Action: "create", Space: space, Name: "Golden agent workspace", RequestKey: key}
+	aws := rec.mcp(s, agentToken, "lastapp_workspace create", "lastapp_workspace", create, true)
+	rec.mcp(s, agentToken, "lastapp_workspace create replay", "lastapp_workspace", create, true)
+	rec.mcp(s, agentToken, "lastapp_workspace create without space", "lastapp_workspace", agent.WorkspaceInput{Action: "create", RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_workspace unknown action", "lastapp_workspace", agent.WorkspaceInput{Action: "delete", RequestKey: registry.NewID()}, false)
 	aid := registry.Str(mcpData(aws)["id"])
-	rec.mcp(s, agent, "lastapp_get workspace", "lastapp_get", agentReadInput{Resource: "workspace", ID: aid}, true)
-	rec.mcp(s, other, "lastapp_get workspace sibling", "lastapp_get", agentReadInput{Resource: "workspace", ID: aid}, false)
-	rec.mcp(s, agent, "lastapp_list workspace", "lastapp_list", agentReadInput{Resource: "workspace", Target: &agentTarget{Kind: "space", ID: space}}, true)
-	rec.mcp(s, agent, "lastapp_workspace retry not failed", "lastapp_workspace", agentWorkspaceInput{Action: "retry", Workspace: aid, Revision: 1, RequestKey: registry.NewID()}, false)
-	rec.mcp(s, agent, "lastapp_workspace archive stale", "lastapp_workspace", agentWorkspaceInput{Action: "archive", Workspace: aid, Revision: 9, RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_get workspace", "lastapp_get", agent.ReadInput{Resource: "workspace", ID: aid}, true)
+	rec.mcp(s, other, "lastapp_get workspace sibling", "lastapp_get", agent.ReadInput{Resource: "workspace", ID: aid}, false)
+	rec.mcp(s, agentToken, "lastapp_list workspace", "lastapp_list", agent.ReadInput{Resource: "workspace", Target: &agent.Target{Kind: "space", ID: space}}, true)
+	rec.mcp(s, agentToken, "lastapp_workspace retry not failed", "lastapp_workspace", agent.WorkspaceInput{Action: "retry", Workspace: aid, Revision: 1, RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_workspace archive stale", "lastapp_workspace", agent.WorkspaceInput{Action: "archive", Workspace: aid, Revision: 9, RequestKey: registry.NewID()}, false)
 	ready(mcpData(aws))
 	aapp := devApp(aid)
-	rec.mcp(s, agent, "lastapp_get starter", "lastapp_get", agentReadInput{Resource: "starter", ID: aapp}, true)
+	rec.mcp(s, agentToken, "lastapp_get starter", "lastapp_get", agent.ReadInput{Resource: "starter", ID: aapp}, true)
 	oc.want("PATCH", "/v1/apps/"+aapp+"/data-access", entity.AppAccess{Origin: "http://localhost:5491", Inherit: true}, 1, 200)
 	launch.Origin = "http://localhost:5491"
-	rec.mcp(s, agent, "lastapp_workspace launch", "lastapp_workspace", agentWorkspaceInput{Action: "launch", App: aapp, Launch: &launch, RequestKey: registry.NewID()}, true)
-	rec.mcp(s, other, "lastapp_workspace launch sibling", "lastapp_workspace", agentWorkspaceInput{Action: "launch", App: aapp, Launch: &launch, RequestKey: registry.NewID()}, false)
-	aticket := rec.mcp(s, agent, "lastapp_release upload_ticket", "lastapp_release", agentReleaseInput{Action: "upload_ticket", App: aapp, RequestKey: registry.NewID()}, true)
-	rec.mcp(s, agent, "lastapp_release upload_ticket production", "lastapp_release", agentReleaseInput{Action: "upload_ticket", App: prodApp, RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_workspace launch", "lastapp_workspace", agent.WorkspaceInput{Action: "launch", App: aapp, Launch: &launch, RequestKey: registry.NewID()}, true)
+	rec.mcp(s, other, "lastapp_workspace launch sibling", "lastapp_workspace", agent.WorkspaceInput{Action: "launch", App: aapp, Launch: &launch, RequestKey: registry.NewID()}, false)
+	aticket := rec.mcp(s, agentToken, "lastapp_release upload_ticket", "lastapp_release", agent.ReleaseInput{Action: "upload_ticket", App: aapp, RequestKey: registry.NewID()}, true)
+	rec.mcp(s, agentToken, "lastapp_release upload_ticket production", "lastapp_release", agent.ReleaseInput{Action: "upload_ticket", App: prodApp, RequestKey: registry.NewID()}, false)
 	abuild := upload("POST /artifact/v1/upload agent ticket", registry.Str(mcpData(aticket)["upload_token"]), files, 201)
-	rec.mcp(s, agent, "lastapp_list build", "lastapp_list", agentReadInput{Resource: "build", Target: &agentTarget{Kind: "app", ID: aapp}}, true)
+	rec.mcp(s, agentToken, "lastapp_list build", "lastapp_list", agent.ReadInput{Resource: "build", Target: &agent.Target{Kind: "app", ID: aapp}}, true)
 	acapture := capture
 	acapture.Build = registry.Str(abuild["id"])
-	rec.mcp(s, agent, "lastapp_release capture stale", "lastapp_release", agentReleaseInput{Action: "capture", App: aapp, Capture: &acapture, Revision: 9, RequestKey: registry.NewID()}, false)
-	rec.mcp(s, agent, "lastapp_release capture missing parameters", "lastapp_release", agentReleaseInput{Action: "capture", App: aapp, Revision: 2, RequestKey: registry.NewID()}, false)
-	arel := rec.mcp(s, agent, "lastapp_release capture", "lastapp_release", agentReleaseInput{Action: "capture", App: aapp, Capture: &acapture, Revision: 2, RequestKey: registry.NewID()}, true)
+	rec.mcp(s, agentToken, "lastapp_release capture stale", "lastapp_release", agent.ReleaseInput{Action: "capture", App: aapp, Capture: &acapture, Revision: 9, RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_release capture missing parameters", "lastapp_release", agent.ReleaseInput{Action: "capture", App: aapp, Revision: 2, RequestKey: registry.NewID()}, false)
+	arel := rec.mcp(s, agentToken, "lastapp_release capture", "lastapp_release", agent.ReleaseInput{Action: "capture", App: aapp, Capture: &acapture, Revision: 2, RequestKey: registry.NewID()}, true)
 	arelID := registry.Str(mcpData(arel)["id"])
-	rec.mcp(s, agent, "lastapp_list release", "lastapp_list", agentReadInput{Resource: "release", Target: &agentTarget{Kind: "app", ID: aapp}}, true)
-	rec.mcp(s, agent, "lastapp_get release", "lastapp_get", agentReadInput{Resource: "release", ID: arelID}, true)
-	rec.mcp(s, other, "lastapp_get release sibling", "lastapp_get", agentReadInput{Resource: "release", ID: arelID}, false)
-	rec.mcp(s, agent, "lastapp_release preview", "lastapp_release", agentReleaseInput{Action: "preview", Release: arelID, Revision: 2, RequestKey: registry.NewID()}, true)
+	rec.mcp(s, agentToken, "lastapp_list release", "lastapp_list", agent.ReadInput{Resource: "release", Target: &agent.Target{Kind: "app", ID: aapp}}, true)
+	rec.mcp(s, agentToken, "lastapp_get release", "lastapp_get", agent.ReadInput{Resource: "release", ID: arelID}, true)
+	rec.mcp(s, other, "lastapp_get release sibling", "lastapp_get", agent.ReadInput{Resource: "release", ID: arelID}, false)
+	rec.mcp(s, agentToken, "lastapp_release preview", "lastapp_release", agent.ReleaseInput{Action: "preview", Release: arelID, Revision: 2, RequestKey: registry.NewID()}, true)
 	prod := oc.want("GET", "/v1/tenants/"+tenant+"/apps/"+prodApp, nil, 0, 200)
-	rec.mcp(s, noDeploy, "lastapp_release deploy without production.deploy", "lastapp_release", agentReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]), RequestKey: registry.NewID()}, false)
-	rec.mcp(s, agent, "lastapp_release deploy stale", "lastapp_release", agentReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]) + 9, RequestKey: registry.NewID()}, false)
-	ajob := rec.mcp(s, agent, "lastapp_release deploy", "lastapp_release", agentReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]), RequestKey: registry.NewID()}, true)
-	rec.mcp(s, agent, "lastapp_get deployment queued", "lastapp_get", agentReadInput{Resource: "deployment", ID: registry.Str(mcpData(ajob)["id"])}, true)
-	rec.mcp(s, agent, "lastapp_get app_deployment", "lastapp_get", agentReadInput{Resource: "app_deployment", ID: aapp}, true)
-	rec.mcp(s, agent, "lastapp_get deployment missing", "lastapp_get", agentReadInput{Resource: "deployment", ID: registry.NewID()}, false)
-	aws2 := rec.mcp(s, agent, "lastapp_get workspace before archive", "lastapp_get", agentReadInput{Resource: "workspace", ID: aid}, true)
-	rec.mcp(s, agent, "lastapp_workspace archive", "lastapp_workspace", agentWorkspaceInput{Action: "archive", Workspace: aid, Revision: registry.Integer(mcpData(aws2)["revision"]), RequestKey: registry.NewID()}, true)
+	rec.mcp(s, noDeploy, "lastapp_release deploy without production.deploy", "lastapp_release", agent.ReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]), RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_release deploy stale", "lastapp_release", agent.ReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]) + 9, RequestKey: registry.NewID()}, false)
+	ajob := rec.mcp(s, agentToken, "lastapp_release deploy", "lastapp_release", agent.ReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]), RequestKey: registry.NewID()}, true)
+	rec.mcp(s, agentToken, "lastapp_get deployment queued", "lastapp_get", agent.ReadInput{Resource: "deployment", ID: registry.Str(mcpData(ajob)["id"])}, true)
+	rec.mcp(s, agentToken, "lastapp_get app_deployment", "lastapp_get", agent.ReadInput{Resource: "app_deployment", ID: aapp}, true)
+	rec.mcp(s, agentToken, "lastapp_get deployment missing", "lastapp_get", agent.ReadInput{Resource: "deployment", ID: registry.NewID()}, false)
+	aws2 := rec.mcp(s, agentToken, "lastapp_get workspace before archive", "lastapp_get", agent.ReadInput{Resource: "workspace", ID: aid}, true)
+	rec.mcp(s, agentToken, "lastapp_workspace archive", "lastapp_workspace", agent.WorkspaceInput{Action: "archive", Workspace: aid, Revision: registry.Integer(mcpData(aws2)["revision"]), RequestKey: registry.NewID()}, true)
 	rec.golden("delivery_shapes.golden.txt")
 }
 

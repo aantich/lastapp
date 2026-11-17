@@ -33,7 +33,7 @@ e2e:
 
 .PHONY: mcp-test
 mcp-test:
-	LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/control -run 'TestAgent'
+	LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/agent ./internal/control -run 'TestAgent'
 
 .PHONY: client
 client:

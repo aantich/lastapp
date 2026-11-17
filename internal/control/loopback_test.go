@@ -56,7 +56,9 @@ func TestNoHTTPLoopback(t *testing.T) {
 	}
 	// The HTTP-facing packages below control serve requests themselves; they
 	// must not route anything back through a recorded console handler either.
-	for _, pkg := range []string{"dataapi", "session"} {
+	// The agent package holds the MCP tool adapters, which call operations
+	// directly instead of the former loopback.
+	for _, pkg := range []string{"agent", "dataapi", "session"} {
 		more, e := filepath.Glob(filepath.Join("..", pkg, "*.go"))
 		if e != nil || len(more) == 0 {
 			t.Fatal("HTTP-facing package", pkg, "not found", e)
