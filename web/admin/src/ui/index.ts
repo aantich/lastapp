@@ -49,6 +49,7 @@ export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
 export { useSidebarCollapse, useCommandPaletteShortcut } from "./hooks";
 export { ContextSwitcher, type ContextOption } from "./context-switcher";
 export { CommandPalette, type Command } from "./command-palette";
+export { Menu, type MenuItem } from "./menu";
 export { DataTable, type Column } from "./data-table";
 export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
 
