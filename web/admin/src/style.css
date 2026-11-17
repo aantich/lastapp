@@ -1334,7 +1334,7 @@ td {
   font-size: 12px;
   font-weight: 400;
 }
-.fields input[type="checkbox"] {
+.fields input[type="checkbox"]:not(.ui-checkbox) {
   accent-color: var(--ui-primary);
   width: 15px;
   height: 15px;
@@ -2293,8 +2293,8 @@ summary {
   flex-wrap: wrap;
   gap: 14px;
 }
-.role-check input,
-.role-checks input {
+.role-check input:not(.ui-checkbox),
+.role-checks input:not(.ui-checkbox) {
   width: 15px;
   height: 15px;
   accent-color: var(--ui-primary);

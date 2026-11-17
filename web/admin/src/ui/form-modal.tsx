@@ -6,6 +6,7 @@ import { NumberInput } from "./number-input";
 import { Dialog, DialogFooter } from "./dialog";
 import { Button } from "./button";
 import { Alert } from "./alert";
+import { Checkbox } from "./checkbox";
 import { NewPasswordInput } from "./new-password-input";
 import { generatePassword, usePasswordPolicy } from "../console-config";
 import { useAction } from "../use-action";
@@ -103,11 +104,10 @@ export function FormModal({
                     <p className="hint">{f.hint}</p>
                   ) : f.type === "checkbox" ? (
                     <span className="check-label">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={!!values[f.key]}
-                        onChange={(e) =>
-                          setValues({ ...values, [f.key]: e.target.checked })
+                        onChange={(checked) =>
+                          setValues({ ...values, [f.key]: checked })
                         }
                       />
                       {f.label}
@@ -116,13 +116,12 @@ export function FormModal({
                     <div className="permission-list">
                       {f.options?.map((o) => (
                         <label key={keyOf(o.value)}>
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={listValue(values[f.key]).includes(o.value)}
-                            onChange={(e) =>
+                            onChange={(checked) =>
                               setValues({
                                 ...values,
-                                [f.key]: e.target.checked
+                                [f.key]: checked
                                   ? [...listValue(values[f.key]), o.value]
                                   : listValue(values[f.key]).filter(
                                       (x) => x !== o.value,

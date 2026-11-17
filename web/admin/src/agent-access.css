@@ -102,7 +102,7 @@
 .agent-permission + .agent-permission {
   border-top: 1px solid var(--ui-border);
 }
-.agent-permission input {
+.agent-permission input:not(.ui-checkbox) {
   flex: none;
   width: 16px;
   height: 16px;

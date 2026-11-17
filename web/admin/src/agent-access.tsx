@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
-import { RemoteSelect, Select, NumberInput, Dialog, Alert } from "./ui";
+import {
+  RemoteSelect,
+  Select,
+  NumberInput,
+  Dialog,
+  Alert,
+  Checkbox,
+} from "./ui";
 import { errorMessage, useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 
@@ -194,12 +201,11 @@ function AgentGrantForm({
         </div>
         {permissionList.map((permission) => (
           <label className="agent-permission" key={permission.code}>
-            <input
-              type="checkbox"
+            <Checkbox
               checked={values.permissions.includes(permission.code)}
-              onChange={(e) =>
+              onChange={(checked) =>
                 permissions(
-                  e.target.checked
+                  checked
                     ? [...values.permissions, permission.code]
                     : values.permissions.filter((p) => p !== permission.code),
                 )
