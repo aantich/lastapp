@@ -1,5 +1,47 @@
 # Lastapp verification
 
+## Workspaces, releases and deployments extracted from control (P3) — 17 November 2026
+
+- Pure move, no behaviour change: workspaces and snapshots, workspace
+  preparation, build upload tickets and storage, releases, preview, deployment
+  queueing and the deployment steps, starters, development launch codes and the
+  development policy are `delivery.Service` (`internal/delivery`). `Open` wires
+  it with the registry DB, `op.Runner`, `access.Checker`, config,
+  `databases.Storage`, `publisher.Publisher`, the registry name and the shared
+  warning logger. Console handlers, the upload endpoint (rate limit, slots,
+  bearer/origin checks, body decoding), `serveAppHost` and the worker leader loop
+  (`GET_LOCK`, step order) stay in control and call the same operations as the
+  MCP tools; the upload was split into `AuthorizeUpload` (before the body is
+  read) and `StoreBuild`, and static serving into `HostedApp`, `ReleaseEntry`
+  and `HostedFile`, preserving the original check order.
+- Publisher cycle: the publisher stays below delivery and receives
+  `delivery.Service.PublishingDeploymentAuthority` and
+  `delivery.DeploymentEntities`; delivery then receives the publisher. Entity
+  authoring's `Queue` is `delivery.Service.QueueDefinition`.
+- `LaunchLifetime` moved to `registry.LaunchLifetime` (shared by dataapi console
+  launches and delivery development launches).
+- Layering: `delivery` is layer 96 (below dataapi, above publisher), not a
+  transport package; it imports neither `net/http` nor `httpapi`, and
+  `TestNoHTTPLoopback` now scans it as an operation package.
+- `internal/delivery` has its own tests: database-free (snapshot remapping,
+  contract hashes, deployment plans, pinned versions, starter pins, policy,
+  hosted origins, artifact directory) and a disposable registry built from the
+  migrations (deployment candidate entities and publishing recheck state,
+  production App quota, capture readiness). HTTP/MCP flows and goldens stay in
+  control.
+- `internal/control` production code: 8,019 → 5,959 lines
+  (`internal/delivery` production: 2,194).
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 193.3 s, delivery 5.0 s); the six goldens with `-count=2` **PASS** and
+`internal/control/testdata` is unchanged since the P2 commit; targeted
+`TestDevelopmentWorkspaceReleaseFlow`, `TestRelease*` (including the concurrent
+preview test) and `TestAgentDevelopmentIsolation` **PASS**;
+`python3 design/validate_schema.py --check`, `python3 scripts/verify_driver.py`
+and `git diff --check` **PASS**; `make e2e` **PASS** (34 browser tests on the
+disposable stack).
+
 ## App data API extracted from control (P2) — 17 November 2026
 
 - Pure move, no behaviour change: `/data/v1` dispatch, actor/definition

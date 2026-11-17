@@ -160,7 +160,7 @@ Tickets are hashed, scoped, short-lived and checked against current authority;
 identical retries return the existing build, changed-content replay fails.
 
 Current limits are owned by `internal/artifact/store.go` and
-`internal/registry/policy.go` (served by `internal/control/development_policy.go`), exposed by `/v1/config` and MCP context. Builds and releases are capped per development App;
+`internal/registry/policy.go` (served by `delivery.Policy` in `internal/delivery/policy.go`), exposed by `/v1/config` and MCP context. Builds and releases are capped per development App;
 workspaces are capped per author/source Space. Archive stops development access
 and previews while retaining storage and deployed releases. Automatic storage
 reclamation is not implemented. Static bundles are public files: secrets and
@@ -173,19 +173,33 @@ build farm, arbitrary Node runtime or automatic release rollback.
 
 ## Source map and checks
 
-- `development_workspaces.go`, `workspace_snapshot.go`: ownership, copying,
-  identity mapping and shared publication capture.
-- `development_sessions.go`, `internal/dataapi/sessions.go`: development and
+The operations are in `internal/delivery` (`delivery.Service`, wired in
+`control.Open`); console handlers, the upload endpoint, the App host server and
+the worker leader loop stay thin in `internal/control` and call them, as the MCP
+tools do. `internal/delivery` does not import `net/http`.
+
+- `internal/delivery/workspaces.go`, `snapshot.go`: ownership, copying,
+  identity mapping, workspace preparation (`WorkspaceJob`) and the shared
+  publication capture (`QueueDefinition`, also used by entity authoring).
+- `internal/delivery/sessions.go`, `internal/dataapi/sessions.go`: development and
   console launch codes, console/delegation parent checks, PKCE and live
   App-session revocation; `packages/client/src/index.ts`: SDK.
-- `artifacts.go`, `internal/artifact`: tickets, bounded immutable storage and
-  isolated host routing.
-- `releases.go`, `deployment_worker.go`: captured plans, concurrency fences and
-  durable preparation/activation.
-- `agent_development.go`: two typed MCP operation tools. Ordinary list/get/context
+- `internal/delivery/artifacts.go`, `internal/artifact`: tickets, upload
+  authorization and storage, hosted build lookup; `internal/control/artifacts.go`:
+  the upload request limits/decoding and isolated host routing.
+- `internal/delivery/releases.go`, `deployments.go`: captured plans, concurrency
+  fences and durable preparation/activation (`DeploymentJob`, one step per
+  leader-loop pass in `internal/control/worker.go`).
+- `internal/control/agent_development.go`: two typed MCP operation tools. Ordinary list/get/context
   expose workspaces, builds, releases, deployment status and local starter files.
 - `packages/starter`: authoritative starter templates; `web/admin` supplies the
   console workspace/release screens and tested package versions.
+
+`go test ./internal/delivery` runs database-free tests of snapshot remapping,
+contract hashes, pinned versions and hosted origins, and (with
+`LASTAPP_TEST_CONFIG`) disposable-registry tests of deployment candidates, the
+production App quota and capture readiness. The HTTP/MCP flows below are
+black-box tests in `internal/control`.
 
 Tests include isolated record storage, compatible production schema changes,
 file confinement/replay, cross-agent authorization, development-only grants,
