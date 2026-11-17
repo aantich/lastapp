@@ -1,6 +1,37 @@
-// The console UI library: the only source of shared console controls. Screens
-// import from here and style themselves with the Signal tokens (themes.css);
-// stories live in src/ui/controls (`npm run storybook`).
+// The console UI kit: the only source of shared console UI. Screens are built
+// from these components and the Signal tokens (themes.css, styles in
+// ui/kit.css); stories live in src/ui/controls (`npm run storybook`).
+
+// Primitives
+export {
+  Button,
+  IconButton,
+  type ButtonProps,
+  type ButtonVariant,
+  type IconButtonProps,
+} from "./button";
+export { StatusBadge, Badge } from "./status";
+export { statusTone, type Tone } from "./status-tone";
+export { cx, initials } from "./utils";
+export {
+  Card,
+  CardHeader,
+  CardBody,
+  CardFooter,
+  StatCard,
+  StatGrid,
+  AttentionCard,
+  AttentionGrid,
+} from "./card";
+export { PageHeader, Breadcrumbs, type Crumb } from "./page-header";
+export { Tabs, type TabItem } from "./tabs";
+export { EmptyState } from "./empty-state";
+export { Alert, InlineError, type AlertTone } from "./alert";
+export { Avatar, type AvatarKind } from "./avatar";
+export { Tooltip } from "./tooltip";
+export { Spinner, Skeleton, Kbd } from "./feedback";
+
+// Form controls
 export { Select, ListboxPopup, type ListOption } from "./select";
 export { RemoteSelect } from "./remote-select";
 export { NumberInput } from "./number-input";
