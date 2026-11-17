@@ -1,5 +1,54 @@
 # Lastapp verification
 
+## Non-blocking worker: Tenant fairness, step isolation, concurrent steps — 17 November 2026
+
+Intended behaviour change (one leader, one `GET_LOCK`, recovery at term start
+unchanged):
+
+- Tenant fairness: `DeploymentJob`/`WorkspaceJob` take the oldest unfinished job
+  of the first Tenant after a cursor and report whether it progressed;
+  `worker.Fair` round-robins Tenants and skips a Tenant whose head job waits
+  (deployment on publications, workspace on storage or publications), so a
+  stalled Tenant no longer idles the whole queue. Within a Tenant, jobs keep
+  strict creation order (`created_at`, then `id`).
+- Error isolation: a step error is logged as `worker step failed` with the step
+  name and backs off 1 s doubling to 60 s; other steps keep running and
+  leadership is kept. Leadership ends only when the lock connection breaks or
+  the lock is lost (1 s heartbeat) or on shutdown (`worker leader disconnected`).
+  Deadlock 1213 / lock wait timeout 1205 (`op.Transient`) is retried after
+  100 ms and no longer fails a deployment, workspace or publication.
+- No cross-kind blocking: each step runs in its own goroutine with a pooled
+  registry connection per run (never the lock connection); the term cancels and
+  waits for all of them before releasing the lock. Publication now reports busy
+  when it ran a job, so queued publications run back to back.
+- Goldens unchanged (`git status internal/control/testdata` clean after the
+  golden runs; no `-update-golden`).
+
+Regression tests and their result on the P4 code (`0e6aefb`, test files copied
+into a detached worktree unchanged):
+
+- (a) `TestWorkerTenantFairness` (`internal/control`, real leader and steps):
+  P4 **FAIL** — "Tenant B blocked behind Tenant A: deployment queued, workspace
+  preparing" after 15 s; now **PASS** (~1 s). `TestFairSkipsWaitingTenants`
+  (database-free) covers pass order, the all-waiting pass and a failing Tenant.
+- (b) `TestLeaderIsolatesStepErrors`: P4 **FAIL** (lock released after the step
+  error); now **PASS**.
+- (c) `TestLeaderSlowStepDoesNotDelayOthers`: P4 **FAIL** ("fast step ran 0
+  times while the slow step held its run"); now **PASS**.
+- (d, e) `TestLeaderTermLifecycle` (kill the lock connection while a step is
+  blocked; recovery once per term before steps; no term-1 run after term 2's
+  recovery; nothing runs after stop): P4 **FAIL** (the blocked step never
+  yields, so the sequential leader never completes a round); now **PASS** under
+  `-race`. The existing control test that kills the leader connection during
+  provisioning still recovers the resource to `ready`.
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 219.3 s, worker 8.8 s); `go test -count=2 -run Golden ./internal/control`
+**PASS**; `make mcp-test` **PASS**; `make e2e` **PASS** (34 tests, run after the
+race suite); `python3 design/validate_schema.py --check`,
+`python3 scripts/verify_driver.py` and `git diff --check` **PASS**.
+
 ## Worker leader and steps extracted from control (P4) — 17 November 2026
 
 - Pure move, no behaviour change: the background leader is `worker.Leader`

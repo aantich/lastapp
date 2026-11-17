@@ -188,8 +188,10 @@ tools do. `internal/delivery` does not import `net/http`.
   authorization and storage, hosted build lookup; `internal/control/artifacts.go`:
   the upload request limits/decoding and isolated host routing.
 - `internal/delivery/releases.go`, `deployments.go`: captured plans, concurrency
-  fences and durable preparation/activation (`DeploymentJob`, one step per
-  leader-loop pass of `internal/worker`).
+  fences and durable preparation/activation (`DeploymentJob`, run by the
+  deployments loop of `internal/worker`: Tenants take turns, a Tenant whose
+  oldest deployment is waiting for its publications is skipped, and each
+  Tenant's deployments apply strictly in the order they were queued).
 - `internal/agent/development.go`: two typed MCP operation tools. Ordinary list/get/context
   expose workspaces, builds, releases, deployment status and local starter files.
 - `packages/starter`: authoritative starter templates; `web/admin` supplies the
