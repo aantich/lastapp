@@ -323,7 +323,7 @@ func TestAgentManagementMCP(t *testing.T) {
 				}
 				continue
 			}
-			if generatedRE.MatchString(name) && comment == "lastapp:"+registry.Str(r["id"])+":"+registry.Str(r["ownership_hex"]) {
+			if databases.GeneratedName.MatchString(name) && comment == "lastapp:"+registry.Str(r["id"])+":"+registry.Str(r["ownership_hex"]) {
 				if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
 					t.Error("managed database cleanup failed", err)
 				}

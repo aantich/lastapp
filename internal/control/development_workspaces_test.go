@@ -63,10 +63,10 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		for _, v := range rs {
 			var cr databases.Credentials
 			_ = s.sealer.Unseal("database", registry.Str(v["id"]), tenant, []byte(registry.Str(v["runtime_credentials_enc"])), &cr)
-			if generatedRE.MatchString(registry.Str(v["database_name"])) {
+			if databases.GeneratedName.MatchString(registry.Str(v["database_name"])) {
 				_, _ = s.DB.Exec("DROP DATABASE `" + registry.Str(v["database_name"]) + "`")
 			}
-			if generatedRE.MatchString(cr.Username) {
+			if databases.GeneratedName.MatchString(cr.Username) {
 				_, _ = s.DB.Exec("DROP USER IF EXISTS '" + cr.Username + "'@'" + cr.AccountHost + "'")
 			}
 		}
@@ -79,7 +79,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	}
 	provision := func(resource string) {
 		t.Helper()
-		if e := s.provision(ctx, resource); e != nil {
+		if e := s.provisioner.Provision(ctx, resource); e != nil {
 			t.Fatal(e)
 		}
 		if _, e := s.DB.Exec("UPDATE database_resources SET state='ready' WHERE id=?", resource); e != nil {

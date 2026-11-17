@@ -36,6 +36,7 @@ import (
 	"github.com/aantich/lastapp/internal/roles"
 	"github.com/aantich/lastapp/internal/sealer"
 	"github.com/aantich/lastapp/internal/session"
+	"github.com/aantich/lastapp/internal/worker"
 )
 
 //go:embed migrations/*.sql
@@ -49,7 +50,6 @@ type Server struct {
 	DB             *sql.DB
 	Config         config.Config
 	sealer         *sealer.Sealer
-	registryName   string
 	mux            *http.ServeMux
 	Log            *slog.Logger
 	run            *op.Runner
@@ -58,6 +58,8 @@ type Server struct {
 	sessions       *session.Manager
 	authority      *roles.Authority
 	storage        *databases.Storage
+	provisioner    *databases.Provisioner
+	worker         *worker.Leader
 	authoring      *entities.Authoring
 	publisher      *publisher.Publisher
 	dataAPI        *dataapi.Runtime
@@ -152,19 +154,29 @@ func Open(c config.Config) (*Server, error) {
 		db.Close()
 		return nil, fmt.Errorf("registry connection failed: %w", e)
 	}
-	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, registryName: cfg.DBName, Log: slog.Default(), mux: http.NewServeMux(), trustedProxies: proxies}
+	s := &Server{uploadSlots: make(chan struct{}, 2), DB: db, Config: c, sealer: seal, Log: slog.Default(), mux: http.NewServeMux(), trustedProxies: proxies}
 	s.Checker = &access.Checker{Audience: s.mcpURL()}
 	s.run = &op.Runner{DB: db, Access: s.Checker}
 	warn := func(ctx context.Context, msg string, err error, attrs ...any) {
 		httpapi.Logger(ctx, s.Log).Warn(msg, append(attrs, httpapi.Diagnostic(err)...)...)
 	}
 	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.sealer.Seal, Config: &s.Config, RegistryName: cfg.DBName}
+	s.provisioner = &databases.Provisioner{DB: db, Access: s.Checker, Sealer: seal, Connect: s.targetDB, Warn: warn}
 	// The publisher sits below delivery: it rechecks a publishing deployment's
 	// authority and captured entities through delivery's functions, and
 	// delivery then receives the publisher it activates entity versions with.
 	s.delivery = &delivery.Service{DB: db, Run: s.run, Access: s.Checker, Config: &s.Config, Storage: s.storage, RegistryName: cfg.DBName, Warn: warn}
 	s.publisher = &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: cfg.DBName, Connect: s.targetDB, DeploymentAuthority: s.delivery.PublishingDeploymentAuthority, DeploymentEntities: delivery.DeploymentEntities, Warn: warn}
 	s.delivery.Publisher = s.publisher
+	// One leader per registry runs the queues in this fixed order on its pinned
+	// connection.
+	s.worker = &worker.Leader{DB: db, Lock: "lastapp:" + cfg.DBName, Warn: warn, Steps: []worker.Step{
+		&worker.Cleanup{},
+		worker.Job{Label: "deployments", Do: s.delivery.DeploymentJob},
+		worker.Job{Label: "workspaces", Do: s.delivery.WorkspaceJob},
+		&worker.Publication{Job: s.publisher.Job},
+		s.provisioner,
+	}}
 	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.delivery.QueueDefinition}
 	// One PBKDF2 work pool bounds password login, password change and every
 	// account-creation path.

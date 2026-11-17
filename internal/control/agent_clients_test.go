@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -140,13 +141,13 @@ func TestAgentAutomaticConnection(t *testing.T) {
 	if info["scopes"] != "read" {
 		t.Fatal("explicit client scope restriction was ignored")
 	}
-	if _, e = s.DB.Exec("UPDATE agent_oauth_clients SET last_used_at=?,created_at=?", time.Now().UTC().Add(-agent.ClientIdleLifetime-time.Hour), time.Now().UTC().Add(-agent.ClientIdleLifetime-time.Hour)); e != nil {
+	if _, e = s.DB.Exec("UPDATE agent_oauth_clients SET last_used_at=?,created_at=?", time.Now().UTC().Add(-access.ClientIdleLifetime-time.Hour), time.Now().UTC().Add(-access.ClientIdleLifetime-time.Hour)); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.DB.Exec("UPDATE agent_oauth_requests SET expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 MINUTE) WHERE client_id=?", limited["client_id"]); e != nil {
 		t.Fatal(e)
 	}
-	if e = agent.CleanupClients(context.Background(), s.DB); e != nil {
+	if e = access.CleanupClients(context.Background(), s.DB); e != nil {
 		t.Fatal(e)
 	}
 	var count int

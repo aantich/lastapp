@@ -340,7 +340,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": recovery, "target_id": target, "management_mode": "managed", "layout": "dedicated"}, 0, 202)
 	c.waitDB(tenant, recovery, "provisioning")
 	var leader uint64
-	if e = adminServer.DB.QueryRow("SELECT IS_USED_LOCK(?)", "lastapp:"+s.registryName).Scan(&leader); e != nil {
+	if e = adminServer.DB.QueryRow("SELECT IS_USED_LOCK(?)", s.worker.Lock).Scan(&leader); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = adminServer.DB.Exec("KILL CONNECTION " + registry.Str(leader)); e != nil {

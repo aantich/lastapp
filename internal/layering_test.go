@@ -13,11 +13,12 @@ const module = "github.com/aantich/lastapp/"
 
 // layers is the documented dependency direction (DEVELOPMENT.md, package
 // layout): an internal package may import only internal packages of a strictly
-// lower layer. control → agent → session → dataapi → delivery → publisher → entities → inventory → membership → roles → databases
+// lower layer. control → worker → agent → session → dataapi → delivery → publisher → entities → inventory → membership → roles → databases
 // → op → access → registry, with config, sealer and the entity/data/authz/
 // artifact leaves below them. A new internal package must be placed here.
 var layers = map[string]int{
-	"control":    100,
+	"control":    110,
+	"worker":     100,
 	"agent":      99,
 	"session":    98,
 	"dataapi":    97,
