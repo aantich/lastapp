@@ -27,6 +27,8 @@ export { PageHeader, Breadcrumbs, type Crumb } from "./page-header";
 export { Tabs, type TabItem } from "./tabs";
 export { EmptyState } from "./empty-state";
 export { Alert, InlineError, type AlertTone } from "./alert";
+export { Checkbox, Switch, RadioGroup, type RadioOption } from "./checkbox";
+export { FormField, TextField, Textarea } from "./field";
 export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
