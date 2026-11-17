@@ -276,12 +276,12 @@ func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *strin
 		return registry.Conflict("Entity storage is busy; retry shortly.")
 	}
 	defer data.ReleasePinnedLock(conn, lock)
-	marker := "lastapp:" + entity.Hash(s.RegistryName)[:16]
+	marker := data.OwnershipMarker(s.RegistryName)
 	if e = s.ensureSupport(ctx, conn, marker); e != nil {
 		return e
 	}
 	table := strings.Trim(data.Table(entityID), "`")
-	tableMarker := marker + ":" + entityID
+	tableMarker := data.TableMarker(s.RegistryName, entityID)
 	var comment string
 	e = conn.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", table).Scan(&comment)
 	exists := e == nil

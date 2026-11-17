@@ -34,6 +34,15 @@ func Type(f entity.Field) string {
 	}
 }
 
+// OwnershipMarker is the table comment that marks business storage (support
+// tables) as owned by the control plane of registry database registryName.
+func OwnershipMarker(registryName string) string {
+	return "lastapp:" + entity.Hash(registryName)[:16]
+}
+
+// TableMarker is the ownership comment of entity id's records table.
+func TableMarker(registryName, id string) string { return OwnershipMarker(registryName) + ":" + id }
+
 func CreateSQL(id, marker string, d entity.Definition) string { return createSQL(id, marker, d, true) }
 
 // SkeletonSQL prepares an empty batch before cyclic foreign keys can be installed.

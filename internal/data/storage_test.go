@@ -19,6 +19,17 @@ func (testConnector) Driver() driver.Driver { return testDriver{} }
 type testDriver struct{}
 
 func (testDriver) Open(string) (driver.Conn, error) { return nil, fmt.Errorf("Not used") }
+
+// Existing business tables carry these comments; the format must not drift.
+func TestOwnershipMarkerFormat(t *testing.T) {
+	if got := OwnershipMarker("lastapp"); got != "lastapp:6fbf465f1fd1579b" {
+		t.Fatal("support-table marker changed", got)
+	}
+	if got := TableMarker("lastapp", "e1"); got != "lastapp:6fbf465f1fd1579b:e1" {
+		t.Fatal("entity-table marker changed", got)
+	}
+}
+
 func TestSlowOpenDoesNotBlockAnotherResource(t *testing.T) {
 	var p Pools
 	defer p.Close()
