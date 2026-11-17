@@ -1,5 +1,54 @@
 # Lastapp verification
 
+## Console UI kit — 18 November 2026
+
+- `web/admin/src/ui` is the complete kit: the shared controls moved there
+  (one barrel, no re-exports at old paths) and 27 components were added
+  (primitives, Dialog, toasts, form controls, Stepper/Timeline, sidebar parts,
+  ContextSwitcher, CommandPalette, DataTable, RoleMatrix). Storybook builds 78
+  stories. Light status text colors now differ in lightness (L* 27/36/45 for
+  danger/success/warning, ≥ 4.5:1 on their soft background, the surface and the
+  canvas); StatusBadge adds a different mark shape per tone.
+- Swaps in the console: all 25 hand-written error banners render through
+  Alert; FormModal, ConfirmDialog, the agent access editor and the entity
+  designer's editors (formerly a native `<dialog>`) are Dialog wrappers;
+  Collection draws through DataTable; the state badges use StatusBadge; the
+  form, people, platform-admin and agent permission checkboxes are the kit
+  Checkbox; ConsoleShell's navigation is SidebarNav with a remembered collapse
+  (rail only on desktop); the Toaster is mounted at the root.
+- The first full `make e2e` run failed 1/35: closing an entity editor no longer
+  returned focus to "Edit Website", because the editor's autofocused field took
+  focus before `useDialogFocus` recorded the opener (the native `<dialog>` had
+  hidden that). The hook now falls back to the element focused at first render;
+  the rerun passed.
+
+Executed checks:
+
+- `npm run lint`, `npm run typecheck`, `npm run build`, `npm run build-storybook`
+  (output deleted), `make lint` (0 issues), `python3 design/validate_schema.py
+  --check`, `python3 scripts/verify_driver.py`, `git diff --check` **PASS**.
+- `make e2e` **35/35 passed** (load average 10–12) after the focus fix; the
+  entity, confirm-dialog and appearance specs also passed 7/7 on their own.
+- A temporary Playwright probe of the static Storybook build ran every story at
+  1440×900 and 390×844 in light and dark (312 runs) with axe-core (WCAG 2.0/2.1
+  A/AA and best-practice rules): no horizontal overflow, no page errors and no
+  color-contrast violation. Two findings remain. The shell's account menu
+  `summary` is named "Account menu" while it shows the user's name (axe
+  `label-content-name-mismatch`, desktop only). That markup predates the kit and
+  the e2e helpers select it by that exact label, so it is left for the shell
+  rewrite. The other is the first-load `favicon.ico` 404 of the probe's static
+  server.
+- Keyboard probe on the stories: Tabs (←/→ select with wrap and disabled tabs
+  skipped, Home/End, roving tabindex, manual activation on Enter); Dialog
+  (focus inside, Tab/Shift+Tab trapped, Escape closes and returns focus, busy
+  dialog ignores Escape); CommandPalette (Ctrl+K opens, filter, ↓ skips
+  disabled, Enter runs and closes, Escape closes); Checkbox (Space toggles,
+  17×17 px, parent indeterminate then checked); Switch (Space/Enter);
+  RadioGroup (arrows select); ContextSwitcher (↓ opens with the filter
+  focused, typing filters, Enter chooses, focus returns, Escape closes);
+  sidebar (collapse → 68 px rail, persisted across reload, rail items named,
+  tooltip on keyboard focus, expand).
+
 ## Signal theme, local Storybook and UI library foundations — 18 November 2026
 
 - Signal ("Ink & Signal") replaces the Neo, Studio and Evergreen presets as the
