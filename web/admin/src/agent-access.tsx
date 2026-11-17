@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Bot, X } from "lucide-react";
 import { api } from "./api";
-import { RemoteSelect, Select, NumberInput, useDialogFocus, Alert } from "./ui";
+import { RemoteSelect, Select, NumberInput, Dialog, Alert } from "./ui";
 import { errorMessage, useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 
@@ -426,50 +426,36 @@ function AgentGrantDialog({
   close: () => void;
   done: () => void;
 }) {
-  const ref = useDialogFocus(close);
   return (
-    <div className="overlay">
-      <section
-        className="modal agent-edit-modal"
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="agent-dialog-title"
-      >
-        <header>
-          <div>
-            <h2 id="agent-dialog-title">Agent access</h2>
-            <p>{grant.client_name}</p>
-          </div>
-          <button
-            className="icon"
-            aria-label="Close agent access"
-            onClick={close}
-          >
-            <X />
-          </button>
-        </header>
-        <div className="modal-body">
-          <AgentGrantForm
-            config={config}
-            me={me}
-            initial={initialGrant(config, me, grant)}
-            locked
-            submit={async (values) => {
-              await api(
-                `/v1/agent-access/${grant.id}`,
-                "PATCH",
-                values,
-                grant.revision,
-              );
-              done();
-            }}
-            cancel={close}
-            label="Save access"
-          />
-        </div>
-      </section>
-    </div>
+    <Dialog
+      title="Agent access"
+      description={grant.client_name}
+      titleId="agent-dialog-title"
+      closeLabel="Close agent access"
+      className="agent-edit-modal"
+      closeOnBackdrop={false}
+      onClose={close}
+    >
+      <div className="modal-body">
+        <AgentGrantForm
+          config={config}
+          me={me}
+          initial={initialGrant(config, me, grant)}
+          locked
+          submit={async (values) => {
+            await api(
+              `/v1/agent-access/${grant.id}`,
+              "PATCH",
+              values,
+              grant.revision,
+            );
+            done();
+          }}
+          cancel={close}
+          label="Save access"
+        />
+      </div>
+    </Dialog>
   );
 }
 export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {

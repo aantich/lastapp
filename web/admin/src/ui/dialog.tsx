@@ -19,6 +19,7 @@ export function Dialog({
   size = "md",
   closeLabel = "Close dialog",
   dismissable = true,
+  closeOnBackdrop = true,
   className,
   titleId,
   describedBy,
@@ -34,6 +35,8 @@ export function Dialog({
   size?: "sm" | "md" | "lg";
   closeLabel?: string;
   dismissable?: boolean;
+  // A long form may prefer that a stray press outside keeps it open.
+  closeOnBackdrop?: boolean;
   className?: string;
   // Fixed ids for screens/tests that reference them; generated otherwise.
   titleId?: string;
@@ -50,7 +53,7 @@ export function Dialog({
     <div
       className="overlay"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) close();
+        if (closeOnBackdrop && e.target === e.currentTarget) close();
       }}
     >
       <section

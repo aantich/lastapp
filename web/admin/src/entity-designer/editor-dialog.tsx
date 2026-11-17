@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Pencil, Trash2, X } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
+import { Dialog } from "../ui";
 
 // A row in the designer's field, access and rule lists.
 export function EntityRow({
@@ -41,6 +41,7 @@ export function EntityRow({
     </article>
   );
 }
+// The designer's field, access, rule and review editors: the kit Dialog.
 export function EditorDialog({
   title,
   close,
@@ -50,33 +51,15 @@ export function EditorDialog({
   close: () => void;
   children: React.ReactNode;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const active = document.activeElement as HTMLElement,
-      dialog = ref.current;
-    dialog?.showModal();
-    return () => {
-      dialog?.close();
-      active?.focus();
-    };
-  }, []);
   return (
-    <dialog
-      ref={ref}
-      className="modal entity-dialog"
-      aria-label={title}
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
-      }}
+    <Dialog
+      title={title}
+      onClose={close}
+      closeLabel="Close editor"
+      className="entity-dialog"
+      closeOnBackdrop={false}
     >
-      <header>
-        <h2>{title}</h2>
-        <button className="icon" aria-label="Close editor" onClick={close}>
-          <X size={18} />
-        </button>
-      </header>
       <div className="entity-dialog-body">{children}</div>
-    </dialog>
+    </Dialog>
   );
 }

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { X } from "lucide-react";
-import { useDialogFocus } from "./use-dialog-focus";
+import { Button } from "./button";
+import { Dialog } from "./dialog";
 import {
   pendingConfirm,
   subscribeConfirm,
@@ -15,56 +15,34 @@ export function ConfirmDialog({
   danger,
   onResult,
 }: ConfirmOptions & { onResult: (confirmed: boolean) => void }) {
-  const ref = useDialogFocus(() => onResult(false));
   return (
-    <div
-      className="overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onResult(false);
-      }}
-    >
-      <section
-        ref={ref}
-        className="modal confirm-modal"
-        tabIndex={-1}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-title"
-        aria-describedby={message ? "confirm-message" : undefined}
-      >
-        <header>
-          <div>
-            <h2 id="confirm-title">{title}</h2>
-            {message && <p id="confirm-message">{message}</p>}
-          </div>
-          <button
-            className="icon"
-            aria-label="Close dialog"
-            onClick={() => onResult(false)}
-          >
-            <X size={19} />
-          </button>
-        </header>
-        <footer>
-          <button
-            type="button"
-            className="secondary"
+    <Dialog
+      role="alertdialog"
+      size="sm"
+      className="confirm-modal"
+      title={title}
+      description={message}
+      titleId="confirm-title"
+      describedBy="confirm-message"
+      onClose={() => onResult(false)}
+      footer={
+        <>
+          <Button
             data-autofocus={danger || undefined}
             onClick={() => onResult(false)}
           >
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            className={danger ? "secondary danger" : "primary"}
+          </Button>
+          <Button
+            variant={danger ? "danger" : "primary"}
             data-autofocus={!danger || undefined}
             onClick={() => onResult(true)}
           >
             {confirmLabel}
-          </button>
-        </footer>
-      </section>
-    </div>
+          </Button>
+        </>
+      }
+    />
   );
 }
 
