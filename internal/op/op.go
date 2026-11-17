@@ -76,7 +76,7 @@ type Error struct {
 	Retryable          bool
 	// Authority carries the missing delegated scopes of needs_authorization.
 	Authority *access.AgentAuthorityError
-	// Unmapped marks an unexpected failure: log diagnostic() server-side and
+	// Unmapped marks an unexpected failure: log httpapi.Diagnostic server-side and
 	// never return its details.
 	Unmapped bool
 }

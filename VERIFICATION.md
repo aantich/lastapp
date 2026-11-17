@@ -1,5 +1,33 @@
 # Lastapp verification
 
+## Shared-helper extraction before the control split (P0b) — 17 November 2026
+
+- Pure moves, no behaviour change: `internal/httpapi` now holds the HTTP
+  plumbing every surface shares (decode/send/reply, `WriteError` over
+  `op.Classify`, the console `Session` wrapper, page shims, request logging and
+  `Diagnostic`, `Limiter`, trusted-proxy `ClientIP`, `AllowedOrigin`,
+  `CookieName`); `internal/sealer` holds credential sealing as a `Sealer` built
+  in `Open` from the same key and key ID (same envelope; a fixed vector sealed by
+  the previous code is decrypted in `TestDecryptsFixedVector`); the App row read
+  is `inventory.AppRow` (also used by `entities`); the entity actor context is
+  `entities.Authoring.ActorContext`, removing its injected func. Unit tests of
+  the moved helpers moved with them.
+- `TestPackageLayering` (`internal/layering_test.go`) runs `go list` and fails
+  on any import against the documented direction, naming the import; checked to
+  fail on a deliberately added upward import.
+- Console: `Item` is `Record<string, unknown>` with narrowing at use sites and
+  named release/agent-access shapes; the last inline ESLint disable is gone.
+  Narrowing differs only for values the backend never sends (documented in the
+  commit review: e.g. a missing `created_at` or a string revision).
+- `internal/control` production code: 10,825 → 10,265 lines.
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 196.6 s); the six goldens with `-count=2` **PASS** and
+`internal/control/testdata` is unchanged since the P0a commit; `npm run lint`,
+`npm run typecheck`, `npm run build` in `web/admin` **PASS**; `make e2e`
+**PASS** (34 browser tests on the disposable stack).
+
 ## Behaviour-pinning goldens before the control split (P0a) — 17 November 2026
 
 - Tests only; no production code changed. The response-shape recorder gained
