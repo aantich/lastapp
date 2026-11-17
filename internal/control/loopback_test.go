@@ -54,11 +54,24 @@ func TestNoHTTPLoopback(t *testing.T) {
 			}
 		}
 	}
-	more, e := filepath.Glob(filepath.Join("..", "dataapi", "*.go"))
-	if e != nil || len(more) == 0 {
-		t.Fatal("data API package not found", e)
+	// The HTTP-facing packages below control serve requests themselves; they
+	// must not route anything back through a recorded console handler either.
+	for _, pkg := range []string{"dataapi", "session"} {
+		more, e := filepath.Glob(filepath.Join("..", pkg, "*.go"))
+		if e != nil || len(more) == 0 {
+			t.Fatal("HTTP-facing package", pkg, "not found", e)
+		}
+		for _, file := range more {
+			b, e := os.ReadFile(file)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if strings.Contains(string(b), `"github.com/aantich/lastapp/internal/control"`) {
+				t.Fatalf("%s imports internal/control; HTTP-facing packages sit below it", file)
+			}
+		}
+		files = append(files, more...)
 	}
-	files = append(files, more...)
 	for _, file := range files {
 		if file == "loopback_test.go" {
 			continue

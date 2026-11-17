@@ -3,6 +3,7 @@ package membership
 import (
 	"context"
 	"crypto/pbkdf2"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
@@ -45,7 +46,58 @@ type PreparedAccount struct {
 	Hash, Salt  []byte
 }
 
-// Deadline renews the request deadline after prepareAccount derived a
+// Passwords bounds concurrent PBKDF2 work. Password login, password change and
+// account preparation share one pool, so derivations cannot exhaust the CPU;
+// a full pool rejects new work instead of queueing it.
+type Passwords struct{ slots chan struct{} }
+
+// NewPasswords returns a pool admitting n concurrent derivations.
+func NewPasswords(n int) *Passwords { return &Passwords{slots: make(chan struct{}, n)} }
+
+// Work reserves one derivation slot; the returned function releases it.
+func (p *Passwords) Work() (func(), error) {
+	select {
+	case p.slots <- struct{}{}:
+		return func() { <-p.slots }, nil
+	default:
+		return nil, registry.Problem(429, "authentication_busy", "Password processing is busy. Retry shortly.")
+	}
+}
+
+// PrepareAccount normalizes a local account and, when a password is supplied,
+// validates it against the password policy and derives its verifier. Without a
+// password it selects an existing account and never replaces its credentials.
+// Every account-creation path (platform users, Tenant creation, memberships
+// and Tenant administrators, trusted bootstrap) uses it.
+func (p *Passwords) PrepareAccount(in AccountInput) (PreparedAccount, error) {
+	email, e := LoginEmail(in.Email)
+	if e != nil {
+		return PreparedAccount{}, e
+	}
+	out := PreparedAccount{Name: strings.TrimSpace(in.Name), Email: email}
+	if in.Password == "" {
+		return out, nil
+	} // Existing local account; never replace its credentials.
+	if out.Name == "" || len(out.Name) > 160 {
+		return out, registry.Bad("Enter the account holder's name (maximum 160 bytes).")
+	}
+	if e = ValidatePassword(in.Password); e != nil {
+		return out, e
+	}
+	release, e := p.Work()
+	if e != nil {
+		return out, e
+	}
+	defer release()
+	out.Salt = make([]byte, 16)
+	if _, e = rand.Read(out.Salt); e != nil {
+		return out, e
+	}
+	out.Hash = PasswordKey(in.Password, out.Salt, PasswordIterations)
+	return out, nil
+}
+
+// Deadline renews the request deadline after PrepareAccount derived a
 // password, so the derivation does not consume the database deadline. Without
 // a derivation the request keeps its original deadline.
 func (a PreparedAccount) Deadline(ctx context.Context) (context.Context, context.CancelFunc) {

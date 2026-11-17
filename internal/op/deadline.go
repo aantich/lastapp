@@ -19,7 +19,8 @@ func WithRequestDeadline(base context.Context) (context.Context, context.CancelF
 
 // RenewDeadline gives the database phase after a PBKDF2 derivation its own
 // request deadline. The derivation cannot observe a context; its cost is
-// bounded by passwordSlots and maxPasswordInputBytes. A deadline spanning it
+// bounded by the shared membership.Passwords pool and
+// membership.MaxPasswordInputBytes. A deadline spanning it
 // only turned a completed derivation into a 500 when the CPU was slow (for
 // example under the race detector on a loaded test machine). The renewed
 // context keeps ctx's values and the request's own cancellation.

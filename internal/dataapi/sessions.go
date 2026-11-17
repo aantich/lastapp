@@ -51,7 +51,7 @@ func (s *Runtime) Launch(w http.ResponseWriter, r *http.Request, p access.Princi
 	if a.Origin == "" {
 		return registry.Conflict("A Space manager must approve the App origin first.")
 	}
-	cookie, e := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
+	cookie, e := r.Cookie(httpapi.CookieName(s.Config.PublicURL, httpapi.SessionCookie))
 	if e != nil {
 		return e
 	}

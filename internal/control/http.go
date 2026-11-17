@@ -20,9 +20,9 @@ import (
 )
 
 func (s *Server) api(pattern string, fn httpapi.Endpoint) {
-	s.mux.HandleFunc(pattern, httpapi.Session{Principal: s.principal, Limit: func(w http.ResponseWriter, p access.Principal, r *http.Request) error {
+	s.mux.HandleFunc(pattern, httpapi.Session{Principal: s.sessions.Principal, Limit: func(w http.ResponseWriter, p access.Principal, r *http.Request) error {
 		return s.limiter.LimitRequest(w, r, s.Checker, s.DB, p)
-	}, CSRF: s.csrf}.Handle(fn))
+	}, CSRF: s.sessions.CSRF}.Handle(fn))
 }
 
 func (s *Server) Handler() http.Handler {
@@ -37,23 +37,13 @@ func (s *Server) Handler() http.Handler {
 		httpapi.Send(w, 200, registry.Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		httpapi.Send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"), "development_policy": delivery.Policy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
+		httpapi.Send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": httpapi.CookieName(s.Config.PublicURL, httpapi.CSRFCookie), "development_policy": delivery.Policy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
-	s.mux.HandleFunc("GET /auth/login", s.login)
-	s.mux.HandleFunc("GET /auth/callback", s.callback)
-	s.mux.HandleFunc("POST /auth/login/password", s.passwordLogin)
-	s.api("POST /auth/password", s.changePassword)
-	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-		c, _ := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
-		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(c.Value))
-		if e != nil {
-			return e
-		}
-		s.cookie(w, "lastapp_session", "", -1, true)
-		s.cookie(w, "lastapp_csrf", "", -1, false)
-		httpapi.Send(w, 200, registry.Row{"ok": true})
-		return nil
-	})
+	s.mux.HandleFunc("GET /auth/login", s.sessions.Login)
+	s.mux.HandleFunc("GET /auth/callback", s.sessions.Callback)
+	s.mux.HandleFunc("POST /auth/login/password", s.sessions.PasswordLogin)
+	s.api("POST /auth/password", s.sessions.ChangePassword)
+	s.api("POST /auth/logout", s.sessions.Logout)
 	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		ts, e := s.myTenants(r, p)
 		if e != nil {
