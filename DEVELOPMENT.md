@@ -103,7 +103,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Static releases, coherent security activation and status recovery | `internal/delivery/releases.go`, `deployments.go`; `GET /v1/apps/{app}/deployment` |
 | Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
 | Typed registry reads | `internal/registry`: `ScanAll`/`ScanOne` (and `op.PageScan`) scan hand-written SQL into record structs whose column list is a const beside each type and whose `ScanFields()` returns the scan destinations; `JSONValue` (`*_json` columns), `Bit` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. Plans, Tenant policy, quotas, record locks and the shared `APIError` live there too; `op.Classify` maps MySQL errors. `QueryRow`/`QueryRows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
-| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors/themes; pages under `tenant/`, `platform/`, `entity-designer/` |
+| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors; Signal tokens in `themes.css` and the UI library entry `src/ui/` (see [Console UI library](#console-ui-library)); pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
 | Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`confirm.ts`, `confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `error-boundary.tsx` and `retryable-lazy.ts`; choices and numbers use `select.tsx` / `number-input.tsx` (native `<select>`, date and number inputs are not allowed). No lint suppression file, `//nolint` or inline ESLint disable; the loose `Item` row type in `api-types.ts` is `Record<string, unknown>`, narrowed at use sites (`text`, `num`, `isItem`, `items` or a named shape) |
 
@@ -201,6 +201,54 @@ service to make a local feature easier. Extend the existing typed contract and
 shared operations. Keep the Go evaluator and parameterized SQL semantics aligned,
 including exact decimals, nulls, permission paths and old/new update checks.
 
+## Console UI library
+
+The console has one visual theme, **Signal** ("Ink & Signal"), in light, dark
+and system color modes. New console UI follows these rules:
+
+- **Tokens.** `web/admin/src/themes.css` is the only source of colors, fonts,
+  radii and shadows: semantic `--ui-*` variables, redefined for
+  `:root[data-mode="dark"]` and, for the ink sidebar, inside `.sidebar`. Tailwind
+  4 maps them to utilities (`bg-surface`, `text-ink`, `text-muted`,
+  `text-primary`, `border-line`, `rounded-panel`, `font-heading`, `font-mono`,
+  `bg-success-soft`, …). Do not write literal colors in components and do not
+  add theme presets; a new value is a new token in `themes.css`, defined for
+  both modes with AA contrast (text 4.5:1, marks and focus rings 3:1) and, for
+  status colors, a lightness difference rather than hue alone.
+- **Mode.** `data-mode` on `<html>` is set by `public/appearance-init.js` before
+  CSS loads and by `applyMode` in `src/appearance.ts`. The browser preference
+  `lastapp-appearance` stores only `{ mode }`; a `theme` saved by the former
+  presets is ignored.
+- **Fonts.** Inter is bundled from `src/assets`; Inter Tight (headings) and
+  JetBrains Mono (identifiers) come from the pinned `@fontsource-variable`
+  packages. Vite emits fonts as files (`vite.config.ts`), because the console CSP
+  allows no `data:` fonts. No font is loaded from a CDN.
+- **Components.** `web/admin/src/ui/` is the library home and `src/ui/index.ts`
+  its entry point. New UI imports shared controls from there (Select,
+  RemoteSelect, NumberInput, NewPasswordInput, ConfirmDialog/`confirmAction`,
+  FormModal, Collection) instead of building parallel ones. They are still
+  re-exported from their original modules; move a control into `src/ui/` only
+  together with its consumers. Native `<select>`, date and number inputs stay
+  forbidden.
+- **Stories.** Every shared control has stories beside the library
+  (`src/ui/controls/*.stories.tsx`) with realistic Northstar data;
+  `src/ui/foundations/` shows the tokens (read from `themes.css`, both modes,
+  contrast ratios), typography, spacing/radius and the lucide icons in use.
+  Stories supply the password policy and mock list APIs (`src/ui/storybook/`);
+  they never copy server limits.
+
+Storybook is local only: there is no CI step and nothing is published.
+
+```sh
+cd web/admin
+npm run storybook        # http://127.0.0.1:6006, light/dark/system toolbar
+npm run build-storybook  # static build in storybook-static/ (ignored by git)
+```
+
+`npm run lint` and `npm run typecheck` (and so `make lint`) cover `.storybook/`
+and all stories. The console build bundles only what `index.html` reaches, so
+stories never ship in the console.
+
 ## API boundaries
 
 | Surface | Authentication and purpose | Contract entry points |
@@ -262,6 +310,7 @@ make mcp-test                   # TestAgent* only (agent + control): MCP/OAuth/a
 make integration                # full backend race/security + browser suite
 make e2e                        # browser suite only, on a disposable stack
 make client                     # SDK + example client.js; needs web/admin npm ci
+(cd web/admin && npm run build-storybook)  # local Storybook build; not in CI
 python3 design/validate_schema.py --check  # offline DDL parity only
 python3 scripts/verify_driver.py           # pinned driver integrity
 git diff --check

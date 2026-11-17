@@ -46,6 +46,7 @@ make mcp-test              # MCP/agent regressions against the local MariaDB
 make client                # build the data SDK and the example App's client.js
 make integration           # actual MariaDB backend tests (run make dev first), then make e2e
 make e2e                   # Chrome tests on a disposable MariaDB/API; dev data untouched
+cd web/admin && npm run storybook  # local UI library at http://127.0.0.1:6006
 ```
 
 Do not delete `.local/config.json` while retaining its database: its encryption key is needed to read stored connection credentials. The development identity provider is explicitly loopback-only. Production can use local accounts, trusted OIDC, or both.
@@ -118,19 +119,20 @@ Later: remote builds, browser Node runners, Git/object-storage integrations, App
 
 See [FOUNDATION.md](FOUNDATION.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.md](VERIFICATION.md). The provisioning plan describes the earlier implementation; its Tenant custom-role model is superseded by the foundation.
 
-## Admin themes
+## Admin appearance
 
-The console defaults to a Paces Neo-inspired design: compact Inter typography,
-a pale grouped sidebar, a white workspace, blue accents and dashed card borders.
-Use **Account menu → Appearance** to choose **Neo**, **Studio** or
-**Evergreen**, with **Light**, **Dark** or **System** color mode. Preferences are
-saved on this browser and apply across console screens and forms. Mobile has
-an offcanvas menu that includes the Tenant workspace selector.
+The console uses one theme, **Signal** ("Ink & Signal"): warm paper canvas,
+white cards, an ink sidebar, signal-blue accents, Inter body text, Inter Tight
+headings and JetBrains Mono identifiers. Use **Account menu → Appearance** to
+choose **Light**, **Dark** or **System** color mode. The preference is saved on
+this browser and applies across console screens and forms; a preset saved by
+the former Neo/Studio/Evergreen themes is ignored and its mode is kept. Mobile
+has an offcanvas menu that includes the Tenant workspace selector.
 
-Themes use shared semantic CSS variables exposed through Tailwind 4 utilities;
-new components can use `bg-surface`, `text-ink`, `text-primary`, `border-line`
-and `rounded-panel` without choosing a fixed palette. See the
-[reference and theme extension guide](design/references/paces-neo.md).
-
+The theme is a set of semantic `--ui-*` CSS variables in
+`web/admin/src/themes.css`, exposed through Tailwind 4 utilities such as
+`bg-surface`, `text-ink`, `text-primary`, `border-line` and `rounded-panel`.
+Browse the tokens and shared controls in the local Storybook; see the UI
+library section of [DEVELOPMENT.md](DEVELOPMENT.md#console-ui-library).
 
 Security fixes and operating boundaries are recorded in [the remediation report](review/security-2026-11-12/FIXES.md). Run `make integration` for the API/security/browser suites; `make e2e` alone runs the browser suite on its own throwaway database. The local Vite UI on port 5173 is an explicit development-only origin; login returns there, and writes use the proxy. Production accepts only its configured admin origin and requires verified TLS for TCP registry connections.
