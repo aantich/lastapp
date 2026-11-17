@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ContextSwitcher, type ContextOption } from "../context-switcher";
 import { spaces } from "../storybook/fixtures";
+import { mockApi } from "../storybook/mock-api";
 import { text } from "../../api-types";
 
 // context-switcher.tsx: the Tenant/Space popover (filter combobox over a
@@ -13,9 +14,21 @@ const spaceOptions: ContextOption[] = spaces.map((s) => ({
   disabled: s.state === "archived",
 }));
 
-function Demo({ ink }: { ink?: boolean }) {
+// The paged list the console's Tenant and Space switchers read.
+const spacesPath = "/v1/tenants/ten_northstar/spaces";
+
+function Demo({ ink, paged }: { ink?: boolean; paged?: boolean }) {
   const [space, setSpace] = useState("spc_0001");
-  const switcher = (
+  const switcher = paged ? (
+    <ContextSwitcher
+      kind="Space"
+      value={space}
+      options={[]}
+      current="CRM"
+      path={spacesPath}
+      onChange={setSpace}
+    />
+  ) : (
     <ContextSwitcher
       kind="Space"
       value={space}
@@ -46,3 +59,9 @@ type Story = StoryObj<typeof meta>;
 
 export const OnSurface: Story = {};
 export const OnInkSidebar: Story = { args: { ink: true } };
+// Server search and "Load more" over a list API (served by mockApi, 5 per
+// page), the paging RemoteSelect uses.
+export const Paged: Story = {
+  args: { paged: true },
+  beforeEach: () => mockApi({ [spacesPath]: spaces }),
+};
