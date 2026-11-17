@@ -96,7 +96,7 @@ func snapshotIDs(base spaceSnapshot) map[string]string {
 	return ids
 }
 
-func (s *Service) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace, user string) error {
+func (s *Service) installSnapshot(ctx context.Context, tx *sql.Tx, base spaceSnapshot, tenant, space, workspace string) error {
 	if len(base.Apps) > registry.MaxWorkspaceApps {
 		return registry.Conflict("Space exceeds the workspace App limit.")
 	}

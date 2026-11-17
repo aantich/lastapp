@@ -8,7 +8,7 @@ import (
 )
 
 func Policy() registry.Row {
-	return registry.Row{"max_workspace_apps": registry.MaxWorkspaceApps, "max_release_microapps": registry.MaxReleaseMicroapps, "max_release_dependencies": registry.MaxReleaseDependencies, "max_snapshot_bytes": registry.MaxSpaceSnapshotBytes, "max_app_builds": registry.MaxAppBuilds, "max_app_releases": registry.MaxAppReleases, "max_owned_workspaces": maxOwnedWorkspaces, "max_space_workspaces": maxSpaceWorkspaces, "upload": artifact.Limits}
+	return registry.Row{"max_workspace_apps": registry.MaxWorkspaceApps, "max_release_microapps": registry.MaxReleaseMicroapps, "max_release_dependencies": registry.MaxReleaseDependencies, "max_snapshot_bytes": registry.MaxSpaceSnapshotBytes, "max_app_builds": registry.MaxAppBuilds, "max_app_releases": registry.MaxAppReleases, "max_owned_workspaces": registry.MaxOwnedWorkspaces, "max_space_workspaces": registry.MaxSpaceWorkspaces, "upload": artifact.Limits}
 }
 
 func (s *Service) snapshotAppQuota(ctx context.Context, q registry.Queryer, tenant string, snap spaceSnapshot) error {

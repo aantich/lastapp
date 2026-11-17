@@ -182,8 +182,8 @@ func (s *Runtime) Session(ctx context.Context, r *http.Request) (AppSession, err
 
 func (s *Runtime) LaunchInfo(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var appID, name, space, spaceName, tenant string
-	var access registry.JSONValue
-	e := registry.Lookup(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", []any{r.PathValue("app")}, &appID, &name, &access, &space, &spaceName, &tenant)
+	var dataAccess registry.JSONValue
+	e := registry.Lookup(r.Context(), s.DB, "SELECT a.id,a.display_name,a.data_access_json,a.space_id,sp.display_name AS space_name,a.tenant_id FROM apps a JOIN spaces sp ON sp.id=a.space_id AND sp.state='active' WHERE a.id=? AND a.state='active'", []any{r.PathValue("app")}, &appID, &name, &dataAccess, &space, &spaceName, &tenant)
 	if e != nil {
 		return e
 	}
@@ -193,7 +193,7 @@ func (s *Runtime) LaunchInfo(w http.ResponseWriter, r *http.Request, p access.Pr
 	if e = s.Access.Member(r.Context(), s.DB, p, tenant, true); e != nil {
 		return e
 	}
-	a, e := registry.AccessOf(access)
+	a, e := registry.AccessOf(dataAccess)
 	if e != nil {
 		return e
 	}

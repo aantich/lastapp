@@ -168,7 +168,7 @@ func TestStarterVersionsArePinned(t *testing.T) {
 
 func TestPolicyDerivesFromLimits(t *testing.T) {
 	p := Policy()
-	if p["max_app_builds"] != registry.MaxAppBuilds || p["max_owned_workspaces"] != maxOwnedWorkspaces || p["max_space_workspaces"] != maxSpaceWorkspaces || p["max_snapshot_bytes"] != registry.MaxSpaceSnapshotBytes {
+	if p["max_app_builds"] != registry.MaxAppBuilds || p["max_owned_workspaces"] != registry.MaxOwnedWorkspaces || p["max_space_workspaces"] != registry.MaxSpaceWorkspaces || p["max_snapshot_bytes"] != registry.MaxSpaceSnapshotBytes {
 		t.Fatalf("policy %v", p)
 	}
 	if !reflect.DeepEqual(p["upload"], artifact.Limits) {

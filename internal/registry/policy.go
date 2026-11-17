@@ -127,6 +127,8 @@ func MetadataQuota(ctx context.Context, q Queryer, tenant, table string, additio
 
 const (
 	MaxWorkspaceApps       = 100
+	MaxOwnedWorkspaces     = 5  // active workspaces per user per production Space
+	MaxSpaceWorkspaces     = 20 // active workspaces per production Space
 	MaxReleaseMicroapps    = 100
 	MaxReleaseDependencies = 100
 	MaxSpaceSnapshotBytes  = 1 << 20
