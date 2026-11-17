@@ -1,5 +1,44 @@
 # Lastapp verification
 
+## Package-split findings: directory-scoped share search, agent reads, small DRY fixes — 17 November 2026
+
+- Share-recipient search (`GET .../shares?view=options`) listed every active
+  Tenant member (matching emails) and every team to any record manager. It now
+  shares `identityOptions` with reference options: without live
+  `membership.read`/`team.read` the caller finds only themselves and their own
+  teams. `TestDataShareRecipientDirectory` **PASS** (a manager without directory
+  access finds nothing by another member's email; after a live Tenant
+  administrator grant the same App session finds them).
+- Audit-trail and user-list reads now use `Runner.Authorize`. Grant scope and
+  revocation were already enforced through `CheckAgent`. An explicit agent
+  `op.Actor` on a context without a call skipped the tool-permission check.
+  `TestAgentAuditAndUserReadsNarrowed` **FAIL** on the previous code ("audit
+  read ignored the actor's agent call") and **PASS** now.
+- `OpenGate` rejects a layout-hash rewrite of the version the same attempt
+  already opened (409). `TestOpenGateFence` was extended and **PASS**es.
+  `TestOwnershipMarkerFormat` pins the storage marker format.
+- Goldens are unchanged (`internal/control/testdata` clean; no
+  `-update-golden`). The `data_shapes` share-options case runs as a Tenant
+  administrator.
+
+Executed checks:
+
+- `make lint` **PASS**.
+- `go test -race -count=1 ./...` with `LASTAPP_TEST_CONFIG` and
+  `LASTAPP_SECURITY_CONFIG` **PASS** for every package except two:
+  - `TestMariaDBControlPlane` **FAIL**: "database status timeout" waiting for
+    real provisioning. It needs the running development server's worker. The
+    server was intentionally stopped, so this was not executed meaningfully.
+  - `internal/session` **FAIL** because of a reordering in `ChangePassword`,
+    which was then reverted; `internal/session` **PASS** under `-race` after
+    that.
+- `go test -count=2 -run Golden ./internal/control` **PASS**.
+- The `make mcp-test` command, run with the main checkout's config path,
+  **PASS**.
+- `make e2e` **PASS** (34 tests, after the race suite).
+- `python3 design/validate_schema.py --check` and
+  `python3 scripts/verify_driver.py` **PASS**.
+
 ## Worker follow-ups: independent workspaces, own registry pool — 17 November 2026
 
 - Workspaces within a Tenant are independent: `WorkspaceJob` tries the
