@@ -88,7 +88,7 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	zip.AddCookie(sessionCookie(oc))
 	rec.raw("GET /v1/apps/{app}/starter.zip", zip, 200)
 	verifier, nonce := registry.Token(32), registry.Token(32)
-	launch := developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(hash(verifier)), Nonce: nonce, Origin: "http://localhost:5490"}
+	launch := developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5490"}
 	rec.http(oc, "POST /v1/apps/{app}/development-launch unapproved origin", "POST", "/v1/apps/"+app+"/development-launch", launch, 0, 400)
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5490", Inherit: true}, 1, 200)
 	rec.http(oc, "POST /v1/apps/{app}/development-launch human session", "POST", "/v1/apps/"+app+"/development-launch", launch, 0, 400)

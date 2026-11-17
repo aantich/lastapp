@@ -102,7 +102,7 @@ func TestAgentDevelopmentIsolation(t *testing.T) {
 	s.Config.Development = false
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5190", Inherit: true}, 1, 200)
 	verifier, nonce := registry.Token(32), registry.Token(32)
-	raw, _ = json.Marshal(agentWorkspaceInput{Action: "launch", App: app, Launch: &developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(hash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
+	raw, _ = json.Marshal(agentWorkspaceInput{Action: "launch", App: app, Launch: &developmentLaunchInput{Challenge: base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), Nonce: nonce, Origin: "http://localhost:5190"}, RequestKey: registry.NewID()})
 	launch, e := s.toolAgentWorkspace(ctx, p, raw)
 	if e != nil {
 		t.Fatal(e)

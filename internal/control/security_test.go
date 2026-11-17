@@ -212,20 +212,20 @@ func TestSecurityRegressions(t *testing.T) {
 	})
 	t.Run("ExpiredSessionsAreRemovedWithoutRevokingLiveSessions", func(t *testing.T) {
 		expired, live := registry.Token(32), registry.Token(32)
-		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,created_at,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)-INTERVAL 2 HOUR,UTC_TIMESTAMP(6)-INTERVAL 1 HOUR)", hash(expired), operator, hash(registry.Token(32))); e != nil {
+		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,created_at,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)-INTERVAL 2 HOUR,UTC_TIMESTAMP(6)-INTERVAL 1 HOUR)", registry.TokenHash(expired), operator, registry.TokenHash(registry.Token(32))); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR)", hash(live), operator, hash(registry.Token(32))); e != nil {
+		if _, e = s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR)", registry.TokenHash(live), operator, registry.TokenHash(registry.Token(32))); e != nil {
 			t.Fatal(e)
 		}
 		if _, e = cleanupSessions(context.Background(), s.DB); e != nil {
 			t.Fatal(e)
 		}
 		var count int
-		if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash=?", hash(expired)).Scan(&count); e != nil || count != 0 {
+		if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash=?", registry.TokenHash(expired)).Scan(&count); e != nil || count != 0 {
 			t.Fatal("expired session retained", e)
 		}
-		if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash=?", hash(live)).Scan(&count); e != nil || count != 1 {
+		if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash=?", registry.TokenHash(live)).Scan(&count); e != nil || count != 1 {
 			t.Fatal("live session revoked", e)
 		}
 	})

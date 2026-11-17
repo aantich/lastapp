@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -20,11 +19,6 @@ const (
 	launchLifetime   = 2 * time.Minute
 )
 
-var (
-	verifierRE = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
-	pkceRE     = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-)
-
 func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in struct {
 		Challenge string `json:"challenge"`
@@ -33,7 +27,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
+	if !registry.PKCEChallenge.MatchString(in.Challenge) || !registry.PKCEChallenge.MatchString(in.Nonce) {
 		return registry.Bad("Valid S256 challenge and nonce required.")
 	}
 	v, e := inventory.AppRow(r.Context(), s.DB, r.PathValue("app"))
@@ -65,7 +59,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 		return e
 	}
 	code := registry.Token(32)
-	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), hash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
+	_, e = s.DB.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), registry.TokenHash(cookie.Value), v.TenantID, v.SpaceID, v.ID, a.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 	if e != nil {
 		return e
 	}
@@ -82,7 +76,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	if !verifierRE.MatchString(in.Verifier) || len(in.Code) > 128 {
+	if !registry.PKCEVerifier.MatchString(in.Verifier) || len(in.Code) > 128 {
 		return registry.Bad("Invalid launch exchange.")
 	}
 	tx, e := s.DB.BeginTx(r.Context(), nil)
@@ -90,23 +84,23 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		return e
 	}
 	defer tx.Rollback()
-	v, e := registry.ScanOne[appSession](r.Context(), tx, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(in.Code))
+	v, e := registry.ScanOne[appSession](r.Context(), tx, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' JOIN apps a ON a.id=l.app_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='launch' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6) FOR UPDATE", registry.TokenHash(in.Code))
 	if e != nil {
 		return registry.Problem(401, "invalid_exchange", "Launch code is invalid or expired.")
 	}
 	if e = s.appSessionParent(r.Context(), tx, v); e != nil {
 		return e
 	}
-	challenge := base64.RawURLEncoding.EncodeToString(hash(in.Verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(registry.TokenHash(in.Verifier))
 	if subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != access.Deref(v.Origin) {
 		return registry.Problem(401, "invalid_exchange", "Launch challenge or origin mismatch.")
 	}
 	raw := registry.Token(32)
-	_, e = tx.ExecContext(r.Context(), "UPDATE sessions SET state='consumed' WHERE token_hash=?", hash(in.Code))
+	_, e = tx.ExecContext(r.Context(), "UPDATE sessions SET state='consumed' WHERE token_hash=?", registry.TokenHash(in.Code))
 	if e != nil {
 		return e
 	}
-	_, e = tx.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,'app',?,?,?,?,?,?,?,?,?)", hash(raw), v.UserID, hash(""), v.ParentHash, v.TenantID, v.SpaceID, v.AppID, v.Origin, v.OriginGeneration, v.AgentGrant, v.AgentRevision, time.Now().Add(appTokenLifetime))
+	_, e = tx.ExecContext(r.Context(), "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,parent_hash,tenant_id,space_id,app_id,origin,origin_generation,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,'app',?,?,?,?,?,?,?,?,?)", registry.TokenHash(raw), v.UserID, registry.TokenHash(""), v.ParentHash, v.TenantID, v.SpaceID, v.AppID, v.Origin, v.OriginGeneration, v.AgentGrant, v.AgentRevision, time.Now().Add(appTokenLifetime))
 	if e != nil {
 		return e
 	}
@@ -141,7 +135,7 @@ func (s *Server) dataSession(ctx context.Context, r *http.Request) (appSession, 
 	if raw == "" || raw == r.Header.Get("Authorization") || len(raw) > 128 {
 		return appSession{}, registry.Problem(401, "unauthenticated", "An App bearer token is required.")
 	}
-	v, e := registry.ScanOne[appSession](ctx, s.DB, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", hash(raw))
+	v, e := registry.ScanOne[appSession](ctx, s.DB, "SELECT "+appSessionColumns+" FROM sessions l JOIN users u ON u.id=l.user_id AND u.state='active' LEFT JOIN local_accounts la ON la.user_id=u.id JOIN apps a ON a.id=l.app_id AND a.tenant_id=l.tenant_id AND a.space_id=l.space_id AND a.state='active' AND a.origin_generation=l.origin_generation JOIN spaces sp ON sp.id=l.space_id AND sp.state='active' JOIN tenants t ON t.id=l.tenant_id AND t.state='active' JOIN tenant_memberships m ON m.tenant_id=t.id AND m.user_id=u.id AND m.state='active' WHERE l.token_hash=? AND l.purpose='app' AND l.state='active' AND l.expires_at>UTC_TIMESTAMP(6)", registry.TokenHash(raw))
 	if e != nil {
 		return v, registry.Problem(401, "unauthenticated", "App session expired or revoked.")
 	}

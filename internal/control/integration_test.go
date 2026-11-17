@@ -61,7 +61,7 @@ func (c testClient) want(method, path string, body any, revision int64, status i
 func (c testClient) as(uid string) testClient {
 	c.t.Helper()
 	session, csrf := registry.Token(32), registry.Token(32)
-	_, e := c.s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 HOUR))", hash(session), uid, hash(csrf))
+	_, e := c.s.DB.Exec("INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 1 HOUR))", registry.TokenHash(session), uid, registry.TokenHash(csrf))
 	if e != nil {
 		c.t.Fatal(e)
 	}

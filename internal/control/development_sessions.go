@@ -64,7 +64,7 @@ func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in deve
 	if e := access.RequireAgent(p.Agent, "workspaces.test"); e != nil {
 		return nil, e
 	}
-	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
+	if !registry.PKCEChallenge.MatchString(in.Challenge) || !registry.PKCEChallenge.MatchString(in.Nonce) {
 		return nil, registry.Bad("Provide an S256 challenge and random nonce.")
 	}
 	v, e := inventory.AppRow(ctx, s.DB, app)
@@ -87,7 +87,7 @@ func (s *Server) Launch(ctx context.Context, actor op.Actor, app string, in deve
 	}
 	code := registry.Token(32)
 	e = s.run.Mutate(ctx, actor, "workspace.manage", access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, func(tx *sql.Tx) error {
-		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", hash(code), p.ID, hash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
+		_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,csrf_hash,purpose,agent_grant_id,agent_grant_revision,tenant_id,space_id,app_id,origin,origin_generation,challenge,nonce,expires_at) VALUES(?,?,?,'launch',?,?,?,?,?,?,?,?,?,?)", registry.TokenHash(code), p.ID, registry.TokenHash(""), p.Agent.ID, p.Agent.Revision, v.TenantID, v.SpaceID, v.ID, in.Origin, v.OriginGeneration, in.Challenge, in.Nonce, time.Now().Add(launchLifetime))
 		return e
 	})
 	if e != nil {

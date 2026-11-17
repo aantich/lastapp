@@ -80,7 +80,7 @@ func TestDataShapeGolden(t *testing.T) {
 	launch := func(client testClient, label string) string {
 		t.Helper()
 		verifier, nonce := registry.Token(32), registry.Token(32)
-		code := rec.http(client, "POST /v1/apps/{app}/launch"+label, "POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+		code := rec.http(client, "POST /v1/apps/{app}/launch"+label, "POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), "nonce": nonce}, 0, 200)
 		exchange := registry.Row{"code": code["code"], "verifier": verifier, "nonce": nonce}
 		v := request("POST /data/v1/session/exchange"+label, origin, "", "POST", "/session/exchange", exchange, 0, 200)
 		if label == "" {
@@ -89,11 +89,11 @@ func TestDataShapeGolden(t *testing.T) {
 		return registry.Str(v["access_token"])
 	}
 	verifier, nonce := registry.Token(32), registry.Token(32)
-	code := oc.want("POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+	code := oc.want("POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), "nonce": nonce}, 0, 200)
 	request("POST /data/v1/session/exchange wrong verifier", origin, "", "POST", "/session/exchange", registry.Row{"code": code["code"], "verifier": registry.Token(32), "nonce": nonce}, 0, 401)
 	request("POST /data/v1/session/exchange unapproved origin", "http://localhost:5599", "", "POST", "/session/exchange", registry.Row{"code": code["code"], "verifier": verifier, "nonce": nonce}, 0, 401)
 	request("POST /data/v1/session/exchange malformed", origin, "", "POST", "/session/exchange", registry.Row{"code": 1}, 0, 400)
-	rec.http(jc, "POST /v1/apps/{app}/launch outsider", "POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+	rec.http(jc, "POST /v1/apps/{app}/launch outsider", "POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), "nonce": nonce}, 0, 200)
 	bearer := launch(oc, "")
 	other := launch(jc, " member")
 
@@ -147,7 +147,7 @@ func TestDataShapeGolden(t *testing.T) {
 	request("DELETE /data/v1/entities/{entity}/records/{id}/shares", origin, bearer, "DELETE", shares, grant, 0, 200)
 
 	// Ending the console session ends the App session.
-	if _, e := s.DB.Exec("DELETE FROM sessions WHERE token_hash=?", hash(oc.session)); e != nil {
+	if _, e := s.DB.Exec("DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(oc.session)); e != nil {
 		t.Fatal(e)
 	}
 	request("GET /data/v1/schema after console sign-out", origin, bearer, "GET", "/schema", nil, 0, 401)

@@ -201,7 +201,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	}
 	launch := func(app, origin string) string {
 		verifier, nonce := registry.Token(32), registry.Token(32)
-		code := oc.want("POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+		code := oc.want("POST", "/v1/apps/"+app+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), "nonce": nonce}, 0, 200)
 		status, v := requestData(origin, "", "POST", "/session/exchange", registry.Row{"code": code["code"], "verifier": verifier, "nonce": nonce})
 		if status != 200 {
 			t.Fatal(status, v)

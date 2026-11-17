@@ -135,7 +135,7 @@ func (s *Server) UploadTicket(ctx context.Context, actor op.Actor, app string) (
 		if p.Agent != nil {
 			rev = p.Agent.Revision
 		}
-		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", hash(secret), a.TenantID, a.ID, p.ID, agentID(p), rev, time.Now().Add(registry.UploadTicketLifetime))
+		_, e := tx.ExecContext(ctx, "INSERT INTO artifact_uploads(token_hash,tenant_id,app_id,user_id,agent_grant_id,agent_grant_revision,expires_at) VALUES(?,?,?,?,?,?,?)", registry.TokenHash(secret), a.TenantID, a.ID, p.ID, agentID(p), rev, time.Now().Add(registry.UploadTicketLifetime))
 		return e
 	})
 	if e != nil {
@@ -226,7 +226,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if len(raw) != 43 {
 			return registry.Problem(401, "invalid_upload", "Upload ticket required.")
 		}
-		v, e := registry.ScanOne[uploadTicket](ctx, s.DB, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6)", hash(raw))
+		v, e := registry.ScanOne[uploadTicket](ctx, s.DB, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6)", registry.TokenHash(raw))
 		if e != nil {
 			return registry.Problem(401, "invalid_upload", "Upload ticket expired or invalid.")
 		}
@@ -261,7 +261,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if e = lockTenant(ctx, tx, v.TenantID); e != nil {
 			return e
 		}
-		v, e = registry.ScanOne[uploadTicket](ctx, tx, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", hash(raw))
+		v, e = registry.ScanOne[uploadTicket](ctx, tx, "SELECT "+uploadTicketColumns+" FROM artifact_uploads WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(6) FOR UPDATE", registry.TokenHash(raw))
 		if e != nil {
 			return registry.Missing()
 		}
@@ -296,7 +296,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO app_builds(id,tenant_id,app_id,content_hash,files_json,entrypoint,size_bytes,created_by) VALUES(?,?,?,?,?,?,?,?)", build, v.TenantID, v.AppID, b.Hash, files, b.Entry, b.Size, p.ID); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, "UPDATE artifact_uploads SET build_id=? WHERE token_hash=?", build, hash(raw)); e != nil {
+		if _, e = tx.ExecContext(ctx, "UPDATE artifact_uploads SET build_id=? WHERE token_hash=?", build, registry.TokenHash(raw)); e != nil {
 			return e
 		}
 		ctx = op.AgentAuditContext(ctx, v.AgentGrant, "")

@@ -98,7 +98,7 @@ func TestEntityRuntime(t *testing.T) {
 		}
 		verifier := registry.Token(32)
 		nonce := registry.Token(32)
-		v := client.want("POST", "/v1/apps/"+appID+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(hash(verifier)), "nonce": nonce}, 0, 200)
+		v := client.want("POST", "/v1/apps/"+appID+"/launch", registry.Row{"challenge": base64.RawURLEncoding.EncodeToString(registry.TokenHash(verifier)), "nonce": nonce}, 0, 200)
 		code, result := dataReq("", "POST", "/session/exchange", registry.Row{"code": v["code"], "verifier": verifier, "nonce": nonce}, 0, origin)
 		if code != 200 {
 			t.Fatal(result)
@@ -350,7 +350,7 @@ func TestEntityRuntime(t *testing.T) {
 		t.Fatal(latest["publications"])
 	}
 	request(bearer, "POST", "/entities/deal/query", registry.Row{"select": []string{"name"}}, 0, 200)
-	exec("DELETE FROM sessions WHERE token_hash=?", hash(oc.session))
+	exec("DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(oc.session))
 	request(bearer, "GET", "/schema", nil, 0, 401)
 	request(bearer2, "GET", "/schema", nil, 0, 401)
 	request(sharedBearer, "GET", "/schema", nil, 0, 401)

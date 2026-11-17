@@ -170,7 +170,7 @@ func TestAgentManagementMCP(t *testing.T) {
 		}
 		t.Cleanup(func() { session.Close() })
 		var grant string
-		if e = s.DB.QueryRow("SELECT g.id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE t.access_hash=?", hash(registry.Str(tokens["access_token"]))).Scan(&grant); e != nil {
+		if e = s.DB.QueryRow("SELECT g.id FROM agent_token_sessions t JOIN agent_grants g ON g.id=t.grant_id WHERE t.access_hash=?", registry.TokenHash(registry.Str(tokens["access_token"]))).Scan(&grant); e != nil {
 			t.Fatal(e)
 		}
 		return session, grant, registry.Str(tokens["access_token"]), registry.Str(tokens["refresh_token"])

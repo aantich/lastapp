@@ -104,7 +104,7 @@ func (s *Server) agentPrincipal(r *http.Request) (access.Principal, error) {
 	// Load the token-bound grant and its permissions in one statement/snapshot.
 	// A later grant edit fails checkAgent; it cannot upgrade this access token.
 	var e error
-	p.Agent, e = access.ScanAgentGrant(r.Context(), s.DB, `SELECT `+access.AgentGrantColumns+`,u.display_name,COALESCE(u.email,'') FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, []any{hash(raw[7:])}, &p.Name, &p.Email)
+	p.Agent, e = access.ScanAgentGrant(r.Context(), s.DB, `SELECT `+access.AgentGrantColumns+`,u.display_name,COALESCE(u.email,'') FROM agent_token_sessions se JOIN agent_grants g ON g.id=se.grant_id AND g.revision=se.grant_revision JOIN users u ON u.id=g.user_id AND u.state='active' WHERE se.access_hash=? AND se.state='active' AND se.access_expires_at>UTC_TIMESTAMP(6) AND g.state='active' AND g.expires_at>UTC_TIMESTAMP(6)`, []any{registry.TokenHash(raw[7:])}, &p.Name, &p.Email)
 	if p.Agent == nil {
 		return p, registry.Problem(401, "unauthenticated", "Invalid or expired MCP access token.")
 	}
