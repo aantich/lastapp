@@ -136,10 +136,15 @@ handlers decode, call and send, and MCP tools call the same operations. The form
 in-process HTTP adapter (`executeManagement`) is deleted and `TestNoHTTPLoopback`
 keeps it from returning.
 Golden files in `internal/control/testdata` pin the MCP tool schemas and the
-response shapes of representative endpoints (`internal/control/golden_test.go`);
-refactors must leave them unchanged. Regenerate them only for an intended contract
-change with `go test ./internal/control -run Golden -update-golden` (the response
-golden also needs `LASTAPP_TEST_CONFIG`) and review the diff.
+response shapes of representative endpoints (`internal/control/golden_test.go`):
+inventory/MCP management (`response_shapes`), workspaces/builds/releases/
+deployments/starters and the MCP workspace/release tools (`delivery_shapes`),
+`/data/v1` (`data_shapes`), console sessions, password/OIDC login, CSRF and agent
+OAuth including cookie names/attributes (`session_shapes`), and normalised
+`audit_events` attribution for human, agent and worker steps (`audit_attribution`).
+Refactors must leave them unchanged. Regenerate them only for an intended contract
+change with `go test ./internal/control -run Golden -update-golden` (all but the
+tool schema golden need `LASTAPP_TEST_CONFIG`) and review the diff.
 
 Important management groups are Tenant/Space/App/micro-app inventory, scoped
 `roles`, `role-assignments`, `recipients`, memberships/teams, database resources,

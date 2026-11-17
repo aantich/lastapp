@@ -1,5 +1,35 @@
 # Lastapp verification
 
+## Behaviour-pinning goldens before the control split (P0a) — 17 November 2026
+
+- Tests only; no production code changed. The response-shape recorder gained
+  `raw` requests (bearer, form, cookie, binary) that also record normalised
+  headers: cookie names and attributes (never values), redirect path and query
+  keys, `WWW-Authenticate` parameter names, `Cache-Control`, `Retry-After`,
+  media type and CORS presence. OAuth `error`/`error_description` strings and
+  UUIDs inside recorded messages are normalised like console error messages.
+- New goldens: `delivery_shapes` (75 entries: console workspaces, starters,
+  development launch, upload tickets/uploads, builds, releases, preview, deploy,
+  deployment status after the synchronous worker, and the MCP workspace/release
+  tools with stale, missing-scope, sibling-grant and not-found failures),
+  `data_shapes` (49: PKCE exchange and replay, CORS preflight, schema, records,
+  bulk, query, capabilities, reference options, shares/share options for an
+  owner and a denied member), `session_shapes` (54: config, sessions, CSRF and
+  origin failures, password login/change/logout, rate limiting, OIDC
+  login/callback errors against a stub token endpoint, agent OAuth discovery,
+  registration, authorize, consent, token/refresh/replay, revoke, grant update)
+  and `audit_attribution` (12 rows in 10 phases: console, MCP with request-key
+  replays and a denied call, and publication-worker rows with agent attribution).
+- `businessDatabaseFixture` (real registered database with runtime and schema
+  accounts, dropped on cleanup) is now shared by `TestEntityRuntime` and the
+  new goldens. `response_shapes` and `mcp_tools` are byte-identical.
+
+Executed checks: the new goldens with `LASTAPP_TEST_CONFIG` and `-count=2`
+**PASS** (deterministic); `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config
+**PASS** (control package 201.3 s); `make lint` **PASS**. `make e2e` was not
+run (no browser-facing change).
+
 ## Package split — 16 November 2026
 
 - `internal/control` is split by mechanical moves (one commit per package,
