@@ -3,7 +3,6 @@ package dataapi
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/base64"
 	"net/http"
 	"strings"
 	"time"
@@ -88,8 +87,7 @@ func (s *Runtime) Exchange(w http.ResponseWriter, r *http.Request) error {
 	if e = s.appSessionParent(r.Context(), tx, v); e != nil {
 		return e
 	}
-	challenge := base64.RawURLEncoding.EncodeToString(registry.TokenHash(in.Verifier))
-	if subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != access.Deref(v.Origin) {
+	if !registry.PKCEMatches(in.Verifier, v.Challenge) || subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(v.Nonce)) != 1 || r.Header.Get("Origin") != access.Deref(v.Origin) {
 		return registry.Problem(401, "invalid_exchange", "Launch challenge or origin mismatch.")
 	}
 	raw := registry.Token(32)

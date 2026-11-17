@@ -2,10 +2,7 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -584,9 +581,7 @@ func (s *Server) Token(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		verifier := r.Form.Get("code_verifier")
-		sum := sha256.Sum256([]byte(verifier))
-		challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-		if !registry.PKCEVerifier.MatchString(verifier) || subtle.ConstantTimeCompare([]byte(challenge), []byte(v.Challenge)) != 1 || r.Form.Get("client_id") != v.ClientID || r.Form.Get("redirect_uri") != v.RedirectURI {
+		if !registry.PKCEVerifier.MatchString(verifier) || !registry.PKCEMatches(verifier, v.Challenge) || r.Form.Get("client_id") != v.ClientID || r.Form.Get("redirect_uri") != v.RedirectURI {
 			oauthError(w, "invalid_grant")
 			return
 		}
