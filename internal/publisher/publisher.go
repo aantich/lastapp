@@ -492,7 +492,10 @@ func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *strin
 // OpenGate opens the storage gate of v's entity for its attempt, fencing the
 // physical version to v and layoutHash.
 func OpenGate(ctx context.Context, q registry.Queryer, v Version, layoutHash string) error {
-	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v.ID, layoutHash, v.EntityID, access.Deref(v.Attempt))
+	// The fence is the attempt and, once this version is open, its layout: a
+	// version's layout hash is a function of its definition, so a different
+	// hash for the open version is a caller error, never a silent rewrite.
+	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=? AND NOT (gate_open=1 AND version_id<=>? AND layout_hash<>?)", v.ID, layoutHash, v.EntityID, access.Deref(v.Attempt), v.ID, layoutHash)
 	if err != nil {
 		return err
 	}

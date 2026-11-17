@@ -109,6 +109,14 @@ func TestOpenGateFence(t *testing.T) {
 	if e := OpenGate(ctx, db, v, "layout"); e != nil {
 		t.Fatal("reopening the same physical version failed", e)
 	}
+	// The same attempt cannot rewrite the open version's layout hash.
+	if e := OpenGate(ctx, db, v, "other-layout"); apiStatus(e) != 409 {
+		t.Fatal("the open version's layout hash was rewritten", e)
+	}
+	var layout string
+	if e := db.QueryRow("SELECT layout_hash FROM _lastapp_entity_state WHERE entity_id=?", v.EntityID).Scan(&layout); e != nil || layout != "layout" {
+		t.Fatal("rejected reopen changed the layout", layout, e)
+	}
 	var open bool
 	var version string
 	if e := db.QueryRow("SELECT gate_open,version_id FROM _lastapp_entity_state WHERE entity_id=?", v.EntityID).Scan(&open, &version); e != nil || !open || version != v.ID {
