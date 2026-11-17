@@ -1,5 +1,39 @@
 # Lastapp verification
 
+## Worker follow-ups: independent workspaces, own registry pool — 17 November 2026
+
+- Workspaces within a Tenant are independent: `WorkspaceJob` tries the
+  Tenant's preparing workspaces oldest first and stops at the first that
+  progresses; one waiting for storage/publications or erroring no longer holds
+  back the others. No order is needed between workspaces (own backing Space and
+  storage, per-workspace state machine). Deployments keep strict per-Tenant
+  order (base-hash check and shared Space configuration).
+- The worker has its own registry pool, capped at 1 + 2 × steps (11): the
+  leader lock and every service its steps call (second delivery service and
+  publisher via `deliveryServices`, the provisioner) use it; the request pool
+  (16) is never touched by background work. `Step.Run` now receives the pool
+  instead of a pinned per-run connection, so a step waiting on a target or a
+  pause holds no connection. Inside the worker jobs' transactions the only
+  extra pool read is `Publisher.BusinessDB`'s resource lookup (checked:
+  `QueueDefinition`, `candidates`, `projectPermissions`, `EnsureReleaseBuild`
+  use the transaction or run outside one), hence two per step.
+- Regression tests, run against the previous branch head with the same test
+  file: `TestWorkerWorkspacesIndependent` on `4b5b764` **FAIL** ("newer
+  workspace blocked behind the Tenant's waiting workspace", 15 s);
+  `TestWorkerOwnPool` (request pool capped and fully checked out by the test)
+  on `7c01127` **FAIL** ("worker stalled while the request pool was fully in
+  use", 15 s). Both now **PASS** (< 1 s).
+- Goldens unchanged (`internal/control/testdata` clean; no `-update-golden`).
+
+Executed checks: `make lint` **PASS** (after a gofumpt fix to two test
+helpers); `go test -race -count=1 ./...` with `LASTAPP_TEST_CONFIG` and
+`LASTAPP_SECURITY_CONFIG` **PASS** (control 249.0 s, worker 8.8 s), then
+`internal/worker` and the `TestWorker*` control tests again under `-race` after
+the formatting fix **PASS**; `go test -count=2 -run Golden ./internal/control`
+**PASS**; `make mcp-test` **PASS**; `make e2e` **PASS** (34 tests, after the
+race suite); `python3 design/validate_schema.py --check`,
+`python3 scripts/verify_driver.py` and `git diff --check` **PASS**.
+
 ## Non-blocking worker: Tenant fairness, step isolation, concurrent steps — 17 November 2026
 
 Intended behaviour change (one leader, one `GET_LOCK`, recovery at term start
