@@ -304,7 +304,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	}
 	// Expanding a grant invalidates old access; refresh receives only human-approved changes.
 	oc.want("PATCH", "/v1/agent-access/"+grant, registry.Row{"permissions": []string{"read"}, "limits": registry.Row{"target_ids": []string{}, "max_databases": 0}, "days": 1}, 1, 200)
-	if _, e = s.publicationJob(context.Background(), s.DB); e != nil {
+	if _, e = s.publisher.Job(context.Background(), s.DB); e != nil {
 		t.Fatal(e)
 	}
 	var publicationState string
@@ -403,7 +403,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	liveDefinition.Permissions = []entity.Permission{{Key: "viewer", Label: "View deals", Operation: "read", Relationship: "member", Fields: []string{"name", "amount", "stage"}}}
 	created := call(tenantAgent, "lastapp_entity_save", registry.Row{"target": registry.Row{"kind": "space", "id": newSpace}, "definition": liveDefinition, "request_key": registry.NewID()}, true)["data"].(map[string]any)
 	job := call(tenantAgent, "lastapp_entity_publish", registry.Row{"entity_id": created["id"], "expected_revision": 1, "request_key": registry.NewID()}, true)["data"].(map[string]any)
-	if started, e := s.publicationJob(context.Background(), s.DB); e != nil || started {
+	if started, e := s.publisher.Job(context.Background(), s.DB); e != nil || started {
 		t.Fatal("publication must wait for pending Space storage", started, e)
 	}
 	var queued string

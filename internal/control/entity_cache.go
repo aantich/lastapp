@@ -49,7 +49,7 @@ func (c *definitionCache) get(key, hash, source string) (entity.Definition, erro
 	c.entries[key] = cachedDefinition{d, c.tick}
 	return d, nil
 }
-func (s *Server) Close() error { s.dataPools.Close(); return s.DB.Close() }
+func (s *Server) Close() error { s.publisher.Close(); return s.DB.Close() }
 
 func (c *definitionCache) peek(key string) (entity.Definition, bool) {
 	c.mu.Lock()

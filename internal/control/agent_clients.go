@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -112,7 +113,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return
 	}
-	defer releasePinnedLock(conn, lock)
+	defer data.ReleasePinnedLock(conn, lock)
 	if e = cleanupAgentClients(ctx, conn); e != nil {
 		httpapi.WriteError(w, r, e)
 		return

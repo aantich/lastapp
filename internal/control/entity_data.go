@@ -16,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/publisher"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -130,7 +131,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 		}
 	}
 	rt.entityID, rt.version = entityID, version
-	ps, e := registry.ScanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
+	ps, e := registry.ScanAll[publisher.ProjectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
 	if e != nil {
 		return rt, e
 	}
@@ -142,7 +143,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 	}
 	rt.metadataShares = map[string]bool{}
 	if rt.d.Sharing {
-		db, release, e := s.runtimeDB(ctx, se.Resource)
+		db, release, e := s.publisher.RuntimeDB(ctx, se.Resource)
 		if e != nil {
 			return rt, e
 		}
@@ -311,32 +312,6 @@ func gateHas(gs []entity.Gate, id, k string, c entity.Context) bool {
 		}
 	}
 	return false
-}
-
-func businessRecord(d entity.Definition, raw registry.Row) map[string]any {
-	out := map[string]any{}
-	for k, v := range raw {
-		if strings.HasPrefix(k, "f_") {
-			k = k[2:]
-		} else if !slices.Contains([]string{"id", "revision", "created_at", "updated_at", "created_by", "updated_by"}, k) {
-			continue
-		}
-		if f, ok := d.Field(k); ok && v != nil {
-			switch f.Type {
-			case "integer":
-				v = registry.Integer(v)
-			case "boolean":
-				v = registry.Integer(v) != 0
-			case "json":
-				var obj any
-				if json.Unmarshal([]byte(registry.Str(v)), &obj) == nil {
-					v = obj
-				}
-			}
-		}
-		out[k] = v
-	}
-	return out
 }
 
 func (rt dataRuntime) shareSQL(p entity.Permission) (string, []any) {
@@ -511,7 +486,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	if len(args) > entity.MaxSQLParameters {
 		return registry.Bad("Query exceeds its parameter limit.")
 	}
-	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -570,7 +545,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	}
 	items := []any{}
 	for _, v := range vs {
-		full := businessRecord(rt.d, v)
+		full := entities.BusinessRecord(rt.d, v)
 		projected := map[string]any{}
 		for _, k := range q.Select {
 			projected[k] = full[k]
@@ -578,7 +553,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		items = append(items, projected)
 	}
 	if more {
-		last := businessRecord(rt.d, vs[len(vs)-1])
+		last := entities.BusinessRecord(rt.d, vs[len(vs)-1])
 		values := []any{}
 		for _, so := range q.Sort {
 			values = append(values, last[so.Field])
@@ -696,7 +671,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -737,7 +712,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 			if e != nil {
 				return e
 			}
-			old = businessRecord(rt.d, raw)
+			old = entities.BusinessRecord(rt.d, raw)
 			shared, e = rt.shared(r.Context(), tx, in.ID)
 			if e != nil {
 				return e

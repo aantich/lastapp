@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
@@ -179,7 +180,7 @@ func agentID(p access.Principal) any {
 // Empty tables are prepared without foreign keys, then the ordinary publisher
 // verifies/adds those keys before activation. This also supports cyclic references.
 func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, entities []entities.EntityDefinition) error {
-	db, e := s.businessDB(ctx, resource, true)
+	db, e := s.publisher.BusinessDB(ctx, resource, true)
 	if e != nil {
 		return e
 	}
@@ -200,7 +201,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(v.ID), "`")).Scan(&comment)
 		if e == nil {
 			if comment != marker {
-				return ownershipConflict()
+				return databases.OwnershipConflict()
 			}
 			continue
 		}
@@ -324,64 +325,6 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 	}
 	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
 	return err
-}
-
-func ensureReferenceConstraints(ctx context.Context, q registry.Queryer, entityID string, d entity.Definition) error {
-	for _, f := range d.Fields {
-		if f.Type != "reference" {
-			continue
-		}
-		target := strings.Trim(data.Table(f.Target), "`")
-		var n int
-		if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? AND REFERENCED_TABLE_NAME=? AND REFERENCED_COLUMN_NAME='id'", strings.Trim(data.Table(entityID), "`"), "f_"+f.Key, target).Scan(&n); e != nil {
-			return e
-		}
-		if n > 0 {
-			continue
-		}
-		name := "fk_" + entity.Hash([]string{entityID, f.Key, f.Target})[:24]
-		_, e := q.ExecContext(ctx, "ALTER TABLE "+data.Table(entityID)+" ADD CONSTRAINT `"+name+"` FOREIGN KEY (`tenant_id`,`space_id`,"+data.FieldColumn(f.Key)+") REFERENCES "+data.Table(f.Target)+" (`tenant_id`,`space_id`,`id`)")
-		if e != nil {
-			return e
-		}
-	}
-	return nil
-}
-
-func (s *Server) publicationCandidates(ctx context.Context, q registry.Queryer, v entityVersion) (map[string]bool, error) {
-	if v.Deployment != nil {
-		var stored registry.JSONValue
-		if e := registry.Lookup(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", []any{*v.Deployment}, &stored); e != nil {
-			return nil, e
-		}
-		plan, e := decodeDeployment(stored)
-		if e != nil {
-			return nil, e
-		}
-		ids := map[string]bool{}
-		for _, d := range plan.Snapshot.Entities {
-			if d.State == registry.StateActive {
-				ids[d.ID] = true
-			}
-		}
-		return ids, nil
-	}
-	var n int
-	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM development_workspaces WHERE backing_space_id=? AND state='preparing'", v.SpaceID).Scan(&n); e != nil {
-		return nil, e
-	}
-	if n == 0 {
-		return nil, nil
-	}
-	vs, e := registry.ScanStrings(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v.SpaceID)
-	if e != nil {
-		return nil, e
-	}
-	ids := map[string]bool{}
-	for _, id := range vs {
-		ids[id] = true
-	}
-	return ids, nil
 }
 
 func snapshotContractHash(v spaceSnapshot) string {

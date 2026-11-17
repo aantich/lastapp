@@ -20,7 +20,7 @@ import (
 func TestEntityRuntime(t *testing.T) {
 	s, c, operator, owner, outsider := foundationFixture(t)
 	ctx := context.Background()
-	defer s.dataPools.Close()
+	defer s.publisher.Close()
 	oc := c.as(owner)
 	tenant, space, app := registry.NewID(), registry.NewID(), registry.NewID()
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "entities-" + tenant, "display_name": "Entity tests", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
@@ -49,13 +49,13 @@ func TestEntityRuntime(t *testing.T) {
 	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
 	// A failed workspace read is not "no workspace": the job fails closed and
 	// stays queued for a retry instead of skipping the owner's authority check.
-	if _, e := s.publicationJob(ctx, failingWorkspaceRead{s.DB}); e == nil || isAPIStatus(e, 404) {
+	if _, e := s.publisher.Job(ctx, failingWorkspaceRead{s.DB}); e == nil || isAPIStatus(e, 404) {
 		t.Fatal("publication proceeded after the workspace read failed", e)
 	}
 	if v, e := registry.QueryRow(ctx, s.DB, "SELECT state FROM entity_versions WHERE entity_id=?", eid); e != nil || v["state"] != "queued" {
 		t.Fatal("publication left the queue after the workspace read failed", v, e)
 	}
-	if _, e := s.publicationJob(ctx, s.DB); e != nil {
+	if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	published := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
@@ -142,7 +142,7 @@ func TestEntityRuntime(t *testing.T) {
 		t.Fatal("partial bulk persisted", q)
 	}
 	request("", "GET", "/schema", nil, 0, 401)
-	db, e := s.businessDB(ctx, resource, false)
+	db, e := s.publisher.BusinessDB(ctx, resource, false)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -209,7 +209,7 @@ func TestEntityRuntime(t *testing.T) {
 	request(bearer, "PATCH", "/entities/deal/records/"+record, registry.Row{"values": registry.Row{"name": "First"}}, 3, 200)
 	// Recover after a process stopped between registry activation and opening the local gate.
 	exec("UPDATE entity_versions SET state='publishing' WHERE id=?", published["active_version_id"])
-	schemaDB, e := s.businessDB(ctx, resource, true)
+	schemaDB, e := s.publisher.BusinessDB(ctx, resource, true)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -248,7 +248,7 @@ func TestEntityRuntime(t *testing.T) {
 	if _, e = schemaDB.Exec("UPDATE _lastapp_entity_state SET gate_open=0 WHERE entity_id=?", eid); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.publicationJob(ctx, s.DB); e != nil {
+	if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	request(bearer, "GET", "/entities/deal/records/"+record, nil, 0, 200)
@@ -258,7 +258,7 @@ func TestEntityRuntime(t *testing.T) {
 	oc.want("POST", base+"/spaces/"+space2+"/apps", registry.Row{"id": app2, "slug": "other", "display_name": "Other App", "initial_manager_user_id": owner}, 0, 201)
 	entity2 := oc.want("POST", "/v1/spaces/"+space2+"/entities", registry.Row{"definition": d}, 0, 200)
 	oc.want("POST", "/v1/entities/"+registry.Str(entity2["id"])+"/publications", registry.Row{}, registry.Integer(entity2["revision"]), 202)
-	if _, e = s.publicationJob(ctx, s.DB); e != nil {
+	if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	app2Info := oc.want("GET", base+"/apps/"+app2, nil, 0, 200)
@@ -288,7 +288,7 @@ func TestEntityRuntime(t *testing.T) {
 		latest := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
 		saved := oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": d}, registry.Integer(latest["revision"]), 200)
 		oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, registry.Integer(saved["revision"]), 202)
-		if _, e := s.publicationJob(ctx, s.DB); e != nil {
+		if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 		latest = oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
@@ -342,7 +342,7 @@ func TestEntityRuntime(t *testing.T) {
 	d.Fields[0].MaxLength = 50
 	saved := oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": d}, registry.Integer(latest["revision"]), 200)
 	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, registry.Integer(saved["revision"]), 202)
-	if _, e := s.publicationJob(ctx, s.DB); e != nil {
+	if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	latest = oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
@@ -378,7 +378,7 @@ func businessDatabaseFixture(t *testing.T, s *Server, tenant string, managed boo
 	exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + runtime.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
 	exec("GRANT CREATE,ALTER,INDEX,REFERENCES,SELECT,INSERT,UPDATE,DELETE ON `" + name + "`.* TO '" + ddl.Username + "'@'" + s.Config.RuntimeAccountHost + "'")
 	t.Cleanup(func() {
-		s.dataPools.Close()
+		s.publisher.Close()
 		if _, err := s.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
 			t.Error("fixture database cleanup failed", err)
 		}

@@ -1,4 +1,7 @@
-package control
+// Package publisher applies entity publications: it prepares the business
+// tables of a Space database, projects entity permissions and activates the
+// registry version, and owns the business-database connections and pools.
+package publisher
 
 import (
 	"context"
@@ -15,12 +18,40 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
-	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/sealer"
 )
 
-func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (*sql.DB, error) {
+// Publisher runs entity publications against the registry DB and the Space
+// business databases. The deployment hooks are supplied by the deployment
+// worker, which owns production deployment plans and their authority.
+type Publisher struct {
+	DB           *sql.DB
+	Access       *access.Checker
+	Sealer       *sealer.Sealer
+	RegistryName string
+	Pools        data.Pools
+	// Connect opens a business database with the given credentials, applying
+	// the configured TLS and network policy.
+	Connect func(ctx context.Context, target databases.DatabaseEndpoint, cred databases.Credentials, name string) (*sql.DB, error)
+	// DeploymentAuthority rechecks the live authority of the publishing
+	// deployment that owns a publication.
+	DeploymentAuthority func(ctx context.Context, q registry.Queryer, deployment string) error
+	// DeploymentEntities returns the active entity IDs of a deployment's
+	// captured snapshot: the references its publications may resolve.
+	DeploymentEntities func(ctx context.Context, q registry.Queryer, deployment string) (map[string]bool, error)
+	// Warn logs a failure without its message (see httpapi.Diagnostic).
+	Warn func(ctx context.Context, msg string, err error, attrs ...any)
+}
+
+// Close closes the pooled runtime databases.
+func (s *Publisher) Close() { s.Pools.Close() }
+
+// BusinessDB opens the database of resource with its runtime credentials, or
+// with its schema (or managed provisioning) credentials when schema is set.
+// The caller closes it.
+func (s *Publisher) BusinessDB(ctx context.Context, resource string, schema bool) (*sql.DB, error) {
 	v, e := registry.ScanOne[databases.ResourceAccess](ctx, s.DB, "SELECT "+databases.ResourceAccessColumns+" FROM database_resources d JOIN database_targets t ON t.id=d.target_id WHERE d.id=? AND d.state='ready' AND t.state='active'", resource)
 	if e != nil {
 		return nil, e
@@ -37,38 +68,43 @@ func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (
 			}
 		}
 	}
-	if e = s.sealer.Unseal(purpose, record, tenant, enc, &cred); e != nil {
+	if e = s.Sealer.Unseal(purpose, record, tenant, enc, &cred); e != nil {
 		return nil, e
 	}
-	return s.targetDB(ctx, v.DatabaseEndpoint, cred, v.Name)
+	return s.Connect(ctx, v.DatabaseEndpoint, cred, v.Name)
 }
 
-func (s *Server) runtimeDB(ctx context.Context, resource string) (*sql.DB, func(), error) {
+// RuntimeDB acquires the pooled runtime database of resource for its current
+// credential generation; the caller calls the returned release function.
+func (s *Publisher) RuntimeDB(ctx context.Context, resource string) (*sql.DB, func(), error) {
 	var generation string
 	if e := registry.Lookup(ctx, s.DB, "SELECT d.credential_generation FROM database_resources d JOIN database_targets t ON t.id=d.target_id AND t.state='active' WHERE d.id=? AND d.state='ready'", []any{resource}, &generation); e != nil {
 		return nil, nil, e
 	}
-	return s.dataPools.Acquire(ctx, resource+":"+generation, func() (*sql.DB, error) { return s.businessDB(ctx, resource, false) })
+	return s.Pools.Acquire(ctx, resource+":"+generation, func() (*sql.DB, error) { return s.BusinessDB(ctx, resource, false) })
 }
 
-// entityVersion is an entity publication as the publisher and deployment
+// Version is an entity publication as the publisher and deployment
 // workers apply it, with the database resource of its Space.
-type entityVersion struct {
+type Version struct {
 	ID, TenantID, SpaceID, EntityID, State, Hash, CreatedBy, Resource string
 	BaseVersion, Deployment, AgentGrant, Attempt, StoragePlanHash     *string
 	Compiler                                                          int64
 	Definition, StoragePlan                                           registry.JSONValue
 }
 
-// versionColumns selects an entityVersion from entity_versions v joined to
+// VersionColumns selects a Version from entity_versions v joined to
 // spaces sp.
-const versionColumns = "v.id,v.tenant_id,v.space_id,v.entity_id,v.state,v.definition_hash,v.created_by,sp.database_resource_id,v.base_version_id,v.deployment_id,v.agent_grant_id,v.attempt_id,v.storage_plan_hash,v.compiler_version,v.definition_json,v.storage_plan_json"
+const VersionColumns = "v.id,v.tenant_id,v.space_id,v.entity_id,v.state,v.definition_hash,v.created_by,sp.database_resource_id,v.base_version_id,v.deployment_id,v.agent_grant_id,v.attempt_id,v.storage_plan_hash,v.compiler_version,v.definition_json,v.storage_plan_json"
 
-func (v *entityVersion) ScanFields() []any {
+func (v *Version) ScanFields() []any {
 	return []any{&v.ID, &v.TenantID, &v.SpaceID, &v.EntityID, &v.State, &v.Hash, &v.CreatedBy, &v.Resource, &v.BaseVersion, &v.Deployment, &v.AgentGrant, &v.Attempt, &v.StoragePlanHash, &v.Compiler, &v.Definition, &v.StoragePlan}
 }
 
-func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor ...*string) (bool, error) {
+// Job runs one queued or interrupted entity publication, rechecking the live
+// authority of its agent, deployment or workspace owner first. It reports
+// whether a job was found; cursor round-robins Tenants for the worker loop.
+func (s *Publisher) Job(ctx context.Context, q registry.Queryer, cursor ...*string) (bool, error) {
 	last := ""
 	if len(cursor) > 0 {
 		last = *cursor[0]
@@ -76,10 +112,10 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 	// A newly created Space is authorable before managed provisioning finishes.
 	// Do not fail its queued definition merely because storage is still starting;
 	// skip it so this same worker can provision storage and return to publication.
-	var v entityVersion
+	var v Version
 	var agentClient string
 	var activeVersion *string
-	e := registry.Lookup(ctx, q, "SELECT "+versionColumns+",COALESCE(ag.client_id,''),e.active_version_id FROM entity_versions v JOIN entity_definitions e ON e.id=v.entity_id JOIN spaces sp ON sp.id=v.space_id AND sp.state='active' JOIN database_resources d ON d.id=sp.database_resource_id JOIN tenants t ON t.id=v.tenant_id AND t.state='active' LEFT JOIN agent_grants ag ON ag.id=v.agent_grant_id WHERE v.state IN ('queued','publishing') AND (v.state='publishing' OR d.state NOT IN ('pending','provisioning')) ORDER BY (v.tenant_id>?) DESC,v.tenant_id,v.created_at,v.id LIMIT 1", []any{last}, append(v.ScanFields(), &agentClient, &activeVersion)...)
+	e := registry.Lookup(ctx, q, "SELECT "+VersionColumns+",COALESCE(ag.client_id,''),e.active_version_id FROM entity_versions v JOIN entity_definitions e ON e.id=v.entity_id JOIN spaces sp ON sp.id=v.space_id AND sp.state='active' JOIN database_resources d ON d.id=sp.database_resource_id JOIN tenants t ON t.id=v.tenant_id AND t.state='active' LEFT JOIN agent_grants ag ON ag.id=v.agent_grant_id WHERE v.state IN ('queued','publishing') AND (v.state='publishing' OR d.state NOT IN ('pending','provisioning')) ORDER BY (v.tenant_id>?) DESC,v.tenant_id,v.created_at,v.id LIMIT 1", []any{last}, append(v.ScanFields(), &agentClient, &activeVersion)...)
 	if e != nil {
 		if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
 			return false, nil
@@ -118,24 +154,20 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 		if v.Deployment != nil {
 			permission = "production.deploy"
 		}
-		denied := s.AgentJobAllowed(ctx, tx, access.Deref(v.AgentGrant), v.CreatedBy, access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, permission)
+		denied := s.Access.AgentJobAllowed(ctx, tx, access.Deref(v.AgentGrant), v.CreatedBy, access.Resource{Tenant: v.TenantID, Space: v.SpaceID}, permission)
 		if denied == nil && v.Deployment != nil {
-			job, err := registry.ScanOne[deploymentTask](ctx, tx, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", *v.Deployment)
-			denied = err
-			if denied == nil {
-				_, denied = s.deploymentPrincipal(ctx, tx, job)
-			}
+			denied = s.DeploymentAuthority(ctx, tx, *v.Deployment)
 		}
 		if denied == nil && workspace != nil {
 			actor := access.Principal{ID: workspace.Owner}
 			if access.Deref(workspace.OwnerGrant) != "" {
-				actor.Agent, denied = s.ReadAgentGrant(ctx, tx, *workspace.OwnerGrant)
+				actor.Agent, denied = s.Access.ReadAgentGrant(ctx, tx, *workspace.OwnerGrant)
 				if denied == nil {
 					denied = access.RequireAgent(actor.Agent, "workspaces.write")
 				}
 			}
 			if denied == nil {
-				denied = s.WorkspaceOwner(ctx, tx, actor, *workspace)
+				denied = s.Access.WorkspaceOwner(ctx, tx, actor, *workspace)
 			}
 		}
 
@@ -166,12 +198,12 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 	}
 	v.Attempt = &attempt
 	run, cancel := context.WithTimeout(ctx, 45*time.Second)
-	e = s.publishEntity(run, v, activeVersion)
+	e = s.publish(run, v, activeVersion)
 	cancel()
 	if e == nil {
 		return true, nil
 	}
-	httpapi.Logger(ctx, s.Log).Warn("entity publication failed", append([]any{"entity_id", v.EntityID}, httpapi.Diagnostic(e)...)...)
+	s.Warn(ctx, "entity publication failed", e, "entity_id", v.EntityID)
 	message := "Publication failed. Check database/schema privileges and retry; existing data is preserved."
 	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
@@ -184,7 +216,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 		_, err := s.DB.ExecContext(ctx, "UPDATE entity_versions SET error_message=? WHERE id=? AND attempt_id=?", message, v.ID, attempt)
 		return true, err
 	}
-	s.restorePublicationBase(ctx, v)
+	s.RestoreBase(ctx, v)
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return true, err
@@ -203,7 +235,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 	return true, tx.Commit()
 }
 
-func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersion *string) error {
+func (s *Publisher) publish(ctx context.Context, v Version, activeVersion *string) error {
 	d, e := entities.DefOf(v.Definition.Value())
 	if e != nil {
 		return e
@@ -217,10 +249,10 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		return e
 	}
 	if entity.Hash(plan) != access.Deref(v.StoragePlanHash) || entity.Hash(d) != v.Hash {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	entityID, version, attempt := v.EntityID, v.ID, access.Deref(v.Attempt)
-	db, e := s.businessDB(ctx, v.Resource, true)
+	db, e := s.BusinessDB(ctx, v.Resource, true)
 	if e != nil {
 		return e
 	}
@@ -238,8 +270,8 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	if got != 1 {
 		return registry.Conflict("Entity storage is busy; retry shortly.")
 	}
-	defer releasePinnedLock(conn, lock)
-	marker := "lastapp:" + entity.Hash(s.registryName)[:16]
+	defer data.ReleasePinnedLock(conn, lock)
+	marker := "lastapp:" + entity.Hash(s.RegistryName)[:16]
 	if e = s.ensureSupport(ctx, conn, marker); e != nil {
 		return e
 	}
@@ -252,7 +284,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		return e
 	}
 	if exists && comment != tableMarker {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	_, e = conn.ExecContext(ctx, "INSERT INTO _lastapp_entity_state(entity_id,tenant_id,space_id,layout_hash) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE entity_id=entity_id", entityID, v.TenantID, v.SpaceID, entity.Hash(d.Fields))
 	if e != nil {
@@ -265,7 +297,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	var tenant, space string
 	e = tx.QueryRowContext(ctx, "SELECT tenant_id,space_id FROM _lastapp_entity_state WHERE entity_id=? FOR UPDATE", entityID).Scan(&tenant, &space)
 	if e == nil && (tenant != v.TenantID || space != v.SpaceID) {
-		e = ownershipConflict()
+		e = databases.OwnershipConflict()
 	}
 	if e == nil {
 		_, e = tx.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=0,attempt_id=? WHERE entity_id=?", attempt, entityID)
@@ -359,7 +391,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 					if processed > entity.MaxPublicationValidationRecords {
 						return registry.Bad("Existing-data validation exceeds the current publication limit. Policy-only changes remain available.")
 					}
-					record := businessRecord(d, raw)
+					record := entities.BusinessRecord(d, raw)
 					for _, field := range d.Fields {
 						if _, e := entity.Value(field, record[field.Key], true); e != nil {
 							return registry.Bad("Existing records do not satisfy the proposed field constraints.")
@@ -383,7 +415,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 
 	} else if !exists {
 		if alreadyActivated {
-			return ownershipConflict()
+			return databases.OwnershipConflict()
 		}
 		if _, e = conn.ExecContext(ctx, plan.Create); e != nil {
 			return e
@@ -417,11 +449,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		return e
 	}
 	if v.Deployment != nil {
-		job, err := registry.ScanOne[deploymentTask](ctx, rt, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", *v.Deployment)
-		if err != nil {
-			return err
-		}
-		if _, err = s.deploymentPrincipal(ctx, rt, job); err != nil {
+		if err := s.DeploymentAuthority(ctx, rt, *v.Deployment); err != nil {
 			return err
 		}
 		// Storage is ready, but live roles, ACLs and App policies must switch
@@ -435,13 +463,13 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		}
 		return rt.Commit()
 	}
-	if e = s.activateEntityVersion(ctx, rt, v, d); e != nil {
+	if e = s.Activate(ctx, rt, v, d); e != nil {
 		return e
 	}
 	if e = rt.Commit(); e != nil {
 		return e
 	}
-	if e = openPublicationGate(ctx, conn, v, plan.FieldsHash); e != nil {
+	if e = OpenGate(ctx, conn, v, plan.FieldsHash); e != nil {
 		return e
 	}
 	done, e := s.DB.BeginTx(ctx, nil)
@@ -458,7 +486,9 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	return done.Commit()
 }
 
-func openPublicationGate(ctx context.Context, q registry.Queryer, v entityVersion, layoutHash string) error {
+// OpenGate opens the storage gate of v's entity for its attempt, fencing the
+// physical version to v and layoutHash.
+func OpenGate(ctx context.Context, q registry.Queryer, v Version, layoutHash string) error {
 	result, err := q.ExecContext(ctx, "UPDATE _lastapp_entity_state SET version_id=?,layout_hash=?,gate_open=1 WHERE entity_id=? AND attempt_id=?", v.ID, layoutHash, v.EntityID, access.Deref(v.Attempt))
 	if err != nil {
 		return err
@@ -477,7 +507,7 @@ func openPublicationGate(ctx context.Context, q registry.Queryer, v entityVersio
 	return nil
 }
 
-func (s *Server) ensureSupport(ctx context.Context, q registry.Queryer, marker string) error {
+func (s *Publisher) ensureSupport(ctx context.Context, q registry.Queryer, marker string) error {
 	names := []string{"_lastapp_entity_state", "_lastapp_record_acl", "_lastapp_data_audit"}
 	for i, name := range names {
 		var c string
@@ -489,27 +519,27 @@ func (s *Server) ensureSupport(ctx context.Context, q registry.Queryer, marker s
 		} else if e != nil {
 			return e
 		} else if c != marker {
-			return ownershipConflict()
+			return databases.OwnershipConflict()
 		}
 	}
 	return nil
 }
 
-// projectedPermission is the security state of an entity permission that a
+// ProjectedPermission is the security state of an entity permission that a
 // publication compares before projecting it again.
-type projectedPermission struct {
+type ProjectedPermission struct {
 	ID, State, Hash string
 	Revision        int64
 }
 
-func (v *projectedPermission) ScanFields() []any { return []any{&v.ID, &v.State, &v.Hash, &v.Revision} }
+func (v *ProjectedPermission) ScanFields() []any { return []any{&v.ID, &v.State, &v.Hash, &v.Revision} }
 
-func (s *Server) projectPermissions(ctx context.Context, tx *sql.Tx, v entityVersion, d entity.Definition) error {
-	previous, e := registry.ScanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=?", v.EntityID)
+func (s *Publisher) projectPermissions(ctx context.Context, tx *sql.Tx, v Version, d entity.Definition) error {
+	previous, e := registry.ScanAll[ProjectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=?", v.EntityID)
 	if e != nil {
 		return e
 	}
-	byID := map[string]projectedPermission{}
+	byID := map[string]ProjectedPermission{}
 	for _, p := range previous {
 		byID[p.ID] = p
 	}
@@ -571,13 +601,15 @@ func verifyEntityColumns(ctx context.Context, q registry.Queryer, id string, d e
 			return registry.Conflict("Generated storage differs from the proposed field type; publish a compatible definition.")
 		}
 		if f.Type == "text" && collation != "utf8mb4_nopad_bin" {
-			return ownershipConflict()
+			return databases.OwnershipConflict()
 		}
 	}
 	return nil
 }
 
-func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
+// RestoreBase reopens the storage gate on the base version after a failed
+// publication, when storage still matches it. Best effort: it fails closed.
+func (s *Publisher) RestoreBase(ctx context.Context, v Version) {
 	if v.BaseVersion == nil {
 		return
 	}
@@ -589,7 +621,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	if e != nil {
 		return
 	}
-	db, e := s.businessDB(ctx, v.Resource, true)
+	db, e := s.BusinessDB(ctx, v.Resource, true)
 	if e != nil {
 		return
 	}
@@ -604,7 +636,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	if e = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lock).Scan(&got); e != nil || got != 1 {
 		return
 	}
-	defer releasePinnedLock(conn, lock)
+	defer data.ReleasePinnedLock(conn, lock)
 	if verifyEntityColumns(ctx, conn, v.EntityID, d) != nil {
 		return
 	}
@@ -614,13 +646,13 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	}
 	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", *v.BaseVersion, v.EntityID, access.Deref(v.Attempt)); e != nil {
 		// Best effort: if this fails the gate stays closed, which fails closed.
-		httpapi.Logger(ctx, s.Log).Warn("restore publication base failed", append([]any{"entity_id", v.EntityID}, httpapi.Diagnostic(e)...)...)
+		s.Warn(ctx, "restore publication base failed", e, "entity_id", v.EntityID)
 	}
 }
 
-// activateEntityVersion changes only registry authority. Deployment workers call
+// Activate changes only registry authority. Deployment workers call
 // it for every prepared entity in the same transaction as roles and App policies.
-func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entityVersion, d entity.Definition) error {
+func (s *Publisher) Activate(ctx context.Context, tx *sql.Tx, v Version, d entity.Definition) error {
 	entityID, version, attempt := v.EntityID, v.ID, access.Deref(v.Attempt)
 	tenant, space := v.TenantID, v.SpaceID
 	var active, pending, current string
@@ -635,10 +667,10 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entity
 		if active != access.Deref(v.BaseVersion) || pending != version {
 			return registry.Conflict("Publication base changed; review again.")
 		}
-		if e = s.Authorize(ctx, tx, access.Principal{ID: v.CreatedBy}, "entity.publish", access.Resource{Tenant: tenant, Space: space}, true); e != nil {
+		if e = s.Access.Authorize(ctx, tx, access.Principal{ID: v.CreatedBy}, "entity.publish", access.Resource{Tenant: tenant, Space: space}, true); e != nil {
 			return e
 		}
-		candidates, err := s.publicationCandidates(ctx, tx, v)
+		candidates, err := s.candidates(ctx, tx, v)
 		if err != nil {
 			return err
 		}
@@ -656,4 +688,48 @@ func (s *Server) activateEntityVersion(ctx context.Context, tx *sql.Tx, v entity
 		}
 	}
 	return nil
+}
+
+func ensureReferenceConstraints(ctx context.Context, q registry.Queryer, entityID string, d entity.Definition) error {
+	for _, f := range d.Fields {
+		if f.Type != "reference" {
+			continue
+		}
+		target := strings.Trim(data.Table(f.Target), "`")
+		var n int
+		if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? AND REFERENCED_TABLE_NAME=? AND REFERENCED_COLUMN_NAME='id'", strings.Trim(data.Table(entityID), "`"), "f_"+f.Key, target).Scan(&n); e != nil {
+			return e
+		}
+		if n > 0 {
+			continue
+		}
+		name := "fk_" + entity.Hash([]string{entityID, f.Key, f.Target})[:24]
+		_, e := q.ExecContext(ctx, "ALTER TABLE "+data.Table(entityID)+" ADD CONSTRAINT `"+name+"` FOREIGN KEY (`tenant_id`,`space_id`,"+data.FieldColumn(f.Key)+") REFERENCES "+data.Table(f.Target)+" (`tenant_id`,`space_id`,`id`)")
+		if e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func (s *Publisher) candidates(ctx context.Context, q registry.Queryer, v Version) (map[string]bool, error) {
+	if v.Deployment != nil {
+		return s.DeploymentEntities(ctx, q, *v.Deployment)
+	}
+	var n int
+	if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM development_workspaces WHERE backing_space_id=? AND state='preparing'", v.SpaceID).Scan(&n); e != nil {
+		return nil, e
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	vs, e := registry.ScanStrings(ctx, q, "SELECT id FROM entity_definitions WHERE space_id=?", v.SpaceID)
+	if e != nil {
+		return nil, e
+	}
+	ids := map[string]bool{}
+	for _, id := range vs {
+		ids[id] = true
+	}
+	return ids, nil
 }

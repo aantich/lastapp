@@ -1,5 +1,34 @@
 # Lastapp verification
 
+## Entity publisher extracted from control (P1) — 17 November 2026
+
+- Pure move, no behaviour change: the publication job, `publish`, `Activate`,
+  `RestoreBase`, `OpenGate`, permission projection, storage preparation and
+  reference/column checks, publication candidates, `BusinessDB`/`RuntimeDB`
+  and the runtime pool cache are `publisher.Publisher` (`internal/publisher`).
+  `Open` wires it; control supplies the deployment authority recheck (same
+  `publishing` deployment query and `deploymentPrincipal`), the deployment
+  snapshot entities, the database connector and the warning logger. The worker
+  loop, its `GET_LOCK`, job order, READ COMMITTED tenant lock, receipts, audit
+  attribution and the physical version fence are unchanged.
+- Shared helpers moved below control instead of being copied:
+  `data.ReleasePinnedLock`, `databases.OwnershipConflict`,
+  `entities.BusinessRecord`.
+- `internal/publisher` is in the layering table (layer 95, below control) and
+  in `TestNoHTTPLoopback`; it has its own disposable business-database fixture
+  and tests (support-table ownership, the attempt fence of the storage gate,
+  reference constraints, generated column checks). HTTP/MCP tests stay in
+  control.
+- `internal/control` production code: 10,265 → 9,545 lines
+  (`internal/publisher/publisher.go`: 735).
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 190.0 s, publisher 2.6 s); the six goldens with `-count=2` **PASS** and
+`internal/control/testdata` is unchanged since the P0b commit;
+`python3 design/validate_schema.py --check` and `python3 scripts/verify_driver.py`
+**PASS**; `make e2e` **PASS** (34 browser tests on the disposable stack).
+
 ## Shared-helper extraction before the control split (P0b) — 17 November 2026
 
 - Pure moves, no behaviour change: `internal/httpapi` now holds the HTTP

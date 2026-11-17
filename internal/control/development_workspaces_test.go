@@ -18,6 +18,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/publisher"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -56,7 +57,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		t.Fatal(e)
 	}
 	cleanup := func() {
-		s.dataPools.Close()
+		s.publisher.Close()
 		rs, _ := registry.QueryRows(ctx, s.DB, "SELECT id,database_name,runtime_credentials_enc FROM database_resources WHERE tenant_id=? AND management_mode='managed'", tenant)
 		for _, v := range rs {
 			var cr databases.Credentials
@@ -106,7 +107,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	made := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": definition}, 0, 200)
 	eid := registry.Str(made["id"])
 	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
-	if _, e = s.publicationJob(ctx, s.DB); e != nil {
+	if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	// Baseline copying must also preserve a cyclic entity-reference graph.
@@ -115,14 +116,14 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	contactRow := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": contact}, 0, 200)
 	contactID := registry.Str(contactRow["id"])
 	oc.want("POST", "/v1/entities/"+contactID+"/publications", registry.Row{}, 1, 202)
-	if _, e = s.publicationJob(ctx, s.DB); e != nil {
+	if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	definition.Fields = append(definition.Fields, entity.Field{Key: "contact", Label: "Contact", Type: "reference", Target: contactID})
 	companyRow := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
 	companySaved := oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": definition}, registry.Integer(companyRow["revision"]), 200)
 	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, registry.Integer(companySaved["revision"]), 202)
-	if _, e = s.publicationJob(ctx, s.DB); e != nil {
+	if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:5390", Inherit: true}, 1, 200)
@@ -155,7 +156,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		if e = s.workspaceJob(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = s.publicationJob(ctx, s.DB); e != nil {
+		if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -247,7 +248,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 
 	saved := oc.want("PATCH", "/v1/entities/"+devEntity, registry.Row{"definition": definition}, registry.Integer(currentDefinition["revision"]), 200)
 	oc.want("POST", "/v1/entities/"+devEntity+"/publications", registry.Row{}, registry.Integer(saved["revision"]), 202)
-	if _, e = s.publicationJob(ctx, s.DB); e != nil {
+	if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	ticket := oc.want("POST", "/v1/apps/"+devApp+"/upload-tickets", registry.Row{}, 0, 201)
@@ -299,14 +300,14 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	interrupted := false
 	for i := 0; i < 8; i++ {
 		if failure == "" && !interrupted {
-			prepared, err := registry.ScanAll[entityVersion](ctx, s.DB, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
+			prepared, err := registry.ScanAll[publisher.Version](ctx, s.DB, "SELECT "+publisher.VersionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state='prepared'", job["id"])
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(prepared) > 0 {
 				// Model a process loss after physical opening and before registry
 				// commit. The old runtime must fail closed, and retry must resume.
-				db, err := s.businessDB(ctx, source, true)
+				db, err := s.publisher.BusinessDB(ctx, source, true)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -316,7 +317,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 					if err = json.Unmarshal(encoded, &plan); err != nil {
 						t.Fatal(err)
 					}
-					if err = openPublicationGate(ctx, db, version, plan.FieldsHash); err != nil {
+					if err = publisher.OpenGate(ctx, db, version, plan.FieldsHash); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -355,7 +356,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		if e = s.deploymentJob(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = s.publicationJob(ctx, s.DB); e != nil {
+		if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 		assertSecurity()

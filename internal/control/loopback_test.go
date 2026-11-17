@@ -8,7 +8,7 @@ import (
 )
 
 // operationPackages are the transport-independent packages below control.
-var operationPackages = []string{"registry", "access", "op", "config", "databases", "roles", "membership", "inventory", "entities"}
+var operationPackages = []string{"registry", "access", "op", "config", "databases", "roles", "membership", "inventory", "entities", "publisher"}
 
 // MCP tools call the same operations as console handlers. The former
 // MCP→HTTP loopback (a synthetic request and recorded response around a

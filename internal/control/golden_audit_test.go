@@ -93,7 +93,7 @@ func TestAuditAttributionGolden(t *testing.T) {
 	labels[registry.Str(human["id"])] = "human"
 	oc.want("POST", "/v1/entities/"+registry.Str(human["id"])+"/publications", registry.Row{}, 1, 202)
 	phase("console: draft and queue an entity publication")
-	if _, e := s.publicationJob(ctx, s.DB); e != nil {
+	if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	phase("worker: publish the human-requested entity")
@@ -117,7 +117,7 @@ func TestAuditAttributionGolden(t *testing.T) {
 	rec.mcp(s, agent, "entity publish replay", "lastapp_entity_publish", publish, true)
 	phase("mcp: draft and queue an entity publication, then replay it")
 	for range 2 {
-		if _, e := s.publicationJob(ctx, s.DB); e != nil {
+		if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 	}
