@@ -16,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
+	"github.com/aantich/lastapp/internal/publisher"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -130,7 +131,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 		}
 	}
 	rt.entityID, rt.version = entityID, version
-	ps, e := registry.ScanAll[projectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
+	ps, e := registry.ScanAll[publisher.ProjectedPermission](ctx, tx, "SELECT id,state,COALESCE(security_hash,''),security_revision FROM permissions WHERE entity_id=? AND state='active'", rt.entityID)
 	if e != nil {
 		return rt, e
 	}
@@ -142,7 +143,7 @@ func (s *Server) loadRuntime(ctx context.Context, se appSession, key string) (da
 	}
 	rt.metadataShares = map[string]bool{}
 	if rt.d.Sharing {
-		db, release, e := s.runtimeDB(ctx, se.Resource)
+		db, release, e := s.publisher.RuntimeDB(ctx, se.Resource)
 		if e != nil {
 			return rt, e
 		}
@@ -485,7 +486,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	if len(args) > entity.MaxSQLParameters {
 		return registry.Bad("Query exceeds its parameter limit.")
 	}
-	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -670,7 +671,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}

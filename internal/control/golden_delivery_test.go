@@ -128,7 +128,7 @@ func TestDeliveryShapeGolden(t *testing.T) {
 		if e := s.deploymentJob(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
-		if _, e := s.publicationJob(ctx, s.DB); e != nil {
+		if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 	}

@@ -44,7 +44,7 @@ func TestDataShapeGolden(t *testing.T) {
 	created := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": d}, 0, 200)
 	eid := registry.Str(created["id"])
 	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
-	if _, e := s.publicationJob(ctx, s.DB); e != nil {
+	if _, e := s.publisher.Job(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
 	origin := "http://localhost:5590"

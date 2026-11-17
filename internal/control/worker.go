@@ -80,7 +80,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		if e = s.workspaceJob(ctx, conn); e != nil {
 			return e
 		}
-		if _, err := s.publicationJob(ctx, conn, &lastPublicationTenant); err != nil {
+		if _, err := s.publisher.Job(ctx, conn, &lastPublicationTenant); err != nil {
 			return err
 		}
 		job, e := nextJob(ctx, conn, lastTenant)

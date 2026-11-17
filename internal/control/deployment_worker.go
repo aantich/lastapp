@@ -14,6 +14,7 @@ import (
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/op"
+	"github.com/aantich/lastapp/internal/publisher"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -56,6 +57,37 @@ func (s *Server) deploymentPrincipal(ctx context.Context, q registry.Queryer, v 
 		p.Agent = g
 	}
 	return p, s.deploymentAuthority(ctx, q, p, access.Resource{Tenant: v.TenantID, Space: v.SpaceID})
+}
+
+// publishingDeploymentAuthority rechecks the live authority of the publishing
+// deployment that owns an entity publication (publisher.DeploymentAuthority).
+func (s *Server) publishingDeploymentAuthority(ctx context.Context, q registry.Queryer, id string) error {
+	job, e := registry.ScanOne[deploymentTask](ctx, q, deploymentTaskSQL+" WHERE d.id=? AND d.state='publishing'", id)
+	if e != nil {
+		return e
+	}
+	_, e = s.deploymentPrincipal(ctx, q, job)
+	return e
+}
+
+// deploymentEntities returns the active entities of a deployment's captured
+// snapshot (publisher.DeploymentEntities).
+func deploymentEntities(ctx context.Context, q registry.Queryer, id string) (map[string]bool, error) {
+	var stored registry.JSONValue
+	if e := registry.Lookup(ctx, q, "SELECT plan_json FROM release_deployments WHERE id=? AND state IN ('preparing','publishing')", []any{id}, &stored); e != nil {
+		return nil, e
+	}
+	plan, e := decodeDeployment(stored)
+	if e != nil {
+		return nil, e
+	}
+	ids := map[string]bool{}
+	for _, d := range plan.Snapshot.Entities {
+		if d.State == registry.StateActive {
+			ids[d.ID] = true
+		}
+	}
+	return ids, nil
 }
 
 func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
@@ -188,26 +220,26 @@ func (s *Server) deploymentJob(ctx context.Context, q registry.Queryer) error {
 		}
 		var storage *sql.DB
 		for _, captured := range plan.Snapshot.Entities {
-			version, err := registry.ScanOne[entityVersion](attempt, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.id=? AND v.deployment_id=? AND v.state='prepared'", plan.Versions[captured.ID], v.ID)
+			version, err := registry.ScanOne[publisher.Version](attempt, tx, "SELECT "+publisher.VersionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.id=? AND v.deployment_id=? AND v.state='prepared'", plan.Versions[captured.ID], v.ID)
 			if err != nil {
 				if ae, ok := err.(*registry.APIError); ok && ae.Status == 404 {
 					continue
 				} // Unchanged entity.
 				return err
 			}
-			if e = s.activateEntityVersion(attempt, tx, version, captured.Definition); e != nil {
+			if e = s.publisher.Activate(attempt, tx, version, captured.Definition); e != nil {
 				return e
 			}
 			// Open the new physical version before committing its registry version.
 			// Old runtime snapshots see a mismatch and fail closed until commit.
 			if storage == nil {
-				storage, e = s.businessDB(attempt, v.Resource, true)
+				storage, e = s.publisher.BusinessDB(attempt, v.Resource, true)
 				if e != nil {
 					return e
 				}
 				defer storage.Close()
 			}
-			if e = openPublicationGate(attempt, storage, version, entity.Hash(captured.Definition.Fields)); e != nil {
+			if e = publisher.OpenGate(attempt, storage, version, entity.Hash(captured.Definition.Fields)); e != nil {
 				return e
 			}
 			if _, e = tx.ExecContext(attempt, "UPDATE entity_versions SET state='published',finished_at=UTC_TIMESTAMP(6) WHERE id=?", version.ID); e != nil {
@@ -293,7 +325,7 @@ func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message
 	if err = lockTenant(ctx, tx, job.TenantID); err != nil {
 		return err
 	}
-	versions, err := registry.ScanAll[entityVersion](ctx, tx, "SELECT "+versionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job.ID)
+	versions, err := registry.ScanAll[publisher.Version](ctx, tx, "SELECT "+publisher.VersionColumns+" FROM entity_versions v JOIN spaces sp ON sp.id=v.space_id WHERE v.deployment_id=? AND v.state IN ('queued','publishing','prepared')", job.ID)
 	if err != nil {
 		return err
 	}
@@ -315,7 +347,7 @@ func (s *Server) failDeployment(ctx context.Context, job deploymentTask, message
 		return err
 	}
 	for _, version := range versions {
-		s.restorePublicationBase(ctx, version)
+		s.publisher.RestoreBase(ctx, version)
 	}
 	return nil
 }

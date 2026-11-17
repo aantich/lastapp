@@ -27,7 +27,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 	if len(in.IDs) > entity.Limits.Bulk {
 		return registry.Bad("Too many records.")
 	}
-	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
@@ -101,7 +101,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 			return registry.Bad("Choose a recipient user or team.")
 		}
 	}
-	db, release, e := s.runtimeDB(r.Context(), rt.session.Resource)
+	db, release, e := s.publisher.RuntimeDB(r.Context(), rt.session.Resource)
 	if e != nil {
 		return e
 	}
