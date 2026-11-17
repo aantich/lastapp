@@ -190,7 +190,7 @@ tools do. `internal/delivery` does not import `net/http`.
 - `internal/delivery/releases.go`, `deployments.go`: captured plans, concurrency
   fences and durable preparation/activation (`DeploymentJob`, one step per
   leader-loop pass in `internal/control/worker.go`).
-- `internal/control/agent_development.go`: two typed MCP operation tools. Ordinary list/get/context
+- `internal/agent/development.go`: two typed MCP operation tools. Ordinary list/get/context
   expose workspaces, builds, releases, deployment status and local starter files.
 - `packages/starter`: authoritative starter templates; `web/admin` supplies the
   console workspace/release screens and tested package versions.

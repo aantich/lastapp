@@ -130,7 +130,7 @@ export type LaunchCode = {
   expires_in: number;
 };
 
-// internal/control/agent_oauth.go: agent consent decision.
+// internal/agent/oauth.go: agent consent decision.
 export type Redirect = { redirect_url: string };
 
 // A loose value usable as a React key: strings and numbers as written,
@@ -203,8 +203,8 @@ export type Release = {
 // internal/access/delegation.go: AgentLimits.
 export type AgentLimits = { target_ids: string[]; max_databases: number };
 
-// internal/control/agent_oauth.go: GET /v1/agent-access/config; permissions
-// and presets are internal/control/agents.go: agentPermissionCatalog,
+// internal/agent/server.go: GET /v1/agent-access/config; permissions
+// and presets are internal/agent/permissions.go: agentPermissionCatalog,
 // agentPresets.
 export type AgentPermission = {
   code: string;
@@ -225,7 +225,7 @@ export type AgentConfig = {
   access_token_seconds: number;
 };
 
-// internal/control/agent_oauth.go: pending connection request.
+// internal/agent/oauth.go: pending connection request.
 export type AgentRequest = {
   id: string;
   client_name: string;
@@ -236,7 +236,7 @@ export type AgentRequest = {
   resource_uri: string;
 };
 
-// internal/control/agent_oauth.go: AgentGrantItem.
+// internal/agent/oauth.go: GrantItem.
 export type AgentGrant = {
   client_id: string;
   client_name: string;
