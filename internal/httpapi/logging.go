@@ -1,4 +1,4 @@
-package control
+package httpapi
 
 import (
 	"context"
@@ -16,43 +16,44 @@ type requestLog struct {
 	log *slog.Logger
 }
 
-// requestLogger returns the request-scoped logger (request_id, method) placed
-// in ctx by observe, or the default logger outside a request.
-func requestLogger(ctx context.Context) *slog.Logger {
+// RequestLogger returns the request-scoped logger (request_id, method) placed
+// in ctx by Observe, or the default logger outside a request.
+func RequestLogger(ctx context.Context) *slog.Logger {
 	if v, ok := ctx.Value(requestLogKey{}).(requestLog); ok {
 		return v.log
 	}
 	return slog.Default()
 }
 
-func requestIDFrom(ctx context.Context) string {
+// RequestID returns the request ID Observe assigned to ctx, if any.
+func RequestID(ctx context.Context) string {
 	v, _ := ctx.Value(requestLogKey{}).(requestLog)
 	return v.id
 }
 
-// logger is the Server's logger for ctx: request-scoped inside an HTTP
-// request, otherwise the Server's base logger (workers).
-func (s *Server) logger(ctx context.Context) *slog.Logger {
+// Logger is the logger for ctx: request-scoped inside an HTTP request,
+// otherwise base (workers), falling back to the default logger.
+func Logger(ctx context.Context, base *slog.Logger) *slog.Logger {
 	if v, ok := ctx.Value(requestLogKey{}).(requestLog); ok {
 		return v.log
 	}
-	if s.Log != nil {
-		return s.Log
+	if base != nil {
+		return base
 	}
 	return slog.Default()
 }
 
-// observe assigns the request ID (the single source of X-Request-ID), puts a
+// Observe assigns the request ID (the single source of X-Request-ID), puts a
 // request-scoped logger into the context and writes one access log line.
 // Only the method, matched route pattern, status, size and duration are
 // logged: never the query string, body, cookies or credential headers.
-func (s *Server) observe(next http.Handler) http.Handler {
+func Observe(base *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rid := registry.NewID()
 		r.Header.Set("X-Request-ID", rid)
 		w.Header().Set("X-Request-ID", rid)
-		base := s.Log
+		base := base
 		if base == nil {
 			base = slog.Default()
 		}

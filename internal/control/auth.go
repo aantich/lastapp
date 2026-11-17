@@ -16,6 +16,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -65,23 +66,23 @@ func (s *Server) InitAuth(ctx context.Context) error {
 }
 
 func (s *Server) cookie(w http.ResponseWriter, name, value string, age int, httpOnly bool) {
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName(name), Value: value, Path: "/", MaxAge: age, HttpOnly: httpOnly, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: httpapi.CookieName(s.Config.PublicURL, name), Value: value, Path: "/", MaxAge: age, HttpOnly: httpOnly, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteLaxMode})
 }
 func hash(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
-		writeError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
+		httpapi.WriteError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
 		return
 	}
 	origin := r.URL.Query().Get("return_origin")
-	if origin != "" && !s.allowedOrigin(origin) {
-		writeError(w, r, registry.Bad("Invalid return origin."))
+	if origin != "" && !httpapi.AllowedOrigin(&s.Config, origin) {
+		httpapi.WriteError(w, r, registry.Bad("Invalid return origin."))
 		return
 	}
 	flow := loginFlow{ReturnOrigin: origin, State: registry.Token(32), Nonce: registry.Token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
 	b, e := s.seal("oidc_flow", "browser", "", flow)
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	s.cookie(w, "lastapp_flow", base64.RawURLEncoding.EncodeToString(b), 300, true)
@@ -90,19 +91,19 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
-		writeError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
+		httpapi.WriteError(w, r, registry.Problem(404, "oidc_unavailable", "Single sign-on is not configured."))
 		return
 	}
-	cookie, e := r.Cookie(s.cookieName("lastapp_flow"))
+	cookie, e := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_flow"))
 	if e != nil {
-		writeError(w, r, registry.Problem(400, "login_expired", "Start login again."))
+		httpapi.WriteError(w, r, registry.Problem(400, "login_expired", "Start login again."))
 		return
 	}
 	s.cookie(w, "lastapp_flow", "", -1, true)
 	b, e := base64.RawURLEncoding.DecodeString(cookie.Value)
 	var flow loginFlow
 	if e != nil || s.unseal("oidc_flow", "browser", "", b, &flow) != nil || time.Now().Unix()-flow.Issued > 300 || flow.Issued > time.Now().Unix()+30 || subtle.ConstantTimeCompare([]byte(flow.State), []byte(r.URL.Query().Get("state"))) != 1 {
-		writeError(w, r, registry.Bad("Invalid or expired login state."))
+		httpapi.WriteError(w, r, registry.Bad("Invalid or expired login state."))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -110,66 +111,66 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	ctx = oidc.ClientContext(ctx, s.oidcClient())
 	tok, e := s.auth.config.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(flow.Verifier))
 	if e != nil {
-		writeError(w, r, registry.Problem(401, "login_failed", "The identity provider rejected this login."))
+		httpapi.WriteError(w, r, registry.Problem(401, "login_failed", "The identity provider rejected this login."))
 		return
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok {
-		writeError(w, r, registry.Problem(401, "login_failed", "Provider did not return an identity token."))
+		httpapi.WriteError(w, r, registry.Problem(401, "login_failed", "Provider did not return an identity token."))
 		return
 	}
 	ident, e := s.auth.verifier.Verify(ctx, raw)
 	if e != nil || subtle.ConstantTimeCompare([]byte(ident.Nonce), []byte(flow.Nonce)) != 1 {
-		writeError(w, r, registry.Problem(401, "login_failed", "Invalid identity token."))
+		httpapi.WriteError(w, r, registry.Problem(401, "login_failed", "Invalid identity token."))
 		return
 	}
 	var claims struct{ Name, Email string }
 	if e = ident.Claims(&claims); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if claims.Name == "" {
 		claims.Name = ident.Subject
 	}
 	if len(claims.Name) > 160 || len(claims.Email) > 320 || len(ident.Subject) > 255 || ident.Subject == "" || len(ident.Issuer) > 255 {
-		writeError(w, r, registry.Bad("Provider identity exceeds supported limits."))
+		httpapi.WriteError(w, r, registry.Bad("Provider identity exceeds supported limits."))
 		return
 	}
 	uid := registry.NewID()
 	_, e = s.DB.ExecContext(ctx, "INSERT INTO users (id,oidc_issuer,oidc_subject,display_name,email) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),email=VALUES(email)", uid, ident.Issuer, ident.Subject, claims.Name, registry.Nullable(claims.Email))
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	defer tx.Rollback()
 	var state string
 	e = tx.QueryRowContext(ctx, "SELECT id,state FROM users WHERE oidc_issuer=? AND oidc_subject=? FOR UPDATE", ident.Issuer, ident.Subject).Scan(&uid, &state)
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if state != registry.StateActive {
-		writeError(w, r, registry.Problem(403, "user_disabled", "This user has been disabled."))
+		httpapi.WriteError(w, r, registry.Problem(403, "user_disabled", "This user has been disabled."))
 		return
 	}
 	session, csrf := registry.Token(32), registry.Token(32)
 	_, e = tx.ExecContext(ctx, "INSERT INTO sessions (token_hash,user_id,csrf_hash,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 8 HOUR))", hash(session), uid, hash(csrf))
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if e = tx.Commit(); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	s.cookie(w, "lastapp_session", session, 8*3600, true)
 	s.cookie(w, "lastapp_csrf", csrf, 8*3600, false)
-	if flow.ReturnOrigin != "" && !s.allowedOrigin(flow.ReturnOrigin) {
+	if flow.ReturnOrigin != "" && !httpapi.AllowedOrigin(&s.Config, flow.ReturnOrigin) {
 		flow.ReturnOrigin = ""
 	}
 	http.Redirect(w, r, flow.ReturnOrigin+"/console/", http.StatusFound)
@@ -177,7 +178,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) principal(ctx context.Context, r *http.Request) (access.Principal, error) {
 	var p access.Principal
-	c, e := r.Cookie(s.cookieName("lastapp_session"))
+	c, e := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
 	if e != nil {
 		return p, registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}
@@ -193,10 +194,10 @@ func (s *Server) principal(ctx context.Context, r *http.Request) (access.Princip
 }
 
 func (s *Server) csrf(ctx context.Context, r *http.Request) error {
-	if !s.allowedOrigin(r.Header.Get("Origin")) {
+	if !httpapi.AllowedOrigin(&s.Config, r.Header.Get("Origin")) {
 		return registry.Problem(403, "invalid_origin", "Request origin is not allowed.")
 	}
-	cookie, e := r.Cookie(s.cookieName("lastapp_session"))
+	cookie, e := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
 	if e != nil {
 		return registry.Problem(401, "unauthenticated", "Sign in to continue.")
 	}

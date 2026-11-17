@@ -11,15 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +29,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
@@ -49,16 +47,16 @@ type Server struct {
 	agentBootstrapSlots    chan struct{}
 	agentTokenSlots        chan struct{}
 	agentValidationSlots   chan struct{}
-	agentBootstrapLimiter  requestLimiter
-	agentValidationLimiter requestLimiter
+	agentBootstrapLimiter  httpapi.Limiter
+	agentValidationLimiter httpapi.Limiter
 	tenantDataSlots        inFlightTenants
 	dataSlots              chan struct{}
 	dataPools              data.Pools
 	definitions            definitionCache
-	limiter                requestLimiter
-	loginLimiter           requestLimiter
+	limiter                httpapi.Limiter
+	loginLimiter           httpapi.Limiter
 	passwordSlots          chan struct{}
-	trustedProxies         []netip.Prefix
+	trustedProxies         httpapi.TrustedProxies
 	DB                     *sql.DB
 	Config                 config.Config
 	key                    cipher.AEAD
@@ -100,7 +98,7 @@ func Open(c config.Config) (*Server, error) {
 			}
 		}
 	}
-	proxies, e := parseTrustedProxies(c.TrustedProxies)
+	proxies, e := httpapi.ParseTrustedProxies(c.TrustedProxies)
 	if e != nil {
 		return nil, e
 	}
@@ -284,58 +282,6 @@ func (s *Server) unseal(purpose, record, tenant string, data []byte, out any) er
 		return fmt.Errorf("credential decryption failed: %w", e)
 	}
 	return json.Unmarshal(b, out)
-}
-
-func decode(w http.ResponseWriter, r *http.Request, out any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	d := json.NewDecoder(r.Body)
-	d.DisallowUnknownFields()
-	if e := d.Decode(out); e != nil {
-		return registry.Bad("Invalid or unsupported JSON request fields.")
-	}
-	var extra any
-	if e := d.Decode(&extra); !errors.Is(e, io.EOF) {
-		return registry.Bad("Request must contain one JSON object.")
-	}
-	return nil
-}
-
-func send(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	// Headers are already sent; a failed write means the client went away.
-	_ = json.NewEncoder(w).Encode(value)
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, err error) {
-	o := op.Classify(err)
-	if o.Unmapped {
-		fields := []any{"operation", r.Method + " " + r.Pattern}
-		if rid := r.Header.Get("X-Request-ID"); rid != requestIDFrom(r.Context()) {
-			// MCP tool calls run operations under their own request IDs.
-			fields = append(fields, "operation_request_id", rid)
-		}
-		requestLogger(r.Context()).Error("request failed", append(fields, diagnostic(err)...)...)
-	}
-	if o.Status == 429 {
-		w.Header().Set("Retry-After", "1")
-	}
-	send(w, o.Status, registry.Row{"error": o.Payload(r.Header.Get("X-Request-ID"))})
-}
-
-func expectedRevision(r *http.Request) (int64, error) {
-	v := strings.Trim(r.Header.Get("If-Match"), `"`)
-	n, e := strconv.ParseInt(v, 10, 64)
-	if e != nil || n < 1 {
-		return 0, op.RevisionRequired()
-	}
-	return n, nil
-}
-
-// ifMatch returns the If-Match revision, or 0 for the operation to reject.
-func ifMatch(r *http.Request) int64 {
-	n, _ := expectedRevision(r)
-	return n
 }
 
 // mutate is the context shim of runner.mutate for handlers not yet migrated

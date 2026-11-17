@@ -11,66 +11,46 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/authz"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	admin "github.com/aantich/lastapp/web/admin"
 )
 
-type endpoint func(http.ResponseWriter, *http.Request, access.Principal) error
-
-func (s *Server) api(pattern string, fn endpoint) {
-	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := op.WithRequestDeadline(r.Context())
-		defer cancel()
-		ctx = context.WithValue(ctx, pageContextKey{}, &op.PageInfo{})
-		r = r.WithContext(ctx)
-		p, e := s.principal(ctx, r)
-		if e == nil {
-			e = s.limitRequest(w, p, r)
-		}
-		if e == nil && p.PasswordChangeRequired && r.URL.Path != "/v1/me" && r.URL.Path != "/auth/password" && r.URL.Path != "/auth/logout" {
-			e = registry.Problem(403, "password_change_required", "Change your initial password before using this account.")
-		}
-		if e == nil && r.Method != "GET" && r.Method != "HEAD" {
-			e = s.csrf(ctx, r)
-		}
-		if e == nil {
-			e = fn(w, r, p)
-		}
-		if e != nil {
-			writeError(w, r, e)
-		}
-	})
+func (s *Server) api(pattern string, fn httpapi.Endpoint) {
+	s.mux.HandleFunc(pattern, httpapi.Session{Principal: s.principal, Limit: func(w http.ResponseWriter, p access.Principal, r *http.Request) error {
+		return s.limiter.LimitRequest(w, r, s.Checker, s.DB, p)
+	}, CSRF: s.csrf}.Handle(fn))
 }
 
 func (s *Server) Handler() http.Handler {
-	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { send(w, 200, registry.Row{"status": "ok"}) })
+	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { httpapi.Send(w, 200, registry.Row{"status": "ok"}) })
 	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
 		if s.DB.PingContext(ctx) != nil {
-			send(w, 503, registry.Row{"status": "unavailable"})
+			httpapi.Send(w, 503, registry.Row{"status": "unavailable"})
 			return
 		}
-		send(w, 200, registry.Row{"status": "ready"})
+		httpapi.Send(w, 200, registry.Row{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": s.cookieName("lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
+		httpapi.Send(w, 200, registry.Row{"name": "Lastapp", "version": "0.1.0-dev", "development": s.Config.Development, "oidc_enabled": s.Config.OIDCIssuer != "", "login_url": "/auth/login", "csrf_cookie": httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"), "development_policy": developmentPolicy(), "password_policy": membership.PublicPasswordPolicy(), "role_catalog": authz.Roles()})
 	})
 	s.mux.HandleFunc("GET /auth/login", s.login)
 	s.mux.HandleFunc("GET /auth/callback", s.callback)
 	s.mux.HandleFunc("POST /auth/login/password", s.passwordLogin)
 	s.api("POST /auth/password", s.changePassword)
 	s.api("POST /auth/logout", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-		c, _ := r.Cookie(s.cookieName("lastapp_session"))
+		c, _ := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
 		_, e := s.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", hash(c.Value))
 		if e != nil {
 			return e
 		}
 		s.cookie(w, "lastapp_session", "", -1, true)
 		s.cookie(w, "lastapp_csrf", "", -1, false)
-		send(w, 200, registry.Row{"ok": true})
+		httpapi.Send(w, 200, registry.Row{"ok": true})
 		return nil
 	})
 	s.api("GET /v1/me", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -78,13 +58,13 @@ func (s *Server) Handler() http.Handler {
 		if e != nil {
 			return e
 		}
-		send(w, 200, registry.Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "auth_method": p.AuthMethod, "password_change_required": p.PasswordChangeRequired, "tenants": ts, "pagination": r.Context().Value(pageContextKey{})})
+		httpapi.Send(w, 200, registry.Row{"id": p.ID, "display_name": p.Name, "email": p.Email, "platform_admin": p.Platform, "auth_method": p.AuthMethod, "password_change_required": p.PasswordChangeRequired, "tenants": ts, "pagination": httpapi.PageInfo(r.Context())})
 		return nil
 	})
 	s.api("GET /v1/my-tenants", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 		v, e := s.myTenants(r, p)
 		if e == nil {
-			sendPage(w, r, v)
+			httpapi.SendPage(w, r, v)
 		}
 		return e
 	})
@@ -186,7 +166,7 @@ func (s *Server) Handler() http.Handler {
 		files.ServeHTTP(w, clone)
 	})
 	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/console/", 302) })
-	return s.observe(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httpapi.Observe(s.Log, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.serveAppHost(w, r) {
 			return
 		}
@@ -212,7 +192,7 @@ func (v *TenantRef) ScanFields() []any { return []any{&v.Name, &v.ID, &v.Slug, &
 // myTenants pages the Tenants where the principal has an active membership.
 // It is the one query behind both /v1/me and /v1/my-tenants.
 func (s *Server) myTenants(r *http.Request, p access.Principal) ([]TenantRef, error) {
-	return pageRows[TenantRef](r.Context(), s.DB, r, "SELECT t.display_name,t.id,t.slug,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
+	return httpapi.PageRows[TenantRef](r.Context(), s.DB, r, "SELECT t.display_name,t.id,t.slug,t.state FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.user_id=? AND m.state='active' ORDER BY t.display_name", p.ID)
 }
 
 func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p access.Principal) error {
@@ -230,7 +210,7 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p access.P
 	for code, sc := range scopes {
 		out[code] = registry.Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps)+len(sc.Teams) > 0, "spaces": sc.Spaces, "apps": sc.Apps, "teams": sc.Teams}
 	}
-	send(w, 200, registry.Row{"permissions": out})
+	httpapi.Send(w, 200, registry.Row{"permissions": out})
 	return nil
 }
 
@@ -296,7 +276,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p access.Princ
 		return e
 	}
 	out["recent_databases"] = recent
-	send(w, 200, out)
+	httpapi.Send(w, 200, out)
 	return e
 }
 
@@ -319,17 +299,6 @@ func (s *Server) Audits(ctx context.Context, actor op.Actor, tenant string, page
 	return v, e
 }
 
-// httpActor is the console caller of an operation.
-func httpActor(r *http.Request, p access.Principal) op.Actor {
-	return op.ActorFrom(r.Context(), p, r.Header.Get("X-Request-ID"))
-}
-
-// sendRef sends a mutation result with its revision as the ETag.
-func sendRef(w http.ResponseWriter, status int, v op.Ref) {
-	w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
-	send(w, status, v)
-}
-
 func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, record string, status int) error {
 	query := "SELECT id,revision FROM " + table + " WHERE id=?"
 	args := []any{record}
@@ -341,20 +310,12 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 	e := registry.Lookup(r.Context(), s.DB, query, args, &v.ID, &v.Revision)
 	if e == nil {
 		w.Header().Set("ETag", strconv.FormatInt(v.Revision, 10))
-		send(w, status, v)
+		httpapi.Send(w, status, v)
 	}
 	return e
 }
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Audits(r.Context(), httpActor(r, p), r.PathValue("tenant"), pageRequest(r.URL.Query()))
-	return reply(w, 200, v, e)
-}
-
-// reply sends an operation's successful result with status.
-func reply[T any](w http.ResponseWriter, status int, v T, e error) error {
-	if e == nil {
-		send(w, status, v)
-	}
-	return e
+	v, e := s.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(r.URL.Query()))
+	return httpapi.Reply(w, 200, v, e)
 }

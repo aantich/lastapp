@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -27,7 +28,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { <-s.agentBootstrapSlots }()
 	reject := func(code, message string) {
-		send(w, 400, registry.Row{"error": code, "error_description": message})
+		httpapi.Send(w, 400, registry.Row{"error": code, "error_description": message})
 	}
 	media, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if e != nil || media != "application/json" {
@@ -95,7 +96,7 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 	metadata, _ := json.Marshal(client)
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	defer conn.Close()
@@ -104,32 +105,32 @@ func (s *Server) agentRegisterClient(w http.ResponseWriter, r *http.Request) {
 	const lock = "lastapp:agent-client-registration"
 	var got int
 	if e = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,1)", lock).Scan(&got); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if got != 1 {
-		writeError(w, r, rateLimited(w))
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return
 	}
 	defer releasePinnedLock(conn, lock)
 	if e = cleanupAgentClients(ctx, conn); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	var count int
 	if e = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_oauth_clients c WHERE NOT EXISTS (SELECT 1 FROM agent_grants g WHERE g.client_id=c.id)").Scan(&count); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if count >= agentMaxClients {
-		writeError(w, r, rateLimited(w))
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return
 	}
 	if _, e = conn.ExecContext(ctx, "INSERT INTO agent_oauth_clients(id,metadata_json) VALUES(?,?)", client.ID, metadata); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
-	send(w, 201, registry.Row{"client_id": client.ID, "client_id_issued_at": time.Now().Unix(), "client_name": client.Name, "redirect_uris": client.Redirects, "grant_types": in.Grants, "response_types": []string{"code"}, "token_endpoint_auth_method": "none", "scope": client.Scope})
+	httpapi.Send(w, 201, registry.Row{"client_id": client.ID, "client_id_issued_at": time.Now().Unix(), "client_name": client.Name, "redirect_uris": client.Redirects, "grant_types": in.Grants, "response_types": []string{"code"}, "token_endpoint_auth_method": "none", "scope": client.Scope})
 }
 
 // Unapproved registrations have a short, bounded lifetime. Approved client

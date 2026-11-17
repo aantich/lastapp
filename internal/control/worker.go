@@ -15,6 +15,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -23,7 +24,7 @@ import (
 func (s *Server) RunWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		if e := s.workerLeader(ctx); e != nil && ctx.Err() == nil {
-			s.logger(ctx).Warn("provisioning leader disconnected", diagnostic(e)...)
+			httpapi.Logger(ctx, s.Log).Warn("provisioning leader disconnected", httpapi.Diagnostic(e)...)
 		}
 		select {
 		case <-ctx.Done():
@@ -150,7 +151,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 		cancel()
 		code, message, state := "", "", "ready"
 		if err != nil {
-			s.logger(ctx).Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, diagnostic(err)...)...)
+			httpapi.Logger(ctx, s.Log).Warn("database provisioning failed", append([]any{"resource_id", record, "tenant_id", tenant}, httpapi.Diagnostic(err)...)...)
 			code, message = provisionError(err)
 			state = "failed"
 		}

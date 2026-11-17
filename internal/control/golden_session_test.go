@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -41,7 +42,7 @@ func TestSessionShapeGolden(t *testing.T) {
 	signedIn := func(session, csrf string) func(*http.Request) {
 		return func(r *http.Request) {
 			r.Header.Set("Origin", s.Config.PublicURL)
-			r.AddCookie(&http.Cookie{Name: s.cookieName("lastapp_session"), Value: session})
+			r.AddCookie(&http.Cookie{Name: httpapi.CookieName(s.Config.PublicURL, "lastapp_session"), Value: session})
 			if csrf != "" {
 				r.Header.Set("X-CSRF-Token", csrf)
 			}
@@ -81,9 +82,9 @@ func TestSessionShapeGolden(t *testing.T) {
 	var session, csrf string
 	for _, cookie := range w.Result().Cookies() {
 		switch cookie.Name {
-		case s.cookieName("lastapp_session"):
+		case httpapi.CookieName(s.Config.PublicURL, "lastapp_session"):
 			session = cookie.Value
-		case s.cookieName("lastapp_csrf"):
+		case httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"):
 			csrf = cookie.Value
 		}
 	}
@@ -94,9 +95,9 @@ func TestSessionShapeGolden(t *testing.T) {
 	w = send("POST /auth/password", "POST", "/auth/password", registry.Row{"current_password": password, "new_password": "Golden changed 9!"}, 200, signedIn(session, csrf))
 	for _, cookie := range w.Result().Cookies() {
 		switch cookie.Name {
-		case s.cookieName("lastapp_session"):
+		case httpapi.CookieName(s.Config.PublicURL, "lastapp_session"):
 			session = cookie.Value
-		case s.cookieName("lastapp_csrf"):
+		case httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf"):
 			csrf = cookie.Value
 		}
 	}
@@ -104,7 +105,7 @@ func TestSessionShapeGolden(t *testing.T) {
 	send("GET /v1/me after logout", "GET", "/v1/me", nil, 401, signedIn(session, ""))
 	limited := "limited-" + registry.NewID()[:8] + "@example.test"
 	for range 8 {
-		s.loginLimiter.allowRate("email:"+hex.EncodeToString(hash(limited)), time.Now(), 8, 1.0/30)
+		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(hash(limited)), time.Now(), 8, 1.0/30)
 	}
 	login("POST /auth/login/password rate limited", registry.Row{"email": limited, "password": password}, s.Config.PublicURL, 429)
 
@@ -125,7 +126,7 @@ func TestSessionShapeGolden(t *testing.T) {
 	start := send("GET /auth/login", "GET", "/auth/login", nil, 302, nil)
 	var flow *http.Cookie
 	for _, cookie := range start.Result().Cookies() {
-		if cookie.Name == s.cookieName("lastapp_flow") {
+		if cookie.Name == httpapi.CookieName(s.Config.PublicURL, "lastapp_flow") {
 			flow = cookie
 		}
 	}

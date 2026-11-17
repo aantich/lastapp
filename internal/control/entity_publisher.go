@@ -15,6 +15,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -170,7 +171,7 @@ func (s *Server) publicationJob(ctx context.Context, q registry.Queryer, cursor 
 	if e == nil {
 		return true, nil
 	}
-	s.logger(ctx).Warn("entity publication failed", append([]any{"entity_id", v.EntityID}, diagnostic(e)...)...)
+	httpapi.Logger(ctx, s.Log).Warn("entity publication failed", append([]any{"entity_id", v.EntityID}, httpapi.Diagnostic(e)...)...)
 	message := "Publication failed. Check database/schema privileges and retry; existing data is preserved."
 	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
@@ -613,7 +614,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	}
 	if _, e = conn.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=1,version_id=? WHERE entity_id=? AND attempt_id=?", *v.BaseVersion, v.EntityID, access.Deref(v.Attempt)); e != nil {
 		// Best effort: if this fails the gate stays closed, which fails closed.
-		s.logger(ctx).Warn("restore publication base failed", append([]any{"entity_id", v.EntityID}, diagnostic(e)...)...)
+		httpapi.Logger(ctx, s.Log).Warn("restore publication base failed", append([]any{"entity_id", v.EntityID}, httpapi.Diagnostic(e)...)...)
 	}
 }
 

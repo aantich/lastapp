@@ -1,4 +1,4 @@
-package control
+package httpapi
 
 import (
 	"fmt"
@@ -8,11 +8,15 @@ import (
 	"strings"
 )
 
-func parseTrustedProxies(values []string) ([]netip.Prefix, error) {
+// TrustedProxies are the configured reverse-proxy ranges.
+type TrustedProxies []netip.Prefix
+
+// ParseTrustedProxies validates the trusted_proxies configuration.
+func ParseTrustedProxies(values []string) (TrustedProxies, error) {
 	if len(values) > 64 {
 		return nil, fmt.Errorf("trusted_proxies supports at most 64 IP addresses or CIDRs")
 	}
-	out := make([]netip.Prefix, 0, len(values))
+	out := make(TrustedProxies, 0, len(values))
 	for _, value := range values {
 		prefix, e := netip.ParsePrefix(value)
 		if e != nil {
@@ -34,8 +38,8 @@ func parseTrustedProxies(values []string) ([]netip.Prefix, error) {
 	return out, nil
 }
 
-func (s *Server) trustedProxy(ip netip.Addr) bool {
-	for _, prefix := range s.trustedProxies {
+func (t TrustedProxies) trusted(ip netip.Addr) bool {
+	for _, prefix := range t {
 		if prefix.Contains(ip) {
 			return true
 		}
@@ -43,10 +47,11 @@ func (s *Server) trustedProxy(ip netip.Addr) bool {
 	return false
 }
 
-// Traverse X-Forwarded-For from the direct peer towards the client, stopping at
-// the first untrusted hop. A client-supplied prefix cannot override that hop.
-// Malformed or oversized chains fall back to the direct peer's shared budget.
-func (s *Server) loginClientIP(r *http.Request) string {
+// ClientIP traverses X-Forwarded-For from the direct peer towards the client,
+// stopping at the first untrusted hop. A client-supplied prefix cannot override
+// that hop. Malformed or oversized chains fall back to the direct peer's shared
+// budget.
+func (t TrustedProxies) ClientIP(r *http.Request) string {
 	host, _, e := net.SplitHostPort(r.RemoteAddr)
 	if e != nil {
 		return "unknown"
@@ -56,7 +61,7 @@ func (s *Server) loginClientIP(r *http.Request) string {
 		return "unknown"
 	}
 	peer = peer.Unmap()
-	if !s.trustedProxy(peer) {
+	if !t.trusted(peer) {
 		return peer.String()
 	}
 	raw := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
@@ -73,7 +78,7 @@ func (s *Server) loginClientIP(r *http.Request) string {
 		chain[i] = ip.Unmap()
 	}
 	client := peer
-	for i := len(chain) - 1; i >= 0 && s.trustedProxy(client); i-- {
+	for i := len(chain) - 1; i >= 0 && t.trusted(client); i-- {
 		client = chain[i]
 	}
 	return client.String()

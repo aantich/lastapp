@@ -18,6 +18,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -25,17 +26,17 @@ import (
 func (s *Server) mcpURL() string { return s.Config.PublicURL + "/mcp" }
 func (s *Server) agentRoutes() {
 	s.mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, registry.Row{"resource": s.mcpURL(), "authorization_servers": []string{s.Config.PublicURL}, "scopes_supported": agentScopeCodes(), "bearer_methods_supported": []string{"header"}})
+		httpapi.Send(w, 200, registry.Row{"resource": s.mcpURL(), "authorization_servers": []string{s.Config.PublicURL}, "scopes_supported": agentScopeCodes(), "bearer_methods_supported": []string{"header"}})
 	})
 	s.mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		send(w, 200, registry.Row{"issuer": s.Config.PublicURL, "authorization_endpoint": s.Config.PublicURL + "/oauth/authorize", "token_endpoint": s.Config.PublicURL + "/oauth/token", "registration_endpoint": s.Config.PublicURL + "/oauth/register", "revocation_endpoint": s.Config.PublicURL + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": agentScopeCodes(), "client_id_metadata_document_supported": true, "authorization_response_iss_parameter_supported": true})
+		httpapi.Send(w, 200, registry.Row{"issuer": s.Config.PublicURL, "authorization_endpoint": s.Config.PublicURL + "/oauth/authorize", "token_endpoint": s.Config.PublicURL + "/oauth/token", "registration_endpoint": s.Config.PublicURL + "/oauth/register", "revocation_endpoint": s.Config.PublicURL + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": agentScopeCodes(), "client_id_metadata_document_supported": true, "authorization_response_iss_parameter_supported": true})
 	})
 	s.mux.HandleFunc("POST /oauth/register", s.agentRegisterClient)
 	s.mux.HandleFunc("GET /oauth/authorize", s.agentAuthorize)
 	s.mux.HandleFunc("POST /oauth/token", s.agentToken)
 	s.mux.HandleFunc("POST /oauth/revoke", s.agentRevokeToken)
 	s.api("GET /v1/agent-access/config", func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-		send(w, 200, registry.Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": access.AgentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
+		httpapi.Send(w, 200, registry.Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": access.AgentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
 		return nil
 	})
 	s.api("GET /v1/agent-access", s.agentGrantList)
@@ -200,7 +201,7 @@ func (s *Server) agentAuthorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	c, e := s.resolveAgentClient(ctx, q.Get("client_id"))
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	redirect := q.Get("redirect_uri")
@@ -213,22 +214,22 @@ func (s *Server) agentAuthorize(w http.ResponseWriter, r *http.Request) {
 		scopes, e = agentScopeNames(c.Scope)
 	}
 	if !matched || !validAgentRedirect(redirect) || e != nil || q.Get("response_type") != "code" || q.Get("resource") != s.mcpURL() || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 || len(q.Get("state")) > 1024 || !verifierRE.MatchString(q.Get("code_challenge")) {
-		writeError(w, r, registry.Bad("Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE."))
+		httpapi.WriteError(w, r, registry.Bad("Invalid OAuth request: use the MCP resource, a registered redirect and S256 PKCE."))
 		return
 	}
 	key := registry.NewID()
 	var pending int
 	if e = s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_oauth_requests WHERE expires_at>UTC_TIMESTAMP(6) AND consumed=0").Scan(&pending); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if pending >= 10000 {
-		writeError(w, r, rateLimited(w))
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return
 	}
 	_, e = s.DB.ExecContext(ctx, "INSERT INTO agent_oauth_requests(id,client_id,client_name,redirect_uri,challenge,state_value,scopes,expires_at,resource_uri) VALUES(?,?,?,?,?,?,?,?,?)", key, c.ID, c.Name, redirect, q.Get("code_challenge"), q.Get("state"), strings.Join(scopes, " "), time.Now().UTC().Add(agentCodeLifetime), s.mcpURL())
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	http.Redirect(w, r, "/console/agent-consent?request="+key, http.StatusFound)
@@ -377,7 +378,7 @@ func (s *Server) agentConsentInfo(w http.ResponseWriter, r *http.Request, p acce
 	if e != nil {
 		return e
 	}
-	send(w, 200, registry.Row{
+	httpapi.Send(w, 200, registry.Row{
 		"id": v.ID, "client_name": v.ClientName, "client_id": v.ClientID, "redirect_uri": v.RedirectURI, "scopes": v.Scopes, "expires_at": v.ExpiresAt, "resource_uri": v.Resource,
 		"client_identity_verified": false, "permissions": agentPermissionCatalog(), "default_days": agentGrantDays, "max_days": agentMaxGrantDays,
 	})
@@ -386,7 +387,7 @@ func (s *Server) agentConsentInfo(w http.ResponseWriter, r *http.Request, p acce
 
 func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in agentConsentInput
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
 	tx, e := s.DB.BeginTx(r.Context(), nil)
@@ -448,7 +449,7 @@ func (s *Server) agentConsent(w http.ResponseWriter, r *http.Request, p access.P
 		return e
 	}
 	target.RawQuery = params.Encode()
-	send(w, 200, registry.Row{"redirect_url": target.String()})
+	httpapi.Send(w, 200, registry.Row{"redirect_url": target.String()})
 	return nil
 }
 
@@ -488,24 +489,24 @@ func (s *Server) agentGrantList(w http.ResponseWriter, r *http.Request, p access
 		filter = "g.tenant_id=?"
 		args = []any{tenant}
 	}
-	items, e := pageRows[AgentGrantItem](r.Context(), s.DB, r, `SELECT g.client_id,g.client_name,g.created_at,g.expires_at,g.id,g.last_used_at,g.limits_json,u.display_name AS owner_name,g.permissions_json,g.revision,g.scope_id,g.scope_kind,
+	items, e := httpapi.PageRows[AgentGrantItem](r.Context(), s.DB, r, `SELECT g.client_id,g.client_name,g.created_at,g.expires_at,g.id,g.last_used_at,g.limits_json,u.display_name AS owner_name,g.permissions_json,g.revision,g.scope_id,g.scope_kind,
  COALESCE(sp.display_name,a.display_name,team.display_name,t.display_name,'Platform') AS scope_name,g.state,g.tenant_id,t.display_name AS tenant_name,g.user_id
  FROM agent_grants g JOIN users u ON u.id=g.user_id LEFT JOIN tenants t ON t.id=g.tenant_id
  LEFT JOIN spaces sp ON g.scope_kind='space' AND sp.id=g.scope_id AND sp.tenant_id=g.tenant_id
  LEFT JOIN apps a ON g.scope_kind='app' AND a.id=g.scope_id AND a.tenant_id=g.tenant_id
  LEFT JOIN groups team ON g.scope_kind='team' AND team.id=g.scope_id AND team.tenant_id=g.tenant_id WHERE `+filter+" ORDER BY g.created_at DESC,g.id", args...)
 	if e == nil {
-		sendPage(w, r, items)
+		httpapi.SendPage(w, r, items)
 	}
 	return e
 }
 
 func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in agentConsentInput
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	rev, e := expectedRevision(r)
+	rev, e := httpapi.ExpectedRevision(r)
 	if e != nil {
 		return e
 	}
@@ -563,12 +564,12 @@ func (s *Server) agentGrantUpdate(w http.ResponseWriter, r *http.Request, p acce
 	if e = tx.Commit(); e != nil {
 		return e
 	}
-	send(w, 200, registry.Row{"id": g.ID, "revision": rev + 1})
+	httpapi.Send(w, 200, registry.Row{"id": g.ID, "revision": rev + 1})
 	return nil
 }
 
 func oauthError(w http.ResponseWriter, code string) {
-	send(w, 400, registry.Row{"error": code, "error_description": "OAuth request rejected. Reconnect through Lastapp if necessary."})
+	httpapi.Send(w, 400, registry.Row{"error": code, "error_description": "OAuth request rejected. Reconnect through Lastapp if necessary."})
 }
 
 func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
@@ -590,7 +591,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	defer tx.Rollback()
@@ -625,7 +626,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 				e = tx.Commit()
 			}
 			if e != nil {
-				writeError(w, r, e)
+				httpapi.WriteError(w, r, e)
 				return
 			}
 			oauthError(w, "invalid_grant")
@@ -638,7 +639,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	g, e := s.ReadAgentGrant(ctx, tx, grantID)
@@ -654,7 +655,7 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	access, refresh := registry.Token(32), registry.Token(48)
 	var rotations int
 	if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_token_sessions WHERE grant_id=?", g.ID).Scan(&rotations); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if rotations >= agentMaxTokenRotations {
@@ -663,18 +664,18 @@ func (s *Server) agentToken(w http.ResponseWriter, r *http.Request) {
 	}
 	_, e = tx.ExecContext(ctx, "INSERT INTO agent_token_sessions(id,grant_id,grant_revision,family_id,access_hash,refresh_hash,access_expires_at) VALUES(?,?,?,?,?,?,?)", registry.NewID(), g.ID, g.Revision, family, hash(access), hash(refresh), time.Now().UTC().Add(agentAccessLifetime))
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if _, e = tx.ExecContext(ctx, "UPDATE agent_oauth_clients SET last_used_at=UTC_TIMESTAMP(6) WHERE id=?", g.Client); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
 	if e = tx.Commit(); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
-	send(w, 200, registry.Row{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
+	httpapi.Send(w, 200, registry.Row{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int(agentAccessLifetime.Seconds()), "scope": strings.Join(g.Permissions, " ")})
 }
 
 func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
@@ -696,8 +697,8 @@ func (s *Server) agentRevokeToken(w http.ResponseWriter, r *http.Request) {
 		_, e = s.DB.ExecContext(r.Context(), "UPDATE agent_token_sessions SET state='revoked' WHERE family_id=?", family)
 	}
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 		return
 	}
-	send(w, 200, registry.Row{})
+	httpapi.Send(w, 200, registry.Row{})
 }

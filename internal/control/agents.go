@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -120,16 +121,16 @@ func (s *Server) agentPrincipal(r *http.Request) (access.Principal, error) {
 
 // Admission happens before token/database work. Anonymous discovery/metadata
 // fetching cannot consume authenticated MCP slots or all registry connections.
-func (s *Server) admitAgent(w http.ResponseWriter, r *http.Request, limiter *requestLimiter, slots chan struct{}, prefix string, burst int, refill float64) bool {
-	if !limiter.allowRate(prefix+":"+s.loginClientIP(r), time.Now(), float64(burst), refill) {
-		writeError(w, r, rateLimited(w))
+func (s *Server) admitAgent(w http.ResponseWriter, r *http.Request, limiter *httpapi.Limiter, slots chan struct{}, prefix string, burst int, refill float64) bool {
+	if !limiter.AllowRate(prefix+":"+s.trustedProxies.ClientIP(r), time.Now(), float64(burst), refill) {
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return false
 	}
 	select {
 	case slots <- struct{}{}:
 		return true
 	default:
-		writeError(w, r, rateLimited(w))
+		httpapi.WriteError(w, r, httpapi.RateLimited(w))
 		return false
 	}
 }

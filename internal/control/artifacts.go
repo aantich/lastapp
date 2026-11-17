@@ -18,6 +18,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -211,14 +212,14 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	r = r.WithContext(ctx)
 	run := func() error {
-		if !s.limiter.allowRate("upload:"+s.loginClientIP(r), time.Now(), 20, 4) {
-			return rateLimited(w)
+		if !s.limiter.AllowRate("upload:"+s.trustedProxies.ClientIP(r), time.Now(), 20, 4) {
+			return httpapi.RateLimited(w)
 		}
 		select {
 		case s.uploadSlots <- struct{}{}:
 			defer func() { <-s.uploadSlots }()
 		default:
-			return rateLimited(w)
+			return httpapi.RateLimited(w)
 		}
 		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if len(raw) != 43 {
@@ -231,7 +232,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if _, e = s.uploadPrincipal(ctx, s.DB, v); e != nil {
 			return e
 		}
-		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {
+		if origin := r.Header.Get("Origin"); origin != "" && !httpapi.AllowedOrigin(&s.Config, origin) {
 			return registry.Problem(403, "invalid_origin", "Upload is restricted to trusted authoring clients.")
 		}
 		var in struct {
@@ -275,7 +276,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			if existing != b.Hash {
 				return registry.Conflict("Upload ticket already used for different content.")
 			}
-			send(w, 200, registry.Row{"content_hash": existing, "id": *v.BuildID})
+			httpapi.Send(w, 200, registry.Row{"content_hash": existing, "id": *v.BuildID})
 			return nil
 		}
 		var n int
@@ -286,7 +287,7 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 			return registry.Conflict("App build limit reached. Create a fresh workspace.")
 		}
 		if e = artifact.Store(s.artifactDirectory(), in.Files, b); e != nil {
-			s.logger(ctx).Warn("artifact storage failed", diagnostic(e)...)
+			httpapi.Logger(ctx, s.Log).Warn("artifact storage failed", httpapi.Diagnostic(e)...)
 			return registry.Problem(503, "artifact_storage", "Could not persist the build.")
 		}
 		build := registry.NewID()
@@ -304,11 +305,11 @@ func (s *Server) artifactUpload(w http.ResponseWriter, r *http.Request) {
 		if e = tx.Commit(); e != nil {
 			return e
 		}
-		send(w, 201, registry.Row{"id": build, "content_hash": b.Hash, "size_bytes": b.Size})
+		httpapi.Send(w, 201, registry.Row{"id": build, "content_hash": b.Hash, "size_bytes": b.Size})
 		return nil
 	}
 	if e := run(); e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 	}
 }
 
@@ -360,7 +361,7 @@ func (s *Server) serveAppHost(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if r.URL.Path == "/_lastapp/config.json" {
-		send(w, 200, registry.Row{"apiOrigin": s.Config.PublicURL, "appID": app, "environment": map[bool]string{true: "development", false: "production"}[workspace != nil]})
+		httpapi.Send(w, 200, registry.Row{"apiOrigin": s.Config.PublicURL, "appID": app, "environment": map[bool]string{true: "development", false: "production"}[workspace != nil]})
 		return true
 	}
 	if release == nil {
@@ -443,11 +444,11 @@ func (s *Server) ensureReleaseBuild(ctx context.Context, q registry.Queryer, rel
 }
 
 func (s *Server) artifactTicket(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.UploadTicket(r.Context(), httpActor(r, p), r.PathValue("app"))
-	return reply(w, 201, v, e)
+	v, e := s.UploadTicket(r.Context(), httpapi.Actor(r, p), r.PathValue("app"))
+	return httpapi.Reply(w, 201, v, e)
 }
 
 func (s *Server) buildList(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Builds(r.Context(), httpActor(r, p), r.PathValue("app"), pageRequest(r.URL.Query()))
-	return reply(w, 200, v, e)
+	v, e := s.Builds(r.Context(), httpapi.Actor(r, p), r.PathValue("app"), httpapi.PageRequest(r.URL.Query()))
+	return httpapi.Reply(w, 200, v, e)
 }

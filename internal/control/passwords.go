@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -75,7 +76,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 		return e
 	}
 	var in membership.AccountInput
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
 	if in.Password == "" {
@@ -97,7 +98,7 @@ func (s *Server) createLocalUser(w http.ResponseWriter, r *http.Request, p acces
 		return op.Audit(ctx, tx, "", p.ID, "user.created", "user", user, r.Header.Get("X-Request-ID"), registry.Row{"display_name": account.Name, "email": account.Email})
 	})
 	if e == nil {
-		send(w, 201, registry.Row{"id": user, "display_name": account.Name, "email": account.Email, "state": registry.StateActive})
+		httpapi.Send(w, 201, registry.Row{"id": user, "display_name": account.Name, "email": account.Email, "state": registry.StateActive})
 	}
 	return e
 }
@@ -148,22 +149,22 @@ var loginDatabaseTimeout = 15 * time.Second
 
 func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	e := func() error {
-		if !s.allowedOrigin(r.Header.Get("Origin")) {
+		if !httpapi.AllowedOrigin(&s.Config, r.Header.Get("Origin")) {
 			return registry.Problem(403, "invalid_origin", "Request origin is not allowed.")
 		}
 		var in struct {
 			Email    string `json:"email"`
 			Password string `json:"password"`
 		}
-		if e := decode(w, r, &in); e != nil {
+		if e := httpapi.Decode(w, r, &in); e != nil {
 			return e
 		}
 		// Forwarded addresses are used only through explicitly trusted proxy peers.
 		email, e := membership.LoginEmail(in.Email)
-		peer := s.loginClientIP(r)
+		peer := s.trustedProxies.ClientIP(r)
 		now := time.Now()
-		if !s.loginLimiter.allowRate("ip:"+peer, now, 12, 1.0/5) || !s.loginLimiter.allowRate("email:"+hex.EncodeToString(hash(email)), now, 8, 1.0/30) {
-			return rateLimited(w)
+		if !s.loginLimiter.AllowRate("ip:"+peer, now, 12, 1.0/5) || !s.loginLimiter.AllowRate("email:"+hex.EncodeToString(hash(email)), now, 8, 1.0/30) {
+			return httpapi.RateLimited(w)
 		}
 		if e != nil || len(in.Password) > membership.MaxPasswordInputBytes {
 			return invalidLogin()
@@ -215,11 +216,11 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		s.sessionCookies(w, session, csrf)
-		send(w, 200, registry.Row{"ok": true})
+		httpapi.Send(w, 200, registry.Row{"ok": true})
 		return nil
 	}()
 	if e != nil {
-		writeError(w, r, e)
+		httpapi.WriteError(w, r, e)
 	}
 }
 
@@ -231,7 +232,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 		Current string `json:"current_password"`
 		Next    string `json:"new_password"`
 	}
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
 	if len(in.Current) > membership.MaxPasswordInputBytes {
@@ -302,6 +303,6 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p access
 		return e
 	}
 	s.sessionCookies(w, session, csrf)
-	send(w, 200, registry.Row{"ok": true})
+	httpapi.Send(w, 200, registry.Row{"ok": true})
 	return nil
 }

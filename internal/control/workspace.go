@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -105,6 +106,6 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p access
 		}
 		out["attention"] = warnings
 	}
-	send(w, 200, out)
+	httpapi.Send(w, 200, out)
 	return nil
 }

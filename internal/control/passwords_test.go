@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -130,10 +131,10 @@ func passwordSignIn(c testClient, email, password string, want int) testClient {
 	}
 	if want == 200 {
 		for _, cookie := range w.Result().Cookies() {
-			if cookie.Name == c.s.cookieName("lastapp_session") {
+			if cookie.Name == httpapi.CookieName(c.s.Config.PublicURL, "lastapp_session") {
 				c.session = cookie.Value
 			}
-			if cookie.Name == c.s.cookieName("lastapp_csrf") {
+			if cookie.Name == httpapi.CookieName(c.s.Config.PublicURL, "lastapp_csrf") {
 				c.csrf = cookie.Value
 			}
 		}
@@ -175,7 +176,7 @@ func TestLocalBootstrapAndLoginGuards(t *testing.T) {
 	}
 	// Exhaust just the email budget at a fixed timestamp, without expensive hashes.
 	for range 8 {
-		s.loginLimiter.allowRate("email:"+hex.EncodeToString(hash("limited@example.test")), time.Now(), 8, 1.0/30)
+		s.loginLimiter.AllowRate("email:"+hex.EncodeToString(hash("limited@example.test")), time.Now(), 8, 1.0/30)
 	}
 	passwordSignIn(c, "limited@example.test", password, 429)
 	wrong := httptest.NewRequest("GET", "/auth/login", nil)
@@ -211,17 +212,17 @@ func TestTenantAccountsAndPlatformSeparation(t *testing.T) {
 	r := httptest.NewRequest("POST", "/auth/password", bytes.NewReader(b))
 	r.Header.Set("Origin", s.Config.PublicURL)
 	r.Header.Set("X-CSRF-Token", admin.csrf)
-	r.AddCookie(&http.Cookie{Name: s.cookieName("lastapp_session"), Value: admin.session})
+	r.AddCookie(&http.Cookie{Name: httpapi.CookieName(s.Config.PublicURL, "lastapp_session"), Value: admin.session})
 	w := httptest.NewRecorder()
 	admin.h.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Fatalf("password change failed: %d", w.Code)
 	}
 	for _, cookie := range w.Result().Cookies() {
-		if cookie.Name == s.cookieName("lastapp_session") {
+		if cookie.Name == httpapi.CookieName(s.Config.PublicURL, "lastapp_session") {
 			admin.session = cookie.Value
 		}
-		if cookie.Name == s.cookieName("lastapp_csrf") {
+		if cookie.Name == httpapi.CookieName(s.Config.PublicURL, "lastapp_csrf") {
 			admin.csrf = cookie.Value
 		}
 	}

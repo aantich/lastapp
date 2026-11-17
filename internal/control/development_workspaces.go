@@ -12,6 +12,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 	"github.com/aantich/lastapp/internal/roles"
@@ -370,30 +371,30 @@ func lockTenant(ctx context.Context, tx *sql.Tx, tenant string) error {
 }
 
 func (s *Server) workspaceList(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Workspaces(r.Context(), httpActor(r, p), r.PathValue("space"), pageRequest(r.URL.Query()))
-	return reply(w, 200, v, e)
+	v, e := s.Workspaces(r.Context(), httpapi.Actor(r, p), r.PathValue("space"), httpapi.PageRequest(r.URL.Query()))
+	return httpapi.Reply(w, 200, v, e)
 }
 
 func (s *Server) workspaceGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Workspace(r.Context(), httpActor(r, p), r.PathValue("workspace"))
-	return reply(w, 200, v, e)
+	v, e := s.Workspace(r.Context(), httpapi.Actor(r, p), r.PathValue("workspace"))
+	return httpapi.Reply(w, 200, v, e)
 }
 
 func (s *Server) workspaceCreate(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	var in workspaceCreateInput
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
-	v, e := s.CreateWorkspace(r.Context(), httpActor(r, p), r.PathValue("space"), in)
-	return reply(w, 200, v, e)
+	v, e := s.CreateWorkspace(r.Context(), httpapi.Actor(r, p), r.PathValue("space"), in)
+	return httpapi.Reply(w, 200, v, e)
 }
 
 func (s *Server) workspaceArchive(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.changeWorkspace(r.Context(), httpActor(r, p), r.PathValue("workspace"), false, ifMatch(r))
-	return reply(w, 200, v, e)
+	v, e := s.changeWorkspace(r.Context(), httpapi.Actor(r, p), r.PathValue("workspace"), false, httpapi.IfMatch(r))
+	return httpapi.Reply(w, 200, v, e)
 }
 
 func (s *Server) workspaceRetry(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.changeWorkspace(r.Context(), httpActor(r, p), r.PathValue("workspace"), true, ifMatch(r))
-	return reply(w, 200, v, e)
+	v, e := s.changeWorkspace(r.Context(), httpapi.Actor(r, p), r.PathValue("workspace"), true, httpapi.IfMatch(r))
+	return httpapi.Reply(w, 200, v, e)
 }

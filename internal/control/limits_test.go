@@ -12,19 +12,13 @@ func TestTenantRateLimitIsolation(t *testing.T) {
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "limiter-" + tenant, "display_name": "Rate limit isolation", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	base := "/v1/tenants/" + tenant
 	admin, outside := c.as(owner), c.as(outsider)
-	reset := func() {
-		s.limiter.mu.Lock()
-		defer s.limiter.mu.Unlock()
-		s.limiter.entries = nil
-	}
+	reset := s.limiter.Reset
 	assertUncharged := func(t *testing.T, tenant string) {
 		t.Helper()
-		s.limiter.mu.Lock()
-		defer s.limiter.mu.Unlock()
-		if _, exists := s.limiter.entries["tenant:"+tenant]; exists {
+		if s.limiter.Has("tenant:" + tenant) {
 			t.Fatal("an unauthorized request allocated or consumed a Tenant bucket")
 		}
-		if _, exists := s.limiter.entries["user:"+outsider]; !exists {
+		if !s.limiter.Has("user:" + outsider) {
 			t.Fatal("unauthorized requests bypassed the per-user limiter")
 		}
 	}
@@ -38,9 +32,7 @@ func TestTenantRateLimitIsolation(t *testing.T) {
 		}
 		admin.want("GET", base+"/capabilities", nil, 0, 200)
 		// A legitimate request still spends the shared Tenant budget.
-		s.limiter.mu.Lock()
-		_, charged := s.limiter.entries["tenant:"+tenant]
-		s.limiter.mu.Unlock()
+		charged := s.limiter.Has("tenant:" + tenant)
 		if !charged {
 			t.Fatal("authorized traffic bypassed the Tenant limiter")
 		}
@@ -70,9 +62,7 @@ func TestTenantRateLimitIsolation(t *testing.T) {
 		c.t = t
 		reset()
 		c.want("GET", base+"/capabilities", nil, 0, 200)
-		s.limiter.mu.Lock()
-		_, charged := s.limiter.entries["tenant:"+tenant]
-		s.limiter.mu.Unlock()
+		charged := s.limiter.Has("tenant:" + tenant)
 		if !charged {
 			t.Fatal("platform access bypassed the Tenant limiter")
 		}

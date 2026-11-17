@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -32,7 +33,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 		Challenge string `json:"challenge"`
 		Nonce     string `json:"nonce"`
 	}
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
 	if !pkceRE.MatchString(in.Challenge) || !pkceRE.MatchString(in.Nonce) {
@@ -62,7 +63,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if a.Origin == "" {
 		return registry.Conflict("A Space manager must approve the App origin first.")
 	}
-	cookie, e := r.Cookie(s.cookieName("lastapp_session"))
+	cookie, e := r.Cookie(httpapi.CookieName(s.Config.PublicURL, "lastapp_session"))
 	if e != nil {
 		return e
 	}
@@ -71,7 +72,7 @@ func (s *Server) appLaunch(w http.ResponseWriter, r *http.Request, p access.Prin
 	if e != nil {
 		return e
 	}
-	send(w, 200, registry.Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(launchLifetime.Seconds())})
+	httpapi.Send(w, 200, registry.Row{"code": code, "origin": a.Origin, "nonce": in.Nonce, "expires_in": int(launchLifetime.Seconds())})
 	return nil
 }
 
@@ -81,7 +82,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 		Verifier string `json:"verifier"`
 		Nonce    string `json:"nonce"`
 	}
-	if e := decode(w, r, &in); e != nil {
+	if e := httpapi.Decode(w, r, &in); e != nil {
 		return e
 	}
 	if !verifierRE.MatchString(in.Verifier) || len(in.Code) > 128 {
@@ -117,7 +118,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.Header().Set("Access-Control-Allow-Origin", access.Deref(v.Origin))
 	w.Header().Add("Vary", "Origin")
-	send(w, 200, registry.Row{"access_token": raw, "expires_in": int(appTokenLifetime.Seconds()), "token_type": "Bearer"})
+	httpapi.Send(w, 200, registry.Row{"access_token": raw, "expires_in": int(appTokenLifetime.Seconds()), "token_type": "Bearer"})
 	return nil
 }
 
@@ -176,6 +177,6 @@ func (s *Server) appLaunchInfo(w http.ResponseWriter, r *http.Request, p access.
 	if a.Origin == "" {
 		return registry.Conflict("A Space manager must approve this App's origin.")
 	}
-	send(w, 200, registry.Row{"id": appID, "name": name, "space": spaceName, "origin": a.Origin})
+	httpapi.Send(w, 200, registry.Row{"id": appID, "name": name, "space": spaceName, "origin": a.Origin})
 	return nil
 }

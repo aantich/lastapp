@@ -15,6 +15,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -35,7 +36,7 @@ func (c testClient) req(method, path string, body any, revision int64) (int, reg
 	if revision > 0 {
 		r.Header.Set("If-Match", registry.Str(revision))
 	}
-	r.AddCookie(&http.Cookie{Name: c.s.cookieName("lastapp_session"), Value: c.session})
+	r.AddCookie(&http.Cookie{Name: httpapi.CookieName(c.s.Config.PublicURL, "lastapp_session"), Value: c.session})
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
 	var out registry.Row

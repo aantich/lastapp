@@ -338,7 +338,7 @@ func TestAgentPreauthenticationAdmission(t *testing.T) {
 	for i := 0; i < agentValidationConcurrent; i++ {
 		<-s.agentValidationSlots
 	}
-	for s.agentValidationLimiter.allowRate("mcp-auth:"+s.loginClientIP(r), time.Now(), 60, 0) {
+	for s.agentValidationLimiter.AllowRate("mcp-auth:"+s.trustedProxies.ClientIP(r), time.Now(), 60, 0) {
 	}
 	w = httptest.NewRecorder()
 	s.mcpHandler().ServeHTTP(w, r)

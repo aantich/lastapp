@@ -12,6 +12,7 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -219,5 +220,5 @@ func mcpData(v registry.Row) registry.Row {
 }
 
 func sessionCookie(c testClient) *http.Cookie {
-	return &http.Cookie{Name: c.s.cookieName("lastapp_session"), Value: c.session}
+	return &http.Cookie{Name: httpapi.CookieName(c.s.Config.PublicURL, "lastapp_session"), Value: c.session}
 }

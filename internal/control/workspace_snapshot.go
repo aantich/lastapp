@@ -12,6 +12,7 @@ import (
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -319,7 +320,7 @@ func (s *Server) workspaceJob(ctx context.Context, q registry.Queryer) error {
 	if ae, ok := e.(*registry.APIError); ok {
 		message = ae.Message
 	} else {
-		s.logger(ctx).Warn("workspace preparation failed", diagnostic(e)...)
+		httpapi.Logger(ctx, s.Log).Warn("workspace preparation failed", httpapi.Diagnostic(e)...)
 	}
 	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
 	return err

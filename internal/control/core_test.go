@@ -11,6 +11,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -65,7 +66,7 @@ func TestCredentialEnvelopeBindsOwner(t *testing.T) {
 func TestRequestValidation(t *testing.T) {
 	for _, body := range []string{`{"unknown":1}`, `{} {}`, `{`} {
 		r := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
-		if decode(httptest.NewRecorder(), r, &struct {
+		if httpapi.Decode(httptest.NewRecorder(), r, &struct {
 			Name string `json:"name"`
 		}{}) == nil {
 			t.Fatalf("accepted invalid payload %s", body)

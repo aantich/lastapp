@@ -16,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/inventory"
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
@@ -57,7 +58,7 @@ func rawFields(t *testing.T, c testClient, path string) map[string]json.RawMessa
 	t.Helper()
 	r := httptest.NewRequest("GET", path, nil)
 	r.Header.Set("Origin", c.s.Config.PublicURL)
-	r.AddCookie(&http.Cookie{Name: c.s.cookieName("lastapp_session"), Value: c.session})
+	r.AddCookie(&http.Cookie{Name: httpapi.CookieName(c.s.Config.PublicURL, "lastapp_session"), Value: c.session})
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, r)
 	out := map[string]json.RawMessage{}
