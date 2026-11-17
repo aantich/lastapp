@@ -8,17 +8,29 @@ import { useDialogFocus } from "./dialog";
 import { errorMessage, useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 
-import type { Item, Page, Redirect } from "./api-types";
+import type {
+  AgentConfig,
+  AgentGrant,
+  AgentLimits,
+  AgentRequest,
+  Me,
+  Page,
+  Redirect,
+} from "./api-types";
 const agentConfigPath = "/v1/agent-access/config";
 type GrantValues = {
   tenant_id: string;
   scope_kind: string;
   scope_id: string;
   permissions: string[];
-  limits: { target_ids: string[]; max_databases: number };
+  limits: AgentLimits;
   days: number;
 };
-function initialGrant(config: Item, me: Item, grant?: Item): GrantValues {
+function initialGrant(
+  config: AgentConfig,
+  me: Me,
+  grant?: AgentGrant,
+): GrantValues {
   return {
     tenant_id:
       grant?.tenant_id || (me.platform_admin ? "" : me.tenants?.[0]?.id || ""),
@@ -40,8 +52,8 @@ function AgentGrantForm({
   cancel,
   label,
 }: {
-  config: Item;
-  me: Item;
+  config: AgentConfig;
+  me: Me;
   initial: GrantValues;
   requested?: string[];
   locked?: boolean;
@@ -55,7 +67,7 @@ function AgentGrantForm({
     [targetID, setTargetID] = useState("");
   const eligiblePermissions = (kind: string) =>
     config.permissions.filter(
-      (p: Item) =>
+      (p) =>
         (!requested || requested.includes(p.code)) &&
         p.scope_kinds.includes(kind),
     );
@@ -71,7 +83,7 @@ function AgentGrantForm({
     setValues({
       ...values,
       permissions: codes.filter((code) =>
-        permissionList.some((p: Item) => p.code === code),
+        permissionList.some((p) => p.code === code),
       ),
     });
   }
@@ -101,7 +113,7 @@ function AgentGrantForm({
                 label="Tenant"
                 value={values.tenant_id}
                 required
-                initial={(me.tenants || []).map((t: Item) => ({
+                initial={(me.tenants || []).map((t) => ({
                   value: t.id,
                   label: t.display_name,
                 }))}
@@ -122,7 +134,7 @@ function AgentGrantForm({
                   scope_id: "",
                   permissions: values.permissions.filter((code) =>
                     eligiblePermissions(scope_kind).some(
-                      (p: Item) => p.code === code,
+                      (p) => p.code === code,
                     ),
                   ),
                 })
@@ -167,12 +179,12 @@ function AgentGrantForm({
         <legend>What may this agent do?</legend>
         <div className="agent-presets">
           {config.presets
-            .filter((preset: Item) =>
-              preset.permissions.every((code: string) =>
-                permissionList.some((p: Item) => p.code === code),
+            .filter((preset) =>
+              preset.permissions.every((code) =>
+                permissionList.some((p) => p.code === code),
               ),
             )
-            .map((preset: Item) => (
+            .map((preset) => (
               <button
                 key={preset.label}
                 type="button"
@@ -183,7 +195,7 @@ function AgentGrantForm({
               </button>
             ))}
         </div>
-        {permissionList.map((permission: Item) => (
+        {permissionList.map((permission) => (
           <label className="agent-permission" key={permission.code}>
             <input
               type="checkbox"
@@ -322,13 +334,13 @@ function AgentGrantForm({
   );
 }
 
-export function AgentConsent({ me }: { me: Item }) {
+export function AgentConsent({ me }: { me: Me }) {
   const [actionError, setError] = useState("");
   const request = new URLSearchParams(location.search).get("request") || "";
-  const infoQuery = useApiQuery<Item>(
+  const infoQuery = useApiQuery<AgentRequest>(
       `/v1/agent-access/requests/${encodeURIComponent(request)}`,
     ),
-    configQuery = useApiQuery<Item>(agentConfigPath);
+    configQuery = useApiQuery<AgentConfig>(agentConfigPath);
   const info = infoQuery.data,
     config = configQuery.data,
     error =
@@ -387,7 +399,7 @@ export function AgentConsent({ me }: { me: Item }) {
               me={me}
               initial={{
                 ...initialGrant(config, me),
-                permissions: config.default_permissions.filter((code: string) =>
+                permissions: config.default_permissions.filter((code) =>
                   info.scopes.split(" ").includes(code),
                 ),
               }}
@@ -419,9 +431,9 @@ function AgentGrantDialog({
   close,
   done,
 }: {
-  grant: Item;
-  config: Item;
-  me: Item;
+  grant: AgentGrant;
+  config: AgentConfig;
+  me: Me;
   close: () => void;
   done: () => void;
 }) {
@@ -471,14 +483,14 @@ function AgentGrantDialog({
     </div>
   );
 }
-export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
+export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {
   const [page, setPage] = useState(1),
     [actionError, setError] = useState(""),
-    [editing, setEditing] = useState<Item | null>(null),
+    [editing, setEditing] = useState<AgentGrant | null>(null),
     [revoking, setRevoking] = useState(""),
     [copied, setCopied] = useState(false);
-  const configQuery = useApiQuery<Item>(agentConfigPath),
-    listQuery = useApiQuery<Page>(
+  const configQuery = useApiQuery<AgentConfig>(agentConfigPath),
+    listQuery = useApiQuery<Page<AgentGrant>>(
       `/v1/agent-access?page=${page}&limit=20${tenant ? "&tenant_id=" + tenant : ""}`,
     );
   const revoke = useAction(page, { onSuccess: () => {}, onError: setError });
@@ -569,9 +581,9 @@ export function AgentAccess({ me, tenant }: { me: Item; tenant?: string }) {
                 <span className="muted">
                   {grant.permissions_json
                     .map(
-                      (code: string) =>
+                      (code) =>
                         config?.permissions.find(
-                          (permission: Item) => permission.code === code,
+                          (permission) => permission.code === code,
                         )?.label || code,
                     )
                     .join(" · ")}

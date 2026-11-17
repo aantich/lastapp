@@ -2,9 +2,17 @@ import { useState } from "react";
 import { RemoteSelect } from "../remote-select";
 import { Select } from "../select";
 import { NumberInput } from "../number-input";
-import type { EntityCatalog, Item } from "../api-types";
+import { isItem, text, type EntityCatalog, type Item } from "../api-types";
 import { Expression } from "./expression";
-import { choiceLabel, fieldLabel, keyOf } from "./shared";
+import {
+  choiceLabel,
+  fieldLabel,
+  inputValue,
+  isExpression,
+  keyOf,
+  optionalText,
+  strings,
+} from "./shared";
 
 // Adds or edits one field of the draft definition.
 export function FieldEditor({
@@ -24,8 +32,9 @@ export function FieldEditor({
 }) {
   const [f, set] = useState<Item>({ ...field }),
     [error, setError] = useState(""),
-    [choice, setChoice] = useState<string>((field.values || []).join(", "));
+    [choice, setChoice] = useState<string>(strings(field.values).join(", "));
   const patch = (v: Item) => set({ ...f, ...v });
+  const expression = f.calculation || f.default;
   return (
     <form
       onSubmit={(e) => {
@@ -42,12 +51,14 @@ export function FieldEditor({
             .split(",")
             .map((v) => v.trim())
             .filter(Boolean);
-        if (value.type === "choice" && value.value_labels)
+        if (value.type === "choice" && isItem(value.value_labels)) {
+          const values = strings(value.values);
           value.value_labels = Object.fromEntries(
             Object.entries(value.value_labels).filter(([key]) =>
-              value.values.includes(key),
+              values.includes(key),
             ),
           );
+        }
         save(value);
       }}
     >
@@ -61,7 +72,7 @@ export function FieldEditor({
         <input
           autoFocus
           required
-          value={f.label}
+          value={inputValue(f.label)}
           onChange={(e) =>
             patch({
               label: e.target.value,
@@ -73,7 +84,7 @@ export function FieldEditor({
       <label className="field">
         <span>Type</span>
         <Select
-          value={f.type}
+          value={optionalText(f.type)}
           disabled={published}
           onChange={(type) =>
             set({
@@ -103,7 +114,7 @@ export function FieldEditor({
             required
             max={catalog.field_constraints.max_text_length}
             min={catalog.field_constraints.min_text_length}
-            value={f.max_length}
+            value={inputValue(f.max_length)}
             onChange={(n) => patch({ max_length: Number(n) })}
           />
         </label>
@@ -115,7 +126,7 @@ export function FieldEditor({
               <span>{fieldLabel(key)}</span>
               <NumberInput
                 required
-                value={f[key]}
+                value={inputValue(f[key])}
                 onChange={(n) => patch({ [key]: Number(n) })}
               />
             </label>
@@ -148,7 +159,7 @@ export function FieldEditor({
                   onChange={(e) =>
                     patch({
                       value_labels: {
-                        ...f.value_labels,
+                        ...(isItem(f.value_labels) ? f.value_labels : {}),
                         [key]: e.target.value,
                       },
                     })
@@ -164,20 +175,20 @@ export function FieldEditor({
           <RemoteSelect
             path={"/v1/spaces/" + space + "/entities"}
             label="Related entity"
-            value={f.target || ""}
+            value={text(f.target)}
             initial={[]}
             labelKey="label"
             onChange={(value) => patch({ target: value })}
           />
         </label>
       )}
-      {["integer", "decimal"].includes(f.type) && (
+      {["integer", "decimal"].includes(text(f.type)) && (
         <div className="entity-toolbar">
           {["minimum", "maximum"].map((key) => (
             <label className="field" key={key}>
               <span>{fieldLabel(key)}</span>
               <input
-                value={f[key] ?? ""}
+                value={inputValue(f[key]) ?? ""}
                 onChange={(e) =>
                   patch({
                     [key]:
@@ -217,9 +228,9 @@ export function FieldEditor({
             ]}
           />
         </label>
-        {(f.default || f.calculation) && (
+        {isExpression(expression) && (
           <Expression
-            value={f.calculation || f.default}
+            value={expression}
             onChange={(value) =>
               patch(f.calculation ? { calculation: value } : { default: value })
             }
@@ -228,7 +239,7 @@ export function FieldEditor({
             label={f.calculation ? "Formula" : "Default"}
             formula={!!f.calculation}
             defaultOnly={!!f.default}
-            contextType={f.default ? f.type : undefined}
+            contextType={f.default ? optionalText(f.type) : undefined}
             allowContext={!f.calculation}
           />
         )}
@@ -245,7 +256,7 @@ export function FieldEditor({
         <label className="field">
           <span>Uniqueness</span>
           <Select
-            value={f.unique || ""}
+            value={text(f.unique)}
             onChange={(unique) => patch({ unique })}
             options={[
               { value: "", label: "None" },
@@ -260,7 +271,7 @@ export function FieldEditor({
           <input
             required
             pattern="[a-z][a-z0-9_]*"
-            value={f.key}
+            value={inputValue(f.key)}
             disabled={!!field.key}
             onChange={(e) => patch({ key: e.target.value })}
           />

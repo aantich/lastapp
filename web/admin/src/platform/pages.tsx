@@ -1,4 +1,5 @@
 import { api } from "../api";
+import { num, text } from "../api-types";
 import { Collection } from "../collection";
 import { useBuiltinRoles } from "../console-config";
 import { addToTenant, editTenant, planForm, serverForm } from "./forms";
@@ -26,9 +27,9 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
           <section className="panel workspace-section">
             <dl className="workspace-facts">
               <dt>Plan</dt>
-              <dd>{profile.plan_name}</dd>
+              <dd>{text(profile.plan_name)}</dd>
               <dt>Status</dt>
-              <dd>{profile.state}</dd>
+              <dd>{text(profile.state)}</dd>
               <dt>Spaces / Apps / Databases</dt>
               <dd>
                 {overview.spaces} / {overview.apps} / {overview.databases}
@@ -47,7 +48,7 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
             path={`/v1/tenants/${tenant}/apps`}
             columns={[
               columnsName,
-              ["Space", (r) => r.space_name],
+              ["Space", (r) => text(r.space_name)],
               columnsStatus,
             ]}
           />
@@ -60,7 +61,7 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
           columns={[
             columnsName,
             columnsStatus,
-            ["Account", (r) => r.user_state],
+            ["Account", (r) => text(r.user_state)],
           ]}
           actions={(r) => (
             <button
@@ -72,7 +73,7 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
                     `/v1/tenants/${tenant}/role-assignments/${r.id}`,
                     "DELETE",
                     undefined,
-                    r.revision,
+                    num(r.revision),
                   ),
                 )
               }
@@ -85,7 +86,7 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
       {tab === "settings" && (
         <section className="panel workspace-section">
           <p>
-            {profile.plan_name} · {profile.state}
+            {text(profile.plan_name)} · {text(profile.state)}
           </p>
           <div className="section-actions">
             <button className="secondary" onClick={() => editTenant(p)}>
@@ -111,15 +112,15 @@ export function TenantsPage({ p }: { p: PlatformScreen }) {
       path="/admin/v1/tenants"
       columns={[
         columnsName,
-        ["Plan", (r) => r.plan_name],
-        ["Spaces", (r) => r.space_count],
-        ["Apps", (r) => r.app_count],
+        ["Plan", (r) => text(r.plan_name)],
+        ["Spaces", (r) => text(r.space_count)],
+        ["Apps", (r) => text(r.app_count)],
         columnsStatus,
       ]}
       actions={(r) => (
         <button
           className="text-button"
-          onClick={() => go("tenants", r.id, "overview")}
+          onClick={() => go("tenants", text(r.id), "overview")}
         >
           Open
         </button>
@@ -162,7 +163,7 @@ export function UsersPage({ p }: { p: PlatformScreen }) {
                           r.platform_assignment_id,
                         "DELETE",
                         undefined,
-                        r.platform_assignment_revision,
+                        num(r.platform_assignment_revision),
                       )
                     : api("/admin/v1/role-assignments", "POST", {
                         id: crypto.randomUUID(),
@@ -191,7 +192,7 @@ export function UsersPage({ p }: { p: PlatformScreen }) {
                   "/admin/v1/users/" + r.id,
                   "PATCH",
                   { state: r.state === "active" ? "disabled" : "active" },
-                  r.revision,
+                  num(r.revision),
                 ),
               )
             }

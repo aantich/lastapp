@@ -1,4 +1,5 @@
 import { Collection } from "../collection";
+import { text } from "../api-types";
 import { status as badge } from "../console-forms";
 import { createSpace } from "./forms";
 import { nameColumn, statusColumn, type TenantScreen } from "./screen";
@@ -22,7 +23,11 @@ export function AppsPage({ t }: { t: TenantScreen }) {
       <Collection
         key={base + "apps"}
         path={base + "/apps"}
-        columns={[nameColumn, ["Space", (r) => r.space_name], statusColumn]}
+        columns={[
+          nameColumn,
+          ["Space", (r) => text(r.space_name)],
+          statusColumn,
+        ]}
         empty="No Apps are available yet."
         actions={(r) => (
           <button className="text-button" onClick={() => openApp(r)}>
@@ -42,7 +47,7 @@ export function SpacesPage({ t }: { t: TenantScreen }) {
       path={base + "/spaces"}
       columns={[
         nameColumn,
-        ["Apps", (r) => r.app_count],
+        ["Apps", (r) => text(r.app_count)],
         ["Database", (r) => badge(r.database_state)],
         statusColumn,
       ]}

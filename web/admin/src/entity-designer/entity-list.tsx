@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
 import { Select } from "../select";
-import type { EntityCatalog, Item } from "../api-types";
+import { text, type EntityCatalog, type Item } from "../api-types";
 import { emptyDefinition, keyOf } from "./shared";
 
 // The Space's entities and the form that creates one.
@@ -61,7 +61,7 @@ export function EntityList({
             history.replaceState(
               null,
               "",
-              location.pathname + "?entity=" + encodeURIComponent(v.id),
+              location.pathname + "?entity=" + encodeURIComponent(text(v.id)),
             );
           });
         }}
@@ -74,8 +74,8 @@ export function EntityList({
             options={[
               { value: "", label: "Blank entity" },
               ...(catalog.templates || []).map((d: Item) => ({
-                value: d.key,
-                label: d.label,
+                value: text(d.key),
+                label: text(d.label),
               })),
             ]}
           />
@@ -96,12 +96,12 @@ export function EntityList({
       <div className="entity-list">
         {items.map((v) => (
           <button
-            key={v.id}
+            key={text(v.id)}
             disabled={busy}
             className="panel entity-card"
-            onClick={() => open(v.id)}
+            onClick={() => open(text(v.id))}
           >
-            <strong>{v.label}</strong>
+            <strong>{text(v.label)}</strong>
             <span>
               {v.pending_version_id
                 ? "Publishing"
@@ -111,7 +111,7 @@ export function EntityList({
                     ? "Published"
                     : "Draft"}
             </span>
-            <small>{v.entity_key}</small>
+            <small>{text(v.entity_key)}</small>
           </button>
         ))}
       </div>

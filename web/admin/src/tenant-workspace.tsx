@@ -23,7 +23,15 @@ import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
 import { ErrorBoundary } from "./error-boundary";
-import type { Item, Me, TenantCapabilities, TenantOverview } from "./api-types";
+import {
+  num,
+  optText,
+  text,
+  type Item,
+  type Me,
+  type TenantCapabilities,
+  type TenantOverview,
+} from "./api-types";
 import { editFields, options, type TenantScreen } from "./tenant/screen";
 import {
   addDatabase,
@@ -106,7 +114,7 @@ export function TenantWorkspace({
     // An App URL names no Space; take it from the loaded App.
     space:
       parsed.space ||
-      (parsed.app && app.id === parsed.app ? app.space_id || "" : ""),
+      (parsed.app && app.id === parsed.app ? text(app.space_id) || "" : ""),
     app: parsed.app,
     tab: parsed.tab,
     team: parsed.team,
@@ -151,8 +159,8 @@ export function TenantWorkspace({
     savePreference("lastapp-tenant", id);
     navigate(consoleURL.tenant(id, "apps"));
   }
-  const openSpace = (r: Item) => go("space", { space: r.id }),
-    openApp = (r: Item) => go("app", { app: r.id });
+  const openSpace = (r: Item) => go("space", { space: optText(r.id) }),
+    openApp = (r: Item) => go("app", { app: optText(r.id) });
   useEffect(() => {
     if (parsed.area !== "tenants" && parsed.area !== "account" && tenant)
       navigate(consoleURL.tenant(tenant, "apps"), true);
@@ -180,7 +188,7 @@ export function TenantWorkspace({
               f.type === "number" ? Number(v[f.key]) : v[f.key],
             ]),
           ),
-          row.revision,
+          num(row.revision),
         ),
     });
   }
@@ -253,7 +261,7 @@ export function TenantWorkspace({
       ? "My account"
       : ["space", "app"].includes(route.page)
         ? detailReady
-          ? detail.display_name
+          ? text(detail.display_name)
           : route.page === "space"
             ? "Space"
             : "App"
@@ -331,7 +339,7 @@ export function TenantWorkspace({
             />
           ) : (
             <strong className="company-name">
-              {profile.display_name ||
+              {text(profile.display_name) ||
                 memberships[0]?.display_name ||
                 "No Tenant access"}
             </strong>
@@ -340,17 +348,17 @@ export function TenantWorkspace({
         breadcrumbs={
           <>
             <button className="text-button" onClick={() => go("apps")}>
-              {profile.display_name || "Tenant"}
+              {text(profile.display_name) || "Tenant"}
             </button>
             {route.page === "app" && detailReady && (
               <>
                 <span> / </span>
                 <button
                   className="text-button"
-                  disabled={!scoped("space.read", app.space_id, "")}
+                  disabled={!scoped("space.read", optText(app.space_id), "")}
                   onClick={() => openSpace({ id: app.space_id })}
                 >
-                  {app.space_name}
+                  {text(app.space_name)}
                 </button>
               </>
             )}
@@ -375,9 +383,9 @@ export function TenantWorkspace({
         )}
         {detailReady &&
           (route.page === "space" || route.page === "app") &&
-          detail.workspace_id && (
+          text(detail.workspace_id) && (
             <DevelopmentBanner
-              workspace={detail.workspace_id}
+              workspace={text(detail.workspace_id)}
               openSpace={(id) => go("space", { space: id })}
             />
           )}

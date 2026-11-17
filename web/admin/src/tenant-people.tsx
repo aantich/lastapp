@@ -7,7 +7,7 @@ import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
 import { confirmAction } from "./confirm";
 import { nameFields, status } from "./console-forms";
-import type { Item, TenantCapabilities } from "./api-types";
+import { num, text, type Item, type TenantCapabilities } from "./api-types";
 export function TenantPeople({
   tenant,
   caps,
@@ -44,8 +44,8 @@ export function TenantPeople({
     "Person",
     (r) => (
       <>
-        <strong>{r.display_name}</strong>
-        <small>{r.email}</small>
+        <strong>{text(r.display_name)}</strong>
+        <small>{text(r.email)}</small>
       </>
     ),
   ];
@@ -94,12 +94,12 @@ export function TenantPeople({
           path,
           "PATCH",
           { display_name: v.display_name, state: v.state },
-          captured.revision,
+          num(captured.revision),
         ),
     });
   }
   function addTeamPerson() {
-    const captured = group.revision;
+    const captured = num(group.revision);
     setModal({
       title: "Add team member",
       submit: "Add team member",
@@ -124,7 +124,12 @@ export function TenantPeople({
       scope = kind === "tenant" ? base : path;
     return act(() =>
       id
-        ? api(scope + "/role-assignments/" + id, "DELETE", undefined, revision)
+        ? api(
+            scope + "/role-assignments/" + id,
+            "DELETE",
+            undefined,
+            num(revision),
+          )
         : api(scope + "/role-assignments", "POST", {
             id: crypto.randomUUID(),
             user_id: r.user_id,
@@ -176,7 +181,7 @@ export function TenantPeople({
                 ),
               ],
               ["Tenant access", (r) => status(r.state)],
-              ["Account", (r) => r.user_state],
+              ["Account", (r) => text(r.user_state)],
             ]}
             actions={
               manageMembers
@@ -193,7 +198,7 @@ export function TenantPeople({
                               state:
                                 r.state === "active" ? "disabled" : "active",
                             },
-                            r.revision,
+                            num(r.revision),
                           ),
                         )
                       }
@@ -219,11 +224,14 @@ export function TenantPeople({
           <Collection
             path={base + "/teams"}
             columns={[
-              ["Team", (r) => <strong>{r.display_name}</strong>],
+              ["Team", (r) => <strong>{text(r.display_name)}</strong>],
               ["Status", (r) => status(r.state)],
             ]}
             actions={(r) => (
-              <button className="text-button" onClick={() => selectTeam(r.id)}>
+              <button
+                className="text-button"
+                onClick={() => selectTeam(text(r.id))}
+              >
                 Open team
               </button>
             )}
@@ -251,7 +259,7 @@ export function TenantPeople({
             )}
           </div>
           <h2 className="section-title">
-            {group.display_name} {status(group.state)}
+            {text(group.display_name)} {status(group.state)}
           </h2>
           <Collection
             key={path}
@@ -320,7 +328,7 @@ export function TenantPeople({
                                 state:
                                   r.state === "active" ? "disabled" : "active",
                               },
-                              group.revision,
+                              num(group.revision),
                             ),
                           )
                         }
@@ -349,7 +357,7 @@ export function TenantPeople({
                                 path + "/members/" + r.user_id,
                                 "DELETE",
                                 undefined,
-                                group.revision,
+                                num(group.revision),
                               ),
                             );
                         }}

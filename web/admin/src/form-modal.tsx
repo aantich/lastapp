@@ -7,7 +7,9 @@ import { useDialogFocus } from "./dialog";
 import { NewPasswordInput } from "./new-password-input";
 import { generatePassword, usePasswordPolicy } from "./console-config";
 import { useAction } from "./use-action";
-import type { Item } from "./api-types";
+import { keyOf, text, type Item } from "./api-types";
+// A multi-value field's current list; unset means none chosen.
+const listValue = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 export type Field = {
   key: string;
   label: string;
@@ -136,22 +138,24 @@ export function FormModal({
                     ) : f.type === "permissions" ? (
                       <div className="permission-list">
                         {f.options?.map((o) => (
-                          <label key={o.value}>
+                          <label key={keyOf(o.value)}>
                             <input
                               type="checkbox"
-                              checked={(values[f.key] || []).includes(o.value)}
+                              checked={listValue(values[f.key]).includes(
+                                o.value,
+                              )}
                               onChange={(e) =>
                                 setValues({
                                   ...values,
                                   [f.key]: e.target.checked
-                                    ? [...(values[f.key] || []), o.value]
-                                    : (values[f.key] || []).filter(
-                                        (x: string) => x !== o.value,
+                                    ? [...listValue(values[f.key]), o.value]
+                                    : listValue(values[f.key]).filter(
+                                        (x) => x !== o.value,
                                       ),
                                 })
                               }
                             />
-                            <span>{o.label}</span>
+                            <span>{text(o.label)}</span>
                           </label>
                         ))}
                       </div>
@@ -159,10 +163,10 @@ export function FormModal({
                       <RemoteSelect
                         label={f.label}
                         required={f.required}
-                        value={values[f.key] ?? ""}
+                        value={String(values[f.key] ?? "")}
                         initial={(f.options || []).map((o) => ({
-                          value: o.value,
-                          label: o.label,
+                          value: text(o.value),
+                          label: text(o.label),
                         }))}
                         path={f.lookup || lookups[f.key]}
                         valueKey={
@@ -202,7 +206,7 @@ export function FormModal({
                         aria-label={f.label}
                         required={f.required}
                         rows={5}
-                        value={values[f.key] ?? "{}"}
+                        value={String(values[f.key] ?? "{}")}
                         onChange={(e) =>
                           setValues({ ...values, [f.key]: e.target.value })
                         }
@@ -211,10 +215,10 @@ export function FormModal({
                       <Select
                         aria-label={f.label}
                         required={f.required}
-                        value={values[f.key] ?? ""}
+                        value={String(values[f.key] ?? "")}
                         options={(f.options || []).map((o) => ({
-                          value: o.value,
-                          label: o.label,
+                          value: text(o.value),
+                          label: text(o.label),
                         }))}
                         onChange={(value) =>
                           setValues({ ...values, [f.key]: value })
@@ -226,7 +230,7 @@ export function FormModal({
                         autoFocus={i === 0 && !advanced}
                         required={f.required}
                         min={0}
-                        value={values[f.key]}
+                        value={keyOf(values[f.key])}
                         onChange={(value) =>
                           setValues({ ...values, [f.key]: value })
                         }
@@ -245,7 +249,7 @@ export function FormModal({
                           autoComplete={
                             f.type === "password" ? "new-password" : "off"
                           }
-                          value={values[f.key] ?? ""}
+                          value={String(values[f.key] ?? "")}
                           onChange={(e) => {
                             const v: Item = {
                               ...values,

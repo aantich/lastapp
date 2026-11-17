@@ -4,13 +4,29 @@
 // record data only. Each shape below names the Go source it mirrors; change
 // both together.
 
-// A registry row or form value whose columns vary by endpoint. The one place
-// the console accepts loosely typed JSON; prefer a named shape below when a
-// screen depends on specific fields.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Item = Record<string, any>;
+// A registry row or form value whose columns vary by endpoint. Its values are
+// unknown: narrow them where they are used (the helpers below, typeof checks)
+// or prefer a named shape below when a screen depends on specific fields.
+export type Item = Record<string, unknown>;
 
-// internal/op/pagination.go: PageInfo; internal/control/pagination.go: sendPage.
+// Display text of a loose value, as React would render it: strings and
+// numbers as written, nothing for null, undefined, booleans or objects.
+export const text = (v: unknown): string =>
+  typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+
+// A loose value that is a number, or undefined.
+export const num = (v: unknown): number | undefined =>
+  typeof v === "number" ? v : undefined;
+
+// A loose value that is a JSON object.
+export const isItem = (v: unknown): v is Item =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+// A loose value that is an array of JSON objects (other entries dropped).
+export const items = (v: unknown): Item[] =>
+  Array.isArray(v) ? v.filter(isItem) : [];
+
+// internal/op/pagination.go: PageInfo; internal/httpapi/pagination.go: SendPage.
 export type PageInfo = { page: number; limit: number; has_more: boolean };
 export type Page<T = Item> = { items: T[]; pagination?: PageInfo };
 
@@ -116,3 +132,127 @@ export type LaunchCode = {
 
 // internal/control/agent_oauth.go: agent consent decision.
 export type Redirect = { redirect_url: string };
+
+// A loose value usable as a React key: strings and numbers as written,
+// undefined otherwise (so React falls back to the index, as before).
+export const keyOf = (v: unknown): string | number | undefined =>
+  typeof v === "string" || typeof v === "number" ? v : undefined;
+
+// A loose value that is a string, or undefined (keeps "absent" distinct
+// from "empty" where an optional string parameter is expected).
+export const optText = (v: unknown): string | undefined =>
+  typeof v === "string" ? v : undefined;
+
+// internal/control/artifacts.go: upload ticket; internal/artifact/store.go: Limits.
+export type UploadTicket = {
+  upload_url: string;
+  upload_token: string;
+  expires_in: number;
+  limits: Record<
+    "max_bytes" | "max_file_bytes" | "max_files" | "max_body_bytes",
+    number
+  >;
+};
+
+// internal/control/artifacts.go: Build.
+export type Build = {
+  id: string;
+  content_hash: string;
+  size_bytes: number;
+  created_at: string;
+  entrypoint: string;
+};
+
+// internal/control/releases.go: Deployment.
+export type Deployment = {
+  id: string;
+  state: string;
+  error_message: string | null;
+  url: string;
+  release_id: string;
+  revision: number;
+  created_at: string;
+  finished_at: string | null;
+};
+
+// internal/control/releases.go: Release (GET /v1/releases/{id}). The manifest
+// pins micro-app and package versions; the snapshot is
+// internal/control/development_workspaces.go: spaceSnapshot, whose entity
+// definitions are internal/entity/model.go: Definition (fields read loosely).
+export type ReleaseManifest = {
+  microapps?: Record<string, string>;
+  dependencies?: Record<string, string>;
+};
+export type Release = {
+  id: string;
+  display_name: string;
+  build_id: string;
+  created_at: string;
+  production_app_id: string;
+  manifest_json: ReleaseManifest | null;
+  snapshot_json: {
+    entities: {
+      id: string;
+      definition: { label: string; fields: Item[]; permissions: unknown[] };
+    }[];
+    roles: unknown[];
+    apps: unknown[];
+  };
+};
+
+// internal/access/delegation.go: AgentLimits.
+export type AgentLimits = { target_ids: string[]; max_databases: number };
+
+// internal/control/agent_oauth.go: GET /v1/agent-access/config; permissions
+// and presets are internal/control/agents.go: agentPermissionCatalog,
+// agentPresets.
+export type AgentPermission = {
+  code: string;
+  label: string;
+  description: string;
+  scope_kinds: string[];
+};
+export type AgentConfig = {
+  mcp_url: string;
+  permissions: AgentPermission[];
+  presets: { label: string; permissions: string[] }[];
+  default_permissions: string[];
+  default_limits: AgentLimits;
+  default_days: number;
+  max_days: number;
+  max_databases: number;
+  max_targets: number;
+  access_token_seconds: number;
+};
+
+// internal/control/agent_oauth.go: pending connection request.
+export type AgentRequest = {
+  id: string;
+  client_name: string;
+  client_id: string;
+  redirect_uri: string;
+  scopes: string;
+  expires_at: string;
+  resource_uri: string;
+};
+
+// internal/control/agent_oauth.go: AgentGrantItem.
+export type AgentGrant = {
+  client_id: string;
+  client_name: string;
+  created_at: string;
+  expires_at: string;
+  id: string;
+  last_used_at: string | null;
+  limits_json: AgentLimits;
+  owner_name: string;
+  permissions_json: string[];
+  revision: number;
+  scope_id: string | null;
+  scope_kind: string;
+  scope_name: string;
+  state: string;
+  tenant_id: string | null;
+  tenant_name: string | null;
+  user_id: string;
+};

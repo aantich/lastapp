@@ -1,4 +1,5 @@
 import { Collection } from "./collection";
+import { text } from "./api-types";
 
 // One audit-event table for Platform and Tenant activity.
 export function ActivityLog({ path }: { path: string }) {
@@ -10,13 +11,13 @@ export function ActivityLog({ path }: { path: string }) {
           "Event",
           (r) => (
             <>
-              <strong>{r.action}</strong>
-              <small>{r.resource_type}</small>
+              <strong>{text(r.action)}</strong>
+              <small>{text(r.resource_type)}</small>
             </>
           ),
         ],
-        ["Actor", (r) => r.actor_name],
-        ["Time", (r) => new Date(r.created_at).toLocaleString()],
+        ["Actor", (r) => text(r.actor_name)],
+        ["Time", (r) => new Date(text(r.created_at)).toLocaleString()],
       ]}
     />
   );

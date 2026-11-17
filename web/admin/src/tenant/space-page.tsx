@@ -5,6 +5,7 @@ import { DevelopmentWorkspaces } from "../development-workspaces";
 import { Collection } from "../collection";
 import { AccessControl } from "../access-control";
 import { status as badge } from "../console-forms";
+import { keyOf, text } from "../api-types";
 import { nameColumn, statusColumn, type TenantScreen } from "./screen";
 
 // The entity designer is the console's largest screen; load it on first use.
@@ -33,7 +34,7 @@ export function SpacePage({ t }: { t: TenantScreen }) {
     <>
       {route.tab === "development" && !space.workspace_id && (
         <DevelopmentWorkspaces
-          space={space.id}
+          space={text(space.id)}
           openSpace={(id) => go("space", { space: id })}
         />
       )}
@@ -43,7 +44,7 @@ export function SpacePage({ t }: { t: TenantScreen }) {
           path={base + "/apps?space_id=" + space.id}
           columns={[
             nameColumn,
-            ["Micro-apps", (r) => r.microapp_count],
+            ["Micro-apps", (r) => text(r.microapp_count)],
             statusColumn,
           ]}
           actions={(r) => (
@@ -56,8 +57,8 @@ export function SpacePage({ t }: { t: TenantScreen }) {
       {route.tab === "entities" && scoped("entity.manage") && (
         <Suspense fallback={<p>Loading entity designer…</p>}>
           <EntityDesigner
-            key={space.id}
-            space={space.id}
+            key={keyOf(space.id)}
+            space={text(space.id)}
             tenant={tenant}
             me={me}
           />
@@ -65,11 +66,11 @@ export function SpacePage({ t }: { t: TenantScreen }) {
       )}
       {route.tab === "access" && (
         <AccessControl
-          key={space.id}
+          key={keyOf(space.id)}
           tenant={tenant}
           caps={caps}
           scopeKind="space"
-          scopeId={space.id}
+          scopeId={text(space.id)}
         />
       )}
       {route.tab === "settings" && (
@@ -98,7 +99,7 @@ export function SpacePage({ t }: { t: TenantScreen }) {
               <dt>Connection</dt>
               <dd>{badge(space.database_state)}</dd>
               <dt>Layout</dt>
-              <dd>{space.database_layout}</dd>
+              <dd>{text(space.database_layout)}</dd>
             </dl>
             {all("database.read") && (
               <button
@@ -110,8 +111,8 @@ export function SpacePage({ t }: { t: TenantScreen }) {
             )}
             <details>
               <summary>Advanced</summary>
-              <p>Database: {space.database_name}</p>
-              <p>Slug: {space.slug}</p>
+              <p>Database: {text(space.database_name)}</p>
+              <p>Slug: {text(space.slug)}</p>
             </details>
           </section>
         </>

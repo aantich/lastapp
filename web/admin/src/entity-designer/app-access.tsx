@@ -3,9 +3,17 @@ import { api } from "../api";
 import { apiKey, queryClient, useApiQuery } from "../query";
 import { useAction } from "../use-action";
 import { useListKeys } from "../list-keys";
-import type { EntityCatalog, Item } from "../api-types";
+import {
+  isItem,
+  items,
+  num,
+  text,
+  type EntityCatalog,
+  type Item,
+} from "../api-types";
 import { Select } from "../select";
 import { FieldChoices, Expression } from "./expression";
+import { inputValue, isExpression, optionalText, strings } from "./shared";
 export function AppDataAccess({
   app,
   spaceManager,
@@ -26,11 +34,11 @@ export function AppDataAccess({
   const [access, edit] = useState<Item | null>(null),
     [error, setError] = useState("");
   const state = stateQuery.data,
-    contracts: Item[] = contractsQuery.data?.entities || [],
-    roles: Item[] = contractsQuery.data?.roles || [],
+    contracts = items(contractsQuery.data?.entities),
+    roles = items(contractsQuery.data?.roles),
     catalog = catalogQuery.data || null;
   const ready = !!state && !!contractsQuery.data && !!catalog;
-  if (ready && !access) edit(state.access);
+  if (ready && !access) edit(isItem(state.access) ? state.access : null);
   const { busy: saving, run } = useAction(app, {
     onSuccess: () => {},
     onError: setError,
@@ -39,34 +47,34 @@ export function AppDataAccess({
     stateQuery.error || contractsQuery.error || catalogQuery.error;
   // Gates have no id of their own; these keys follow them through removal.
   const gateKeys = {
-    ceiling: useListKeys(access?.ceiling?.length || 0),
-    restrictions: useListKeys(access?.restrictions?.length || 0),
+    ceiling: useListKeys(items(access?.ceiling).length),
+    restrictions: useListKeys(items(access?.restrictions).length),
   };
   if (!access)
     return <p>{error || readError?.message || "Loading data access…"}</p>;
-  const permissions = contracts.flatMap((c) =>
-    (c.definition.permissions || []).map((p: Item) => ({
-      ...p,
-      id: p.id,
-      entity: c.definition,
-    })),
-  );
+  const permissions: (Item & { entity: Item })[] = contracts.flatMap((c) => {
+    const entity = c.definition;
+    return isItem(entity)
+      ? items(entity.permissions).map((p) => ({ ...p, id: p.id, entity }))
+      : [];
+  });
   function gates(key: "ceiling" | "restrictions") {
-    const keys = gateKeys[key];
+    const keys = gateKeys[key],
+      list = items(access![key]);
     return (
       <div className="entity-gates">
-        {access![key].map((g: Item, i: number) => {
+        {list.map((g, i) => {
           const p = permissions.find((p) => p.id === g.permission);
           return (
             <section className="panel entity-advanced" key={keys.keys[i]}>
               <label className="field">
                 <span>Base Space permission</span>
                 <Select
-                  value={g.permission}
+                  value={optionalText(g.permission)}
                   onChange={(permission) =>
                     edit({
                       ...access,
-                      [key]: access![key].map((x: Item, j: number) =>
+                      [key]: list.map((x, j) =>
                         i === j ? { permission, fields: [] } : x,
                       ),
                     })
@@ -74,7 +82,7 @@ export function AppDataAccess({
                   options={[
                     { value: "", label: "Choose permission" },
                     ...permissions.map((p) => ({
-                      value: p.id,
+                      value: text(p.id),
                       label: `${p.entity.label} · ${p.label} (${p.operation})`,
                     })),
                   ]}
@@ -82,14 +90,14 @@ export function AppDataAccess({
               </label>
               {p && (
                 <FieldChoices
-                  fields={p.entity.fields.filter((f: Item) =>
-                    p.fields?.includes(f.key),
+                  fields={items(p.entity.fields).filter(
+                    (f) => Array.isArray(p.fields) && p.fields.includes(f.key),
                   )}
-                  value={g.fields || []}
+                  value={strings(g.fields)}
                   onChange={(v) =>
                     edit({
                       ...access,
-                      [key]: access![key].map((x: Item, j: number) =>
+                      [key]: list.map((x, j) =>
                         i === j ? { ...x, fields: v } : x,
                       ),
                     })
@@ -103,7 +111,7 @@ export function AppDataAccess({
                   onChange={(e) =>
                     edit({
                       ...access,
-                      [key]: access![key].map((x: Item, j: number) =>
+                      [key]: list.map((x, j) =>
                         i === j
                           ? {
                               ...x,
@@ -111,7 +119,10 @@ export function AppDataAccess({
                                 ? {
                                     op: "is_not_null",
                                     args: [
-                                      { field: p?.entity.fields[0]?.key || "" },
+                                      {
+                                        field:
+                                          items(p?.entity.fields)[0]?.key || "",
+                                      },
                                     ],
                                   }
                                 : undefined,
@@ -123,15 +134,15 @@ export function AppDataAccess({
                 />{" "}
                 Limit matching records
               </label>
-              {g.when && p && catalog && (
+              {isExpression(g.when) && p && catalog && (
                 <Expression
-                  fields={p.entity.fields}
+                  fields={items(p.entity.fields)}
                   catalog={catalog}
                   value={g.when}
                   onChange={(v) =>
                     edit({
                       ...access,
-                      [key]: access![key].map((x: Item, j: number) =>
+                      [key]: list.map((x, j) =>
                         i === j ? { ...x, when: v } : x,
                       ),
                     })
@@ -144,11 +155,11 @@ export function AppDataAccess({
                   key: r.id,
                   label: r.display_name,
                 }))}
-                value={g.roles || []}
+                value={strings(g.roles)}
                 onChange={(v) =>
                   edit({
                     ...access,
-                    [key]: access![key].map((x: Item, j: number) =>
+                    [key]: list.map((x, j) =>
                       i === j ? { ...x, roles: v } : x,
                     ),
                   })
@@ -161,7 +172,7 @@ export function AppDataAccess({
                   keys.remove(i);
                   edit({
                     ...access,
-                    [key]: access![key].filter((_: Item, j: number) => j !== i),
+                    [key]: list.filter((_, j) => j !== i),
                   });
                 }}
               >
@@ -176,7 +187,7 @@ export function AppDataAccess({
           onClick={() =>
             edit({
               ...access,
-              [key]: [...access![key], { permission: "", fields: [] }],
+              [key]: [...list, { permission: "", fields: [] }],
             })
           }
         >
@@ -191,9 +202,14 @@ export function AppDataAccess({
       onSubmit={(e) => {
         e.preventDefault();
         void run(async () => {
-          const v = await api<Item>(path, "PATCH", access, state!.revision);
+          const v = await api<Item>(
+            path,
+            "PATCH",
+            access,
+            num(state!.revision),
+          );
           queryClient.setQueryData(apiKey(path), v);
-          edit(v.access);
+          edit(isItem(v.access) ? v.access : null);
         });
       }}
     >
@@ -210,7 +226,7 @@ export function AppDataAccess({
           <span>App origin</span>
           <input
             type="url"
-            value={access.origin}
+            value={inputValue(access.origin)}
             placeholder="https://crm.example.com"
             onChange={(e) => edit({ ...access, origin: e.target.value })}
           />
@@ -218,7 +234,9 @@ export function AppDataAccess({
         <label>
           <input
             type="checkbox"
-            checked={access.inherit}
+            checked={
+              typeof access.inherit === "boolean" ? access.inherit : undefined
+            }
             onChange={(e) => edit({ ...access, inherit: e.target.checked })}
           />{" "}
           Inherit all current and future Space permissions
@@ -233,12 +251,16 @@ export function AppDataAccess({
       <label>
         <input
           type="checkbox"
-          checked={access.restricted}
+          checked={
+            typeof access.restricted === "boolean"
+              ? access.restricted
+              : undefined
+          }
           onChange={(e) => edit({ ...access, restricted: e.target.checked })}
         />{" "}
         Add App restrictions or App-role requirements
       </label>
-      {access.restricted && gates("restrictions")}
+      {!!access.restricted && gates("restrictions")}
       <button className="primary" disabled={saving}>
         Save data access
       </button>
