@@ -101,10 +101,12 @@ func (m *Manager) CSRF(ctx context.Context, r *http.Request) error {
 
 // Logout deletes the current session and clears its cookies.
 func (m *Manager) Logout(w http.ResponseWriter, r *http.Request, _ access.Principal) error {
-	c, _ := r.Cookie(httpapi.CookieName(m.Config.PublicURL, httpapi.SessionCookie))
-	_, e := m.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(c.Value))
-	if e != nil {
-		return e
+	// The session wrapper authenticated this request from the cookie; without
+	// one there is no row to delete, and the cookies are still cleared.
+	if c, e := r.Cookie(httpapi.CookieName(m.Config.PublicURL, httpapi.SessionCookie)); e == nil {
+		if _, e = m.DB.ExecContext(r.Context(), "DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(c.Value)); e != nil {
+			return e
+		}
 	}
 	m.cookie(w, httpapi.SessionCookie, "", -1, true)
 	m.cookie(w, httpapi.CSRFCookie, "", -1, false)
