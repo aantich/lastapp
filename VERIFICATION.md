@@ -1,5 +1,47 @@
 # Lastapp verification
 
+## Console sessions and login extracted from control (P5) — 17 November 2026
+
+- Pure move, no behaviour change: password login, OIDC login/callback with the
+  sealed flow cookie, session issue and cookies, principal resolution, CSRF and
+  Origin checks, logout and password change are `session.Manager`
+  (`internal/session`), wired in `Open` with the registry DB, config, `Sealer`,
+  `membership.Passwords` and the trusted proxies; it owns the login limiter.
+  Route registration, `/v1/config`, `POST /admin/v1/users` (now in
+  `tenants.go`) and the trusted platform bootstrap (`bootstrap.go`) stay in
+  control; `registryTransport` stays in `transport.go`.
+- Account preparation moved to membership, its true owner (policy, verifiers,
+  `LocalAccount`): `membership.Passwords` is the single PBKDF2 work pool, and
+  `Passwords.PrepareAccount` serves platform user creation, Tenant creation,
+  memberships, Tenant administrators and bootstrap. `Members` and `Inventory`
+  take the pool instead of an injected `PrepareAccount` function; session uses
+  the same pool for login and password change.
+- Small DRY consolidations inside the moved code, each equivalent: the OIDC
+  callback issues its session through the same helper as password login (the
+  `auth_method` column already defaulted to `oidc`) and sets cookies through
+  the same helper; the two bootstrap paths share the platform-grant block; the
+  console cookie names are `httpapi.SessionCookie`/`CSRFCookie` (also used by
+  the data API console launch and `/v1/config`).
+- Layering: `session` is layer 98 (directly below control) and a transport
+  package, so only control may import it. Agent OAuth consent gets the console
+  principal through `httpapi.Session` wired by control, so P6 can extract agent
+  OAuth without importing session. `TestNoHTTPLoopback` scans session.
+- New tests: `internal/session` (database-free: cookie attributes, CSRF/Origin,
+  login limiter budgets, shared work bound, password policy on change, OIDC
+  state/expiry/nonce against a stub token endpoint and key set) and
+  `internal/membership` (account preparation, work bound moved from control).
+- `internal/control` production code: 5,959 → 5,485 lines
+  (`internal/session` production: 530).
+
+Executed checks: `make lint` **PASS**; `go test -race -count=1 ./...` with
+`LASTAPP_TEST_CONFIG` and `LASTAPP_SECURITY_CONFIG` on the local config **PASS**
+(control 192.8 s); `go test -race -count=1 ./internal/session
+./internal/membership` **PASS**; goldens with `-count=2` **PASS** and
+`git diff a1e06bb -- internal/control/testdata` is empty; `make e2e` **PASS**
+(34 browser tests, including login, password policy and expired sessions);
+`python3 design/validate_schema.py --check`, `python3 scripts/verify_driver.py`
+and `git diff --check` **PASS**.
+
 ## Workspaces, releases and deployments extracted from control (P3) — 17 November 2026
 
 - Pure move, no behaviour change: workspaces and snapshots, workspace
