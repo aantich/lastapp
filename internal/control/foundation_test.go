@@ -47,7 +47,7 @@ func foundationFixture(t *testing.T) (*Server, testClient, string, string, strin
 		t.Fatal(e)
 	}
 	t.Cleanup(func() {
-		s.DB.Close()
+		s.Close()
 		if _, e := admin.DB.Exec("DROP DATABASE `" + name + "`"); e != nil {
 			t.Error(e)
 		}

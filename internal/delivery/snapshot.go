@@ -13,6 +13,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
+	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
 )
 
@@ -214,14 +215,64 @@ func (s *Service) prepareSnapshotTables(ctx context.Context, resource string, en
 	return nil
 }
 
-func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
-	v, e := scanWorkspaceStorage(ctx, q, "WHERE w.state='preparing' ORDER BY w.created_at LIMIT 1")
-	if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
-		return nil
+// WorkspaceJob advances one preparing workspace of the first Tenant after the
+// given one (Tenant ID order) that has any. It tries that Tenant's workspaces
+// oldest first and stops at the first that progresses; workspaces are
+// independent (each has its own backing Space and storage), so one waiting
+// for its storage or publications never holds back another. It returns the
+// Tenant, or "" when no later Tenant has a preparing workspace, and whether a
+// workspace progressed. An error (including a deadlock or lock wait timeout,
+// which never fails a workspace) does not stop the other workspaces of the
+// pass; the first one is returned.
+func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer, after string) (tenant string, progressed bool, err error) {
+	if e := registry.Lookup(ctx, q, "SELECT tenant_id FROM development_workspaces WHERE state='preparing' AND tenant_id>? ORDER BY tenant_id LIMIT 1", []any{after}, &tenant); e != nil {
+		if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
+			return "", false, nil
+		}
+		return "", false, e
 	}
+	rows, e := q.QueryContext(ctx, "SELECT id FROM development_workspaces WHERE tenant_id=? AND state='preparing' ORDER BY created_at,id", tenant)
 	if e != nil {
-		return e
+		return tenant, false, e
 	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if e = rows.Scan(&id); e != nil {
+			rows.Close()
+			return tenant, false, e
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return tenant, false, e
+	}
+	for _, id := range ids {
+		v, e := scanWorkspaceStorage(ctx, q, "WHERE w.id=? AND w.state='preparing'", id)
+		if ae, ok := e.(*registry.APIError); ok && ae.Status == 404 {
+			continue // Finished or archived meanwhile.
+		}
+		if e == nil {
+			progressed, e = s.prepareWorkspace(ctx, q, v)
+		}
+		if e != nil {
+			if err == nil {
+				err = e
+			}
+			continue
+		}
+		if progressed {
+			return tenant, true, nil
+		}
+	}
+	return tenant, false, err
+}
+
+// prepareWorkspace advances one preparing workspace. It reports false while
+// the workspace waits for its storage or its entity publications.
+func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v registry.Workspace) (bool, error) {
+	var e error
 	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -230,9 +281,10 @@ func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 	if access.Deref(v.OwnerGrant) != "" {
 		p.Agent, e = s.Access.ReadAgentGrant(ctx, q, access.Deref(v.OwnerGrant))
 		if e != nil {
-			return e
+			return false, e
 		}
 	}
+	waiting := false
 	run := func() error {
 		if p.Agent != nil {
 			if e = access.RequireAgent(p.Agent, "workspaces.write"); e != nil {
@@ -243,6 +295,7 @@ func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 			return e
 		}
 		if access.Deref(v.DatabaseState) == "pending" || access.Deref(v.DatabaseState) == "provisioning" {
+			waiting = true
 			return nil
 		}
 		if access.Deref(v.DatabaseState) != "ready" {
@@ -270,7 +323,7 @@ func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 		if e = s.Access.WorkspaceOwner(ctx, tx, p, v); e != nil {
 			return e
 		}
-		ready := true
+		ready, queued := true, false
 		for _, d := range defs {
 			if d.ActiveVersion != nil {
 				continue
@@ -292,7 +345,10 @@ func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 			if e = s.QueueDefinition(ctx, tx, access.Principal{ID: p.ID}, d, registry.NewID(), candidates); e != nil {
 				return e
 			}
+			queued = true
 		}
+		// Unpublished entities that are all already queued: wait for them.
+		waiting = !ready && !queued
 		if ready {
 			apps, err := registry.ScanAll[registry.AppRecord](ctx, tx, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE space_id=?", v.BackingSpace)
 			if err != nil {
@@ -314,7 +370,10 @@ func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 		return tx.Commit()
 	}
 	if e = run(); e == nil {
-		return nil
+		return !waiting, nil
+	}
+	if op.Transient(e) {
+		return false, e
 	}
 	message := "Workspace preparation failed. Check storage and publications, then retry."
 	if ae, ok := e.(*registry.APIError); ok {
@@ -322,8 +381,8 @@ func (s *Service) WorkspaceJob(ctx context.Context, q registry.Queryer) error {
 	} else {
 		s.Warn(ctx, "workspace preparation failed", e)
 	}
-	_, err := q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
-	return err
+	_, e = q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
+	return true, e
 }
 
 func snapshotContractHash(v spaceSnapshot) string {

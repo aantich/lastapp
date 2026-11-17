@@ -86,7 +86,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 
 | Change area | Authoritative source / reuse point |
 | --- | --- |
-| Package layout and dependency direction | `cmd/lastapp` → `internal/control` (wiring: routes, the single `/data/v1/` mount, the build upload endpoint and App host server, the worker step list, trusted platform bootstrap) → `internal/worker` (the background leader: `worker.Leader` holds one `GET_LOCK` on a pinned registry connection and runs its `Step`s in order on it; the ordered list — `Cleanup`, deployments, workspaces, `Publication`, `databases.Provisioner` — is built once in `Open`; it imports only `access`, `data` and `registry`, never a transport package) → `internal/agent` (agent delegation: `agent.Server` serves the OAuth authorization server for MCP clients — discovery, registration, consent, code/refresh exchange and revocation — the console agent-access endpoints and the streamable-HTTP management MCP server with its tool catalog and typed adapters; wired in `Open` with the registry DB, `access.Checker`, config, the domain services (`inventory`, `membership`, `roles`, `databases`, `entities`, `delivery`), the shared `Limiter`/trusted proxies and its admission slots; control mounts it with `Routes(mux, console)`, passing the console-session wrapper so consent authenticates console users without importing `session`) → `internal/session` (console sessions: `session.Manager` serves password login, OIDC login/callback with the sealed flow cookie, session issue and cookies, principal resolution, CSRF/Origin checks for console writes, logout and password change; wired in `Open` with the registry DB, config, `Sealer`, the shared `membership.Passwords` pool and the trusted proxies, and it owns the login limiter; control only registers its routes) → `internal/dataapi` (the App data API: `dataapi.Runtime` serves `/data/v1`, App launch codes, PKCE exchange and bearer sessions with their live parent checks; wired in `Open` with the registry DB, `access.Checker`, `entities.Authoring`, `publisher.Publisher`, `Sealer`, config and the shared `Limiter`/trusted proxies) → `internal/delivery` (owned workspaces, snapshots, build upload tickets/storage, releases, the production deployment steps, starters and development launch codes: `delivery.Service`, wired in `Open` with the registry DB, `op.Runner`, `access.Checker`, config, `databases.Storage`, `publisher.Publisher`, registry name and warning logger; it does not import `net/http` or `httpapi`, so HTTP decoding, upload rate limits/slots and static file serving stay in `control`) → `internal/publisher` (entity publication jobs, activation and business-database connections/pools) → domain packages `internal/entities` → `internal/inventory` → `internal/membership` → `internal/roles` → `internal/databases` → `internal/op` → `internal/access` → `internal/registry`. Below control sit `internal/httpapi` (shared HTTP plumbing: `Decode`/`Send`/`Reply`/`SendRef`, the single error writer `WriteError` over `op.Classify`, the console-session wrapper `Session`, page shims, `Observe`/request loggers/`Diagnostic`, `Limiter`, `TrustedProxies.ClientIP`, `AllowedOrigin`/`CookieName`), `internal/sealer` (`Sealer`: owner-bound AES-GCM envelopes from `encryption_key`; format pinned by a fixed vector) and `internal/config`; `internal/entity`, `data`, `authz`, `artifact` are leaves. A lower package never imports a higher one; the transport packages `internal/control`, `internal/agent`, `internal/session`, `internal/dataapi` and `internal/httpapi` are imported only by `cmd/` and each other (`agent`, `session` and `dataapi` serve HTTP themselves, so they reuse `httpapi` rather than duplicating decode/send, errors, limits, origins, cookie names and client IPs; they are siblings that only `control` imports; agent OAuth consent gets the console principal through the `httpapi.Session` wrapper control passes to `agent.Server.Routes`, not by importing `session`); token hashing (`registry.TokenHash`) and PKCE formats and the S256 check (`registry.PKCEVerifier`/`PKCEChallenge`/`PKCEMatches`) are shared from `internal/registry`; shared queries move down into `registry` (or the owning domain package, e.g. `inventory.AppRow`) rather than behind interfaces. `TestPackageLayering` (`internal/layering_test.go`, `go list`) enforces this table and names the offending import; a new internal package must be added to it. `TestNoHTTPLoopback` fails if an operation package (including `internal/delivery`), or the non-HTTP files of `internal/dataapi` (`sql.go`, `cache.go`, `fairness.go`), imports `net/http` or `internal/control`, if `internal/agent`, `internal/dataapi` or `internal/session` imports `internal/control`, and if any of them references the removed MCP→HTTP loopback |
+| Package layout and dependency direction | `cmd/lastapp` → `internal/control` (wiring: routes, the single `/data/v1/` mount, the build upload endpoint and App host server, the worker step list, trusted platform bootstrap) → `internal/worker` (the background leader: `worker.Leader` holds one `GET_LOCK` on a pinned registry connection and runs each `Step` in its own loop while it holds it, see [Background worker](#background-worker); the list — `Cleanup`, deployments, workspaces, `Publication`, `databases.Provisioner` — is built once in `Open`; it imports only `access`, `data`, `op` and `registry`, never a transport package) → `internal/agent` (agent delegation: `agent.Server` serves the OAuth authorization server for MCP clients — discovery, registration, consent, code/refresh exchange and revocation — the console agent-access endpoints and the streamable-HTTP management MCP server with its tool catalog and typed adapters; wired in `Open` with the registry DB, `access.Checker`, config, the domain services (`inventory`, `membership`, `roles`, `databases`, `entities`, `delivery`), the shared `Limiter`/trusted proxies and its admission slots; control mounts it with `Routes(mux, console)`, passing the console-session wrapper so consent authenticates console users without importing `session`) → `internal/session` (console sessions: `session.Manager` serves password login, OIDC login/callback with the sealed flow cookie, session issue and cookies, principal resolution, CSRF/Origin checks for console writes, logout and password change; wired in `Open` with the registry DB, config, `Sealer`, the shared `membership.Passwords` pool and the trusted proxies, and it owns the login limiter; control only registers its routes) → `internal/dataapi` (the App data API: `dataapi.Runtime` serves `/data/v1`, App launch codes, PKCE exchange and bearer sessions with their live parent checks; wired in `Open` with the registry DB, `access.Checker`, `entities.Authoring`, `publisher.Publisher`, `Sealer`, config and the shared `Limiter`/trusted proxies) → `internal/delivery` (owned workspaces, snapshots, build upload tickets/storage, releases, the production deployment steps, starters and development launch codes: `delivery.Service`, wired in `Open` with the registry DB, `op.Runner`, `access.Checker`, config, `databases.Storage`, `publisher.Publisher`, registry name and warning logger; it does not import `net/http` or `httpapi`, so HTTP decoding, upload rate limits/slots and static file serving stay in `control`) → `internal/publisher` (entity publication jobs, activation and business-database connections/pools) → domain packages `internal/entities` → `internal/inventory` → `internal/membership` → `internal/roles` → `internal/databases` → `internal/op` → `internal/access` → `internal/registry`. Below control sit `internal/httpapi` (shared HTTP plumbing: `Decode`/`Send`/`Reply`/`SendRef`, the single error writer `WriteError` over `op.Classify`, the console-session wrapper `Session`, page shims, `Observe`/request loggers/`Diagnostic`, `Limiter`, `TrustedProxies.ClientIP`, `AllowedOrigin`/`CookieName`), `internal/sealer` (`Sealer`: owner-bound AES-GCM envelopes from `encryption_key`; format pinned by a fixed vector) and `internal/config`; `internal/entity`, `data`, `authz`, `artifact` are leaves. A lower package never imports a higher one; the transport packages `internal/control`, `internal/agent`, `internal/session`, `internal/dataapi` and `internal/httpapi` are imported only by `cmd/` and each other (`agent`, `session` and `dataapi` serve HTTP themselves, so they reuse `httpapi` rather than duplicating decode/send, errors, limits, origins, cookie names and client IPs; they are siblings that only `control` imports; agent OAuth consent gets the console principal through the `httpapi.Session` wrapper control passes to `agent.Server.Routes`, not by importing `session`); token hashing (`registry.TokenHash`) and PKCE formats and the S256 check (`registry.PKCEVerifier`/`PKCEChallenge`/`PKCEMatches`) are shared from `internal/registry`; shared queries move down into `registry` (or the owning domain package, e.g. `inventory.AppRow`) rather than behind interfaces. `TestPackageLayering` (`internal/layering_test.go`, `go list`) enforces this table and names the offending import; a new internal package must be added to it. `TestNoHTTPLoopback` fails if an operation package (including `internal/delivery`), or the non-HTTP files of `internal/dataapi` (`sql.go`, `cache.go`, `fairness.go`), imports `net/http` or `internal/control`, if `internal/agent`, `internal/dataapi` or `internal/session` imports `internal/control`, and if any of them references the removed MCP→HTTP loopback |
 | Management routes and console-session wrapper | Routes in `internal/control/http.go`; the wrapper (deadline, authentication, limits, initial-password gate, CSRF, error writing) is `httpapi.Session`, given `session.Manager.Principal` and `CSRF`; login, logout and password-change handlers in `internal/session`; domain handlers in `internal/control` |
 | Operations shared by console and MCP | `internal/op`: `Actor`, `Runner.Mutate` (lock, live authorization, production guard, receipt, audit), one error `Classify`, `PageRequest`/`Page`, request deadlines; live checks in `internal/access` (`Checker`: `Authorize`, `Scopes`, `CheckAgent`, production/workspace guards; `Principal`, `AgentCall`, agent grants). Domain services `inventory.Inventory` (`internal/inventory`), `membership.Members` (`internal/membership`, also local accounts and the password policy), `roles.Authority` (`internal/roles`, with security audit snapshots), `databases.Storage` (`internal/databases`), `entities.Authoring` (`internal/entities`) and `publisher.Publisher` (`internal/publisher`, wired in `Open` with the deployment authority recheck and deployment snapshot entities from `internal/delivery`, and the database connector and warning logger from control) and `delivery.Service` (`internal/delivery`: workspace, build, release, deployment, starter and development-launch operations, which share snapshot and hosting internals); console handlers for them stay in same-named files of `internal/control` (`development_workspaces.go`, `releases.go`, `artifacts.go`, `starters.go`). The account list and audit trail reads are `inventory.Inventory.Users` and `roles.Authority.Audits`. Handlers decode → call the operation → send; MCP adapters in `internal/agent` call the same operation directly |
 | Fixed role IDs/actions/scope categories | `internal/authz/catalog.go`; `internal/access/auth.go`, `internal/roles` resolve current authority |
@@ -94,7 +94,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Entity document, types, expressions, ACL semantics and limits | `internal/entity`; `GET /v1/entity-capabilities` |
 | Generated JSON Schema / TypeScript | `internal/entity/contracts.go`; entity/App contract endpoints |
 | SQL query/storage compilation and pools | `internal/data` (also `ReleasePinnedLock`); business-database connections and the runtime pool cache are `publisher.Publisher.BusinessDB`/`RuntimeDB`; runtime orchestration in `internal/dataapi` (`runtime.go` dispatch and actor/definition loading, `records.go` reads/mutations, `sql.go` share/recipient/cursor SQL builders, `shares.go`, `options.go`; stored rows decode through `entities.BusinessRecord`) |
-| Publication and database provisioning | `internal/entities` (queueing), `internal/databases` (resources, `OwnershipConflict`); `internal/publisher` (`Publisher.Job`, `Activate`, `RestoreBase`, `OpenGate`, permission projection, storage preparation); the worker leader (`GET_LOCK`, term start, step order, idle pause, leadership loss on a step error) in `internal/worker/worker.go` with the cleanup and queue adapters in `steps.go`; provisioning (`databases.Provisioner`: interrupted attempts back to pending at term start, live agent recheck, round-robin `NextJob`, `Provision`, `ValidateRuntime`, `ProvisionError`) in `internal/databases/provisioner.go`, with the target connector injected from control like `publisher.Connect`; expired agent token sessions, OAuth requests and stale OAuth clients are deleted by `access.CleanupAgentSessions`/`CleanupClients` (`internal/access/cleanup.go`, which also owns the client lifetimes); workspace preparation and deployment steps are `delivery.Service.WorkspaceJob`/`DeploymentJob` (`internal/delivery/snapshot.go`, `deployments.go`) |
+| Publication and database provisioning | `internal/entities` (queueing), `internal/databases` (resources, `OwnershipConflict`); `internal/publisher` (`Publisher.Job`, `Activate`, `RestoreBase`, `OpenGate`, permission projection, storage preparation); the worker leader (`GET_LOCK`, term start, per-step loops, heartbeat, idle pause, step backoff and transient retry) in `internal/worker/worker.go` with the cleanup, Tenant-fair queue (`Fair`) and publication adapters in `steps.go`; provisioning (`databases.Provisioner`: interrupted attempts back to pending at term start, live agent recheck, round-robin `NextJob`, `Provision`, `ValidateRuntime`, `ProvisionError`) in `internal/databases/provisioner.go`, with the target connector injected from control like `publisher.Connect`; expired agent token sessions, OAuth requests and stale OAuth clients are deleted by `access.CleanupAgentSessions`/`CleanupClients` (`internal/access/cleanup.go`, which also owns the client lifetimes); workspace preparation and deployment steps are `delivery.Service.WorkspaceJob`/`DeploymentJob` (`internal/delivery/snapshot.go`, `deployments.go`) |
 | App origin approval, launch/session authentication | `internal/entities` (App access, `Authoring.ActorContext`), `internal/dataapi/sessions.go` (console launch, PKCE exchange, bearer sessions and the shared browser/delegated parent check), `internal/dataapi/runtime.go`; development launch codes in `internal/delivery/sessions.go` (the shared code lifetime is `registry.LaunchLifetime`); `packages/client/src/index.ts` |
 | MCP schemas, tool catalog and typed adapters | `internal/agent`: `tools.go` (catalog `Server.Tools`, `InputSchema`, strict input decoding, visibility), `mcp.go` (`/mcp` admission and transport), `writes.go` (request keys, receipts, response bound), adapters by domain in `context.go` (reads), `resources.go`, `entities.go`, `access.go`, `databases.go`, `development.go`; schemas derive from the exported Go input types |
 | Agent permissions, limits and live checks | `internal/agent/permissions.go` (catalog, presets), `server.go` (limits, bearer `Principal`, admission) → `GET /v1/agent-access/config`; grant checks in `internal/access/delegation.go` |
@@ -113,6 +113,85 @@ takes an `op.Actor` and runs writes through `Runner.Mutate` (for example
 `internal/control`; expose it to MCP by an adapter in `internal/agent` (the
 domain's file, listed in `Server.Tools`) that calls the same method; regenerate the goldens (below) for the new tool schema/response;
 and add a regression test for its authorization boundary.
+
+### Background worker
+
+One in-process leader per registry (`worker.Leader`, wired in `control.Open`)
+runs the queues. Election stays single: one `GET_LOCK(lastapp:<registry>,0)` on
+a pinned registry connection. A term then runs as follows.
+
+- **Recovery first.** Every `Starter.Start` runs once, in step order, on the
+  lock connection before any step runs (cursor resets; the provisioning step
+  returns interrupted `provisioning` resources to `pending`).
+- **Concurrency.** Each step then runs in its own goroutine loop, so a slow step
+  (provisioning: up to 45 s plus a 5 s target lock; publication and deployment
+  attempts: 45 s) never delays another kind of work. Steps get the leader's pool,
+  not a pinned connection: they borrow a connection per query or transaction,
+  never share a session and never use the lock connection (pinned out of the
+  pool for the term). No step relies on session state of the lock connection:
+  their transactions set `READ COMMITTED` per transaction, and the session-level
+  locks they take (`lastapp:entity:*`, `lastapp:resource:*`) are on their own
+  business/target connections. At most one goroutine runs each step, so a step's
+  per-term state needs no lock.
+- **Connections.** The worker has its own registry pool (`control.Open` wires a
+  second delivery service, publisher and the provisioner on it through
+  `deliveryServices`), so background work never takes a connection from
+  console, MCP or data API requests, whose pool stays at 16. It is capped at
+  1 + 2 × steps (11): the lock connection plus, per step, at most one open
+  transaction and one read beside it, so steps never wait on each other for a
+  connection. `TestWorkerOwnPool` keeps the request pool fully checked out and
+  requires the worker to finish jobs anyway.
+- **Pacing.** A run that did no work pauses a second; a busy run (a provisioning
+  or publication job, a deployment/workspace job that progressed) loops at once.
+- **Error isolation.** A step error is logged as `worker step failed` with the
+  step name and the step backs off (1 s doubling to 60 s, reset on success); the
+  other steps and the lock are unaffected. A MariaDB deadlock (1213) or lock wait
+  timeout (1205), `op.Transient`, is a retry after 100 ms, not a failure; the
+  deployment, workspace and publication jobs return it instead of failing their
+  durable job (a publication stays `publishing` and resumes under a new attempt).
+- **Term end.** The leader checks every second that its connection still holds
+  the lock (`IS_USED_LOCK(...)=CONNECTION_ID()`). A broken connection, a lost lock
+  or shutdown cancels the term; every step goroutine is waited for before the
+  lock is released, and leadership is retried a second later
+  (`worker leader disconnected`). Until the heartbeat notices a lost lock (≤ 1 s)
+  an old step may still finish a job while a new leader recovers; the attempt-id
+  and physical version fences, `WHERE state=...` claims and live authority
+  rechecks make that overlap safe, as before.
+- **Tenant fairness.** Provisioning (`databases.NextJob`) and publication
+  (`Publisher.Job` cursor) round-robin over Tenants. Deployments and workspaces
+  use `worker.Fair`: `DeploymentJob`/`WorkspaceJob` work on the first Tenant
+  after a cursor and report whether a job progressed. One pass visits each
+  Tenant with work at most once and stops at the first job that progresses; a
+  Tenant with nothing that can progress is skipped, and a failing Tenant is
+  passed over on the next pass.
+- **Order within a Tenant.** Deployments keep strict creation order (oldest
+  unfinished first): each one is checked against the production base hash and
+  changes the Space's shared entities, roles and App policies, so a later
+  deployment must not overtake an earlier one; a waiting deployment holds back
+  only its own Tenant's later deployments. Workspaces need no order: each has its
+  own backing Space and storage, and its preparation is a per-workspace state
+  machine. `WorkspaceJob` therefore tries the Tenant's preparing workspaces
+  oldest first and stops at the first that progresses, so a workspace waiting
+  for its storage or publications never holds back another, and one workspace's
+  error does not stop the others in that pass.
+- **Lock order.** Concurrent steps take registry row locks in the same order as
+  console mutations: the Tenant row (`tenants … FOR UPDATE`) first, then the
+  Tenant's resources (`database_resources`, `entity_definitions`/
+  `entity_versions`, `apps`, roles, `release_deployments`,
+  `development_workspaces`). Publication's own finishing transactions lock an
+  entity's version before its definition without the Tenant row; nothing locks
+  them in the opposite order for the same version. Advisory locks are per
+  entity on the business database (publication holds it while it takes the
+  Tenant row; no transaction holding a Tenant row waits for it, and
+  `RestoreBase` only tries it without waiting, after commit) and per resource on
+  the target (provisioning holds no registry lock meanwhile). Cleanup touches
+  only session/ticket/OAuth tables.
+- **Fences across steps.** Steps that used to run strictly one after another can
+  now interleave (e.g. a deployment failing while publication is preparing one
+  of its versions). The publisher's `attempt_id` and `state='publishing'`
+  claims, the deployment authority recheck inside the activation transaction and
+  the storage gate (`_lastapp_entity_state.attempt_id`) keep the outcome
+  consistent; the late publication then records its own failure.
 
 Do not add a second policy language, ORM, query compiler, permission cache or MCP
 service to make a local feature easier. Extend the existing typed contract and
@@ -218,11 +297,16 @@ run black-box (and through `Server.Tools`) in `internal/control`, with the
 `mcp_tools`, `response_shapes`, `session_shapes`, `delivery_shapes` and
 `audit_attribution` goldens.
 `internal/worker` tests the leader with fake steps on a lock-only fixture
-(`LASTAPP_TEST_CONFIG`, no schema): step and start order, every step on the
-connection holding the lock, standing by while another session holds it, the
-one-second idle pause, and leadership loss, lock release and a new term after a
-step error (`go test ./internal/worker`); its adapters have database-free
-tests. `internal/databases` has database-free tests for the stored provisioning
+(`LASTAPP_TEST_CONFIG`, no schema): starters once per term on the lock
+connection before any step, steps on connections of their own, standing by while
+another session holds the lock, the per-step idle pause, transient retries,
+error isolation with backoff and no lost leadership, a slow step not delaying
+another, and term end (killed lock connection) stopping every step before the
+next term's recovery (`go test ./internal/worker`); the `Fair` and publication
+adapters have database-free tests. `TestWorkerTenantFairness`
+(`internal/control`) runs the real leader: a Tenant's waiting deployment and
+workspace do not block another Tenant's; `TestWorkerWorkspacesIndependent`: a
+waiting workspace does not block a newer one of the same Tenant. `internal/databases` has database-free tests for the stored provisioning
 error mapping and generated names; provisioning itself, queue fairness and
 leadership-loss recovery run black-box in `internal/control`.
 The agreed direction is that each layer gets its own tests and its own fixtures;

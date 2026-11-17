@@ -81,6 +81,13 @@ type Error struct {
 	Unmapped bool
 }
 
+// Transient reports a MariaDB deadlock (1213) or lock wait timeout (1205):
+// the transaction was rolled back and the same work can simply be retried.
+func Transient(err error) bool {
+	var me *mariadb.MySQLError
+	return errors.As(err, &me) && (me.Number == 1205 || me.Number == 1213)
+}
+
 func Classify(err error) Error {
 	var ae *registry.APIError
 	var ed entity.Diagnostic
@@ -88,6 +95,8 @@ func Classify(err error) Error {
 	if errors.As(err, &ae) {
 	} else if errors.As(err, &ed) {
 		ae = &registry.APIError{Status: 400, Code: ed.Code, Message: ed.Message}
+	} else if Transient(err) {
+		ae = &registry.APIError{Status: 409, Code: "retry_transaction", Message: "A concurrent change occurred; refresh and retry."}
 	} else if errors.As(err, &me) {
 		switch me.Number {
 		case 1062:
@@ -96,8 +105,6 @@ func Classify(err error) Error {
 			ae = &registry.APIError{Status: 409, Code: "invalid_reference", Message: "A referenced resource is missing, belongs to another Tenant, or is still in use."}
 		case 4025:
 			ae = &registry.APIError{Status: 400, Code: "invalid_request", Message: "The request violates a resource constraint."}
-		case 1205, 1213:
-			ae = &registry.APIError{Status: 409, Code: "retry_transaction", Message: "A concurrent change occurred; refresh and retry."}
 		}
 	}
 	o := Error{}

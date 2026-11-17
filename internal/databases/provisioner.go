@@ -43,10 +43,10 @@ func (p *Provisioner) Start(ctx context.Context, conn *sql.Conn) error {
 	return e
 }
 
-// Run provisions the next pending resource on the leader connection. It reports
-// busy when it handled a job, so the leader polls again without idling.
-func (p *Provisioner) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
-	job, e := NextJob(ctx, conn, p.last)
+// Run provisions the next pending resource using the worker's pool db. It
+// reports busy when it handled a job, so the leader polls again without idling.
+func (p *Provisioner) Run(ctx context.Context, db *sql.DB) (bool, error) {
+	job, e := NextJob(ctx, db, p.last)
 	if e != nil {
 		var ae *registry.APIError
 		if !errors.As(e, &ae) || ae.Status != 404 {
@@ -57,7 +57,7 @@ func (p *Provisioner) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
 	record, tenant := job.ID, job.TenantID
 	jobCtx := op.AgentAuditContext(ctx, job.AgentGrant, job.AgentClient)
 	p.last = tenant
-	tx, e := conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, e := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {
 		return true, e
 	}
@@ -113,7 +113,7 @@ func (p *Provisioner) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
 		code, message = ProvisionError(err)
 		state = "failed"
 	}
-	tx, e = conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, e = db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if e != nil {
 		return true, e
 	}
