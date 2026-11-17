@@ -37,7 +37,7 @@ func (s *Server) businessDB(ctx context.Context, resource string, schema bool) (
 			}
 		}
 	}
-	if e = s.unseal(purpose, record, tenant, enc, &cred); e != nil {
+	if e = s.sealer.Unseal(purpose, record, tenant, enc, &cred); e != nil {
 		return nil, e
 	}
 	return s.targetDB(ctx, v.DatabaseEndpoint, cred, v.Name)

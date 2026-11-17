@@ -388,8 +388,8 @@ func businessDatabaseFixture(t *testing.T, s *Server, tenant string, managed boo
 			}
 		}
 	})
-	enc, _ := s.seal("database", resource, tenant, runtime)
-	schema, _ := s.seal("schema", resource, tenant, ddl)
+	enc, _ := s.sealer.Seal("database", resource, tenant, runtime)
+	schema, _ := s.sealer.Seal("schema", resource, tenant, ddl)
 	if managed {
 		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Test','127.0.0.1',33317,'disabled',1,X'00')", target)
 	} else {

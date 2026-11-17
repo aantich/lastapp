@@ -210,7 +210,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	}
 	tenant, name := job.TenantID, job.Name
 	var runtime databases.Credentials
-	if e = s.unseal("database", record, tenant, job.Runtime, &runtime); e != nil {
+	if e = s.sealer.Unseal("database", record, tenant, job.Runtime, &runtime); e != nil {
 		return e
 	}
 	if job.Mode == "registered" {
@@ -222,7 +222,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 		return validateRuntime(ctx, db, name, false)
 	}
 	var admin databases.Credentials
-	if e = s.unseal("target", job.TargetID, "", job.Provisioning, &admin); e != nil {
+	if e = s.sealer.Unseal("target", job.TargetID, "", job.Provisioning, &admin); e != nil {
 		return e
 	}
 	db, e := s.targetDB(ctx, job.DatabaseEndpoint, admin, "")

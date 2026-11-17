@@ -80,7 +80,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flow := loginFlow{ReturnOrigin: origin, State: registry.Token(32), Nonce: registry.Token(32), Verifier: oauth2.GenerateVerifier(), Issued: time.Now().Unix()}
-	b, e := s.seal("oidc_flow", "browser", "", flow)
+	b, e := s.sealer.Seal("oidc_flow", "browser", "", flow)
 	if e != nil {
 		httpapi.WriteError(w, r, e)
 		return
@@ -102,7 +102,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	s.cookie(w, "lastapp_flow", "", -1, true)
 	b, e := base64.RawURLEncoding.DecodeString(cookie.Value)
 	var flow loginFlow
-	if e != nil || s.unseal("oidc_flow", "browser", "", b, &flow) != nil || time.Now().Unix()-flow.Issued > 300 || flow.Issued > time.Now().Unix()+30 || subtle.ConstantTimeCompare([]byte(flow.State), []byte(r.URL.Query().Get("state"))) != 1 {
+	if e != nil || s.sealer.Unseal("oidc_flow", "browser", "", b, &flow) != nil || time.Now().Unix()-flow.Issued > 300 || flow.Issued > time.Now().Unix()+30 || subtle.ConstantTimeCompare([]byte(flow.State), []byte(r.URL.Query().Get("state"))) != 1 {
 		httpapi.WriteError(w, r, registry.Bad("Invalid or expired login state."))
 		return
 	}

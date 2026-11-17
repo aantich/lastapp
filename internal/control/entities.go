@@ -112,7 +112,7 @@ func (s *Server) schemaCredentials(w http.ResponseWriter, r *http.Request, p acc
 		if mode != "registered" {
 			return registry.Bad("Managed storage uses its target's schema authority.")
 		}
-		enc, e := s.seal("schema", record, tenant, in)
+		enc, e := s.sealer.Seal("schema", record, tenant, in)
 		if e != nil {
 			return e
 		}

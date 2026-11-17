@@ -91,7 +91,7 @@ func TestAuthorizationFoundation(t *testing.T) {
 	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Fixture','127.0.0.1',33317,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
-	enc, e := s.seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
+	enc, e := s.sealer.Seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
 	if e != nil {
 		t.Fatal(e)
 	}

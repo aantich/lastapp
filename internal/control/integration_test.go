@@ -270,7 +270,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if e := s.DB.QueryRow("SELECT runtime_credentials_enc FROM database_resources WHERE id=?", registered).Scan(&enc); e != nil {
 		t.Fatal(e)
 	}
-	if e := s.unseal("database", registered, tenant, enc, &runtime); e != nil {
+	if e := s.sealer.Unseal("database", registered, tenant, enc, &runtime); e != nil {
 		t.Fatal(e)
 	}
 	targetRow, _ := databases.TargetEndpoint(ctx, s.DB, target)
@@ -369,7 +369,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": registry.NewID(), "target_id": target, "management_mode": "managed", "layout": "shared"}, 0, 403)
 	t.Log("plan quotas, cross-Tenant isolation and suspended lifecycle passed")
 	// Encryption AAD is checked independently of SQL ownership constraints.
-	if s.unseal("database", registered, starter, enc, &runtime) == nil {
+	if s.sealer.Unseal("database", registered, starter, enc, &runtime) == nil {
 		t.Fatal("credential moved across Tenants")
 	}
 	if strings.Contains(registry.Str(c.want("GET", base+"/database-resources", nil, 0, 200)), state.Legacy) {

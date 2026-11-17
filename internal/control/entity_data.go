@@ -541,7 +541,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 			return registry.Bad("Invalid cursor.")
 		}
 		var cur dataCursor
-		if e = s.unseal("data_cursor", rt.entityID, rt.session.TenantID, b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
+		if e = s.sealer.Unseal("data_cursor", rt.entityID, rt.session.TenantID, b, &cur); e != nil || cur.Hash != hash || len(cur.Values) != len(q.Sort) {
 			return registry.Bad("Cursor does not match this query or definition.")
 		}
 		cs, ca := cursorSQL(rt.d, q.Sort, cur.Values)
@@ -583,7 +583,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		for _, so := range q.Sort {
 			values = append(values, last[so.Field])
 		}
-		b, e := s.seal("data_cursor", rt.entityID, rt.session.TenantID, dataCursor{hash, values})
+		b, e := s.sealer.Seal("data_cursor", rt.entityID, rt.session.TenantID, dataCursor{hash, values})
 		if e != nil {
 			return e
 		}

@@ -38,7 +38,7 @@ func (s *Server) SeedDevelopment(ctx context.Context, provisionerPassword string
 		return nil
 	}
 	const target = "20000000-0000-4000-8000-000000000001"
-	enc, e := s.seal("target", target, "", databases.Credentials{Username: "lastapp_provisioner", Password: provisionerPassword})
+	enc, e := s.sealer.Seal("target", target, "", databases.Credentials{Username: "lastapp_provisioner", Password: provisionerPassword})
 	if e != nil {
 		return e
 	}
