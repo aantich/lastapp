@@ -1,0 +1,913 @@
+DELETE /data/v1/entities/{entity}/records/{id} -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].id string
+  .items[].revision number
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+DELETE /data/v1/entities/{entity}/records/{id} denied -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+DELETE /data/v1/entities/{entity}/records/{id}/shares -> 200
+  $ object
+  .ok bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/records/{id} -> 200
+  $ object
+  .amount string
+  .id string
+  .name string
+  .revision number
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/records/{id} denied -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/records/{id}/shares -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].created_at string
+  .items[].grantor_id string
+  .items[].permission_current bool
+  .items[].permission_id string
+  .items[].recipient_id string
+  .items[].recipient_kind string
+  .items[].security_revision number
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/records/{id}/shares options -> 200
+  $ object
+  .permissions array
+  .permissions[] object
+  .permissions[].fields array
+  .permissions[].fields[] string
+  .permissions[].id string
+  .permissions[].label string
+  .permissions[].operation string
+  .recipients array
+  .recipients[] object
+  .recipients[].display_name string
+  .recipients[].id string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/reference-options -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].display_name string
+  .items[].id string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/reference-options member -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].display_name string
+  .items[].id string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/entities/{entity}/reference-options unknown field -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/schema -> 200
+  $ object
+  .capabilities object
+  .capabilities.context_providers array
+  .capabilities.context_providers[] object
+  .capabilities.context_providers[].key string
+  .capabilities.context_providers[].label string
+  .capabilities.context_providers[].type string
+  .capabilities.field_constraints object
+  .capabilities.field_constraints.max_actor_teams number
+  .capabilities.field_constraints.max_choice_values number
+  .capabilities.field_constraints.max_decimal_precision number
+  .capabilities.field_constraints.max_decimal_scale number
+  .capabilities.field_constraints.max_definition_bytes number
+  .capabilities.field_constraints.max_description_bytes number
+  .capabilities.field_constraints.max_indexed_text_length number
+  .capabilities.field_constraints.max_integer number
+  .capabilities.field_constraints.max_json_bytes number
+  .capabilities.field_constraints.max_json_depth number
+  .capabilities.field_constraints.max_json_nodes number
+  .capabilities.field_constraints.max_publication_validation_records number
+  .capabilities.field_constraints.max_query_parameters number
+  .capabilities.field_constraints.max_read_response_bytes number
+  .capabilities.field_constraints.max_tenant_data_requests number
+  .capabilities.field_constraints.max_text_length number
+  .capabilities.field_constraints.min_text_length number
+  .capabilities.field_defaults object
+  .capabilities.field_defaults.boolean object
+  .capabilities.field_defaults.boolean.key string
+  .capabilities.field_defaults.boolean.label string
+  .capabilities.field_defaults.boolean.type string
+  .capabilities.field_defaults.choice object
+  .capabilities.field_defaults.choice.key string
+  .capabilities.field_defaults.choice.label string
+  .capabilities.field_defaults.choice.type string
+  .capabilities.field_defaults.date object
+  .capabilities.field_defaults.date.key string
+  .capabilities.field_defaults.date.label string
+  .capabilities.field_defaults.date.type string
+  .capabilities.field_defaults.decimal object
+  .capabilities.field_defaults.decimal.key string
+  .capabilities.field_defaults.decimal.label string
+  .capabilities.field_defaults.decimal.precision number
+  .capabilities.field_defaults.decimal.scale number
+  .capabilities.field_defaults.decimal.type string
+  .capabilities.field_defaults.integer object
+  .capabilities.field_defaults.integer.key string
+  .capabilities.field_defaults.integer.label string
+  .capabilities.field_defaults.integer.type string
+  .capabilities.field_defaults.json object
+  .capabilities.field_defaults.json.key string
+  .capabilities.field_defaults.json.label string
+  .capabilities.field_defaults.json.type string
+  .capabilities.field_defaults.reference object
+  .capabilities.field_defaults.reference.key string
+  .capabilities.field_defaults.reference.label string
+  .capabilities.field_defaults.reference.type string
+  .capabilities.field_defaults.team object
+  .capabilities.field_defaults.team.key string
+  .capabilities.field_defaults.team.label string
+  .capabilities.field_defaults.team.type string
+  .capabilities.field_defaults.text object
+  .capabilities.field_defaults.text.key string
+  .capabilities.field_defaults.text.label string
+  .capabilities.field_defaults.text.max_length number
+  .capabilities.field_defaults.text.type string
+  .capabilities.field_defaults.timestamp object
+  .capabilities.field_defaults.timestamp.key string
+  .capabilities.field_defaults.timestamp.label string
+  .capabilities.field_defaults.timestamp.type string
+  .capabilities.field_defaults.user object
+  .capabilities.field_defaults.user.key string
+  .capabilities.field_defaults.user.label string
+  .capabilities.field_defaults.user.type string
+  .capabilities.format_version number
+  .capabilities.limits object
+  .capabilities.limits.Bulk number
+  .capabilities.limits.DataRequests number
+  .capabilities.limits.Depth number
+  .capabilities.limits.Fields number
+  .capabilities.limits.MaxPage number
+  .capabilities.limits.Nodes number
+  .capabilities.limits.Page number
+  .capabilities.limits.Permissions number
+  .capabilities.limits.ReadPaths number
+  .capabilities.limits.Rules number
+  .capabilities.operations array
+  .capabilities.operations[] string
+  .capabilities.operators array
+  .capabilities.operators[] object
+  .capabilities.operators[].key string
+  .capabilities.operators[].kind string
+  .capabilities.operators[].max_args number
+  .capabilities.operators[].min_args number
+  .capabilities.relationships array
+  .capabilities.relationships[] string
+  .capabilities.templates array
+  .capabilities.templates[] object
+  .capabilities.templates[].default_projection array
+  .capabilities.templates[].default_projection[] string
+  .capabilities.templates[].fields array
+  .capabilities.templates[].fields[] object
+  .capabilities.templates[].fields[].default object
+  .capabilities.templates[].fields[].default.literal string
+  .capabilities.templates[].fields[].filterable bool
+  .capabilities.templates[].fields[].key string
+  .capabilities.templates[].fields[].label string
+  .capabilities.templates[].fields[].max_length number
+  .capabilities.templates[].fields[].minimum string
+  .capabilities.templates[].fields[].precision number
+  .capabilities.templates[].fields[].required bool
+  .capabilities.templates[].fields[].scale number
+  .capabilities.templates[].fields[].sortable bool
+  .capabilities.templates[].fields[].type string
+  .capabilities.templates[].fields[].values array
+  .capabilities.templates[].fields[].values[] string
+  .capabilities.templates[].format_version number
+  .capabilities.templates[].key string
+  .capabilities.templates[].label string
+  .capabilities.templates[].permissions array
+  .capabilities.templates[].rules array
+  .capabilities.types array
+  .capabilities.types[] string
+  .entities array
+  .entities[] object
+  .entities[].create_schema object
+  .entities[].create_schema.$schema string
+  .entities[].create_schema.additionalProperties bool
+  .entities[].create_schema.properties object
+  .entities[].create_schema.properties.amount object
+  .entities[].create_schema.properties.amount.pattern string
+  .entities[].create_schema.properties.amount.title string
+  .entities[].create_schema.properties.amount.type string
+  .entities[].create_schema.properties.name object
+  .entities[].create_schema.properties.name.maxLength number
+  .entities[].create_schema.properties.name.title string
+  .entities[].create_schema.properties.name.type string
+  .entities[].create_schema.properties.owner object
+  .entities[].create_schema.properties.owner.anyOf array
+  .entities[].create_schema.properties.owner.anyOf[] object
+  .entities[].create_schema.properties.owner.anyOf[].title string
+  .entities[].create_schema.properties.owner.anyOf[].type string
+  .entities[].create_schema.required array
+  .entities[].create_schema.required[] string
+  .entities[].create_schema.type string
+  .entities[].entity object
+  .entities[].entity.default_projection array
+  .entities[].entity.default_projection[] string
+  .entities[].entity.fields array
+  .entities[].entity.fields[] object
+  .entities[].entity.fields[].filterable bool
+  .entities[].entity.fields[].has_default bool
+  .entities[].entity.fields[].key string
+  .entities[].entity.fields[].label string
+  .entities[].entity.fields[].max_length number
+  .entities[].entity.fields[].precision number
+  .entities[].entity.fields[].read_only bool
+  .entities[].entity.fields[].required bool
+  .entities[].entity.fields[].scale number
+  .entities[].entity.fields[].sortable bool
+  .entities[].entity.fields[].type string
+  .entities[].entity.format_version number
+  .entities[].entity.key string
+  .entities[].entity.label string
+  .entities[].entity.permissions null
+  .entities[].entity.rules null
+  .entities[].entity.sharing bool
+  .entities[].id string
+  .entities[].json_schema object
+  .entities[].json_schema.$schema string
+  .entities[].json_schema.additionalProperties bool
+  .entities[].json_schema.properties object
+  .entities[].json_schema.properties.amount object
+  .entities[].json_schema.properties.amount.pattern string
+  .entities[].json_schema.properties.amount.title string
+  .entities[].json_schema.properties.amount.type string
+  .entities[].json_schema.properties.created_at object
+  .entities[].json_schema.properties.created_at.readOnly bool
+  .entities[].json_schema.properties.created_at.type string
+  .entities[].json_schema.properties.created_by object
+  .entities[].json_schema.properties.created_by.readOnly bool
+  .entities[].json_schema.properties.created_by.type string
+  .entities[].json_schema.properties.id object
+  .entities[].json_schema.properties.id.format string
+  .entities[].json_schema.properties.id.readOnly bool
+  .entities[].json_schema.properties.id.type string
+  .entities[].json_schema.properties.name object
+  .entities[].json_schema.properties.name.maxLength number
+  .entities[].json_schema.properties.name.title string
+  .entities[].json_schema.properties.name.type string
+  .entities[].json_schema.properties.owner object
+  .entities[].json_schema.properties.owner.anyOf array
+  .entities[].json_schema.properties.owner.anyOf[] object
+  .entities[].json_schema.properties.owner.anyOf[].title string
+  .entities[].json_schema.properties.owner.anyOf[].type string
+  .entities[].json_schema.properties.revision object
+  .entities[].json_schema.properties.revision.readOnly bool
+  .entities[].json_schema.properties.revision.type string
+  .entities[].json_schema.properties.updated_at object
+  .entities[].json_schema.properties.updated_at.readOnly bool
+  .entities[].json_schema.properties.updated_at.type string
+  .entities[].json_schema.properties.updated_by object
+  .entities[].json_schema.properties.updated_by.readOnly bool
+  .entities[].json_schema.properties.updated_by.type string
+  .entities[].json_schema.required array
+  .entities[].json_schema.required[] string
+  .entities[].json_schema.type string
+  .entities[].typescript string
+  .entities[].update_schema object
+  .entities[].update_schema.$schema string
+  .entities[].update_schema.additionalProperties bool
+  .entities[].update_schema.properties object
+  .entities[].update_schema.properties.amount object
+  .entities[].update_schema.properties.amount.pattern string
+  .entities[].update_schema.properties.amount.title string
+  .entities[].update_schema.properties.amount.type string
+  .entities[].update_schema.properties.name object
+  .entities[].update_schema.properties.name.maxLength number
+  .entities[].update_schema.properties.name.title string
+  .entities[].update_schema.properties.name.type string
+  .entities[].update_schema.properties.owner object
+  .entities[].update_schema.properties.owner.anyOf array
+  .entities[].update_schema.properties.owner.anyOf[] object
+  .entities[].update_schema.properties.owner.anyOf[].title string
+  .entities[].update_schema.properties.owner.anyOf[].type string
+  .entities[].update_schema.required array
+  .entities[].update_schema.type string
+  .entities[].version string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/schema after console sign-out -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=App session expired or revoked.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/schema invalid bearer -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=App session expired or revoked.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/schema member -> 200
+  $ object
+  .capabilities object
+  .capabilities.context_providers array
+  .capabilities.context_providers[] object
+  .capabilities.context_providers[].key string
+  .capabilities.context_providers[].label string
+  .capabilities.context_providers[].type string
+  .capabilities.field_constraints object
+  .capabilities.field_constraints.max_actor_teams number
+  .capabilities.field_constraints.max_choice_values number
+  .capabilities.field_constraints.max_decimal_precision number
+  .capabilities.field_constraints.max_decimal_scale number
+  .capabilities.field_constraints.max_definition_bytes number
+  .capabilities.field_constraints.max_description_bytes number
+  .capabilities.field_constraints.max_indexed_text_length number
+  .capabilities.field_constraints.max_integer number
+  .capabilities.field_constraints.max_json_bytes number
+  .capabilities.field_constraints.max_json_depth number
+  .capabilities.field_constraints.max_json_nodes number
+  .capabilities.field_constraints.max_publication_validation_records number
+  .capabilities.field_constraints.max_query_parameters number
+  .capabilities.field_constraints.max_read_response_bytes number
+  .capabilities.field_constraints.max_tenant_data_requests number
+  .capabilities.field_constraints.max_text_length number
+  .capabilities.field_constraints.min_text_length number
+  .capabilities.field_defaults object
+  .capabilities.field_defaults.boolean object
+  .capabilities.field_defaults.boolean.key string
+  .capabilities.field_defaults.boolean.label string
+  .capabilities.field_defaults.boolean.type string
+  .capabilities.field_defaults.choice object
+  .capabilities.field_defaults.choice.key string
+  .capabilities.field_defaults.choice.label string
+  .capabilities.field_defaults.choice.type string
+  .capabilities.field_defaults.date object
+  .capabilities.field_defaults.date.key string
+  .capabilities.field_defaults.date.label string
+  .capabilities.field_defaults.date.type string
+  .capabilities.field_defaults.decimal object
+  .capabilities.field_defaults.decimal.key string
+  .capabilities.field_defaults.decimal.label string
+  .capabilities.field_defaults.decimal.precision number
+  .capabilities.field_defaults.decimal.scale number
+  .capabilities.field_defaults.decimal.type string
+  .capabilities.field_defaults.integer object
+  .capabilities.field_defaults.integer.key string
+  .capabilities.field_defaults.integer.label string
+  .capabilities.field_defaults.integer.type string
+  .capabilities.field_defaults.json object
+  .capabilities.field_defaults.json.key string
+  .capabilities.field_defaults.json.label string
+  .capabilities.field_defaults.json.type string
+  .capabilities.field_defaults.reference object
+  .capabilities.field_defaults.reference.key string
+  .capabilities.field_defaults.reference.label string
+  .capabilities.field_defaults.reference.type string
+  .capabilities.field_defaults.team object
+  .capabilities.field_defaults.team.key string
+  .capabilities.field_defaults.team.label string
+  .capabilities.field_defaults.team.type string
+  .capabilities.field_defaults.text object
+  .capabilities.field_defaults.text.key string
+  .capabilities.field_defaults.text.label string
+  .capabilities.field_defaults.text.max_length number
+  .capabilities.field_defaults.text.type string
+  .capabilities.field_defaults.timestamp object
+  .capabilities.field_defaults.timestamp.key string
+  .capabilities.field_defaults.timestamp.label string
+  .capabilities.field_defaults.timestamp.type string
+  .capabilities.field_defaults.user object
+  .capabilities.field_defaults.user.key string
+  .capabilities.field_defaults.user.label string
+  .capabilities.field_defaults.user.type string
+  .capabilities.format_version number
+  .capabilities.limits object
+  .capabilities.limits.Bulk number
+  .capabilities.limits.DataRequests number
+  .capabilities.limits.Depth number
+  .capabilities.limits.Fields number
+  .capabilities.limits.MaxPage number
+  .capabilities.limits.Nodes number
+  .capabilities.limits.Page number
+  .capabilities.limits.Permissions number
+  .capabilities.limits.ReadPaths number
+  .capabilities.limits.Rules number
+  .capabilities.operations array
+  .capabilities.operations[] string
+  .capabilities.operators array
+  .capabilities.operators[] object
+  .capabilities.operators[].key string
+  .capabilities.operators[].kind string
+  .capabilities.operators[].max_args number
+  .capabilities.operators[].min_args number
+  .capabilities.relationships array
+  .capabilities.relationships[] string
+  .capabilities.templates array
+  .capabilities.templates[] object
+  .capabilities.templates[].default_projection array
+  .capabilities.templates[].default_projection[] string
+  .capabilities.templates[].fields array
+  .capabilities.templates[].fields[] object
+  .capabilities.templates[].fields[].default object
+  .capabilities.templates[].fields[].default.literal string
+  .capabilities.templates[].fields[].filterable bool
+  .capabilities.templates[].fields[].key string
+  .capabilities.templates[].fields[].label string
+  .capabilities.templates[].fields[].max_length number
+  .capabilities.templates[].fields[].minimum string
+  .capabilities.templates[].fields[].precision number
+  .capabilities.templates[].fields[].required bool
+  .capabilities.templates[].fields[].scale number
+  .capabilities.templates[].fields[].sortable bool
+  .capabilities.templates[].fields[].type string
+  .capabilities.templates[].fields[].values array
+  .capabilities.templates[].fields[].values[] string
+  .capabilities.templates[].format_version number
+  .capabilities.templates[].key string
+  .capabilities.templates[].label string
+  .capabilities.templates[].permissions array
+  .capabilities.templates[].rules array
+  .capabilities.types array
+  .capabilities.types[] string
+  .entities array
+  .entities[] object
+  .entities[].create_schema object
+  .entities[].create_schema.$schema string
+  .entities[].create_schema.additionalProperties bool
+  .entities[].create_schema.properties object
+  .entities[].create_schema.properties.amount object
+  .entities[].create_schema.properties.amount.pattern string
+  .entities[].create_schema.properties.amount.title string
+  .entities[].create_schema.properties.amount.type string
+  .entities[].create_schema.properties.name object
+  .entities[].create_schema.properties.name.maxLength number
+  .entities[].create_schema.properties.name.title string
+  .entities[].create_schema.properties.name.type string
+  .entities[].create_schema.properties.owner object
+  .entities[].create_schema.properties.owner.anyOf array
+  .entities[].create_schema.properties.owner.anyOf[] object
+  .entities[].create_schema.properties.owner.anyOf[].title string
+  .entities[].create_schema.properties.owner.anyOf[].type string
+  .entities[].create_schema.required array
+  .entities[].create_schema.required[] string
+  .entities[].create_schema.type string
+  .entities[].entity object
+  .entities[].entity.default_projection array
+  .entities[].entity.default_projection[] string
+  .entities[].entity.fields array
+  .entities[].entity.fields[] object
+  .entities[].entity.fields[].filterable bool
+  .entities[].entity.fields[].has_default bool
+  .entities[].entity.fields[].key string
+  .entities[].entity.fields[].label string
+  .entities[].entity.fields[].max_length number
+  .entities[].entity.fields[].precision number
+  .entities[].entity.fields[].read_only bool
+  .entities[].entity.fields[].required bool
+  .entities[].entity.fields[].scale number
+  .entities[].entity.fields[].sortable bool
+  .entities[].entity.fields[].type string
+  .entities[].entity.format_version number
+  .entities[].entity.key string
+  .entities[].entity.label string
+  .entities[].entity.permissions null
+  .entities[].entity.rules null
+  .entities[].entity.sharing bool
+  .entities[].id string
+  .entities[].json_schema object
+  .entities[].json_schema.$schema string
+  .entities[].json_schema.additionalProperties bool
+  .entities[].json_schema.properties object
+  .entities[].json_schema.properties.amount object
+  .entities[].json_schema.properties.amount.pattern string
+  .entities[].json_schema.properties.amount.title string
+  .entities[].json_schema.properties.amount.type string
+  .entities[].json_schema.properties.created_at object
+  .entities[].json_schema.properties.created_at.readOnly bool
+  .entities[].json_schema.properties.created_at.type string
+  .entities[].json_schema.properties.created_by object
+  .entities[].json_schema.properties.created_by.readOnly bool
+  .entities[].json_schema.properties.created_by.type string
+  .entities[].json_schema.properties.id object
+  .entities[].json_schema.properties.id.format string
+  .entities[].json_schema.properties.id.readOnly bool
+  .entities[].json_schema.properties.id.type string
+  .entities[].json_schema.properties.name object
+  .entities[].json_schema.properties.name.maxLength number
+  .entities[].json_schema.properties.name.title string
+  .entities[].json_schema.properties.name.type string
+  .entities[].json_schema.properties.owner object
+  .entities[].json_schema.properties.owner.anyOf array
+  .entities[].json_schema.properties.owner.anyOf[] object
+  .entities[].json_schema.properties.owner.anyOf[].title string
+  .entities[].json_schema.properties.owner.anyOf[].type string
+  .entities[].json_schema.properties.revision object
+  .entities[].json_schema.properties.revision.readOnly bool
+  .entities[].json_schema.properties.revision.type string
+  .entities[].json_schema.properties.updated_at object
+  .entities[].json_schema.properties.updated_at.readOnly bool
+  .entities[].json_schema.properties.updated_at.type string
+  .entities[].json_schema.properties.updated_by object
+  .entities[].json_schema.properties.updated_by.readOnly bool
+  .entities[].json_schema.properties.updated_by.type string
+  .entities[].json_schema.required array
+  .entities[].json_schema.required[] string
+  .entities[].json_schema.type string
+  .entities[].typescript string
+  .entities[].update_schema object
+  .entities[].update_schema.$schema string
+  .entities[].update_schema.additionalProperties bool
+  .entities[].update_schema.properties object
+  .entities[].update_schema.properties.amount object
+  .entities[].update_schema.properties.amount.pattern string
+  .entities[].update_schema.properties.amount.title string
+  .entities[].update_schema.properties.amount.type string
+  .entities[].update_schema.properties.name object
+  .entities[].update_schema.properties.name.maxLength number
+  .entities[].update_schema.properties.name.title string
+  .entities[].update_schema.properties.name.type string
+  .entities[].update_schema.properties.owner object
+  .entities[].update_schema.properties.owner.anyOf array
+  .entities[].update_schema.properties.owner.anyOf[] object
+  .entities[].update_schema.properties.owner.anyOf[].title string
+  .entities[].update_schema.properties.owner.anyOf[].type string
+  .entities[].update_schema.required array
+  .entities[].update_schema.type string
+  .entities[].version string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/schema without bearer -> 401
+  $ object
+  .error object
+  .error.code string=unauthenticated
+  .error.message string=An App bearer token is required.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/schema wrong origin -> 403
+  $ object
+  .error object
+  .error.code string=invalid_origin
+  .error.message string=App origin mismatch.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /data/v1/unknown -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+GET /v1/apps/{app}/launch-info -> 200
+  $ object
+  .id string
+  .name string
+  .origin string
+  .space string
+OPTIONS /data/v1/schema approved origin -> 204
+  $ body empty
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+OPTIONS /data/v1/schema unapproved origin -> 403
+  $ object
+  .error object
+  .error.code string=invalid_origin
+  .error.message string=Unregistered App origin.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+PATCH /data/v1/entities/{entity}/records/{id} -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].id string
+  .items[].revision number
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+PATCH /data/v1/entities/{entity}/records/{id} denied -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+PATCH /data/v1/entities/{entity}/records/{id} stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=Record changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+PATCH /data/v1/entities/{entity}/records/{id} without If-Match -> 428
+  $ object
+  .error object
+  .error.code string=revision_required
+  .error.message string=Send If-Match with the current resource revision.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/bulk -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].id string
+  .items[].revision number
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/bulk invalid -> 400
+  $ object
+  .error object
+  .error.code string=invalid_value
+  .error.field string
+  .error.field_or_rule string
+  .error.message string=Invalid value for Amount.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/capabilities -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].fields object
+  .items[].fields.read array
+  .items[].fields.read[] string
+  .items[].fields.update array
+  .items[].fields.update[] string
+  .items[].id string
+  .items[].operations array
+  .items[].operations[] string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/capabilities member -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].fields object
+  .items[].fields.read array
+  .items[].fields.update array
+  .items[].id string
+  .items[].operations array
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/query -> 200
+  $ object
+  .count number
+  .items array
+  .items[] object
+  .items[].amount string
+  .items[].id string
+  .items[].name string
+  .items[].revision number
+  .version string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/query member -> 200
+  $ object
+  .count number
+  .items array
+  .version string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/query oversized page -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Query exceeds supported limits.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/query shared -> 200
+  $ object
+  .count number
+  .items array
+  .items[] object
+  .items[].amount string
+  .items[].id string
+  .items[].name string
+  .items[].revision number
+  .version string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/query unknown field -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Unknown or inaccessible query field.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/records -> 200
+  $ object
+  .items array
+  .items[] object
+  .items[].id string
+  .items[].revision number
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/records invalid -> 400
+  $ object
+  .error object
+  .error.code string=invalid_value
+  .error.field string
+  .error.field_or_rule string
+  .error.message string=Invalid value for Amount.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/records unknown field -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Unknown or read-only input field.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/records/{id}/shares -> 200
+  $ object
+  .ok bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/records/{id}/shares denied -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{entity}/records/{id}/shares not shareable -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Permission cannot be shared.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/entities/{missing}/query -> 404
+  $ object
+  .error object
+  .error.code string=not_found
+  .error.message string=Resource not found or not accessible.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/session/exchange -> 200
+  $ object
+  .access_token string
+  .expires_in number
+  .token_type string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/session/exchange malformed -> 400
+  $ object
+  .error object
+  .error.code string=invalid_request
+  .error.message string=Invalid or unsupported JSON request fields.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/session/exchange member -> 200
+  $ object
+  .access_token string
+  .expires_in number
+  .token_type string
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/session/exchange replay -> 401
+  $ object
+  .error object
+  .error.code string=invalid_exchange
+  .error.message string=Launch code is invalid or expired.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/session/exchange unapproved origin -> 401
+  $ object
+  .error object
+  .error.code string=invalid_exchange
+  .error.message string=Launch challenge or origin mismatch.
+  .error.request_id string
+  .error.retryable bool
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /data/v1/session/exchange wrong verifier -> 401
+  $ object
+  .error object
+  .error.code string=invalid_exchange
+  .error.message string=Launch challenge or origin mismatch.
+  .error.request_id string
+  .error.retryable bool
+  header Access-Control-Allow-Origin set
+  header Cache-Control no-store
+  header Content-Type application/json
+POST /v1/apps/{app}/launch -> 200
+  $ object
+  .code string
+  .expires_in number
+  .nonce string
+  .origin string
+POST /v1/apps/{app}/launch member -> 200
+  $ object
+  .code string
+  .expires_in number
+  .nonce string
+  .origin string
+POST /v1/apps/{app}/launch outsider -> 200
+  $ object
+  .code string
+  .expires_in number
+  .nonce string
+  .origin string
