@@ -81,9 +81,7 @@ func (r *recorder) snapshot() []string {
 
 // onLock reports whether the connection conn runs the query on holds the
 // leader lock.
-func (r *recorder) onLock(ctx context.Context, conn interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}) (bool, error) {
+func (r *recorder) onLock(ctx context.Context, conn registry.Queryer) (bool, error) {
 	var self, owner sql.NullInt64
 	if e := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&self); e != nil {
 		return false, e

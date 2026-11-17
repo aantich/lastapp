@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -57,9 +56,7 @@ func (f *workerFixture) workspace(space string) (string, string) {
 	return id, registry.Str(ws["database_resource_id"])
 }
 
-func (f *workerFixture) exec(q interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, query string, args ...any) {
+func (f *workerFixture) exec(q registry.Queryer, query string, args ...any) {
 	f.t.Helper()
 	if _, e := q.ExecContext(context.Background(), query, args...); e != nil {
 		f.t.Fatal(e)
