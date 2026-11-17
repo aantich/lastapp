@@ -108,6 +108,8 @@
  */
 .sidebar {
   color-scheme: dark;
+  /* Inherited text was resolved at :root; restate it with the ink tokens. */
+  color: var(--ui-text);
   --ui-text: var(--ui-sidebar-active-text);
   --ui-muted: var(--ui-sidebar-muted);
   --ui-faint: var(--ui-sidebar-muted);
