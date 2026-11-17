@@ -4,6 +4,7 @@ package data
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"strings"
 	"sync"
@@ -202,4 +203,17 @@ func Nullability(f entity.Field) string {
 		return " NOT NULL"
 	}
 	return " NULL"
+}
+
+// ReleasePinnedLock releases an advisory lock held on conn. It never returns a
+// session with uncertain advisory-lock ownership to the pool.
+func ReleasePinnedLock(conn *sql.Conn, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var released sql.NullInt64
+	if e := conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", name).Scan(&released); e != nil || !released.Valid || released.Int64 != 1 {
+		// Returning ErrBadConn makes database/sql discard the session; the
+		// returned error is that same sentinel, so there is nothing to handle.
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	}
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/config"
+	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
@@ -283,7 +284,7 @@ func TestAgentBootstrapIsolation(t *testing.T) {
 	if e = held.QueryRowContext(context.Background(), "SELECT GET_LOCK(?,0)", lock).Scan(&got); e != nil || got != 1 {
 		t.Fatal(e)
 	}
-	defer releasePinnedLock(held, lock)
+	defer data.ReleasePinnedLock(held, lock)
 	done := make(chan struct{}, agentBootstrapConcurrent)
 	for i := 0; i < agentBootstrapConcurrent; i++ {
 		go func() {

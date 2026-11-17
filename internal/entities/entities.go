@@ -951,3 +951,31 @@ func (v *Authoring) ActorContext(ctx context.Context, q registry.Queryer, user, 
 	}
 	return c, a, nil
 }
+
+// BusinessRecord converts a stored business row to entity field values: the
+// f_ column prefix is removed and integers, booleans and JSON are decoded.
+func BusinessRecord(d entity.Definition, raw registry.Row) map[string]any {
+	out := map[string]any{}
+	for k, v := range raw {
+		if strings.HasPrefix(k, "f_") {
+			k = k[2:]
+		} else if !slices.Contains([]string{"id", "revision", "created_at", "updated_at", "created_by", "updated_by"}, k) {
+			continue
+		}
+		if f, ok := d.Field(k); ok && v != nil {
+			switch f.Type {
+			case "integer":
+				v = registry.Integer(v)
+			case "boolean":
+				v = registry.Integer(v) != 0
+			case "json":
+				var obj any
+				if json.Unmarshal([]byte(registry.Str(v)), &obj) == nil {
+					v = obj
+				}
+			}
+		}
+		out[k] = v
+	}
+	return out
+}

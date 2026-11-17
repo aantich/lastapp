@@ -217,7 +217,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		return e
 	}
 	if entity.Hash(plan) != access.Deref(v.StoragePlanHash) || entity.Hash(d) != v.Hash {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	entityID, version, attempt := v.EntityID, v.ID, access.Deref(v.Attempt)
 	db, e := s.businessDB(ctx, v.Resource, true)
@@ -238,7 +238,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	if got != 1 {
 		return registry.Conflict("Entity storage is busy; retry shortly.")
 	}
-	defer releasePinnedLock(conn, lock)
+	defer data.ReleasePinnedLock(conn, lock)
 	marker := "lastapp:" + entity.Hash(s.registryName)[:16]
 	if e = s.ensureSupport(ctx, conn, marker); e != nil {
 		return e
@@ -252,7 +252,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 		return e
 	}
 	if exists && comment != tableMarker {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	_, e = conn.ExecContext(ctx, "INSERT INTO _lastapp_entity_state(entity_id,tenant_id,space_id,layout_hash) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE entity_id=entity_id", entityID, v.TenantID, v.SpaceID, entity.Hash(d.Fields))
 	if e != nil {
@@ -265,7 +265,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 	var tenant, space string
 	e = tx.QueryRowContext(ctx, "SELECT tenant_id,space_id FROM _lastapp_entity_state WHERE entity_id=? FOR UPDATE", entityID).Scan(&tenant, &space)
 	if e == nil && (tenant != v.TenantID || space != v.SpaceID) {
-		e = ownershipConflict()
+		e = databases.OwnershipConflict()
 	}
 	if e == nil {
 		_, e = tx.ExecContext(ctx, "UPDATE _lastapp_entity_state SET gate_open=0,attempt_id=? WHERE entity_id=?", attempt, entityID)
@@ -359,7 +359,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 					if processed > entity.MaxPublicationValidationRecords {
 						return registry.Bad("Existing-data validation exceeds the current publication limit. Policy-only changes remain available.")
 					}
-					record := businessRecord(d, raw)
+					record := entities.BusinessRecord(d, raw)
 					for _, field := range d.Fields {
 						if _, e := entity.Value(field, record[field.Key], true); e != nil {
 							return registry.Bad("Existing records do not satisfy the proposed field constraints.")
@@ -383,7 +383,7 @@ func (s *Server) publishEntity(ctx context.Context, v entityVersion, activeVersi
 
 	} else if !exists {
 		if alreadyActivated {
-			return ownershipConflict()
+			return databases.OwnershipConflict()
 		}
 		if _, e = conn.ExecContext(ctx, plan.Create); e != nil {
 			return e
@@ -489,7 +489,7 @@ func (s *Server) ensureSupport(ctx context.Context, q registry.Queryer, marker s
 		} else if e != nil {
 			return e
 		} else if c != marker {
-			return ownershipConflict()
+			return databases.OwnershipConflict()
 		}
 	}
 	return nil
@@ -571,7 +571,7 @@ func verifyEntityColumns(ctx context.Context, q registry.Queryer, id string, d e
 			return registry.Conflict("Generated storage differs from the proposed field type; publish a compatible definition.")
 		}
 		if f.Type == "text" && collation != "utf8mb4_nopad_bin" {
-			return ownershipConflict()
+			return databases.OwnershipConflict()
 		}
 	}
 	return nil
@@ -604,7 +604,7 @@ func (s *Server) restorePublicationBase(ctx context.Context, v entityVersion) {
 	if e = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lock).Scan(&got); e != nil || got != 1 {
 		return
 	}
-	defer releasePinnedLock(conn, lock)
+	defer data.ReleasePinnedLock(conn, lock)
 	if verifyEntityColumns(ctx, conn, v.EntityID, d) != nil {
 		return
 	}

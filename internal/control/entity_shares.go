@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
@@ -45,7 +46,7 @@ func (s *Server) dataCapabilities(w http.ResponseWriter, r *http.Request, rt dat
 		raw, e := registry.QueryRow(r.Context(), tx, "SELECT * FROM "+data.Table(rt.entityID)+" WHERE tenant_id=? AND space_id=? AND id=?", rt.session.TenantID, rt.session.SpaceID, id)
 		if e == nil {
 			c := rt.actor
-			c.Record = businessRecord(rt.d, raw)
+			c.Record = entities.BusinessRecord(rt.d, raw)
 			c.Old = c.Record
 			shared, e := rt.shared(r.Context(), tx, id)
 			if e != nil {
@@ -118,7 +119,7 @@ func (s *Server) dataShares(w http.ResponseWriter, r *http.Request, rt dataRunti
 		return e
 	}
 	c := rt.actor
-	c.Record = businessRecord(rt.d, raw)
+	c.Record = entities.BusinessRecord(rt.d, raw)
 	c.Old = c.Record
 	if !rt.d.Allowed(rt.entityID, "acl.manage", nil, c, rt.access, nil) {
 		return registry.Missing()

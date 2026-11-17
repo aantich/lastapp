@@ -313,32 +313,6 @@ func gateHas(gs []entity.Gate, id, k string, c entity.Context) bool {
 	return false
 }
 
-func businessRecord(d entity.Definition, raw registry.Row) map[string]any {
-	out := map[string]any{}
-	for k, v := range raw {
-		if strings.HasPrefix(k, "f_") {
-			k = k[2:]
-		} else if !slices.Contains([]string{"id", "revision", "created_at", "updated_at", "created_by", "updated_by"}, k) {
-			continue
-		}
-		if f, ok := d.Field(k); ok && v != nil {
-			switch f.Type {
-			case "integer":
-				v = registry.Integer(v)
-			case "boolean":
-				v = registry.Integer(v) != 0
-			case "json":
-				var obj any
-				if json.Unmarshal([]byte(registry.Str(v)), &obj) == nil {
-					v = obj
-				}
-			}
-		}
-		out[k] = v
-	}
-	return out
-}
-
 func (rt dataRuntime) shareSQL(p entity.Permission) (string, []any) {
 	if !rt.d.Sharing {
 		return "1=0", nil
@@ -570,7 +544,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 	}
 	items := []any{}
 	for _, v := range vs {
-		full := businessRecord(rt.d, v)
+		full := entities.BusinessRecord(rt.d, v)
 		projected := map[string]any{}
 		for _, k := range q.Select {
 			projected[k] = full[k]
@@ -578,7 +552,7 @@ func (s *Server) queryData(w http.ResponseWriter, r *http.Request, rt dataRuntim
 		items = append(items, projected)
 	}
 	if more {
-		last := businessRecord(rt.d, vs[len(vs)-1])
+		last := entities.BusinessRecord(rt.d, vs[len(vs)-1])
 		values := []any{}
 		for _, so := range q.Sort {
 			values = append(values, last[so.Field])
@@ -737,7 +711,7 @@ func (s *Server) mutateData(w http.ResponseWriter, r *http.Request, rt dataRunti
 			if e != nil {
 				return e
 			}
-			old = businessRecord(rt.d, raw)
+			old = entities.BusinessRecord(rt.d, raw)
 			shared, e = rt.shared(r.Context(), tx, in.ID)
 			if e != nil {
 				return e

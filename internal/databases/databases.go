@@ -503,3 +503,9 @@ func pendingDatabaseQuota(ctx context.Context, q registry.Queryer, tenant string
 	}
 	return nil
 }
+
+// OwnershipConflict is the error for an existing database object or account
+// that Lastapp did not create; nothing is replaced.
+func OwnershipConflict() error {
+	return registry.Problem(409, "ownership_conflict", "Existing database or account does not match Lastapp ownership. Nothing was replaced.")
+}

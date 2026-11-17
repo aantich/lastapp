@@ -10,6 +10,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/data"
+	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
@@ -200,7 +201,7 @@ func (s *Server) prepareSnapshotTables(ctx context.Context, resource string, ent
 		e = db.QueryRowContext(ctx, "SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?", strings.Trim(data.Table(v.ID), "`")).Scan(&comment)
 		if e == nil {
 			if comment != marker {
-				return ownershipConflict()
+				return databases.OwnershipConflict()
 			}
 			continue
 		}

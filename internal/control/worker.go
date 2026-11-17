@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"encoding/hex"
 	"errors"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/access"
+	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/op"
@@ -48,7 +48,7 @@ func (s *Server) workerLeader(ctx context.Context) error {
 	if acquired != 1 {
 		return nil
 	}
-	defer releasePinnedLock(conn, lock)
+	defer data.ReleasePinnedLock(conn, lock)
 	if _, e = conn.ExecContext(ctx, "UPDATE database_resources SET state='pending',revision=revision+1 WHERE state='provisioning'"); e != nil {
 		return e
 	}
@@ -194,10 +194,6 @@ func provisionError(e error) (string, string) {
 	return "connection_or_provisioning_failed", "Could not connect or provision. Check the target, credentials, TLS and network policy, then retry."
 }
 
-func ownershipConflict() error {
-	return registry.Problem(409, "ownership_conflict", "Existing database or account does not match Lastapp ownership. Nothing was replaced.")
-}
-
 var (
 	generatedRE   = regexp.MustCompile(`^la_[a-f0-9]{32}$`)
 	accountHostRE = regexp.MustCompile(`^[a-zA-Z0-9.%:_\-]+$`)
@@ -242,9 +238,9 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	if got != 1 {
 		return registry.Problem(409, "provisioning_busy", "Another worker still owns the resource; retry shortly.")
 	}
-	defer releasePinnedLock(conn, "lastapp:resource:"+record)
+	defer data.ReleasePinnedLock(conn, "lastapp:resource:"+record)
 	if !generatedRE.MatchString(name) || runtime.Username != name || !accountHostRE.MatchString(runtime.AccountHost) {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	marker := "lastapp:" + record + ":" + hex.EncodeToString(job.Ownership)
 	var comment string
@@ -257,10 +253,10 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	} else if e != nil {
 		return e
 	} else if comment != marker {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9_\-]+$`).MatchString(runtime.Password) {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	principal := "'" + runtime.Username + "'@'" + runtime.AccountHost + "'"
 	_, e = conn.ExecContext(ctx, "CREATE USER "+principal+" IDENTIFIED BY '"+runtime.Password+"'")
@@ -270,7 +266,7 @@ func (s *Server) provision(ctx context.Context, record string) error {
 	}
 	verify, e := s.targetDB(ctx, job.DatabaseEndpoint, runtime, "")
 	if e != nil {
-		return ownershipConflict()
+		return databases.OwnershipConflict()
 	}
 	if e = checkGrants(ctx, verify, name, true, false); e != nil {
 		verify.Close()
@@ -353,7 +349,7 @@ func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required 
 				have[v] = true
 			default:
 				if strict {
-					return ownershipConflict()
+					return databases.OwnershipConflict()
 				}
 			}
 		}
@@ -369,18 +365,6 @@ func checkGrants(ctx context.Context, db *sql.DB, name string, strict, required 
 		}
 	}
 	return nil
-}
-
-// Never return a session with uncertain advisory-lock ownership to the pool.
-func releasePinnedLock(conn *sql.Conn, name string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var released sql.NullInt64
-	if e := conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", name).Scan(&released); e != nil || !released.Valid || released.Int64 != 1 {
-		// Returning ErrBadConn makes database/sql discard the session; the
-		// returned error is that same sentinel, so there is nothing to handle.
-		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-	}
 }
 
 // Round-robin Tenants, oldest job within each Tenant. A slow Tenant can consume
