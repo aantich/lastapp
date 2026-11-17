@@ -32,6 +32,14 @@ export { Toaster } from "./toast";
 export { toast, dismissToast, type ToastOptions } from "./toast-store";
 export { Checkbox, Switch, RadioGroup, type RadioOption } from "./checkbox";
 export { FormField, TextField, Textarea } from "./field";
+export {
+  Stepper,
+  Progress,
+  Timeline,
+  type Step,
+  type StepState,
+  type TimelineEvent,
+} from "./stepper";
 export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
