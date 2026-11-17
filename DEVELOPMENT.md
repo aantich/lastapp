@@ -125,13 +125,22 @@ a pinned registry connection. A term then runs as follows.
   returns interrupted `provisioning` resources to `pending`).
 - **Concurrency.** Each step then runs in its own goroutine loop, so a slow step
   (provisioning: up to 45 s plus a 5 s target lock; publication and deployment
-  attempts: 45 s) never delays another kind of work. Every run borrows its own
-  registry connection from the pool and returns it afterwards; steps never share
-  a session and never use the lock connection. No step relies on session state
-  of the lock connection: their transactions set `READ COMMITTED` per
-  transaction, and the session-level locks they take (`lastapp:entity:*`,
-  `lastapp:resource:*`) are on their own business/target connections. At most
-  one goroutine runs each step, so a step's per-term state needs no lock.
+  attempts: 45 s) never delays another kind of work. Steps get the leader's pool,
+  not a pinned connection: they borrow a connection per query or transaction,
+  never share a session and never use the lock connection (pinned out of the
+  pool for the term). No step relies on session state of the lock connection:
+  their transactions set `READ COMMITTED` per transaction, and the session-level
+  locks they take (`lastapp:entity:*`, `lastapp:resource:*`) are on their own
+  business/target connections. At most one goroutine runs each step, so a step's
+  per-term state needs no lock.
+- **Connections.** The worker has its own registry pool (`control.Open` wires a
+  second delivery service, publisher and the provisioner on it through
+  `deliveryServices`), so background work never takes a connection from
+  console, MCP or data API requests, whose pool stays at 16. It is capped at
+  1 + 2 × steps (11): the lock connection plus, per step, at most one open
+  transaction and one read beside it, so steps never wait on each other for a
+  connection. `TestWorkerOwnPool` keeps the request pool fully checked out and
+  requires the worker to finish jobs anyway.
 - **Pacing.** A run that did no work pauses a second; a busy run (a provisioning
   or publication job, a deployment/workspace job that progressed) loops at once.
 - **Error isolation.** A step error is logged as `worker step failed` with the

@@ -48,7 +48,7 @@ func lockFixture(t *testing.T) (*sql.DB, string) {
 }
 
 // fakeStep records its starts and runs. Starts must happen on the connection
-// holding the leader lock; runs on a connection of their own.
+// holding the leader lock; runs use the leader's pool, never that connection.
 type fakeStep struct {
 	name    string
 	starter bool
@@ -79,8 +79,11 @@ func (r *recorder) snapshot() []string {
 	return slices.Clone(r.events)
 }
 
-// onLock reports whether conn holds the leader lock.
-func (r *recorder) onLock(ctx context.Context, conn *sql.Conn) (bool, error) {
+// onLock reports whether the connection conn runs the query on holds the
+// leader lock.
+func (r *recorder) onLock(ctx context.Context, conn interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (bool, error) {
 	var self, owner sql.NullInt64
 	if e := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&self); e != nil {
 		return false, e
@@ -93,13 +96,13 @@ func (r *recorder) onLock(ctx context.Context, conn *sql.Conn) (bool, error) {
 
 func (f *fakeStep) Name() string { return f.name }
 
-func (f *fakeStep) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
+func (f *fakeStep) Run(ctx context.Context, db *sql.DB) (bool, error) {
 	f.mu.Lock()
 	f.runs++
 	run := f.runs
 	f.mu.Unlock()
 	f.rec.add("run:" + f.name)
-	held, e := f.rec.onLock(ctx, conn)
+	held, e := f.rec.onLock(ctx, db)
 	if e != nil {
 		return false, e
 	}

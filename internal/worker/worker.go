@@ -4,8 +4,9 @@
 // GET_LOCK that elects the leader. When a term starts, every Starter runs in
 // step order on that connection (single-leader recovery, e.g. interrupted
 // provisioning back to pending) before any step runs. Then each step runs in
-// its own goroutine loop with its own registry connection per run, so a slow
-// or failing step never delays another kind of work. A step error is logged
+// its own goroutine loop on the leader's pool (DB), which control gives the
+// worker alone, so a slow or failing step never delays another kind of work
+// and background work never takes a connection from requests. A step error is logged
 // with the step name and the step backs off; only losing the lock connection
 // (checked every heartbeat) or the end of ctx ends the term. The term waits
 // for every step goroutine before it releases the lock, and leadership is
@@ -24,11 +25,12 @@ import (
 )
 
 // Step is one queue the leader drains. Run handles at most one job (or one
-// fairness round) on the given connection and reports whether it did work;
-// a step that did no work pauses before its next run.
+// fairness pass) on the leader's pool and reports whether it did work; a step
+// that did no work pauses before its next run. Steps never get the lock
+// connection: it stays pinned (out of the pool) for the whole term.
 type Step interface {
 	Name() string
-	Run(ctx context.Context, conn *sql.Conn) (busy bool, err error)
+	Run(ctx context.Context, db *sql.DB) (busy bool, err error)
 }
 
 // Starter is a step with per-term state or recovery. Start runs, in step
@@ -62,6 +64,8 @@ var errLockLost = errors.New("worker leader lock lost")
 // Leader elects one worker per registry with GET_LOCK on a pinned connection
 // and runs every Step concurrently while it holds the lock.
 type Leader struct {
+	// DB is the worker's registry pool: the lock connection and every step run
+	// come from it. Its size bounds the worker's registry connections.
 	DB    *sql.DB
 	Lock  string
 	Steps []Step
@@ -148,14 +152,15 @@ func (l *Leader) hold(ctx context.Context, conn *sql.Conn) error {
 	}
 }
 
-// loop runs one step until the term ends. Each run borrows its own registry
-// connection, so steps never share a session. A deadlock or lock wait timeout
+// loop runs one step until the term ends. Steps only borrow pooled
+// connections per query or transaction, so they never share a session and a
+// step waiting (for a target, a timeout or its pause) holds none. A deadlock or lock wait timeout
 // is retried shortly; any other error is logged with the step name and backs
 // the step off, doubling up to maxBackoff, without affecting other steps.
 func (l *Leader) loop(ctx context.Context, step Step) {
 	failures := 0
 	for ctx.Err() == nil {
-		busy, e := l.runOnce(ctx, step)
+		busy, e := step.Run(ctx, l.DB)
 		pause := time.Duration(0)
 		switch {
 		case ctx.Err() != nil:
@@ -180,15 +185,6 @@ func (l *Leader) loop(ctx context.Context, step Step) {
 			}
 		}
 	}
-}
-
-func (l *Leader) runOnce(ctx context.Context, step Step) (bool, error) {
-	conn, e := l.DB.Conn(ctx)
-	if e != nil {
-		return false, e
-	}
-	defer conn.Close()
-	return step.Run(ctx, conn)
 }
 
 // backoff is the pause after the given number of consecutive failures.

@@ -21,20 +21,20 @@ func (c *Cleanup) Start(context.Context, *sql.Conn) error {
 	return nil
 }
 
-func (c *Cleanup) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
+func (c *Cleanup) Run(ctx context.Context, db *sql.DB) (bool, error) {
 	if time.Since(c.at) <= time.Minute {
 		return false, nil
 	}
-	if _, e := CleanupSessions(ctx, conn); e != nil {
+	if _, e := CleanupSessions(ctx, db); e != nil {
 		return false, e
 	}
-	if e := access.CleanupAgentSessions(ctx, conn); e != nil {
+	if e := access.CleanupAgentSessions(ctx, db); e != nil {
 		return false, e
 	}
-	if _, e := conn.ExecContext(ctx, "DELETE FROM artifact_uploads WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
+	if _, e := db.ExecContext(ctx, "DELETE FROM artifact_uploads WHERE expires_at<=UTC_TIMESTAMP(6) LIMIT 1000"); e != nil {
 		return false, e
 	}
-	if e := access.CleanupClients(ctx, conn); e != nil {
+	if e := access.CleanupClients(ctx, db); e != nil {
 		return false, e
 	}
 	c.at = time.Now()
@@ -70,13 +70,13 @@ func (f *Fair) Start(context.Context, *sql.Conn) error {
 	return nil
 }
 
-func (f *Fair) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
+func (f *Fair) Run(ctx context.Context, db *sql.DB) (bool, error) {
 	start, after, wrapped := f.last, f.last, false
 	for ctx.Err() == nil {
 		if wrapped && after != "" && after >= start {
 			return false, nil // Every Tenant with work was visited once.
 		}
-		tenant, progressed, e := f.Job(ctx, conn, after)
+		tenant, progressed, e := f.Job(ctx, db, after)
 		if tenant != "" {
 			// A failing Tenant is passed over next time, so it cannot starve others.
 			f.last = tenant
@@ -114,6 +114,6 @@ func (p *Publication) Start(context.Context, *sql.Conn) error {
 	return nil
 }
 
-func (p *Publication) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
-	return p.Job(ctx, conn, &p.last)
+func (p *Publication) Run(ctx context.Context, db *sql.DB) (bool, error) {
+	return p.Job(ctx, db, &p.last)
 }

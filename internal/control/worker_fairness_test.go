@@ -175,3 +175,47 @@ func TestWorkerWorkspacesIndependent(t *testing.T) {
 		t.Fatalf("waiting workspace %s, want still preparing", got)
 	}
 }
+
+// Background work cannot starve requests: the worker runs on its own capped
+// registry pool. With every connection of the request pool checked out (as
+// under request load), the worker still claims and finishes jobs, and its own
+// pool is bounded. When the worker shared the request pool it stalled here.
+func TestWorkerOwnPool(t *testing.T) {
+	f := newWorkerFixture(t)
+	ctx := context.Background()
+	b := f.tenant(2)
+	f.s.DB.SetMaxOpenConns(2)
+	probe, e := f.s.DB.Conn(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer probe.Close()
+	held, e := f.s.DB.Conn(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer held.Close()
+	f.exec(probe, "SET SESSION foreign_key_checks=0")
+	f.exec(probe, "UPDATE database_resources SET state='ready' WHERE id=?", b.backing)
+	f.exec(probe, "INSERT INTO release_deployments(id,tenant_id,space_id,release_id,target_app_id,created_by,plan_json,state) VALUES(?,?,?,?,?,?,'{\"snapshot\":{\"entities\":[]},\"versions\":{}}','queued')", b.deployment, b.tenant, b.space, registry.NewID(), registry.NewID(), f.owner)
+	state := func(table, id string) string {
+		var v string
+		if e := probe.QueryRowContext(ctx, "SELECT state FROM "+table+" WHERE id=?", id).Scan(&v); e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	stop := f.lead()
+	defer stop()
+	f.waitUntil(func() bool {
+		return state("release_deployments", b.deployment) != "queued" && state("development_workspaces", b.workspace) != "preparing"
+	}, func() string {
+		return "worker stalled while the request pool was fully in use"
+	})
+	if inUse := f.s.DB.Stats().InUse; inUse != 2 {
+		t.Fatalf("request pool in use %d, want only the test's 2", inUse)
+	}
+	if f.s.worker.DB == f.s.DB || f.s.worker.DB.Stats().MaxOpenConnections != 1+2*len(f.s.worker.Steps) {
+		t.Fatal("worker pool is not separate and capped")
+	}
+}

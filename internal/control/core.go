@@ -62,9 +62,11 @@ type Server struct {
 	worker         *worker.Leader
 	authoring      *entities.Authoring
 	publisher      *publisher.Publisher
-	dataAPI        *dataapi.Runtime
-	delivery       *delivery.Service
-	agent          *agent.Server
+	// workerPublisher is the publisher of the worker's own registry pool.
+	workerPublisher *publisher.Publisher
+	dataAPI         *dataapi.Runtime
+	delivery        *delivery.Service
+	agent           *agent.Server
 }
 
 func LoadConfig(path string) (config.Config, error) {
@@ -160,23 +162,29 @@ func Open(c config.Config) (*Server, error) {
 	warn := func(ctx context.Context, msg string, err error, attrs ...any) {
 		httpapi.Logger(ctx, s.Log).Warn(msg, append(attrs, httpapi.Diagnostic(err)...)...)
 	}
-	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.sealer.Seal, Config: &s.Config, RegistryName: cfg.DBName}
-	s.provisioner = &databases.Provisioner{DB: db, Access: s.Checker, Sealer: seal, Connect: s.targetDB, Warn: warn}
-	// The publisher sits below delivery: it rechecks a publishing deployment's
-	// authority and captured entities through delivery's functions, and
-	// delivery then receives the publisher it activates entity versions with.
-	s.delivery = &delivery.Service{DB: db, Run: s.run, Access: s.Checker, Config: &s.Config, Storage: s.storage, RegistryName: cfg.DBName, Warn: warn}
-	s.publisher = &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: cfg.DBName, Connect: s.targetDB, DeploymentAuthority: s.delivery.PublishingDeploymentAuthority, DeploymentEntities: delivery.DeploymentEntities, Warn: warn}
-	s.delivery.Publisher = s.publisher
+	s.storage, s.delivery, s.publisher = s.deliveryServices(db, s.run, seal, warn, cfg.DBName)
+	// The background worker has its own registry pool, used by its leader lock
+	// and by every service its steps call, so background work can never take a
+	// connection from console, MCP or data API requests (the pool above). It is
+	// capped at the lock connection plus two per step: a step holds at most one
+	// open transaction and one read beside it, so steps never wait on each other.
+	wdb := sql.OpenDB(connector)
+	wdb.SetMaxIdleConns(2)
+	wdb.SetConnMaxLifetime(5 * time.Minute)
+	_, wdelivery, wpublisher := s.deliveryServices(wdb, &op.Runner{DB: wdb, Access: s.Checker}, seal, warn, cfg.DBName)
+	s.workerPublisher = wpublisher
+	s.provisioner = &databases.Provisioner{DB: wdb, Access: s.Checker, Sealer: seal, Connect: s.targetDB, Warn: warn}
 	// One leader per registry runs each queue in its own loop while it holds
 	// the lock; the starters run in this order when a term begins.
-	s.worker = &worker.Leader{DB: db, Lock: "lastapp:" + cfg.DBName, Warn: warn, Steps: []worker.Step{
+	steps := []worker.Step{
 		&worker.Cleanup{},
-		&worker.Fair{Label: "deployments", Job: s.delivery.DeploymentJob},
-		&worker.Fair{Label: "workspaces", Job: s.delivery.WorkspaceJob},
-		&worker.Publication{Job: s.publisher.Job},
+		&worker.Fair{Label: "deployments", Job: wdelivery.DeploymentJob},
+		&worker.Fair{Label: "workspaces", Job: wdelivery.WorkspaceJob},
+		&worker.Publication{Job: wpublisher.Job},
 		s.provisioner,
-	}}
+	}
+	wdb.SetMaxOpenConns(1 + 2*len(steps))
+	s.worker = &worker.Leader{DB: wdb, Lock: "lastapp:" + cfg.DBName, Warn: warn, Steps: steps}
 	s.authoring = &entities.Authoring{DB: db, Run: s.run, Config: &s.Config, Queue: s.delivery.QueueDefinition}
 	// One PBKDF2 work pool bounds password login, password change and every
 	// account-creation path.
@@ -193,7 +201,25 @@ func Open(c config.Config) (*Server, error) {
 // mcpURL is this deployment's MCP resource URI (the agent grant audience).
 func (s *Server) mcpURL() string { return agent.MCPURL(s.Config.PublicURL) }
 
-func (s *Server) Close() error { s.publisher.Close(); return s.DB.Close() }
+// deliveryServices wires database storage, the delivery service and its
+// publisher on one registry pool: the request pool or the worker's own.
+func (s *Server) deliveryServices(db *sql.DB, run *op.Runner, seal *sealer.Sealer, warn func(context.Context, string, error, ...any), registryName string) (*databases.Storage, *delivery.Service, *publisher.Publisher) {
+	storage := &databases.Storage{DB: db, Run: run, Seal: seal.Seal, Config: &s.Config, RegistryName: registryName}
+	// The publisher sits below delivery: it rechecks a publishing deployment's
+	// authority and captured entities through delivery's functions, and
+	// delivery then receives the publisher it activates entity versions with.
+	d := &delivery.Service{DB: db, Run: run, Access: s.Checker, Config: &s.Config, Storage: storage, RegistryName: registryName, Warn: warn}
+	p := &publisher.Publisher{DB: db, Access: s.Checker, Sealer: seal, RegistryName: registryName, Connect: s.targetDB, DeploymentAuthority: d.PublishingDeploymentAuthority, DeploymentEntities: delivery.DeploymentEntities, Warn: warn}
+	d.Publisher = p
+	return storage, d, p
+}
+
+func (s *Server) Close() error {
+	s.publisher.Close()
+	s.workerPublisher.Close()
+	s.worker.DB.Close()
+	return s.DB.Close()
+}
 
 func Migrate(ctx context.Context, db *sql.DB) error {
 	goose.SetBaseFS(migrationFiles)

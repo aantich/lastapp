@@ -12,8 +12,9 @@ import (
 	"time"
 )
 
-// These tests use only Leader, Step and Starter, so the same file also
-// compiles against the sequential leader it replaced (where they fail).
+// These tests use only Leader, Step and Starter. They were run against the
+// sequential leader they replaced (where they fail) before Step.Run took the
+// worker's pool instead of a pinned connection.
 
 // journal is an ordered, shared event log.
 type journal struct {
@@ -55,12 +56,12 @@ func (j *journal) currentTerm() int {
 type probe struct {
 	name string
 	j    *journal
-	do   func(ctx context.Context, conn *sql.Conn) (bool, error)
+	do   func(ctx context.Context, conn *sql.DB) (bool, error)
 }
 
 func (p *probe) Name() string { return p.name }
 
-func (p *probe) Run(ctx context.Context, conn *sql.Conn) (bool, error) {
+func (p *probe) Run(ctx context.Context, conn *sql.DB) (bool, error) {
 	term := p.j.currentTerm()
 	p.j.add("begin:%s:%d", p.name, term)
 	defer p.j.add("end:%s:%d", p.name, term)
@@ -79,8 +80,8 @@ func (r *recovery) Start(context.Context, *sql.Conn) error {
 	return nil
 }
 
-func throttled(busy bool, err error) func(context.Context, *sql.Conn) (bool, error) {
-	return func(ctx context.Context, _ *sql.Conn) (bool, error) {
+func throttled(busy bool, err error) func(context.Context, *sql.DB) (bool, error) {
+	return func(ctx context.Context, _ *sql.DB) (bool, error) {
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
@@ -168,7 +169,7 @@ func TestLeaderIsolatesStepErrors(t *testing.T) {
 func TestLeaderSlowStepDoesNotDelayOthers(t *testing.T) {
 	j := &journal{}
 	slowRun := make(chan struct{}, 1)
-	slow := &probe{name: "slow", j: j, do: func(ctx context.Context, _ *sql.Conn) (bool, error) {
+	slow := &probe{name: "slow", j: j, do: func(ctx context.Context, _ *sql.DB) (bool, error) {
 		select {
 		case slowRun <- struct{}{}:
 		default:
@@ -207,7 +208,7 @@ func TestLeaderSlowStepDoesNotDelayOthers(t *testing.T) {
 func TestLeaderTermLifecycle(t *testing.T) {
 	j := &journal{}
 	rec := &recovery{probe{name: "rec", j: j, do: throttled(false, nil)}}
-	blocked := &probe{name: "blocked", j: j, do: func(ctx context.Context, _ *sql.Conn) (bool, error) {
+	blocked := &probe{name: "blocked", j: j, do: func(ctx context.Context, _ *sql.DB) (bool, error) {
 		<-ctx.Done()
 		return false, ctx.Err()
 	}}
