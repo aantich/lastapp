@@ -228,23 +228,6 @@ func (v *recentDatabase) ScanFields() []any {
 	return []any{&v.Name, &v.ID, &v.LastMessage, &v.State, &v.TenantID, &v.TenantName}
 }
 
-// AuditEvent is an audit trail entry with its actor's name.
-type AuditEvent struct {
-	Action       string             `json:"action"`
-	ActorName    string             `json:"actor_name"`
-	CreatedAt    time.Time          `json:"created_at"`
-	Details      registry.JSONValue `json:"details_json"`
-	ID           int64              `json:"id"`
-	RequestID    string             `json:"request_id"`
-	ResourceID   *string            `json:"resource_id"`
-	ResourceType string             `json:"resource_type"`
-	TenantID     *string            `json:"tenant_id"`
-}
-
-func (v *AuditEvent) ScanFields() []any {
-	return []any{&v.Action, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
-}
-
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	if e := s.Authorize(r.Context(), s.DB, p, "platform.admin", access.Resource{}, false); e != nil {
 		return e
@@ -271,25 +254,6 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p access.Princ
 	return e
 }
 
-func (s *Server) Audits(ctx context.Context, actor op.Actor, tenant string, page op.PageRequest) (op.Page[AuditEvent], error) {
-	p := actor.Principal
-	action := "audit.read"
-	if tenant == "" {
-		action = "platform.admin"
-	}
-	if e := s.Authorize(ctx, s.DB, p, action, access.Resource{Tenant: tenant}, false); e != nil {
-		return op.Page[AuditEvent]{}, e
-	}
-	args := []any{}
-	where := "1=1"
-	if tenant != "" {
-		where = "a.tenant_id=?"
-		args = append(args, tenant)
-	}
-	v, e := op.PageScan[AuditEvent](ctx, s.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
-	return v, e
-}
-
 func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, record string, status int) error {
 	query := "SELECT id,revision FROM " + table + " WHERE id=?"
 	args := []any{record}
@@ -307,6 +271,6 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 }
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(r.URL.Query()))
+	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(r.URL.Query()))
 	return httpapi.Reply(w, 200, v, e)
 }

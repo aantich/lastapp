@@ -221,7 +221,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in agentRead
 		}
 		return agentPage(s.storage.AvailableTargets(ctx, op.AgentActor(ctx, p), res.Tenant, false, in.pageRequest()))
 	case "audit_event":
-		return agentPage(s.Audits(ctx, op.AgentActor(ctx, p), res.Tenant, in.pageRequest()))
+		return agentPage(s.authority.Audits(ctx, op.AgentActor(ctx, p), res.Tenant, in.pageRequest()))
 	case "tenant":
 		if target.Kind != "platform" {
 			return nil, registry.Bad("Tenant inventory requires a platform connection.")
@@ -236,7 +236,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in agentRead
 		if target.Kind != "platform" {
 			return nil, registry.Missing()
 		}
-		return agentPage(s.Users(ctx, op.AgentActor(ctx, p), in.pageRequest()))
+		return agentPage(s.inv.Users(ctx, op.AgentActor(ctx, p), in.pageRequest()))
 	case "entity":
 		if target.Kind == "app" {
 			v, e := s.authoring.AppContracts(ctx, op.AgentActor(ctx, p), target.ID, entities.ContractView{Section: "inventory", Page: in.pageRequest()})
