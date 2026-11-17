@@ -77,7 +77,7 @@ func TestSecurityRegressions(t *testing.T) {
 				}
 				continue
 			}
-			if generatedRE.MatchString(name) && comment == "lastapp:"+registry.Str(r["id"])+":"+registry.Str(r["ownership_hex"]) {
+			if databases.GeneratedName.MatchString(name) && comment == "lastapp:"+registry.Str(r["id"])+":"+registry.Str(r["ownership_hex"]) {
 				if _, err := admin.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
 					t.Error("review database cleanup failed", err)
 				}
@@ -249,11 +249,11 @@ func TestSecurityRegressions(t *testing.T) {
 				}
 			}
 		}
-		first, e := nextJob(context.Background(), tx, "")
+		first, e := databases.NextJob(context.Background(), tx, "")
 		if e != nil {
 			t.Fatal(e)
 		}
-		next, e := nextJob(context.Background(), tx, first.TenantID)
+		next, e := databases.NextJob(context.Background(), tx, first.TenantID)
 		if e != nil || next.TenantID == first.TenantID {
 			t.Fatal("worker did not yield to another Tenant", e)
 		}
@@ -377,16 +377,16 @@ func TestSecurityRegressions(t *testing.T) {
 			t.Fatal(e)
 		}
 		defer db.Close()
-		if e = validateRuntime(context.Background(), db, name, true); e == nil {
+		if e = databases.ValidateRuntime(context.Background(), db, name, true); e == nil {
 			t.Fatal("global GRANT OPTION accepted")
 		}
-		if e = validateRuntime(context.Background(), db, name, false); e == nil {
+		if e = databases.ValidateRuntime(context.Background(), db, name, false); e == nil {
 			t.Fatal("registered account grant authority accepted")
 		}
 		if _, e = admin.DB.Exec("REVOKE GRANT OPTION ON *.* FROM '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
 			t.Fatal(e)
 		}
-		if e = validateRuntime(context.Background(), db, name, true); e != nil {
+		if e = databases.ValidateRuntime(context.Background(), db, name, true); e != nil {
 			t.Fatal("safe CRUD rejected", e)
 		}
 	})

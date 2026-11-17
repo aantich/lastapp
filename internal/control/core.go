@@ -58,6 +58,7 @@ type Server struct {
 	sessions       *session.Manager
 	authority      *roles.Authority
 	storage        *databases.Storage
+	provisioner    *databases.Provisioner
 	authoring      *entities.Authoring
 	publisher      *publisher.Publisher
 	dataAPI        *dataapi.Runtime
@@ -159,6 +160,7 @@ func Open(c config.Config) (*Server, error) {
 		httpapi.Logger(ctx, s.Log).Warn(msg, append(attrs, httpapi.Diagnostic(err)...)...)
 	}
 	s.storage = &databases.Storage{DB: db, Run: s.run, Seal: s.sealer.Seal, Config: &s.Config, RegistryName: cfg.DBName}
+	s.provisioner = &databases.Provisioner{DB: db, Access: s.Checker, Sealer: seal, Connect: s.targetDB, Warn: warn}
 	// The publisher sits below delivery: it rechecks a publishing deployment's
 	// authority and captured entities through delivery's functions, and
 	// delivery then receives the publisher it activates entity versions with.
