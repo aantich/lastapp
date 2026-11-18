@@ -480,10 +480,10 @@ export function AppReleases({
                 facts={[
                   {
                     label: "Release",
-                    value: deployed
-                      ? text(deployed.display_name)
-                      : text(deployment.release_id).slice(0, 8),
-                    mono: !deployed,
+                    value:
+                      text(deployed?.display_name) ||
+                      text(deployment.release_id).slice(0, 8),
+                    mono: !text(deployed?.display_name),
                   },
                   ...(deployment.created_at
                     ? [{ label: "Started", value: when(deployment.created_at) }]
