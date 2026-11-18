@@ -135,9 +135,10 @@ The development-only **Northstar demo** contains Marketing/Engineering teams, a 
 
 The seed then fills the demo the way an author would, as the Tenant administrator and through the same validated operations as the console (`internal/control/development_demo.go`):
 
-- published CRM entities **Account** (name, industry, website, annual revenue, owner), **Contact** (name, email, job title, phone, account, owner) and **Deal** (name, account, primary contact, amount, stage, probability, expected close, owner, and the forecast category promoted by Forecasting's release). Sales reviewers read every field; members create records they then own, and owners read and update them;
-- the development workspace **crm-pricing-exp**, owned by the Tenant administrator;
-- for each App a small static build uploaded through an upload ticket, release **1.0.0** captured in the workspace, and an **active** production deployment. Deal review ships first; Forecasting's release also promotes the workspace's new Deal field, so its deployment publishes a backend change. Both Apps inherit the Space's permission paths for their data.
+- published CRM entities **Account** (name, industry, website, annual revenue, owner), **Contact** (name, email, job title, phone, account, owner) and **Deal** (name, account, primary contact, amount, stage, probability, expected close, owner). Sales reviewers read every field; members create records they then own, and owners read and update them;
+- for each App a small static build uploaded through an upload ticket, release **1.0.0** and an **active** production deployment. Both Apps inherit the Space's permission paths for their data.
+
+A release is captured from a development workspace, so the seed creates one named **demo-release**, ships both Apps from it and then archives it through the ordinary workspace archive operation. No active workspace and no unpublished draft remain; the archived workspace is still listed with the **Archived** status, and its releases stay inspectable as production history.
 
 Queued work (storage provisioning, publications, workspace preparation, deployments) runs in the seed through the worker's own steps (`worker.Leader.Settle`), so it finishes before the server starts. If a running server already leads the worker, the seed skips this content with a warning; stop the server and seed again. A reviewer's own unpublished draft or pending change in CRM also stops it with a warning instead of being overridden. There is no failed deployment and no agent grant in the demo: a deployment fails only on a broken check or lost authority, which the seed does not fake, and agent grants are created only through the OAuth consent flow.
 

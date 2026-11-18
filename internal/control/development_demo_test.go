@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,8 +105,8 @@ func TestNorthstarDemoDefinitions(t *testing.T) {
 }
 
 // The development seed fills Northstar through real operations: published CRM
-// entities, a ready workspace and an active production deployment per App, the
-// second of which promotes a workspace backend change. A second run is a no-op.
+// entities and an active production deployment per App, captured in a release
+// workspace that is archived afterwards. A second run is a no-op.
 func TestNorthstarDemoSeed(t *testing.T) {
 	s, _, provisioner := disposableRegistry(t, "LASTAPP_TEST_CONFIG", "lastapp_demo_")
 	ctx := context.Background()
@@ -125,13 +126,17 @@ func TestNorthstarDemoSeed(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, promoted := d.Field(demoForecastField); promoted != (id == demoDeal) {
-			t.Fatal("forecast field not promoted by the Forecasting release only", d.Key)
+		if want := demoEntities()[slices.Index(demoEntityIDs, id)]; len(d.Fields) != len(want.Fields) {
+			t.Fatal("published fields differ from the demo definition", d.Key, len(d.Fields), len(want.Fields))
 		}
 	}
 	var state, name, wsOwner string
-	if e := s.DB.QueryRow("SELECT state,display_name,owner_user_id FROM development_workspaces WHERE id=? AND production_space_id=?", demoWorkspace, demoSpace).Scan(&state, &name, &wsOwner); e != nil || state != "ready" || name != "crm-pricing-exp" || wsOwner != owner {
+	if e := s.DB.QueryRow("SELECT state,display_name,owner_user_id FROM development_workspaces WHERE id=? AND production_space_id=?", demoWorkspace, demoSpace).Scan(&state, &name, &wsOwner); e != nil || state != registry.StateArchived || name != demoWorkspaceName || wsOwner != owner {
 		t.Fatal("workspace", state, name, wsOwner, e)
+	}
+	var others int
+	if e := s.DB.QueryRow("SELECT COUNT(*) FROM development_workspaces WHERE state<>'archived'").Scan(&others); e != nil || others != 0 {
+		t.Fatal("active workspaces remain", others, e)
 	}
 	for _, app := range []string{demoDealReview, demoForecasting} {
 		var deployments, active, selected, by int

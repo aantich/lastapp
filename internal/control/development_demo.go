@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/artifact"
@@ -28,16 +27,18 @@ const (
 	demoContact     = "80000000-0000-4000-8000-000000000002"
 	demoDeal        = "80000000-0000-4000-8000-000000000003"
 	demoWorkspace   = "90000000-0000-4000-8000-000000000001"
-	// demoForecastField is the backend change the Forecasting release promotes.
-	demoForecastField = "forecast_category"
+	// demoWorkspaceName names the workspace that only captures the releases; it
+	// is archived once both Apps are deployed.
+	demoWorkspaceName = "demo-release"
 )
 
 // errDemoSkipped stops the demo content without failing the seed.
 var errDemoSkipped = errors.New("demo content skipped")
 
 // seedNorthstarContent fills the Northstar demo the way an author would: it
-// publishes CRM entities, prepares a development workspace and ships each App
-// through a static release and a production deployment. Every change is a
+// publishes CRM entities and ships each App through a static release and a
+// production deployment. Releases are captured in a development workspace,
+// which is archived once both Apps are deployed. Every change is a
 // validated operation performed as the Tenant administrator, and the queued
 // background work runs through the worker's own steps (worker.Leader.Settle).
 // Each piece is created only while it is missing: a second run changes nothing,
@@ -64,20 +65,19 @@ func (s *Server) seedNorthstarContent(ctx context.Context) error {
 			}
 			shipped = shipped && done
 		}
-		if shipped {
-			return nil // Whatever became of the workspace since, the Apps shipped.
+		if !shipped {
+			devApps, e := s.seedDemoWorkspace(ctx, as, drain)
+			if e != nil {
+				return e
+			}
+			if e = s.seedDemoRelease(ctx, as, demoDealReview, devApps[demoDealReview], "Deal review", drain); e != nil {
+				return e
+			}
+			if e = s.seedDemoRelease(ctx, as, demoForecasting, devApps[demoForecasting], "Forecasting", drain); e != nil {
+				return e
+			}
 		}
-		devApps, e := s.seedDemoWorkspace(ctx, as, drain)
-		if e != nil {
-			return e
-		}
-		if e = s.seedDemoRelease(ctx, as, demoDealReview, devApps[demoDealReview], "Deal review", drain); e != nil {
-			return e
-		}
-		if e = s.seedDemoForecast(ctx, as, devApps[demoForecasting], drain); e != nil {
-			return e
-		}
-		return s.seedDemoRelease(ctx, as, demoForecasting, devApps[demoForecasting], "Forecasting", drain)
+		return s.archiveDemoWorkspace(ctx, as)
 	})
 	var ae *registry.APIError
 	switch {
@@ -205,15 +205,15 @@ func (s *Server) demoPublish(ctx context.Context, as func() op.Actor, id string,
 	return nil
 }
 
-// seedDemoWorkspace creates the Tenant administrator's CRM workspace once and
-// returns the development App of each production App.
+// seedDemoWorkspace creates the Tenant administrator's release workspace once
+// and returns the development App of each production App.
 func (s *Server) seedDemoWorkspace(ctx context.Context, as func() op.Actor, drain func() error) (map[string]string, error) {
 	var exists int
 	if e := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM development_workspaces WHERE id=?", demoWorkspace).Scan(&exists); e != nil {
 		return nil, e
 	}
 	if exists == 0 {
-		if _, e := s.delivery.CreateWorkspace(ctx, as(), demoSpace, delivery.WorkspaceCreateInput{ID: demoWorkspace, Name: "crm-pricing-exp"}); e != nil {
+		if _, e := s.delivery.CreateWorkspace(ctx, as(), demoSpace, delivery.WorkspaceCreateInput{ID: demoWorkspace, Name: demoWorkspaceName}); e != nil {
 			return nil, e
 		}
 	}
@@ -225,7 +225,7 @@ func (s *Server) seedDemoWorkspace(ctx context.Context, as func() op.Actor, drai
 		return nil, e
 	}
 	if state != "ready" {
-		return nil, fmt.Errorf("%w: workspace crm-pricing-exp is %s", errDemoSkipped, state)
+		return nil, fmt.Errorf("%w: workspace %s is %s", errDemoSkipped, demoWorkspaceName, state)
 	}
 	apps := map[string]string{}
 	rows, e := registry.QueryRows(ctx, s.DB, "SELECT production_id,development_id FROM workspace_items WHERE workspace_id=? AND kind='app'", demoWorkspace)
@@ -253,54 +253,21 @@ func (s *Server) demoRevision(ctx context.Context, app string) (int64, error) {
 	return revision, s.DB.QueryRowContext(ctx, "SELECT revision FROM apps WHERE id=?", app).Scan(&revision)
 }
 
-// seedDemoForecast adds the forecast category to the workspace's Deal before
-// Forecasting ships, so its release promotes a backend change to production.
-func (s *Server) seedDemoForecast(ctx context.Context, as func() op.Actor, devApp string, drain func() error) error {
-	if devApp == "" {
+// archiveDemoWorkspace archives the release workspace through the ordinary
+// workspace operation once both Apps shipped, so no development workspace
+// remains active. A missing or already archived workspace is left alone.
+func (s *Server) archiveDemoWorkspace(ctx context.Context, as func() op.Actor) error {
+	var state string
+	var revision int64
+	e := s.DB.QueryRowContext(ctx, "SELECT state,revision FROM development_workspaces WHERE id=?", demoWorkspace).Scan(&state, &revision)
+	if errors.Is(e, sql.ErrNoRows) || (e == nil && state == registry.StateArchived) {
 		return nil
 	}
-	if done, e := s.demoDeployed(ctx, demoForecasting); e != nil || done {
-		return e
-	}
-	var deal string
-	if e := s.DB.QueryRowContext(ctx, "SELECT development_id FROM workspace_items WHERE workspace_id=? AND kind='entity' AND production_id=?", demoWorkspace, demoDeal).Scan(&deal); e != nil {
-		if errors.Is(e, sql.ErrNoRows) {
-			return nil
-		}
-		return e
-	}
-	current, e := s.authoring.DetailOf(ctx, as(), deal)
 	if e != nil {
 		return e
 	}
-	draft, e := current.DraftDefinition()
-	if e != nil {
-		return e
-	}
-	if current.ActiveDefinition != nil {
-		active, e := entities.DefOf(current.ActiveDefinition.Value())
-		if e != nil {
-			return e
-		}
-		if _, ok := active.Field(demoForecastField); ok {
-			return nil
-		}
-	}
-	revision := current.Revision
-	if _, ok := draft.Field(demoForecastField); !ok {
-		draft.Fields = append(draft.Fields, entity.Field{Key: demoForecastField, Label: "Forecast category", Type: "choice", Values: []string{"pipeline", "best_case", "commit", "omitted"}, ValueLabels: map[string]string{"pipeline": "Pipeline", "best_case": "Best case", "commit": "Commit", "omitted": "Omitted"}, Filterable: true})
-		for i, p := range draft.Permissions {
-			if p.Operation != "delete" && p.Operation != "acl.manage" && !slices.Contains(p.Fields, demoForecastField) {
-				draft.Permissions[i].Fields = append(p.Fields, demoForecastField)
-			}
-		}
-		saved, e := s.authoring.SaveEntity(ctx, as(), deal, entities.EntitySaveInput{Definition: draft}, revision)
-		if e != nil {
-			return e
-		}
-		revision = saved.Revision
-	}
-	return s.demoPublish(ctx, as, deal, revision, drain)
+	_, e = s.delivery.ChangeWorkspace(ctx, as(), demoWorkspace, false, revision)
+	return e
 }
 
 // seedDemoRelease ships one App from the workspace: it uploads a small static

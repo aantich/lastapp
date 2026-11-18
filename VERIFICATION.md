@@ -220,6 +220,31 @@ Executed checks:
   browser regressions passing, after the specs were moved to where the new
   shell puts Spaces, Tenant settings and Refresh.
 
+## Trimmed Northstar development demo — 18 November 2026
+
+- The seed no longer creates the mockup-named workspace `crm-pricing-exp` or
+  the staged Deal `forecast_category` field that Forecasting's release used to
+  promote. It publishes Account, Contact and Deal with their own fields only,
+  captures release 1.0.0 of Deal review and Forecasting in a workspace named
+  `demo-release`, deploys both, and then archives that workspace with
+  `delivery.ChangeWorkspace` (the console's archive operation). The archived
+  workspace stays listed with its Archived status; no active workspace remains.
+- Local registry: backed up to
+  `.local/backups/lastapp_foundation-20261118-2232-before-trim.sql.gz`, then the
+  existing `crm-pricing-exp` workspace was archived through
+  `POST /v1/workspaces/{id}/archive` as the Tenant administrator. The Deal's
+  `forecast_category` field was already published to production by the earlier
+  seed (no unpublished draft existed) and stays: the publisher rejects removing a
+  published field until a destructive-change workflow exists.
+
+Executed checks:
+
+- `TestNorthstarDemoSeed` (updated): entities publish exactly the demo fields,
+  the workspace is `demo-release`, archived and owned by the Tenant
+  administrator, no workspace remains unarchived, one active selected
+  deployment per App, and a second `SeedDevelopment` leaves the counts
+  unchanged. `TestNorthstarDemoDefinitions` **PASS** against the local MariaDB.
+
 ## Populated Northstar development demo — 18 November 2026
 
 - `seed-development` now also fills the Northstar demo through the real
