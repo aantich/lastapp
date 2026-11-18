@@ -105,6 +105,7 @@ GET /v1/tenants/{tenant}/apps/{app} -> 200
   .active_release_id null
   .compute_mode string
   .display_name string
+  .hosted_origin string
   .id string
   .revision number
   .slug string
@@ -392,6 +393,7 @@ mcp lastapp_get app -> 200
   .data.active_release_id null
   .data.compute_mode string
   .data.display_name string
+  .data.hosted_origin string
   .data.id string
   .data.revision number
   .data.slug string

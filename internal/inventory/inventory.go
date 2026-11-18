@@ -224,11 +224,12 @@ func (v *Inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 	return v.Run.Ref(ctx, "spaces", tenant, in.ID)
 }
 
-// App is an App read with its Tenant and Space names.
+// App is an App read with its Tenant and Space names and hosted origin.
 type App struct {
 	ActiveRelease *string `json:"active_release_id"`
 	Compute       string  `json:"compute_mode"`
 	Name          string  `json:"display_name"`
+	HostedOrigin  string  `json:"hosted_origin"`
 	ID            string  `json:"id"`
 	Revision      int64   `json:"revision"`
 	Slug          string  `json:"slug"`
@@ -358,7 +359,11 @@ func (v *Inventory) App(ctx context.Context, a op.Actor, tenant, app string) (Ap
 	if e := v.Run.Authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, App: app}); e != nil {
 		return App{}, e
 	}
-	return registry.ScanOne[App](ctx, v.DB, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	out, e := registry.ScanOne[App](ctx, v.DB, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	if e == nil && v.HostedOrigin != nil {
+		out.HostedOrigin = v.HostedOrigin(out.ID)
+	}
+	return out, e
 }
 
 func (v *Inventory) CreateApp(ctx context.Context, a op.Actor, tenant, space string, in AppCreateInput) (op.Ref, error) {

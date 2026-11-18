@@ -378,6 +378,9 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if registry.Str(listed["hosted_origin"]) != s.delivery.HostedOrigin(app) || latest == nil || latest["id"] != job["id"] || latest["state"] != deployed["state"] || latest["failed_state"] != deployed["failed_state"] || latest["release_name"] != deployed["release_name"] {
 		t.Fatal("App list did not carry the latest deployment", listed, deployed)
 	}
+	if read := oc.want("GET", base+"/apps/"+app, nil, 0, 200); read["hosted_origin"] != listed["hosted_origin"] {
+		t.Fatal("App read and list disagree on the hosted origin", read, listed)
+	}
 	oc.want("POST", base+"/apps/"+app+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": authz.AppManagerRole}, 0, 201)
 	if reader := listedApp(t, c.as(joe), base, app); reader["latest_deployment"] != nil || reader["hosted_origin"] != listed["hosted_origin"] {
 		t.Fatal("App list exposed a deployment without release.manage", reader)
