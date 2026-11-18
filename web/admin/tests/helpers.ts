@@ -57,9 +57,12 @@ export async function menu(page: Page) {
     exact: true,
   });
   const trigger = accountMenu(page);
-  // Open the drawer only when the account menu is hidden in it; checking
-  // the trigger too avoids a stale drawer button right after a resize.
-  if ((await drawer.isVisible()) && !(await trigger.isVisible()))
+  // The shell switches to the drawer with this media query; asking the page
+  // (not a possibly stale button) is stable right after a viewport resize.
+  const narrow = await page.evaluate(
+    () => matchMedia("(max-width:800px)").matches,
+  );
+  if (narrow && (await drawer.getAttribute("aria-expanded")) !== "true")
     await drawer.click();
   if ((await trigger.getAttribute("aria-expanded")) !== "true")
     await trigger.click();
