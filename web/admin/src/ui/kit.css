@@ -1578,3 +1578,72 @@ a.ui-link-button {
     overflow-wrap: break-word;
   }
 }
+
+/* Stacked phone tables: below 640 px a DataTable row is a card of
+   label/value pairs (td[data-label]); the header row stays for screen
+   readers but is visually hidden. */
+@media (max-width: 640px) {
+  .table-wrap table.ui-table-stack {
+    min-width: 0;
+  }
+  .ui-table-stack,
+  .ui-table-stack tbody,
+  .ui-table-stack tr,
+  .ui-table-stack td {
+    display: block;
+    width: 100%;
+  }
+  .ui-table-stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .ui-table-stack tr {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--ui-border);
+  }
+  .ui-table-stack tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .ui-table-stack td {
+    display: grid;
+    grid-template-columns: minmax(88px, 34%) minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+    max-width: none;
+    padding: 5px 0;
+    border: 0;
+    text-align: left;
+  }
+  .ui-table-stack td.ui-num {
+    text-align: left;
+  }
+  .ui-table-stack td::before {
+    content: attr(data-label);
+    color: var(--ui-faint);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .ui-table-stack td:not([data-label])::before {
+    content: none;
+  }
+  .ui-table-stack td:not([data-label]) {
+    display: block;
+  }
+  .ui-table-stack td.actions-column {
+    display: block;
+    min-width: 0;
+    padding-top: 8px;
+  }
+  .ui-table-stack td.actions-column .row-actions {
+    justify-content: flex-start;
+    max-width: none;
+    margin-left: 0;
+  }
+}
+

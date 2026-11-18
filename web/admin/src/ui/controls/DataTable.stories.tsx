@@ -57,3 +57,8 @@ type Story = StoryObj<typeof meta>;
 export const Rows: Story = {};
 export const Loading: Story = { args: { loading: true } };
 export const Empty: Story = { args: { empty: true } };
+// Below 640 px each row stacks as label/value pairs; the header row is only
+// visually hidden, so the table keeps its semantics for screen readers.
+export const Phone: Story = {
+  globals: { viewport: { value: "mobile1", isRotated: false } },
+};
