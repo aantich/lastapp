@@ -53,7 +53,10 @@ func (s *Server) SeedDevelopment(ctx context.Context, provisionerPassword string
 	if e != nil {
 		return e
 	}
-	return s.seedFoundationDemo(ctx)
+	if e = s.seedFoundationDemo(ctx); e != nil {
+		return e
+	}
+	return s.seedNorthstarContent(ctx)
 }
 
 // One development-only example makes scoped roles inspectable in the console.
