@@ -2248,8 +2248,16 @@ summary {
 }
 .company-name {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   padding: 0 4px;
+}
+/* A long Tenant name shrinks; the search and account menu keep their size. */
+.topbar > .topbar-left {
+  flex: 1 1 auto;
+}
+.topbar > .topbar-actions {
+  flex-shrink: 0;
 }
 .company-name small {
   margin: 0;
