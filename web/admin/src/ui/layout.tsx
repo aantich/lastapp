@@ -18,18 +18,28 @@ export function Stack({
   );
 }
 
-// A row of controls or badges that wraps on narrow screens.
+// A row of controls or badges that wraps on narrow screens. align="end"
+// lines a labelled field up with a button by their bottom edges.
 export function Inline({
   gap = "sm",
+  align = "center",
   children,
   className,
 }: {
   gap?: Gap;
+  align?: "center" | "end";
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cx("ui-inline", "ui-gap-" + gap, className)}>
+    <div
+      className={cx(
+        "ui-inline",
+        "ui-gap-" + gap,
+        align === "end" && "ui-align-end",
+        className,
+      )}
+    >
       {children}
     </div>
   );

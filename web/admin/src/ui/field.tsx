@@ -20,11 +20,14 @@ type ControlProps = {
 // Label, hint and error around one control, wired by id: the label names it,
 // hint and error describe it, an error sets aria-invalid. Use it for any kit
 // control (Select, NumberInput, NewPasswordInput) as well as plain inputs.
+// `hideLabel` keeps the label for assistive technology only, for a control
+// whose row already says what it is (an expression's value).
 export function FormField({
   label,
   hint,
   error,
   required,
+  hideLabel,
   className,
   children,
 }: {
@@ -32,6 +35,7 @@ export function FormField({
   hint?: ReactNode;
   error?: ReactNode;
   required?: boolean;
+  hideLabel?: boolean;
   className?: string;
   children: ReactElement<ControlProps>;
 }) {
@@ -45,7 +49,10 @@ export function FormField({
       .join(" ") || undefined;
   return (
     <div className={cx("ui-field", className)}>
-      <label className="ui-field-label" htmlFor={id}>
+      <label
+        className={cx("ui-field-label", hideLabel && "ui-sr-only")}
+        htmlFor={id}
+      >
         {label}
         {required && <b aria-hidden> *</b>}
       </label>
@@ -65,6 +72,7 @@ type FieldText = {
   label: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
+  hideLabel?: boolean;
 };
 
 export const TextField = forwardRef<
@@ -74,11 +82,26 @@ export const TextField = forwardRef<
       type?: "text" | "email" | "password" | "search" | "url" | "tel";
     }
 >(function TextField(
-  { label, hint, error, required, className, type = "text", ...rest },
+  {
+    label,
+    hint,
+    error,
+    required,
+    hideLabel,
+    className,
+    type = "text",
+    ...rest
+  },
   ref,
 ) {
   return (
-    <FormField label={label} hint={hint} error={error} required={required}>
+    <FormField
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      hideLabel={hideLabel}
+    >
       <input
         ref={ref}
         type={type}
@@ -93,9 +116,18 @@ export const TextField = forwardRef<
 export const Textarea = forwardRef<
   HTMLTextAreaElement,
   FieldText & TextareaHTMLAttributes<HTMLTextAreaElement>
->(function Textarea({ label, hint, error, required, className, ...rest }, ref) {
+>(function Textarea(
+  { label, hint, error, required, hideLabel, className, ...rest },
+  ref,
+) {
   return (
-    <FormField label={label} hint={hint} error={error} required={required}>
+    <FormField
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      hideLabel={hideLabel}
+    >
       <textarea
         ref={ref}
         className={cx("ui-input", className)}

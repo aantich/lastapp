@@ -2110,3 +2110,13 @@ a.ui-link-button {
 .ui-field-group:disabled .ui-field-label {
   color: var(--ui-muted);
 }
+
+/* Inline align="end": a labelled field beside a button */
+.ui-inline.ui-align-end {
+  align-items: flex-end;
+}
+
+/* A dialog body inside the dialog's form keeps the dialog padding */
+.modal > form > .ui-dialog-body {
+  padding: var(--ui-panel-padding);
+}

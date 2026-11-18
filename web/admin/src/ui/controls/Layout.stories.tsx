@@ -3,6 +3,7 @@ import { Card, CardBody, CardHeader } from "../card";
 import { Columns, Inline, Split, Stack } from "../layout";
 import { Badge, StatusBadge } from "../status";
 import { Button } from "../button";
+import { TextField } from "../field";
 
 // layout.tsx: a screen's vertical rhythm (Stack), wrapping rows (Inline) and
 // a record list beside the open record (Split; stacks under 800 px) and
@@ -96,5 +97,15 @@ export const ColumnsTracks: Story = {
         <CardBody>Side column</CardBody>
       </Card>
     </Columns>
+  ),
+};
+
+// align="end" lines a labelled field up with a button by their bottoms.
+export const InlineAlignEnd: Story = {
+  render: () => (
+    <Inline align="end">
+      <TextField label="Name" defaultValue="Deal" />
+      <Button variant="primary">Add field</Button>
+    </Inline>
   ),
 };

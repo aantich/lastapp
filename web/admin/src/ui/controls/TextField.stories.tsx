@@ -53,3 +53,13 @@ function WithSelect() {
   );
 }
 export const AnyControl: Story = { render: () => <WithSelect /> };
+
+// A row that already says what the control is (an expression's value):
+// the label stays for assistive technology only.
+export const HiddenLabel: Story = {
+  render: () => (
+    <div className="max-w-md">
+      <TextField hideLabel label="Condition value" defaultValue="qualified" />
+    </div>
+  ),
+};
