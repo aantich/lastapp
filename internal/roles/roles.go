@@ -338,7 +338,33 @@ func (v *Authority) Assignments(ctx context.Context, a op.Actor, scope authz.Sco
 		return op.Page[AssignmentItem]{}, e
 	}
 	where, args := AssignmentFilter(scope)
-	return op.PageScan[AssignmentItem](ctx, v.DB, page, op.CollectionFor("role-assignments"), `SELECT ro.display_name AS access_name,g.app_id,g.created_at,g.domain,g.group_id,g.id,COALESCE(u.display_name,gr.display_name) AS principal_name,g.revision,g.role_id,ro.state AS role_state,g.scope_kind,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name,g.scope_team_id,g.space_id,g.user_id FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `+where+" ORDER BY g.created_at DESC,g.id", args...)
+	return op.PageScan[AssignmentItem](ctx, v.DB, page, op.CollectionFor("role-assignments"), assignmentItemSQL+where, args...)
+}
+
+// assignmentItemSQL lists assignments with their role, holder and scope
+// names; callers append the scope filter.
+const assignmentItemSQL = `SELECT ro.display_name AS access_name,g.app_id,g.created_at,g.domain,g.group_id,g.id,COALESCE(u.display_name,gr.display_name) AS principal_name,g.revision,g.role_id,ro.state AS role_state,g.scope_kind,CASE WHEN g.scope_kind='platform' THEN 'Platform' ELSE COALESCE(team.display_name,sp.display_name,a.display_name,'Entire Tenant') END AS scope_name,g.scope_team_id,g.space_id,g.user_id FROM access_grants g LEFT JOIN users u ON u.id=g.user_id LEFT JOIN groups gr ON gr.id=g.group_id JOIN roles ro ON ro.id=g.role_id LEFT JOIN groups team ON team.id=g.scope_team_id LEFT JOIN spaces sp ON sp.id=g.space_id LEFT JOIN apps a ON a.id=g.app_id WHERE `
+
+// AppAccessAssignments pages an App's own assignments followed by those of
+// its Space, which apply to the App by inheritance (scope_kind "space"). The
+// App's are read with authorization.read on the App; the Space's need
+// authorization.read on the Space itself, so an App manager never reads Space
+// assignments through the App. Only the App's own can be changed at the App.
+func (v *Authority) AppAccessAssignments(ctx context.Context, a op.Actor, scope authz.Scope, res access.Resource, page op.PageRequest) (op.Page[AssignmentItem], error) {
+	if scope.Kind != authz.App {
+		return op.Page[AssignmentItem]{}, registry.Bad("Inherited assignments are listed for an App.")
+	}
+	if e := v.Run.Authorize(ctx, a, "authorization.read", res); e != nil {
+		return op.Page[AssignmentItem]{}, e
+	}
+	var space string
+	if e := registry.Lookup(ctx, v.DB, "SELECT space_id FROM apps WHERE tenant_id=? AND id=?", []any{scope.Tenant, scope.App}, &space); e != nil {
+		return op.Page[AssignmentItem]{}, e
+	}
+	if e := v.Run.Authorize(ctx, a, "authorization.read", access.Resource{Tenant: scope.Tenant, Space: space}); e != nil {
+		return op.Page[AssignmentItem]{}, e
+	}
+	return op.PageScan[AssignmentItem](ctx, v.DB, page, op.CollectionFor("app-access-assignments"), assignmentItemSQL+"g.tenant_id=? AND ((g.scope_kind='app' AND g.app_id=?) OR (g.scope_kind='space' AND g.space_id=?))", scope.Tenant, scope.App, space)
 }
 
 // Assignment reads one assignment at scope after an authorization.read check

@@ -80,6 +80,9 @@ const navigationAllowed = (proceed: () => void) =>
 // The current console location: the path and, when a link carries one (an
 // entity opened by ?entity=), its query string.
 const here = () => location.pathname + location.search;
+// Dispatched after navigate() changes the URL, so every useConsoleURL user
+// (the workspace and a screen that links elsewhere) sees the new location.
+const navigatedEvent = "lastapp:navigated";
 
 export function useConsoleURL() {
   const [path, setPath] = useState(here);
@@ -101,8 +104,14 @@ export function useConsoleURL() {
       }
       history.pushState(null, "", current.current);
     };
+    // Another screen's navigate() moved the console: every user follows.
+    const moved = () => setPath(here());
     window.addEventListener("popstate", pop);
-    return () => window.removeEventListener("popstate", pop);
+    window.addEventListener(navigatedEvent, moved);
+    return () => {
+      window.removeEventListener("popstate", pop);
+      window.removeEventListener(navigatedEvent, moved);
+    };
   }, []);
   // Stable, so screens can redirect from an effect that lists it.
   const navigate = useCallback((next: string, replace = false) => {
@@ -110,6 +119,7 @@ export function useConsoleURL() {
     const proceed = () => {
       history[replace ? "replaceState" : "pushState"](null, "", next);
       setPath(next);
+      window.dispatchEvent(new Event(navigatedEvent));
     };
     if (navigationAllowed(proceed)) proceed();
   }, []);

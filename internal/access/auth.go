@@ -183,6 +183,34 @@ func (s *Checker) EffectiveScopes(ctx context.Context, q registry.Queryer, p Pri
 	return out, nil
 }
 
+// ControlRoles are the fixed control roles that apply to the principal in
+// tenant (platform superadmin included), once each, in catalog order: the
+// broadest scope first. Custom data roles are relationships, not control
+// roles, and are never listed, even if their names imitate one.
+func (s *Checker) ControlRoles(ctx context.Context, q registry.Queryer, p Principal, tenant string) ([]authz.Role, error) {
+	global, e := IsPlatform(ctx, q, p.ID)
+	if e != nil {
+		return nil, e
+	}
+	assignments, e := effectiveAssignments(ctx, q, p.ID, tenant)
+	if e != nil {
+		return nil, e
+	}
+	held := map[string]bool{SuperRole: global}
+	for _, g := range assignments {
+		if g.Domain == authz.Control {
+			held[g.RoleID] = true
+		}
+	}
+	out := []authz.Role{}
+	for _, r := range authz.Roles() {
+		if held[r.ID] {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 func appendUnique(values []string, value string) []string {
 	for _, v := range values {
 		if v == value {

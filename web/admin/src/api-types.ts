@@ -76,6 +76,18 @@ export type ScopeCapability = {
   teams: string[] | null;
 };
 export type TenantCapabilities = Record<string, ScopeCapability | undefined>;
+// The same response's control_roles: the account's fixed control roles in
+// the Tenant (internal/authz catalog), broadest first.
+export type ControlRole = {
+  id: string;
+  code: string;
+  display_name: string;
+  scope_kind: string;
+};
+export type CapabilitiesResponse = {
+  permissions: TenantCapabilities;
+  control_roles: ControlRole[];
+};
 
 // internal/control/workspace.go: tenantOverview. Every field is optional
 // because screens render before it loads; tenant is the raw tenants/plans row.

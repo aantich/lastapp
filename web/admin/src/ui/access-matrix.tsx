@@ -134,11 +134,15 @@ export type Assignment = {
   role: ReactNode;
   who: ReactNode;
   scope?: ReactNode;
+  // Held at a broader scope (an App's Space) and applying here by
+  // inheritance: tagged and outlined, read-only at this scope.
+  inherited?: boolean;
   action?: ReactNode;
 };
 
 // Role assignments as a card of lines: the role (an ink chip) → who holds
-// it, the scope chip at the end and an optional action. `children` replaces
+// it, the scope chip at the end (with an Inherited tag for an inherited
+// one) and an optional action. `children` replaces
 // the list (loading, empty); `footer` follows it (paging).
 export function AssignmentList({
   title,
@@ -164,13 +168,16 @@ export function AssignmentList({
       {children ?? (
         <ul className="ui-assignments" aria-label={label}>
           {items.map((a) => (
-            <li key={a.id}>
+            <li key={a.id} className={cx(a.inherited && "is-inherited")}>
               <span className="ui-tag ui-pill tone-inverse">{a.role}</span>
               <span className="ui-assignment-arrow" aria-hidden>
                 →
               </span>
               <strong>{a.who}</strong>
               {a.scope && <span className="ui-tag ui-pill">{a.scope}</span>}
+              {a.inherited && (
+                <span className="ui-tag ui-pill tone-info">Inherited</span>
+              )}
               {a.action}
             </li>
           ))}

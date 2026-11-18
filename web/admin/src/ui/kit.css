@@ -2160,6 +2160,10 @@ textarea.ui-input {
   font-weight: 700;
   overflow-wrap: anywhere;
 }
+/* Inherited from a broader scope: read-only here. */
+.ui-assignments > li.is-inherited {
+  border-style: dashed;
+}
 /* A row action does not make the line taller. */
 .ui-assignments > li > button {
   margin-block: -6px;

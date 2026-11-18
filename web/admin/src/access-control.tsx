@@ -21,7 +21,7 @@ import {
   type Modal,
 } from "./ui";
 import { useAction } from "./use-action";
-import { useApiQuery } from "./query";
+import { useAllPages, useApiQuery } from "./query";
 import { status } from "./console-forms";
 import { consoleURL, useConsoleURL } from "./console-url";
 import {
@@ -65,8 +65,19 @@ export function AccessControl({
   // An App's Space decides delegated authority; a Space is its own scope.
   const metaQuery = useApiQuery<Item>(scopeKind === "app" ? path : null),
     meta = metaQuery.data || {};
+  // An App lists its own assignments, then its Space's, which apply to it by
+  // inheritance, when this account may read the Space's (the server checks
+  // again). Only the App's own are changed here: App access never widens
+  // what the Space grants.
+  const readsSpace =
+    scopeKind === "app" &&
+    !!meta.space_id &&
+    (!!caps["authorization.read"]?.all ||
+      (caps["authorization.read"]?.spaces || []).includes(text(meta.space_id)));
   const assignmentsQuery = useApiQuery<Page>(
-    `${path}/role-assignments?page=${page}&limit=${pageSize}`,
+    scopeKind === "space" || metaQuery.data || metaQuery.error
+      ? `${path}/role-assignments?${readsSpace ? "include=space&" : ""}page=${page}&limit=${pageSize}`
+      : null,
   );
   const { busy, run: act } = useAction(path, {
     onSuccess: () => changed(),
@@ -224,7 +235,6 @@ export function AccessControl({
           tenant={tenant}
           space={scopeId}
           path={path}
-          assignments={assignments}
           canEditEntities={
             !!caps["entity.manage"]?.all ||
             (caps["entity.manage"]?.spaces || []).includes(scopeId)
@@ -246,23 +256,29 @@ export function AccessControl({
             </Button>
           )
         }
-        items={assignments.map((r) => ({
-          id: text(r.id),
-          role: text(r.access_name),
-          who: text(r.principal_name),
-          scope: `${r.scope_kind === "app" ? "App" : "Space"} · ${text(r.scope_name)}`,
-          action: canManage && (r.domain !== "control" || canDelegate) && (
-            <Button
-              size="sm"
-              variant="danger"
-              disabled={busy}
-              aria-label={`Remove ${text(r.access_name)} from ${text(r.principal_name)}`}
-              onClick={() => void remove(r)}
-            >
-              Remove
-            </Button>
-          ),
-        }))}
+        items={assignments.map((r) => {
+          const inherited = r.scope_kind !== scopeKind;
+          return {
+            id: text(r.id),
+            role: text(r.access_name),
+            who: text(r.principal_name),
+            scope: `${r.scope_kind === "app" ? "App" : "Space"} · ${text(r.scope_name)}`,
+            inherited,
+            action: !inherited &&
+              canManage &&
+              (r.domain !== "control" || canDelegate) && (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={busy}
+                  aria-label={`Remove ${text(r.access_name)} from ${text(r.principal_name)}`}
+                  onClick={() => void remove(r)}
+                >
+                  Remove
+                </Button>
+              ),
+          };
+        })}
         footer={
           (page > 1 || more) && (
             <Inline>
@@ -361,18 +377,16 @@ function holders(names: string[]) {
 // One entity's permission paths as roles (and record relationships) ×
 // operations. Cells show the published definition; where the saved draft
 // differs, the cell is marked. Before a first publication the draft is
-// shown and said to be one.
+// shown and said to be one. A cell opens the entity on its Access tab.
 function SpaceMatrix({
   tenant,
   space,
   path,
-  assignments,
   canEditEntities,
 }: {
   tenant: string;
   space: string;
   path: string;
-  assignments: Item[];
   canEditEntities: boolean;
 }) {
   const [, navigate] = useConsoleURL();
@@ -381,7 +395,10 @@ function SpaceMatrix({
     rolesQuery = useApiQuery<Page>(`${path}/roles?limit=100`),
     catalogQuery = useApiQuery<EntityCatalog>("/v1/entity-capabilities", {
       refetchInterval: false,
-    });
+    }),
+    // Who holds each role: every Space assignment, not the list's page.
+    holdersQuery = useAllPages(`${path}/role-assignments`);
+  const assignments = holdersQuery.data?.items || [];
   const entities = entitiesQuery.data?.items || [];
   const entity = entities.find((e) => e.id === chosen) || entities[0];
   const entityQuery = useApiQuery<Item>(
@@ -465,11 +482,12 @@ function SpaceMatrix({
   const loading =
     entitiesQuery.isPending ||
     rolesQuery.isPending ||
+    holdersQuery.isPending ||
     catalogQuery.isPending ||
     (!!entity && !record && !entityQuery.error);
   // Without the roles or the operations there is no matrix; without an
   // entity (none yet, or not readable) the roles are still listed.
-  const failure = rolesQuery.error || catalogQuery.error,
+  const failure = rolesQuery.error || catalogQuery.error || holdersQuery.error,
     entityError = entitiesQuery.error || entityQuery.error;
   const entityName = text(entity?.label) || text(entity?.entity_key);
   return (
@@ -518,7 +536,8 @@ function SpaceMatrix({
               navigate(
                 consoleURL.tenant(tenant, "spaces", space, "entities") +
                   "?entity=" +
-                  encodeURIComponent(text(entity.id)),
+                  encodeURIComponent(text(entity.id)) +
+                  "&tab=access",
               )
           : undefined
       }

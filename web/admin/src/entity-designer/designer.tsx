@@ -57,6 +57,15 @@ import { RuleEditor } from "./rule-editor";
 const plural = (n: number, word: string) =>
   n + " " + word + (n === 1 ? "" : "s");
 
+// The open entity's tabs; a link may name one with ?tab=.
+const entityTabs = [
+  ["fields", "Fields"],
+  ["access", "Access"],
+  ["rules", "Rules"],
+  ["test", "Test"],
+  ["history", "History"],
+] as const;
+
 // The Space entity designer: the entity list beside the open entity's
 // header, tabs, editors and publication. Panels live in sibling files and
 // read the open entity through a Designer object built here.
@@ -98,10 +107,12 @@ export function EntityDesigner({
     items = listQuery.data?.items || [];
   const load = () =>
     queryClient.invalidateQueries({ queryKey: apiKey(listPath) });
-  // An ?entity= link opens that entity once it has loaded.
-  const [linked] = useState(() =>
-      new URLSearchParams(location.search).get("entity"),
-    ),
+  // An ?entity= link opens that entity once it has loaded, on its ?tab= tab
+  // when one is named (the Space access matrix opens Access).
+  const [[linked, linkedTab]] = useState(() => {
+      const q = new URLSearchParams(location.search);
+      return [q.get("entity"), q.get("tab")];
+    }),
     linkedQuery = useApiQuery<Item>(linked ? "/v1/entities/" + linked : null, {
       refetchInterval: false,
     }),
@@ -111,6 +122,7 @@ export function EntityDesigner({
     if (!record && linkedQuery.data?.space_id === space) {
       setRecord(linkedQuery.data);
       setDraft(definitionOf(linkedQuery.data.draft_json));
+      if (entityTabs.some(([id]) => id === linkedTab)) setTab(linkedTab!);
     }
   }
   // While a publication is pending, poll the entity every 1.5 s until the
@@ -439,17 +451,11 @@ export function EntityDesigner({
       <Tabs
         label="Entity sections"
         variant="line"
-        items={[
-          { id: "fields", label: "Fields" },
-          { id: "access", label: "Access" },
-          {
-            id: "rules",
-            label: "Rules",
-            count: rulesCount || undefined,
-          },
-          { id: "test", label: "Test" },
-          { id: "history", label: "History" },
-        ]}
+        items={entityTabs.map(([id, label]) => ({
+          id,
+          label,
+          count: id === "rules" ? rulesCount || undefined : undefined,
+        }))}
         value={tab}
         onChange={setTab}
       >
