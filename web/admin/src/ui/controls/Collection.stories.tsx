@@ -4,6 +4,7 @@ import { SegmentedControl } from "../segmented";
 import { Timeline } from "../stepper";
 import { Avatar } from "../avatar";
 import { StatusBadge } from "../status";
+import { CardHeader } from "../card";
 import { Collection } from "../collection";
 import { text } from "../../api-types";
 import { nameColumn, statusColumn } from "../../tenant/screen";
@@ -65,6 +66,12 @@ export const FilteredFeed: Story = {
         <Collection
           path={path}
           columns={[]}
+          header={
+            <CardHeader
+              title="Spaces"
+              description="Filtered on the server before paging"
+            />
+          }
           params={state ? "state=" + state : ""}
           filters={
             <SegmentedControl

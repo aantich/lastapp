@@ -1544,3 +1544,17 @@ a.ui-link-button {
   text-decoration: none;
   white-space: nowrap;
 }
+
+/* Card header actions wrap; on a phone they go under the title */
+.ui-card-header > .row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 640px) {
+  .ui-card-header {
+    flex-wrap: wrap;
+  }
+  .ui-card-header > .row-actions {
+    justify-content: flex-start;
+  }
+}

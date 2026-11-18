@@ -15,6 +15,8 @@ type CollectionProps = {
   empty?: ReactNode;
   // Names the table (default "Records").
   caption?: string;
+  // A CardHeader above the toolbar: the list's title, description, actions.
+  header?: ReactNode;
   // Server filters beside the search box: their query string (without
   // "?"/"&") restarts paging; `filters` renders their controls.
   params?: string;
@@ -39,6 +41,7 @@ function ScopedCollection({
   actions,
   empty = "No records yet.",
   caption = "Records",
+  header,
   params,
   filters,
   render,
@@ -67,6 +70,7 @@ function ScopedCollection({
     error = result.error?.message || "";
   return (
     <section className="panel list-panel">
+      {header}
       <div className="toolbar">
         <label className="search">
           <Search size={16} />
