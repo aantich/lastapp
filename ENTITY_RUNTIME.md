@@ -9,9 +9,15 @@ their storage. This implementation includes the optional record-sharing mileston
 
 Sign in as a Tenant administrator or Space manager, open a Space, and select
 **Entities**. Create a blank entity or use the Company, Contact or Deal template.
-Templates start without access grants. Add fields, choose the default read
-projection, and configure Access. Use a Space role or an owner/team relationship;
-Tenant administration itself grants no business-record access.
+Templates start without access grants. An open entity shows the Space's other
+entities beside it and the tabs **Fields, Access, Rules, Test, History**. Add
+fields (fields not in the published version are marked **New**), choose the
+default read projection, and configure Access. Access lists each permission path
+as one unit: who, the operation, the fields it reaches and its record condition
+(plus any allowed-change condition), and names the fields no read path reaches,
+because a new field never joins an allowlist by itself. Use a Space role or an
+owner/team relationship; Tenant administration itself grants no business-record
+access. **History** lists the recent publications and marks the active version.
 
 **Rules** configures defaults, stored calculations, resulting-record validation
 and allowed changes. **Test** evaluates synthetic values using the real backend
@@ -19,8 +25,12 @@ evaluator and current same-Tenant relationships. It never fetches or writes a
 business record. Live uniqueness, referenced-record existence and actual shares
 are explicitly outside that simulation.
 
-Save incomplete drafts, then use **Review changes → Validate → Publish**. The
-published version remains separate from the draft. The UI preserves the selected
+Save incomplete drafts, then use **Review changes → Validate → Publish**. Review
+shows the changes and a pipeline (Drafted → Validated → Review → Prepare storage
+→ Published) derived from the saved draft, the last validation of that exact
+draft and the latest publication; the page shows the same pipeline while a
+publication is pending or failed. The published version remains separate from
+the draft. The UI preserves the selected
 entity across reloads and warns before abandoning unsaved edits. Publication
 status stays pending until the generated storage is ready to serve that version.
 Archive preserves data and disables the entity API; references can prevent it.
@@ -32,9 +42,12 @@ credentials. Runtime connections retain their separate CRUD credentials.
 
 ## Connect a browser App
 
-Open an App's **Settings → App data access**. A Space manager approves its HTTPS
-origin and either full inheritance or explicit permission gates. App managers can
-add their own narrowing conditions and App-role requirements. Each App uses a
+Open an App's **Settings → App data access**. Under **Space approval** a Space
+manager approves its HTTPS origin and either full inheritance or explicit
+permission gates (other App managers see this group read-only); gates choose only
+from the Space's permission paths and their fields. Under **App narrowing** App
+managers add their own narrowing conditions and App-role requirements, which can
+only narrow the Space's authority. Each App uses a
 separate host from the console and other Apps; loopback HTTP origins are accepted
 in development. New Apps start without approved data access.
 

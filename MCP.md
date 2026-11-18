@@ -37,7 +37,14 @@ operator-configured clients. Registration supplies metadata only and grants no
 user access. Client metadata fetches reject private/local addresses, redirects
 and oversized responses; setup and token validation have bounded admission.
 
-Connections can be edited/revoked under **My account → Agent access**. Tenant
+On the consent page the expiry is a date picker bounded by tomorrow and
+`max_days` from that config (with 7/30/90-day quick choices where they fit); the
+grant still records whole `days`. Presets press when the checked permissions
+match them exactly.
+
+Connections can be edited/revoked under **My account → Agent access**; each
+connection card shows the agent, its owner, scope, permissions, expiry and last
+mutation, and **Revoke access** asks for confirmation first. Tenant
 administrators can inspect/revoke their members' connections under **Tenant
 Settings → Agent access**, but cannot expand someone else's delegation.
 Changes invalidate existing access-token revisions: refresh or reconnect, reload
