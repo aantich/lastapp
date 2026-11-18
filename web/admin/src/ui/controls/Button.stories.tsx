@@ -1,6 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Check, Pencil, Plus, RefreshCw, Rocket, Trash2 } from "lucide-react";
-import { Button, IconButton } from "../button";
+import {
+  Check,
+  Download,
+  ExternalLink,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Rocket,
+  Trash2,
+} from "lucide-react";
+import { Button, IconButton, LinkButton } from "../button";
 
 // button.tsx: Button (primary/secondary/ghost/danger/link, sm/md, loading)
 // and IconButton, whose label is required and is its accessible name.
@@ -110,6 +119,29 @@ export const IconButtons: Story = {
         icon={<Pencil size={16} aria-hidden />}
       />
       <IconButton label="Add" size="sm" icon={<Plus size={14} aria-hidden />} />
+    </div>
+  ),
+};
+
+// LinkButton: navigation that looks like a button (an anchor, never an
+// action); `external` opens a new tab without an opener.
+export const LinkButtons: Story = {
+  render: () => (
+    <div className="flex flex-wrap items-center gap-3">
+      <LinkButton
+        href="https://forecasting.northstar.example/"
+        external
+        variant="primary"
+        trailingIcon={<ExternalLink size={14} aria-hidden />}
+      >
+        Open production App
+      </LinkButton>
+      <LinkButton href="#starter" icon={<Download size={16} aria-hidden />}>
+        Get starter
+      </LinkButton>
+      <LinkButton href="#docs" variant="link">
+        Read the guide
+      </LinkButton>
     </div>
   ),
 };

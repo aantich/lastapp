@@ -6,6 +6,7 @@
 export {
   Button,
   IconButton,
+  LinkButton,
   type ButtonProps,
   type ButtonVariant,
   type IconButtonProps,
@@ -13,6 +14,7 @@ export {
 export { StatusBadge, Badge } from "./status";
 export { statusTone, type Tone } from "./status-tone";
 export { cx, initials } from "./utils";
+export { Stack, Split, Inline } from "./layout";
 export {
   Card,
   CardHeader,

@@ -1,4 +1,9 @@
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import {
+  forwardRef,
+  type AnchorHTMLAttributes,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { LoaderCircle } from "lucide-react";
 import { Tooltip } from "./tooltip";
 import { cx } from "./utils";
@@ -73,6 +78,45 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     );
   },
 );
+
+// A link that looks like a button: navigation to a URL (a production App,
+// a download), never an action. External targets open in a new tab without
+// an opener.
+export function LinkButton({
+  variant = "secondary",
+  size = "md",
+  icon,
+  trailingIcon,
+  external,
+  className,
+  children,
+  ...rest
+}: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "children"> & {
+  href: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  icon?: ReactNode;
+  trailingIcon?: ReactNode;
+  external?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      className={cx(
+        "ui-link-button",
+        variantClass[variant],
+        size === "sm" && "ui-sm",
+        className,
+      )}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      {...rest}
+    >
+      {icon}
+      {children}
+      {trailingIcon}
+    </a>
+  );
+}
 
 export type IconButtonProps = BaseProps & {
   // Required: the accessible name, also shown as the tooltip.

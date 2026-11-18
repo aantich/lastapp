@@ -1495,3 +1495,52 @@ textarea.ui-input {
   gap: 10px;
   padding: 20px;
 }
+
+/* Layout: Stack, Inline, Split */
+.ui-stack {
+  display: grid;
+  min-width: 0;
+}
+.ui-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.ui-stack.ui-gap-sm,
+.ui-inline.ui-gap-sm {
+  gap: 8px;
+}
+.ui-stack.ui-gap-md,
+.ui-inline.ui-gap-md {
+  gap: 16px;
+}
+.ui-stack.ui-gap-lg,
+.ui-inline.ui-gap-lg {
+  gap: 24px;
+}
+.ui-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr);
+  gap: 24px;
+  align-items: start;
+}
+.ui-split-aside,
+.ui-split-main {
+  min-width: 0;
+}
+@media (max-width: 800px) {
+  .ui-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Link button: an anchor with the button look */
+a.ui-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-decoration: none;
+  white-space: nowrap;
+}
