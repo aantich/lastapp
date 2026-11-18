@@ -565,7 +565,12 @@ func (v *Authoring) ValidateEntity(ctx context.Context, a op.Actor, key string, 
 	return out, nil
 }
 
-// PublishEntity queues the saved draft for the publication worker.
+// UnchangedDraft rejects publishing a draft identical to the active version.
+const UnchangedDraft = "The draft matches the published version. Change the draft before publishing."
+
+// PublishEntity queues the saved draft for the publication worker. A draft
+// identical to the active version is rejected (409): it would only add a
+// version that changes nothing.
 func (v *Authoring) PublishEntity(ctx context.Context, a op.Actor, key string, revision int64) (registry.Row, error) {
 	if revision < 1 {
 		return nil, op.RevisionRequired()
@@ -595,6 +600,17 @@ func (v *Authoring) PublishEntity(ctx context.Context, a op.Actor, key string, r
 		}
 		if current.State != registry.StateActive {
 			return registry.Conflict("Archived entities cannot publish.")
+		}
+		// A version must change something: the draft's definition hash,
+		// computed as publication computes it, differs from the active one's.
+		if current.ActiveVersion != nil {
+			var active string
+			if e = tx.QueryRowContext(ctx, "SELECT definition_hash FROM entity_versions WHERE id=?", *current.ActiveVersion).Scan(&active); e != nil {
+				return e
+			}
+			if d, e := current.DraftDefinition(); e == nil && entity.Hash(d) == active {
+				return registry.Conflict(UnchangedDraft)
+			}
 		}
 		return v.Queue(ctx, tx, a.Principal, current, version, nil)
 	})

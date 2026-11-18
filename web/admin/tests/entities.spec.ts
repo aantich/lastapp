@@ -103,8 +103,14 @@ test("entity designer creates, tests and publishes a real shared backend", async
   ).toBe(200);
   await page.reload();
 
+  // The entity's name is the page's one h1.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(["Deal"]);
+  // The Fields tab shows the draft's permission paths beside the fields,
+  // with the field no read path reaches.
+  const paths = page.getByRole("region", { name: "Permission paths" });
+  await expect(paths.getByText("Fields: name", { exact: true })).toHaveCount(2);
   await expect(
-    page.getByRole("heading", { name: "Deal", exact: true }),
+    paths.getByText("website is not in any read path yet", { exact: true }),
   ).toBeVisible();
   await page
     .getByRole("tablist", { name: "Entity sections" })
@@ -142,6 +148,31 @@ test("entity designer creates, tests and publishes a real shared backend", async
   await expect(
     page.getByText("deal · published v1", { exact: true }),
   ).toBeVisible();
+  // The draft now matches v1: publishing is impossible, and says why. The
+  // backend rejects it as well.
+  await page
+    .getByRole("button", { name: "Review & publish", exact: true })
+    .click();
+  const review = page.getByRole("dialog");
+  await expect(
+    review.getByRole("button", { name: "Publish v2", exact: true }),
+  ).toBeDisabled();
+  await expect(review.getByText(/^Nothing to publish/)).toBeVisible();
+  await expect(
+    review.getByText("No changes to publish", { exact: true }),
+  ).toBeVisible();
+  await review.getByRole("button", { name: "Close editor" }).click();
+  expect(
+    (
+      await post(
+        page,
+        "/v1/entities/" + id + "/publications",
+        {},
+        "POST",
+        saved.revision,
+      )
+    ).status,
+  ).toBe(409);
   await page
     .getByRole("tablist", { name: "Entity sections" })
     .getByRole("tab", { name: "History", exact: true })

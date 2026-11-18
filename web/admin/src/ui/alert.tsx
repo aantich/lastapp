@@ -25,6 +25,7 @@ export function Alert({
   live = true,
   icon = true,
   as: As = "div",
+  id,
   className,
 }: {
   tone?: AlertTone;
@@ -36,6 +37,8 @@ export function Alert({
   live?: boolean;
   icon?: boolean;
   as?: "div" | "p";
+  // Lets a control name this message with aria-describedby.
+  id?: string;
   className?: string;
 }) {
   const Icon = icons[tone];
@@ -49,6 +52,7 @@ export function Alert({
         className,
       )}
       role={role}
+      id={id}
     >
       {icon && <Icon size={16} aria-hidden />}
       <Body className="ui-alert-body">

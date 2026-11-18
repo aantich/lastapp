@@ -16,6 +16,7 @@ import {
   Badge,
   Button,
   Card,
+  Columns,
   DesignerBody,
   DesignerPage,
   EmptyState,
@@ -34,7 +35,7 @@ import { api } from "../api";
 import {
   definitionOf,
   discardChanges,
-  draftChanges,
+  publishableChanges,
   ruleRows,
   versionLabel,
   type Designer,
@@ -46,6 +47,7 @@ import {
   EntitySettings,
   FieldsTab,
   HistoryTab,
+  PathsSummary,
   RulesTab,
 } from "./tabs";
 import { ReviewDialog } from "./review";
@@ -254,6 +256,8 @@ export function EntityDesigner({
         [list]: itemsOf(d![list]).filter((x) => x.key !== key),
       }));
   };
+  const changes =
+    record && draft ? publishableChanges(draft, record, dirty) : null;
   const d: Designer | null =
     catalog && draft
       ? {
@@ -268,6 +272,7 @@ export function EntityDesigner({
           draft,
           setDraft,
           dirty,
+          changes,
           busy,
           run,
           save,
@@ -366,7 +371,6 @@ export function EntityDesigner({
     );
   const publications = itemsOf(record.publications),
     latest = publications[0],
-    changes = draftChanges(draft, record.active_definition),
     pending = !!record.pending_version_id,
     archived = record.state === "archived";
   const label = text(draft.label) || text(record.label);
@@ -385,7 +389,7 @@ export function EntityDesigner({
       : "",
     current = !!latest && !dirty && text(latest.definition_hash) === draftHash,
     failed = latest?.state === "failed" && (pending || current);
-  const showPipeline = pending || dirty || changes !== 0 || failed;
+  const showPipeline = pending || failed || changes !== 0;
   const diagnostics = Array.isArray(record.diagnostics)
     ? record.diagnostics
     : [];
@@ -461,7 +465,16 @@ export function EntityDesigner({
         <DesignerBody nav={nav}>
           {tab === "fields" && (
             <>
-              <FieldsTab d={d} />
+              <Columns
+                gap="md"
+                tracks={[
+                  { grow: 3, min: 600 },
+                  { grow: 2, min: 280 },
+                ]}
+              >
+                <FieldsTab d={d} />
+                <PathsSummary d={d} />
+              </Columns>
               {showPipeline && (
                 <Panel
                   title={

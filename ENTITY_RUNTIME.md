@@ -18,7 +18,8 @@ as one unit: who, the operation, the fields it reaches and its record condition
 (plus any allowed-change condition), and names the fields no read path reaches,
 because a new field never joins an allowlist by itself. Use a Space role or an
 owner/team relationship; Tenant administration itself grants no business-record
-access. **History** lists the recent publications by version number (v1, v2, …)
+access. The Fields tab shows the same permission paths read-only beside the
+fields, with the fields no read path reaches. **History** lists the recent publications by version number (v1, v2, …)
 and marks the active version; the header shows the active one ("published v3")
 and the publish pipeline the next one ("Publish v4").
 
@@ -32,8 +33,11 @@ Save incomplete drafts, then use **Review & publish → Validate → Publish**. 
 shows the changes and a pipeline (Drafted → Validated → Review → Prepare storage
 → Published) derived from the saved draft, the last validation of that exact
 draft and the latest publication; the Fields tab shows the same pipeline
-while the draft differs from the active version or a publication is pending
-or failed. The published version remains separate from
+below the fields while the draft differs from the active version or a
+publication is pending or failed. A draft identical to the active version
+(same definition hash) cannot publish: the console disables **Publish** and
+says why, and `PublishEntity` (console and MCP alike) rejects it with 409
+without queuing a version. The published version remains separate from
 the draft. The UI preserves the selected
 entity across reloads and warns before abandoning unsaved edits. Publication
 status stays pending until the generated storage is ready to serve that version.
