@@ -1,5 +1,58 @@
 # Lastapp verification
 
+## Delivery screens, Activity and their server contracts on the UI kit — 18 November 2026
+
+- Apps and Spaces lists, App/Space detail tabs (micro-apps, settings), Space →
+  Development, App → Releases (ship flow, production deployment stepper,
+  release history and review, uploaded builds) and Activity are rebuilt from
+  kit parts only. New kit pieces, each with axe-clean stories in light and
+  dark: `FactList`, `Disclosure`, `CodeBlock`, `PickList`,
+  `SegmentedControl`, `LinkButton`, `Stack`/`Inline`/`Split`, and Collection's
+  `header`, `params`/`filters`, `render` and `poll`.
+- Server contracts: `GET /v1/config` publishes
+  `development_policy.deployment_states` from `delivery.DeploymentSteps`/
+  `DeploymentFailed` (`TestDeploymentStatesMatchSchema` keeps them equal to
+  the `release_deployments` CHECK); audit events carry `actor_kind`, the trail
+  accepts `?actor=` and `?kind=` before search and paging, and
+  `GET …/audit-kinds` lists the kinds (`TestAuditAttributionGolden` asserts
+  each filter, a combined filter, a rejected actor, the kinds list and a 403
+  for a member without `audit.read`). `session_shapes` golden regenerated for
+  the new config field; the other goldens are unchanged.
+- Findings fixed during verification: the running deployment's description
+  contained the word "active", so the deployment-status regression saw the
+  state before it was reached (copy changed; the assertion is unchanged);
+  `TestRegistryRecordsMatchUntypedRows` needed the new column; a visual review
+  found legacy `.workspace-facts` styles overriding FactList, a wrapping
+  badge in the release list, an over-wide kind filter, mid-word breaks in
+  phone tables and "1 records" — all fixed.
+
+Executed checks:
+
+- `npm run lint`, `npm run typecheck`, `npm run build`, `npm run
+  build-storybook` (output deleted; the 9 new stories axe-clean in light and
+  dark), `make lint` (0 issues), `git diff --check`, `python3
+  design/validate_schema.py --check`, `python3 scripts/verify_driver.py`
+  **PASS**. `go test ./...` and, against the local MariaDB,
+  `go test ./internal/control ./internal/agent ./internal/delivery` with
+  `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` **PASS**.
+- Temporary probe on the e2e stack (not committed): a fresh Tenant, Space,
+  App and micro-app with deployment, release and workspace responses routed
+  to fixed states; axe-core WCAG 2.0/2.1 A/AA + best-practice and
+  `scrollWidth <= innerWidth` on Apps, Spaces, Space settings and
+  development, App micro-apps and settings, Releases (publishing, failed,
+  active) and Activity at 1440, 1920 and 390 px in light and dark: **50
+  states, 0 violations, no horizontal overflow**; content is 1196 px wide at
+  1440 and capped at 1480 px, centred, at 1920. Keyboard: the actor filter
+  (Enter on **Agents** sends `actor=agent`), the kind Select (Enter, Arrow,
+  Enter sends `kind=`) and opening a release with Enter.
+- `make e2e` with the stock timeouts and no retries: the first full run was
+  **34/35** (the deployment-status finding above); after the fix
+  `development-releases.spec` passed 3/3 and the full suite **35/35**
+  (2.7 min). No config change; no assertion relaxed.
+- Spec changes: `review-fixes.spec` reads the compute preference as the
+  definition paired with its term (was one text node);
+  `workspace-regressions.spec` accepts "1 record" in the load-finished count.
+
 ## Console shell and Tenant Home on the UI kit — 18 November 2026
 
 - The shell (sidebar, top bar, page header) is composed from kit parts. The
