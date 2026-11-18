@@ -3,7 +3,8 @@ import {
   login,
   fixtureTenant,
   selectTenant,
-  nav,
+  tenantSettings,
+  openSpaces,
   choose,
   pick,
   rootSQL,
@@ -29,7 +30,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     admin = await context.newPage();
   await login(admin, "tenant-admin");
   await selectTenant(admin, tenant);
-  await nav(admin, "Settings");
+  await tenantSettings(admin);
   await admin.getByRole("tab", { name: "Databases", exact: true }).click();
   await admin
     .getByRole("button", { name: "Add database", exact: true })
@@ -58,7 +59,7 @@ test("existing database registration, shared access controls and Tenant-switch i
   expect(
     rootSQL(`SELECT id FROM ${dbName}.existing_data;`, ["-N"]).trim(),
   ).toBe("7");
-  await nav(admin, "Spaces");
+  await openSpaces(admin);
   await admin
     .getByRole("button", { name: "Create Space", exact: true })
     .click();
@@ -133,7 +134,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     await held;
     await route.continue();
   });
-  await nav(admin, "Spaces");
+  await openSpaces(admin);
   await admin
     .getByRole("button", { name: "Create Space", exact: true })
     .click();

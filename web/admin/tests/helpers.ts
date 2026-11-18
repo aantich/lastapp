@@ -69,6 +69,13 @@ export async function logout(page: Page) {
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
 }
+// Tenant settings is an account-menu entry, not a sidebar screen.
+export async function tenantSettings(page: Page) {
+  await menu(page);
+  await page
+    .getByRole("menuitem", { name: "Tenant settings", exact: true })
+    .click();
+}
 export async function nav(page: Page, name: string) {
   await page
     .getByRole("navigation", { name: "Console screens" })

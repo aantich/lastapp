@@ -7,6 +7,7 @@ import {
   post,
   fixtureTenant,
   selectTenant,
+  openSpaces,
   pick,
   homeHeading,
 } from "./helpers";
@@ -131,7 +132,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
     .getByRole("button", { name: "Create Space", exact: true })
     .click();
   await expect(admin.getByRole("dialog")).toHaveCount(0);
-  await nav(admin, "Spaces");
+  await openSpaces(admin);
   await admin
     .getByRole("row")
     .filter({ hasText: "Sales" })
@@ -179,7 +180,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
     path: "../../artifacts/simple-app.png",
     fullPage: true,
   });
-  await nav(admin, "Spaces");
+  await openSpaces(admin);
   await admin
     .getByRole("row")
     .filter({ hasText: "Sales" })
