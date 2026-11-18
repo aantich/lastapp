@@ -33,7 +33,6 @@ export function DatePicker({
   "aria-label": ariaLabel,
   "aria-describedby": describedBy,
   "aria-invalid": invalid,
-  "aria-required": required,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -45,6 +44,8 @@ export function DatePicker({
   "aria-label"?: string;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
+  // FormField passes it; a button cannot carry aria-required, so a
+  // required date is enforced by the caller (the picker always has a value).
   "aria-required"?: boolean;
 }) {
   const selected = parseDay(value),
@@ -141,7 +142,6 @@ export function DatePicker({
         aria-label={ariaLabel}
         aria-describedby={describedBy}
         aria-invalid={invalid || undefined}
-        aria-required={required || undefined}
         data-value={value}
         disabled={disabled}
         onClick={() => (open ? close() : show())}
