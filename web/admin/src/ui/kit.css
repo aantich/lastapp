@@ -2017,3 +2017,51 @@ a.ui-link-button {
   white-space: nowrap;
   font-size: 13px;
 }
+
+/* Fieldset: a titled group of controls inside one form */
+.ui-fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+}
+.ui-fieldset > legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+.ui-fieldset-description {
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ui-fieldset-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Standalone page: a centred column outside the console shell */
+.ui-standalone {
+  min-height: 100vh;
+  padding: 48px 24px;
+  background: var(--ui-canvas);
+  color: var(--ui-text);
+}
+.ui-standalone-column {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  max-width: var(--ui-standalone-width, 760px);
+  margin: 0 auto;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .ui-standalone {
+    padding: 16px;
+  }
+}

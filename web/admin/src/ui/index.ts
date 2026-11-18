@@ -15,6 +15,7 @@ export { StatusBadge, Badge } from "./status";
 export { statusTone, type Tone } from "./status-tone";
 export { cx, initials } from "./utils";
 export { Stack, Split, Inline, Columns } from "./layout";
+export { StandalonePage } from "./standalone-page";
 export {
   Card,
   CardHeader,
@@ -34,6 +35,7 @@ export { Toaster } from "./toast";
 export { toast, dismissToast, type ToastOptions } from "./toast-store";
 export { Checkbox, Switch, RadioGroup, type RadioOption } from "./checkbox";
 export { FormField, TextField, Textarea } from "./field";
+export { Fieldset } from "./fieldset";
 export {
   Stepper,
   Progress,
