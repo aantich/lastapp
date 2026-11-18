@@ -141,7 +141,9 @@ export function DevelopmentWorkspaces({
                 r.state === "preparing" ? progress(r.preparation_step) : null;
               return step ? (
                 <Stack gap="sm">
-                  <StatusBadge state={r.state} />
+                  <Inline>
+                    <StatusBadge state={r.state} />
+                  </Inline>
                   <Progress {...step} />
                 </Stack>
               ) : (
