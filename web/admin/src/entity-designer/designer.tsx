@@ -273,7 +273,7 @@ export function EntityDesigner({
         <Split
           aside={
             <Card>
-              <CardHeader level={3} title="Entities" />
+              <CardHeader title="Entities" />
               <CardBody>
                 <PickList
                   label="Entities"
