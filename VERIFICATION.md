@@ -1,5 +1,35 @@
 # Lastapp verification
 
+## Access navigation, control role and inherited App assignments — 19 November 2026
+
+- Backend (MariaDB, `TestScopedRecipientOptions`): `GET …/capabilities`
+  returns `control_roles` broadest first (an App manager gets only App
+  manager; the Tenant administrator gets Tenant administrator, then Space
+  manager); `GET …/apps/{app}/role-assignments?include=space` lists the App's
+  own assignments before its Space's, returns 403 to an App-only manager
+  (who still reads the App's own) and 400 on a Space. All Go packages
+  passed with `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` set
+  (`internal/control` 119 s); `make lint` clean.
+- Browser (`tests/access.spec.ts`): the sidebar's Access opens the Space's
+  Access tab and stays highlighted on Members and teams; the account block
+  names the role from `control_roles`; with 53 Space assignments the matrix
+  names a holder whose only assignment is on the second page and counts
+  "+49" for a role with 51 holders; a cell opens the entity on its Access tab
+  (this also fixed a matrix link that changed the address without opening
+  the entity: a second `useConsoleURL` user's state was not shared); App
+  Access lists its App manager (removable) first, then inherited Space
+  assignments with no action. Members and teams specs reach the page from
+  the account menu.
+- axe (wcag2a/aa, wcag21a/aa): 0 violations on Space Access, App Access and
+  Members and teams at 1440 and 390 px; no horizontal overflow at 390 px.
+  Local runs shared the machine's single e2e database port with other
+  stacks; two runs were lost when another run replaced the container.
+- CI run 44397554328 (commit 8ded208, rebased on main after #29) passed
+  lint, schema, race tests and the full browser suite. A text-only visual
+  review against the mockup found no material problem; it noted that the
+  open Space stays highlighted in the Spaces list beside Access (as it does
+  beside Entities).
+
 ## Workspace preparation steps, Home attention and deployment retry — 19 November 2026
 
 - `TestDevelopmentWorkspaceReleaseFlow` (MariaDB) checks that a new workspace
