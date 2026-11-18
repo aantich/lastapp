@@ -63,7 +63,11 @@ for authors with `workspace.manage`; an App's Releases tab requires
 `release.manage`. Human-created workspaces belong to that human; a connected
 agent creates its own workspace (marked **Agent workspace**). The human owner can
 inspect that agent's copy. The workspace list refreshes itself while a workspace
-is preparing; **Retry** re-runs a failed preparation and **Archive** asks for
+is preparing and shows the step the worker reached (`preparation_step`, one of
+`development_policy.workspace_steps` in `GET /v1/config`: `storage → tables →
+publishing`, then `ready`; a failed workspace keeps the step it failed at) as
+"Step N of M"; Home shows the same progress for the author's own preparing
+workspaces. **Retry** re-runs a failed preparation and **Archive** asks for
 confirmation.
 
 An App's **Releases** tab is the ship flow. In a workspace App, **Ship this App**
@@ -74,9 +78,23 @@ server publishes in `GET /v1/config` (`development_policy.deployment_states`:
 `queued → preparing → publishing → active`, or `failed`); the console polls
 while a deployment is in a running state. A failed deployment records the step
 it had reached (`failed_state`: queued, preparing or publishing), and the
-timeline marks that step with its stored error and **Retry deploy**, which
-starts a new deployment of the same release through the ordinary deploy
-operation (the same checks apply; there is no in-place retry of the failed job).
+timeline marks that step with its stored error and **Retry deploy** (also on
+Home and in the command palette).
+
+Retrying (`POST /v1/deployments/{id}/retry` with `If-Match` = the deployment's
+revision; MCP `lastapp_release action=retry`) re-queues the **same** deployment
+record for the same release and target App and runs it again from its first
+step, counting `attempts`. A failure discards the entity versions it queued, so
+no step resumes where it stopped: the retry queues fresh versions through the
+same worker steps, which recheck live authority, the build and the storage
+fences as before. It is refused unless the deployment failed, production's
+configuration is exactly what that failure left (`failed_base_hash`, recorded
+while the Space was still fenced), every active entity draft is either
+published or the one this deployment staged, and the caller has the deployment
+authority now. The caller's authority (and delegation) then carries the new
+attempt (`retried_by`), the audit trail records `release.deployment_retried`
+and the activation under that person, and the retried job joins the end of its
+Tenant's deployment queue. A second retry of the same failure is stale (412).
 Release history lists each release with its age, creator
 (`created_by_name`) and, for an agent workspace, the agent client
 (`agent_client_name`); **Details** opens its build, micro-app pins and
@@ -139,8 +157,9 @@ combining old ACLs with new authority. A failed activation rolls back registry
 security changes, clears pending publications, and restores previous physical
 versions only where the layout is verified compatible. Compatible DDL and draft
 metadata can remain after failure; incompatible layouts stay closed for inspection.
-Inspect failed jobs/publications and reconcile before a new deployment. There is
-no destructive rollback or backfill bypass.
+Inspect failed jobs/publications; retry the failed deployment once the cause is
+removed, or reconcile from a fresh workspace once production has changed. There
+is no destructive rollback or backfill bypass.
 
 After success, the originating workspace receives the new production base for
 future releases. Previously captured releases keep their original base hashes.
