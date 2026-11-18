@@ -215,10 +215,10 @@ export function PathCard({
   return (
     <div className="ui-path">
       <div className="ui-path-line">
-        <span className={cx("ui-tag ui-chip", "tone-" + whoTone)}>{who}</span>
+        <span className={cx("ui-tag ui-pill", "tone-" + whoTone)}>{who}</span>
         <span className="ui-path-can">can</span>
         {operations.map((o, i) => (
-          <span className="ui-tag ui-chip" key={i}>
+          <span className="ui-tag ui-pill" key={i}>
             {o}
           </span>
         ))}
@@ -270,7 +270,7 @@ export function ChipRow({
 }) {
   return (
     <div className="ui-chip-row">
-      <span className="ui-tag ui-chip">{chip}</span>
+      <span className="ui-tag ui-pill">{chip}</span>
       <span className="ui-chip-row-expression">{expression}</span>
       {note && <span className="ui-chip-row-note">{note}</span>}
       {actions}

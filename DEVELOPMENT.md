@@ -289,7 +289,7 @@ and system color modes. New console UI follows these rules:
     `NavList`/`NavListNote`, `GridTable` (a grid-template table that scrolls
     sideways in its card), `Panel` (titled card, `flush` for a table),
     `PathCard`, `Callout`, `ChipRow`, `ResultTile(s)`, `DesignerPage`,
-    `DesignerBody`, `DesignerNote`), `Badge chip` (the rounded 12 px chip),
+    `DesignerBody`, `DesignerNote`; their chips are the `pill` Badge),
     `Tabs variant="line"` (a page's 14 px section strip) and
     the layout parts `Stack`, `Inline` (`align="end"` lines a labelled field
     up with a button), `Split` (list | record, stacked under 800 px) and

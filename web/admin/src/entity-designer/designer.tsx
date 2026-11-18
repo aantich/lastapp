@@ -402,11 +402,11 @@ export function EntityDesigner({
           ) : archived ? (
             <StatusBadge state="archived" />
           ) : changes === null ? (
-            <Badge chip tone="info">
+            <Badge pill tone="info">
               Draft
             </Badge>
           ) : changes > 0 ? (
-            <Badge chip tone="info">
+            <Badge pill tone="info">
               Draft · {plural(changes, "change")}
             </Badge>
           ) : undefined

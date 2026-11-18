@@ -54,7 +54,7 @@ export const Fields: Story = {
         title="Order"
         meta="order · published 2 Mar 2026"
         chips={
-          <Badge chip tone="info">
+          <Badge pill tone="info">
             Draft · 2 changes
           </Badge>
         }
@@ -112,7 +112,7 @@ export const Fields: Story = {
                     field: (
                       <>
                         <code>total</code>{" "}
-                        <Badge chip tone="info">
+                        <Badge pill tone="info">
                           new
                         </Badge>
                       </>

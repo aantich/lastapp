@@ -142,7 +142,7 @@ export function FieldsTab({ d }: { d: Designer }) {
                   <Inline gap="sm">
                     <code>{key}</code>
                     {isNew && (
-                      <Badge chip tone="info">
+                      <Badge pill tone="info">
                         new
                       </Badge>
                     )}
