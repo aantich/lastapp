@@ -3,6 +3,8 @@ import { Search } from "lucide-react";
 import { Alert } from "./alert";
 import { Button } from "./button";
 import { DataTable } from "./data-table";
+import { EmptyState } from "./empty-state";
+import { Skeleton } from "./feedback";
 import { keyOf, type Item, type Page } from "../api-types";
 import { useApiQuery } from "../query";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
@@ -10,16 +12,37 @@ type CollectionProps = {
   path: string;
   columns: [string, (row: Item) => ReactNode][];
   actions?: (row: Item) => ReactNode;
-  empty?: string;
+  empty?: ReactNode;
+  // Names the table (default "Records").
+  caption?: string;
+  // Server filters beside the search box: their query string (without
+  // "?"/"&") restarts paging; `filters` renders their controls.
+  params?: string;
+  filters?: ReactNode;
+  // Renders the page's rows instead of a table (e.g. a Timeline feed).
+  render?: (rows: Item[]) => ReactNode;
+  // Refetch interval in ms while `poll(rows)` says the page is changing
+  // (e.g. a workspace is still preparing); false stops.
+  poll?: (rows: Item[]) => number | false;
 };
 export function Collection(props: CollectionProps) {
-  return <ScopedCollection key={props.path} {...props} />;
+  return (
+    <ScopedCollection
+      key={props.path + "?" + (props.params || "")}
+      {...props}
+    />
+  );
 }
 function ScopedCollection({
   path,
   columns,
   actions,
   empty = "No records yet.",
+  caption = "Records",
+  params,
+  filters,
+  render,
+  poll,
 }: CollectionProps) {
   const [query, setQuery] = useState(""),
     [search, setSearch] = useState(""),
@@ -32,7 +55,11 @@ function ScopedCollection({
   const result = useApiQuery<Page>(
       path +
         (path.includes("?") ? "&" : "?") +
-        `page=${page}&q=${encodeURIComponent(search)}`,
+        `page=${page}&q=${encodeURIComponent(search)}` +
+        (params ? "&" + params : ""),
+      poll
+        ? { refetchInterval: (q) => poll(q.state.data?.items || []) }
+        : undefined,
     ),
     loading = result.isPending || query !== search,
     items = (!loading && result.data?.items) || [],
@@ -53,22 +80,37 @@ function ScopedCollection({
             }}
           />
         </label>
+        {filters && <div className="ui-collection-filters">{filters}</div>}
         <span>{loading ? "Loading…" : `${items.length} records`}</span>
       </div>
       {error && <Alert>{error}</Alert>}
-      <DataTable
-        caption="Records"
-        columns={columns.map(([label, render]) => ({
-          key: label,
-          header: label,
-          render,
-        }))}
-        rows={items}
-        rowKey={(row) => keyOf(row.id || row.user_id)}
-        actions={actions}
-        loading={loading}
-        empty={empty}
-      />
+      {render ? (
+        loading ? (
+          <div className="ui-collection-feed" aria-busy>
+            <Skeleton width="70%" />
+            <Skeleton width="55%" />
+            <Skeleton width="62%" />
+          </div>
+        ) : items.length ? (
+          <div className="ui-collection-feed">{render(items)}</div>
+        ) : (
+          <EmptyState>{empty}</EmptyState>
+        )
+      ) : (
+        <DataTable
+          caption={caption}
+          columns={columns.map(([label, render]) => ({
+            key: label,
+            header: label,
+            render,
+          }))}
+          rows={items}
+          rowKey={(row) => keyOf(row.id || row.user_id)}
+          actions={actions}
+          loading={loading}
+          empty={empty}
+        />
+      )}
       {(page > 1 || more) && (
         <div className="pagination">
           <Button

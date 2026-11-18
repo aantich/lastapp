@@ -1313,3 +1313,185 @@ textarea.ui-input {
 .ui-menu-popup [role="menuitem"].danger {
   color: var(--ui-danger);
 }
+
+/* Segmented control (one view of a list) */
+.ui-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--ui-subtle);
+  max-width: 100%;
+}
+.ui-segmented > button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ui-segmented > button:hover {
+  color: var(--ui-text);
+}
+.ui-segmented > button[aria-pressed="true"] {
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-weight: 600;
+  box-shadow: var(--ui-button-shadow);
+}
+
+/* Fact list (labelled values of one record) */
+.ui-facts {
+  display: grid;
+  margin: 0;
+}
+.ui-facts > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+  gap: 4px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--ui-border);
+  font-size: 13px;
+}
+.ui-facts > div:first-child {
+  border-top: 0;
+}
+.ui-facts dt {
+  color: var(--ui-muted);
+}
+.ui-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-facts dd.ui-mono {
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+}
+@media (max-width: 520px) {
+  .ui-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Disclosure */
+.ui-disclosure > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 500;
+  list-style: none;
+}
+.ui-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.ui-disclosure > summary > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  transition: transform 0.15s;
+}
+.ui-disclosure[open] > summary > svg {
+  transform: rotate(90deg);
+}
+.ui-disclosure > summary > small {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.ui-disclosure-body {
+  padding: 4px 0 8px 22px;
+  min-width: 0;
+}
+
+/* Code block */
+.ui-code {
+  margin: 0;
+  max-height: 400px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-subtle);
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Pick list (a record list beside its open record) */
+.ui-pick-list {
+  display: grid;
+  gap: 8px;
+}
+.ui-pick-list > ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-pick-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-text);
+  text-align: left;
+}
+.ui-pick-item > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ui-pick-item strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ui-pick-item small {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-pick-item:hover {
+  background: var(--ui-hover);
+}
+.ui-pick-item[aria-pressed="true"] {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+}
+.ui-pick-empty {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+/* Collection filters and feed (Collection with `filters` / `render`) */
+.toolbar:has(.ui-collection-filters) {
+  flex-wrap: wrap;
+}
+.ui-collection-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ui-collection-feed {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+}

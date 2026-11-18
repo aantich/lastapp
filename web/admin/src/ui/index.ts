@@ -43,6 +43,15 @@ export {
 export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
+export {
+  FactList,
+  Disclosure,
+  CodeBlock,
+  PickList,
+  type Fact,
+  type PickItem,
+} from "./content";
+export { SegmentedControl, type Segment } from "./segmented";
 
 // Composites
 export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";

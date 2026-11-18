@@ -1,4 +1,9 @@
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { SegmentedControl } from "../segmented";
+import { Timeline } from "../stepper";
+import { Avatar } from "../avatar";
+import { StatusBadge } from "../status";
 import { Collection } from "../collection";
 import { text } from "../../api-types";
 import { nameColumn, statusColumn } from "../../tenant/screen";
@@ -47,4 +52,49 @@ export const Empty: Story = {
 };
 export const LoadError: Story = {
   args: { path: "/v1/tenants/ten_missing/spaces" },
+};
+
+// Server filters beside the search (`params` + `filters`) and a feed
+// (`render`) instead of the table.
+export const FilteredFeed: Story = {
+  args: { path },
+  render: function Render() {
+    const [state, setState] = useState("");
+    return (
+      <ConsoleStory passwordPolicy={policy(12, 128)}>
+        <Collection
+          path={path}
+          columns={[]}
+          params={state ? "state=" + state : ""}
+          filters={
+            <SegmentedControl
+              label="Status"
+              value={state}
+              onChange={setState}
+              options={[
+                { value: "", label: "All" },
+                { value: "active", label: "Active" },
+                { value: "archived", label: "Archived" },
+              ]}
+            />
+          }
+          empty="No Spaces in this state."
+          render={(rows) => (
+            <Timeline
+              label="Spaces"
+              events={rows.map((r) => ({
+                id: text(r.id),
+                marker: (
+                  <Avatar name={text(r.display_name)} kind="system" size={28} />
+                ),
+                title: text(r.display_name),
+                meta: <StatusBadge state={r.state} />,
+                detail: text(r.description),
+              }))}
+            />
+          )}
+        />
+      </ConsoleStory>
+    );
+  },
 };
