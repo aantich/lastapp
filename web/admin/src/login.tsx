@@ -164,7 +164,6 @@ export function PasswordScreen({
           hint={`${policy.length_hint} Spaces and passphrases are welcome.`}
         >
           <NewPasswordInput
-            className="ui-input"
             type="password"
             autoComplete="new-password"
             required

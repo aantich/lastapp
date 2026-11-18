@@ -1,3 +1,4 @@
+import { cx } from "./utils";
 import { useEffect, useRef, type InputHTMLAttributes } from "react";
 import { usePasswordPolicy } from "../console-config";
 
@@ -18,5 +19,7 @@ export function NewPasswordInput(
         : "",
     );
   }, [props.value, policy]);
-  return <input {...props} ref={input} />;
+  return (
+    <input {...props} className={cx("ui-input", props.className)} ref={input} />
+  );
 }
