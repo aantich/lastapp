@@ -19,7 +19,9 @@ import {
   text,
   type AgentGrant,
   type Deployment,
+  type EntityItem,
   type Page,
+  type WorkspaceItem,
 } from "../api-types";
 import { useApiQueries, useApiQuery } from "../query";
 import {
@@ -27,6 +29,7 @@ import {
   retryDeployment,
   useDeploymentStates,
 } from "../deployment";
+import { useWorkspaceProgress, workspacesPath } from "../workspaces";
 import { agentGrantsPath, ago } from "../actors";
 import { describeEvents } from "../activity";
 import { createSpace } from "./forms";
@@ -39,8 +42,10 @@ const day = 24 * 60 * 60 * 1000;
 // from an existing management read that the backend authorizes and scopes:
 // the Tenant overview (counts, newest Apps, databases being provisioned or
 // failed), each listed App's latest deployment (only where this account may
-// manage releases), agent grants and the audit trail. Nothing is estimated
-// in the browser.
+// manage releases), the account's own workspaces being prepared and the
+// entities with unpublished changes in the sidebar's Spaces (only where it
+// may manage workspaces or entities there), agent grants and the audit
+// trail. Nothing is estimated in the browser.
 export function HomePage({ t }: { t: TenantScreen }) {
   const {
     all,
@@ -52,6 +57,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
     profile,
     scoped,
     setModal,
+    spaces,
     tenant,
   } = t;
   const loaded = !!overview.tenant;
@@ -84,9 +90,23 @@ export function HomePage({ t }: { t: TenantScreen }) {
     can("audit.read") ? base + "/audit-events?limit=4" : null,
   );
   const tenantName = text(profile.display_name);
+  // The same reads as the sidebar's workspaces and the entity designer's
+  // list, so Home adds no request they have already made.
+  const progress = useWorkspaceProgress();
+  const workspaceSpaces = spaces.filter((sp) =>
+    scoped("workspace.manage", text(sp.id), ""),
+  );
+  const workspaceReads = useApiQueries<Page<WorkspaceItem>>(
+    workspaceSpaces.map((sp) => workspacesPath(text(sp.id))),
+  );
+  const entitySpaces = spaces.filter((sp) =>
+    scoped("entity.manage", text(sp.id), ""),
+  );
+  const entityReads = useApiQueries<{ items: EntityItem[] }>(
+    entitySpaces.map((sp) => `/v1/spaces/${text(sp.id)}/entities`),
+  );
 
-  const retry = (d: Deployment) =>
-    retryDeployment(tenant, d, setModal, t.setError);
+  const retry = (d: Deployment) => retryDeployment(d, setModal);
 
   const attention: ReactNode[] = [];
   if (loaded && overview.spaces === 0 && all("space.manage"))
@@ -173,6 +193,56 @@ export function HomePage({ t }: { t: TenantScreen }) {
       );
     }
   }
+  workspaceSpaces.forEach((sp, i) => {
+    for (const w of workspaceReads[i]?.data?.items || []) {
+      const step = w.state === "preparing" && progress(w.preparation_step);
+      if (!step) continue;
+      attention.push(
+        <AttentionCard
+          key={"workspace" + w.id}
+          state={w.state}
+          stateLabel="Preparing"
+          tone="warning"
+          meta={
+            w.agent_client_name ? `by ${w.agent_client_name} · agent` : "by you"
+          }
+          title={`Workspace ${w.display_name}`}
+          extra={<Progress {...step} />}
+        >
+          {`Copying ${text(sp.display_name)}'s published configuration into a fresh database.`}
+        </AttentionCard>,
+      );
+    }
+  });
+  entitySpaces.forEach((sp, i) => {
+    for (const e of entityReads[i]?.data?.items || []) {
+      if (
+        !e.has_draft_changes ||
+        e.pending_version_id ||
+        e.state === "archived"
+      )
+        continue;
+      attention.push(
+        <AttentionCard
+          key={"entity" + e.id}
+          state="draft"
+          stateLabel="Review"
+          tone="info"
+          meta={text(sp.display_name)}
+          title={`${e.label} · Unpublished changes`}
+          actions={
+            <Button size="sm" onClick={() => t.openEntity(text(sp.id), e.id)}>
+              Open
+            </Button>
+          }
+        >
+          {e.active_version_id
+            ? "Its draft differs from the published version. Apps keep using the published version until you publish."
+            : "Not published yet. Apps can use it once you publish."}
+        </AttentionCard>,
+      );
+    }
+  });
   for (const db of overview.attention || []) {
     const failed = db.state === "failed";
     attention.push(
@@ -264,7 +334,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
         ) : (
           <AllClear>
             {loaded
-              ? "No failed or running deploys, databases being prepared or agent access about to expire."
+              ? "No failed or running deploys, workspaces or databases being prepared, unpublished entity changes or agent access about to expire."
               : "Checking…"}
           </AllClear>
         )}

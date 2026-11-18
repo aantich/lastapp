@@ -14,6 +14,7 @@ import { useConsoleConfig } from "./console-config";
 import {
   deployModal,
   deploymentSteps,
+  retryModal,
   useDeploymentStates,
 } from "./deployment";
 import { ago } from "./actors";
@@ -252,17 +253,14 @@ export function AppReleases({
     refresh();
     window.open(result.url, "_blank", "noopener,noreferrer");
   }
-  // Deploys a release to production (also how a failed one is retried).
-  function deploy(release: Release, retry = false) {
-    setModal(
-      deployModal(tenant, release, retry, (result) => {
-        // Show the new deployment at once; its state restarts the polling.
-        previousDeployment.current = result;
-        queryClient.setQueryData(apiKey(deploymentPath), {
-          deployment: result,
-        });
-      }),
-    );
+  // Show a new or retried deployment at once; its state restarts the polling.
+  function show(result: Deployment) {
+    previousDeployment.current = result;
+    queryClient.setQueryData(apiKey(deploymentPath), { deployment: result });
+  }
+  // Deploys a release to production.
+  function deploy(release: Release) {
+    setModal(deployModal(tenant, release, show));
   }
   const failed = deployment?.state === states.failed,
     live = deployment?.state === states.live;
@@ -301,9 +299,6 @@ export function AppReleases({
           ? `Production keeps serving ${servingName} until ${name} is active.`
           : `Production keeps serving its current release until ${name} is active.`;
   const steps = deployment ? deploymentSteps(states.steps, deployment) : [];
-  async function retry(release: string) {
-    deploy(await api<Release>("/v1/releases/" + release), true);
-  }
   function open(id: string) {
     return run(async () =>
       setSelected(await api<Release>("/v1/releases/" + id)),
@@ -469,7 +464,7 @@ export function AppReleases({
               variant="primary"
               icon={<RotateCcw size={14} aria-hidden />}
               disabled={busy}
-              onClick={() => run(() => retry(deployment.release_id))}
+              onClick={() => setModal(retryModal(deployment, show))}
             >
               Retry deploy
             </Button>
