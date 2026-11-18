@@ -86,6 +86,30 @@ function Space({ empty, readOnly }: { empty?: boolean; readOnly?: boolean }) {
           },
         ]}
       />
+      <AssignmentList
+        title="Assignments"
+        label="App role assignments"
+        items={[
+          {
+            id: "3",
+            role: "App manager",
+            who: "Sam Lee",
+            scope: "App · Sample app",
+            action: (
+              <Button size="sm" variant="danger">
+                Remove
+              </Button>
+            ),
+          },
+          {
+            id: "4",
+            role: "Reviewer",
+            who: "Team A",
+            scope: "Space · Sample",
+            inherited: true,
+          },
+        ]}
+      />
     </div>
   );
 }

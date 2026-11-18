@@ -98,3 +98,30 @@ export function cachedRows(match: (path: string) => boolean): Item[] {
   }
   return [...rows.values()];
 }
+
+// Every page of a paged collection, read 200 rows at a time, for a view that
+// must name or count all of it (who holds each role), never just a first
+// page. Cached under the path with "#all"; refreshed like any other read.
+export function useAllPages(path: string | null | undefined) {
+  const live = useContext(LiveRefresh);
+  return useQuery({
+    refetchInterval: live,
+    queryKey: apiKey((path || "") + "#all"),
+    queryFn: async ({ signal }): Promise<Page> => {
+      const items: Item[] = [],
+        sep = path!.includes("?") ? "&" : "?";
+      for (let page = 1; ; page++) {
+        const v = await api<Page>(
+          `${path}${sep}page=${page}&limit=200`,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        );
+        items.push(...v.items);
+        if (!v.pagination?.has_more) return { items };
+      }
+    },
+    enabled: !!path,
+  });
+}

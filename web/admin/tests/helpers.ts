@@ -82,6 +82,17 @@ export async function tenantSettings(page: Page) {
     .getByRole("menuitem", { name: "Tenant settings", exact: true })
     .click();
 }
+// The Tenant's members and teams: an account-menu entry (the sidebar's
+// Access opens a Space's access).
+export async function people(page: Page) {
+  await menu(page);
+  await page
+    .getByRole("menuitem", { name: "Members and teams", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Members and teams", level: 1 }),
+  ).toBeVisible();
+}
 export async function nav(page: Page, name: string) {
   await page
     .getByRole("navigation", { name: "Console screens" })

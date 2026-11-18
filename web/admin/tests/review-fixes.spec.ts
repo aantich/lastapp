@@ -1,5 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
-import { login, nav, choose, post, fixtureTenant, pick } from "./helpers";
+import {
+  login,
+  nav,
+  people,
+  choose,
+  post,
+  fixtureTenant,
+  pick,
+} from "./helpers";
 const roleIds = {
   platform: "00000000-0000-4000-8000-000000000001",
   tenant: "00000000-0000-4000-8000-000000000002",
@@ -118,7 +126,7 @@ test("existing administrative roles can be revoked while account, membership and
       )
     ).status,
   ).toBe(200);
-  await nav(admin, "Access");
+  await people(admin);
   const row = admin.getByRole("row").filter({ hasText: outsider.display_name }),
     tenantRole = row.getByRole("checkbox", { name: /Tenant administrator/ });
   await expect(tenantRole).toBeEnabled();
@@ -234,7 +242,7 @@ test("platform can add a verified SSO identity as an ordinary member and access 
   const member = await tenantPage(browser, tenant),
     admin = member.page;
   expect((await admin.request.get("/admin/v1/users")).status()).toBe(403);
-  await nav(admin, "Access");
+  await people(admin);
   await expect(
     admin
       .getByRole("row")

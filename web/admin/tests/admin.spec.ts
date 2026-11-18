@@ -3,6 +3,7 @@ import {
   login,
   logout,
   nav,
+  people,
   choose,
   post,
   fixtureTenant,
@@ -230,7 +231,7 @@ test("People combines Tenant administration and team membership/roles, retaining
   expect(
     (await post(page, base + "/memberships", { user_id: outsider.id })).status,
   ).toBe(201);
-  await nav(page, "Access");
+  await people(page);
   await page
     .getByRole("row")
     .filter({ hasText: "Outside user" })

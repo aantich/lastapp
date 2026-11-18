@@ -7,6 +7,7 @@ import {
   logout,
   menu,
   nav,
+  people,
   homeHeading,
 } from "./helpers";
 
@@ -61,7 +62,7 @@ test("only platform admins create global credentials; Tenant admins add existing
     (await post(page, base + "/memberships", { account: malicious })).status,
   ).toBe(403);
   expect((await post(page, "/admin/v1/users", malicious)).status).toBe(403);
-  await nav(page, "Access");
+  await people(page);
   await page.getByRole("button", { name: "Add person", exact: true }).click();
   await expect(dialog).toContainText("Ask a platform administrator");
   await expect(

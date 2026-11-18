@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
+  Users,
 } from "lucide-react";
 import { api } from "./api";
 import { DevelopmentBanner } from "./development-workspaces";
@@ -62,6 +63,7 @@ import {
   type Item,
   type Me,
   type Page,
+  type CapabilitiesResponse,
   type TenantCapabilities,
   type TenantOverview,
 } from "./api-types";
@@ -69,7 +71,13 @@ import { editFields, options, type TenantScreen } from "./tenant/screen";
 import { addDatabase, createApp, createSpace } from "./tenant/forms";
 import { AppsPage, SpacesPage } from "./tenant/inventory";
 import { HomePage } from "./tenant/home-page";
-import { sectionLabel, tenantNav, tenantTabs } from "./tenant/navigation";
+import {
+  accessTarget,
+  peopleVisible,
+  sectionLabel,
+  tenantNav,
+  tenantTabs,
+} from "./tenant/navigation";
 import { SpacePage } from "./tenant/space-page";
 import { AppPage } from "./tenant/app-page";
 import { TenantSettings } from "./tenant/settings-page";
@@ -107,7 +115,7 @@ export function TenantWorkspace({
       tenant ? base + "/overview" : null,
       { refetchInterval: live },
     ),
-    capsQuery = useApiQuery<{ permissions: TenantCapabilities }>(
+    capsQuery = useApiQuery<CapabilitiesResponse>(
       tenant ? base + "/capabilities" : null,
       { refetchInterval: live },
     ),
@@ -181,6 +189,20 @@ export function TenantWorkspace({
       const space = route.space || text(sidebarSpaces[0]?.id);
       if (space) go("space", { space, tab: "entities" });
       else go("spaces");
+      return;
+    }
+    if (page === "access") {
+      const target = accessTarget(
+        { all, can, scoped },
+        caps["authorization.read"],
+        route,
+        sidebarSpaces.map((sp) => text(sp.id)),
+      );
+      if (target?.page === "space")
+        go("space", { space: target.space, tab: "access" });
+      else if (target?.page === "app")
+        go("app", { app: target.app, tab: "access" });
+      else go(target?.page || "home");
       return;
     }
     const path =
@@ -439,7 +461,11 @@ export function TenantWorkspace({
         ? tabCommands(route.page, subject, "This page")
         : []),
       ...["people", "settings"]
-        .filter((page) => menu.some((m) => m.id === page))
+        .filter((page) =>
+          page === "people"
+            ? peopleVisible(capabilities)
+            : menu.some((m) => m.id === page),
+        )
         .flatMap((page) =>
           tabCommands(page, sectionLabel(page) || page, "Sections"),
         ),
@@ -487,6 +513,16 @@ export function TenantWorkspace({
             onClick={() => createApp(t)}
           >
             Create App
+          </Button>
+        )}
+      {route.page === "space" &&
+        route.tab === "access" &&
+        peopleVisible(capabilities) && (
+          <Button
+            icon={<Users size={16} aria-hidden />}
+            onClick={() => go("people")}
+          >
+            Members and teams
           </Button>
         )}
       {route.page === "agents" && (
@@ -571,7 +607,8 @@ export function TenantWorkspace({
     <LiveRefresh value={live}>
       <ConsoleShell
         me={me}
-        role={me.email}
+        // The broadest fixed control role here, else the email.
+        role={capsQuery.data?.control_roles[0]?.display_name || me.email}
         title={
           route.page === "agents"
             ? "Agent connections"
@@ -597,11 +634,14 @@ export function TenantWorkspace({
         active={
           route.page === "space" && route.tab === "entities"
             ? "entities"
-            : route.page === "app"
-              ? "apps"
-              : route.page === "settings" && route.tab === "agents"
-                ? "agents"
-                : route.page
+            : (route.page === "space" && route.tab === "access") ||
+                route.page === "people"
+              ? "access"
+              : route.page === "app"
+                ? "apps"
+                : route.page === "settings" && route.tab === "agents"
+                  ? "agents"
+                  : route.page
         }
         navigate={go}
         section={tenantSection}
@@ -647,6 +687,16 @@ export function TenantWorkspace({
           </Button>
         }
         accountItems={[
+          ...(peopleVisible(capabilities)
+            ? [
+                {
+                  id: "people",
+                  label: "Members and teams",
+                  icon: <Users size={16} aria-hidden />,
+                  onSelect: () => go("people"),
+                },
+              ]
+            : []),
           {
             id: "settings",
             label: "Tenant settings",
