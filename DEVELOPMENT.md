@@ -177,6 +177,12 @@ a pinned registry connection. A term then runs as follows.
   oldest first and stops at the first that progresses, so a workspace waiting
   for its storage or publications never holds back another, and one workspace's
   error does not stop the others in that pass.
+- **Foreground settling.** `Leader.Settle` lets a CLI command (only
+  `seed-development` today) lead one term in its own goroutine: it takes the same
+  lock, runs the starters, then drains the same steps pass by pass, in step
+  order, until a pass does no work (a step error ends the drain with the step
+  name). While a server's worker holds the lock, `Settle` does nothing and
+  reports that it did not lead, so there is never a second leader.
 - **Lock order.** Concurrent steps take registry row locks in the same order as
   console mutations: the Tenant row (`tenants … FOR UPDATE`) first, then the
   Tenant's resources (`database_resources`, `entity_definitions`/
@@ -461,7 +467,8 @@ run black-box (and through `Server.Tools`) in `internal/control`, with the
 `internal/worker` tests the leader with fake steps on a lock-only fixture
 (`LASTAPP_TEST_CONFIG`, no schema): starters once per term on the lock
 connection before any step, steps on connections of their own, standing by while
-another session holds the lock, the per-step idle pause, transient retries,
+another session holds the lock, `Settle` draining until idle or deferring to
+another leader, the per-step idle pause, transient retries,
 error isolation with backoff and no lost leadership, a slow step not delaying
 another, and term end (killed lock connection) stopping every step before the
 next term's recovery (`go test ./internal/worker`); the `Fair` and publication

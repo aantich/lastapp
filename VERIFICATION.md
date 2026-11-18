@@ -1,5 +1,42 @@
 # Lastapp verification
 
+## Populated Northstar development demo — 18 November 2026
+
+- `seed-development` now also fills the Northstar demo through the real
+  operations, as the Tenant administrator: CRM entities Account, Contact and
+  Deal created and published (`entities.Authoring`), the development workspace
+  `crm-pricing-exp` (`delivery.CreateWorkspace`), and for Deal review and
+  Forecasting a static build stored through an upload ticket
+  (`UploadTicket`/`AuthorizeUpload`/`StoreBuild`), release 1.0.0
+  (`CreateRelease`) and a production deployment (`DeployRelease`). Forecasting's
+  release promotes a new Deal field published in the workspace. No registry
+  table of these resources is written directly.
+- Queued work runs in the seed through the worker's own steps:
+  `worker.Leader.Settle` takes the worker lock, runs the starters and drains the
+  steps until a pass does no work, and defers (skipping the demo content with a
+  warning) while a server's worker leads. Each piece is created only while it is
+  missing; an App with any deployment is never shipped again.
+- Not seeded: a failed deployment (no genuine check fails without faking state)
+  and an agent grant (created only by the OAuth consent flow).
+
+Executed checks:
+
+- `TestNorthstarDemoSeed` (new): all three entities published with no pending
+  version, the forecast field only on Deal, the workspace ready and owned by the
+  Tenant administrator, exactly one active deployment per App that is the App's
+  selected release; a second `SeedDevelopment` leaves the counts of audit
+  events, entities, entity versions, workspaces, builds, releases, deployments,
+  upload tickets and database resources unchanged. `TestNorthstarDemoDefinitions`
+  validates the definitions. `TestSettleDrainsUntilIdle` and
+  `TestSettleDefersAndReportsFailures` cover `Settle`. `TestSecurityRegressions`
+  (which seeds with the provisioner) now shares the disposable-registry helper.
+- `go build ./...`, `go test ./...`, `LASTAPP_SECURITY_CONFIG=… LASTAPP_TEST_CONFIG=…
+  go test -race -count=1 ./internal/control ./internal/worker` **PASS**;
+  `golangci-lint run ./...` (v2.15.0, 0 issues), `python3
+  design/validate_schema.py --check`, `python3 scripts/verify_driver.py`
+  **PASS**. No console change; `make e2e` and the development database were not
+  run or reseeded.
+
 ## Entities, Access, Agents and Platform screens on the UI kit (U4b) — 18 November 2026
 
 - Every console screen outside `src/ui` is now kit-only: the entity designer

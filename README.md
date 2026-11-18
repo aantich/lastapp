@@ -12,7 +12,7 @@ A Go API and React/Tailwind console with separate Platform and Tenant workspaces
 
 **Open locally:** http://127.0.0.1:8787/console/
 
-Use **Continue with SSO** to open development SSO, then choose **Platform operator**, password **`lastapp-local`**. The issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space, Marketing/Engineering teams and two Apps. The normal login form accepts the email/password accounts created by platform administrators through Tenant provisioning or **Users → Create account**.
+Use **Continue with SSO** to open development SSO, then choose **Platform operator**, password **`lastapp-local`**. The issuer also offers **Tenant administrator**, **Joe (Marketing Reviewer)** and **Outside user**, with the same development password. Signing in does not grant platform administration. The **Northstar demo** contains a CRM Space with published Account/Contact/Deal entities and a development workspace, Marketing/Engineering teams, and two Apps (Deal review, Forecasting), each with a deployed static release (see [FOUNDATION.md](FOUNDATION.md)). The normal login form accepts the email/password accounts created by platform administrators through Tenant provisioning or **Users → Create account**.
 
 ## Run
 
@@ -26,7 +26,7 @@ cd lastapp
 make dev
 ```
 
-`make dev` builds the frontend and embeds it in the Go binary, applies migrations, seeds development identities/plans, and starts three detached local processes:
+`make dev` builds the frontend and embeds it in the Go binary, applies migrations, seeds development identities/plans and the Northstar demo (before the server starts, so the seed runs its queued work itself), and starts three detached local processes:
 
 | Service | Address |
 | --- | --- |
