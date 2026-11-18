@@ -494,9 +494,11 @@ test("deployment status survives reload and retries a transient failure", async 
     });
   });
   await page.goto(`/console/tenants/${tenant}/apps/${app}/releases`);
-  await expect(page.locator(".deployment-status")).toContainText("queued");
+  // The timeline marks the deployment's current step.
+  const current = page.locator('.deployment-status [aria-current="step"]');
+  await expect(current).toContainText("Queued");
   await page.reload();
-  await expect(page.locator(".deployment-status")).toContainText("queued");
+  await expect(current).toContainText("Queued");
   const before = requests;
   failures = 1;
   state = "active";

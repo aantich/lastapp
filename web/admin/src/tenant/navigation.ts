@@ -88,8 +88,9 @@ export function tenantTabs(
         ]
       : page === "app"
         ? [
-            ["microapps", "Micro-apps"],
             ["releases", "Releases", c.scoped("release.manage")],
+            ["microapps", "Micro-apps", c.scoped("microapp.read")],
+            ["data", "Data access", c.scoped("app.manage")],
             ["access", "Access", c.scoped("authorization.read")],
             ["settings", "Settings"],
           ]

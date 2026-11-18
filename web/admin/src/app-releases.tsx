@@ -8,7 +8,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { api, type Failure } from "./api";
+import { api } from "./api";
 import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
 import {
@@ -16,42 +16,48 @@ import {
   deploymentSteps,
   useDeploymentStates,
 } from "./deployment";
+import { ago } from "./actors";
 import {
   Alert,
   Button,
   Card,
   CardBody,
   CardHeader,
+  CellActions,
+  CellTitle,
   CodeBlock,
   DataTable,
   Disclosure,
-  EmptyState,
   FactList,
   FormModal,
   IconButton,
   LinkButton,
-  PickList,
-  Split,
+  PageStack,
+  RowTable,
   Stack,
   StatusBadge,
   Stepper,
+  TitledCard,
   UploadButton,
   type Modal,
+  type RowTableRow,
   type Step,
 } from "./ui";
 import {
   keyOf,
   num,
+  optText,
   text,
   type Build,
   type Deployment,
   type Item,
   type Page,
   type Release,
+  type ReleaseItem,
   type ReleaseManifest,
   type UploadTicket,
 } from "./api-types";
-import { errorMessage, useAction } from "./use-action";
+import { useAction } from "./use-action";
 
 async function encode(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -69,13 +75,15 @@ const when = (at: unknown) => new Date(text(at)).toLocaleString();
 export function AppReleases({
   app,
   tenant,
+  deployment,
+  deploymentError,
   refresh,
-  openWorkspaces,
 }: {
   app: Item;
   tenant: string;
+  deployment: Deployment | null | undefined;
+  deploymentError: string;
   refresh: () => void;
-  openWorkspaces: () => void;
 }) {
   const [selected, setSelected] = useState<Release>(),
     [error, setError] = useState(""),
@@ -88,7 +96,7 @@ export function AppReleases({
   const releasePages = useInfiniteQuery({
     queryKey: [...apiKey(releasesPath), "pages"],
     queryFn: ({ pageParam, signal }) =>
-      api<Page>(
+      api<Page<ReleaseItem>>(
         `${releasesPath}?page=${pageParam}`,
         "GET",
         undefined,
@@ -99,7 +107,7 @@ export function AppReleases({
     getNextPageParam: (last, _, page) =>
       last.pagination?.has_more ? page + 1 : undefined,
   });
-  const releases = (releasePages.data?.pages || []).reduce<Item[]>(
+  const releases = (releasePages.data?.pages || []).reduce<ReleaseItem[]>(
       (all, p) => [
         ...all.filter((r) => !p.items.some((n) => n.id === r.id)),
         ...p.items,
@@ -111,39 +119,12 @@ export function AppReleases({
   const builds =
     useApiQuery<Page<Build>>(development ? `/v1/apps/${app.id}/builds` : null)
       .data?.items || [];
-  // Production deployment status: poll while it is running, backing off
-  // from 1.5 s to 10 s after failures, and stop at a final state or when
-  // access is gone. refetchInterval never overlaps requests.
-  const deploymentPath = `/v1/apps/${app.id}/deployment`,
-    failures = useRef({ at: 0, count: 0 });
-  const deploymentQuery = useApiQuery<{ deployment?: Deployment | null }>(
-    deploymentPath,
-    {
-      refetchInterval: (q) => {
-        const { status, error, errorUpdatedAt, data } = q.state;
-        if (status === "error") {
-          if (failures.current.at !== errorUpdatedAt)
-            failures.current = {
-              at: errorUpdatedAt,
-              count: failures.current.count + 1,
-            };
-          if ([401, 403, 404].includes((error as Failure).status)) return false;
-          return Math.min(1500 * 2 ** failures.current.count, 10000);
-        }
-        failures.current = { at: 0, count: 0 };
-        return states.running(data?.deployment?.state) ? 1500 : false;
-      },
-    },
-  );
-  const deployment = deploymentQuery.data?.deployment || undefined,
-    deploymentError = deploymentQuery.error
-      ? `Could not refresh deployment status: ${errorMessage(deploymentQuery.error)}`
-      : "";
+  const deploymentPath = `/v1/apps/${app.id}/deployment`;
   // When this deployment goes live, the App itself changed: refresh it.
   const previousDeployment = useRef<Deployment | undefined>(undefined);
   useEffect(() => {
     const previous = previousDeployment.current;
-    previousDeployment.current = deployment;
+    previousDeployment.current = deployment || undefined;
     if (
       deployment?.state === states.live &&
       previous &&
@@ -260,11 +241,10 @@ export function AppReleases({
       },
     });
   }
-  async function preview() {
-    if (!selected) return;
+  async function preview(release: string) {
     const current = await api<Item>(`/v1/tenants/${tenant}/apps/${app.id}`),
       result = await api<{ url: string }>(
-        `/v1/releases/${selected.id}/preview`,
+        `/v1/releases/${release}/preview`,
         "POST",
         {},
         num(current.revision),
@@ -284,20 +264,112 @@ export function AppReleases({
       }),
     );
   }
-  const deployed = deployment
-    ? releases.find((r) => r.id === deployment.release_id)
-    : undefined;
   const failed = deployment?.state === states.failed,
     live = deployment?.state === states.live;
-  const refreshButton = (
-    <IconButton
-      label="Refresh releases"
-      icon={<RefreshCw size={16} aria-hidden />}
-      tooltip="bottom"
-      disabled={busy}
-      onClick={() => void refreshQueries()}
-    />
-  );
+  // A failed release was never active, so the production App's list (only
+  // releases that went live there) does not have it: show it from the
+  // deployment.
+  const listed: ReleaseItem[] =
+    deployment &&
+    !development &&
+    !releases.some((r) => r.id === deployment.release_id)
+      ? [
+          {
+            id: deployment.release_id,
+            display_name: deployment.release_name,
+            build_id: "",
+            created_at: deployment.created_at,
+            created_by_name: deployment.deployed_by,
+            agent_client_name: null,
+            snapshot_hash: "",
+          },
+          ...releases,
+        ]
+      : releases;
+  const serving = optText(app.active_release_id);
+  const servingName = listed.find((r) => r.id === serving)?.display_name;
+  const name = deployment?.release_name || "This release";
+  const note = !deployment
+    ? "Not deployed yet. Deploy a release to put this App in production."
+    : live
+      ? `${name} active since ${time(deployment.finished_at || deployment.created_at)}`
+      : failed
+        ? servingName && !development
+          ? `Production still serves ${servingName}.`
+          : "Production is unchanged."
+        : servingName && !development
+          ? `Production keeps serving ${servingName} until ${name} is active.`
+          : `Production keeps serving its current release until ${name} is active.`;
+  const steps = deployment ? deploymentSteps(states.steps, deployment) : [];
+  async function retry(release: string) {
+    deploy(await api<Release>("/v1/releases/" + release), true);
+  }
+  function open(id: string) {
+    return run(async () =>
+      setSelected(await api<Release>("/v1/releases/" + id)),
+    );
+  }
+  // A release's place: what production serves, what is deploying or
+  // failed, earlier production releases, and in a workspace what preview
+  // serves.
+  function chip(r: ReleaseItem) {
+    if (deployment?.release_id === r.id && !live)
+      return failed ? (
+        <StatusBadge state={deployment.state} label="Failed" />
+      ) : (
+        <StatusBadge
+          state={deployment.state}
+          tone="warning"
+          label="Deploying"
+        />
+      );
+    if (development)
+      return deployment?.release_id === r.id ? (
+        <StatusBadge state={states.live} label="Production" />
+      ) : serving === r.id ? (
+        <StatusBadge state="preview" tone="info" label="In preview" />
+      ) : null;
+    return serving === r.id ? (
+      <StatusBadge state={states.live} label="Production" />
+    ) : (
+      <StatusBadge state="previous" tone="neutral" label="Previous" />
+    );
+  }
+  const rows: RowTableRow[] = listed.map((r) => {
+    const author = r.agent_client_name
+      ? `${r.agent_client_name} for ${r.created_by_name}`
+      : r.created_by_name;
+    return {
+      id: r.id,
+      cells: [
+        <CellTitle
+          title={r.display_name}
+          meta={[ago(r.created_at), author].filter(Boolean).join(" · ")}
+        />,
+        chip(r),
+        <CellActions>
+          {development && (
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-label={`Preview ${r.display_name}`}
+              onClick={() => run(() => preview(r.id))}
+            >
+              Preview
+            </Button>
+          )}
+          <Button
+            size="sm"
+            disabled={busy}
+            aria-label={`${r.display_name} details`}
+            onClick={() => open(r.id)}
+          >
+            Details
+          </Button>
+        </CellActions>,
+      ],
+    };
+  });
   // Where this development App is on the way to production.
   const ship: Step[] = [
     {
@@ -318,7 +390,7 @@ export function AppReleases({
       id: "release",
       label: "Create a release",
       note: releases[0]
-        ? `Latest: ${text(releases[0].display_name)}`
+        ? `Latest: ${releases[0].display_name}`
         : "Pins the build, micro-apps and Space snapshot",
       state: releases.length ? "done" : builds.length ? "active" : "pending",
     },
@@ -336,18 +408,24 @@ export function AppReleases({
     },
   ];
   return (
-    <Stack>
+    <PageStack>
       {(error || listError || deploymentError) && (
         <Alert>{error || listError || deploymentError}</Alert>
       )}
-      {development ? (
+      {development && (
         <Card>
           <CardHeader
             title="Ship this App"
             description="Build locally, test this workspace, then deploy a reviewed release."
             actions={
               <>
-                {refreshButton}
+                <IconButton
+                  label="Refresh releases"
+                  icon={<RefreshCw size={16} aria-hidden />}
+                  tooltip="bottom"
+                  disabled={busy}
+                  onClick={() => void refreshQueries()}
+                />
                 <LinkButton
                   href={`/v1/apps/${app.id}/starter.zip`}
                   icon={<Download size={16} aria-hidden />}
@@ -377,176 +455,77 @@ export function AppReleases({
             </Stack>
           </CardBody>
         </Card>
-      ) : (
-        <Card>
-          <CardHeader
-            title="Ship changes"
-            description="Production runs a selected immutable release. Develop changes in an isolated workspace, then deploy a release from it."
-            actions={
-              <>
-                {refreshButton}
-                <Button variant="primary" onClick={openWorkspaces}>
-                  Open development workspaces
-                </Button>
-              </>
-            }
-          />
-        </Card>
       )}
-      <Card className="deployment-status" role="status">
-        <CardHeader
-          title="Production deployment"
-          description={
-            !deployment
-              ? undefined
-              : failed
-                ? "The previous release stays selected in production."
-                : live
-                  ? `${deployed ? text(deployed.display_name) : "This release"} is live.`
-                  : "Production keeps serving the previous release until this one goes live."
-          }
-          actions={
-            deployment && (
-              <>
-                <StatusBadge state={deployment.state} />
-                {live && (
-                  <LinkButton
-                    href={deployment.url}
-                    external
-                    size="sm"
-                    trailingIcon={<ExternalLink size={14} aria-hidden />}
-                  >
-                    Open production App
-                  </LinkButton>
-                )}
-                {failed && deployment.release_id && (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    icon={<RotateCcw size={14} aria-hidden />}
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () =>
-                        deploy(
-                          await api<Release>(
-                            "/v1/releases/" + deployment.release_id,
-                          ),
-                          true,
-                        ),
-                      )
-                    }
-                  >
-                    Retry deploy
-                  </Button>
-                )}
-              </>
-            )
-          }
-        />
-        <CardBody>
-          {deployment ? (
-            <Stack gap="md">
-              {failed ? (
-                <Alert as="p" live={false} title="Deployment failed">
-                  {deployment.error_message}
-                </Alert>
-              ) : (
-                <Stepper
-                  label="Deployment progress"
-                  steps={deploymentSteps(states.steps, deployment.state)}
-                />
-              )}
-              <FactList
-                facts={[
-                  {
-                    label: "Release",
-                    value:
-                      text(deployed?.display_name) ||
-                      text(deployment.release_id).slice(0, 8),
-                    mono: !text(deployed?.display_name),
-                  },
-                  ...(deployment.created_at
-                    ? [{ label: "Started", value: when(deployment.created_at) }]
-                    : []),
-                  ...(deployment.finished_at
-                    ? [
-                        {
-                          label: "Finished",
-                          value: when(deployment.finished_at),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            </Stack>
+      <TitledCard
+        className="deployment-status"
+        role="status"
+        title="Production deployment"
+        note={deployment === undefined ? "Loading…" : note}
+        actions={
+          deployment &&
+          (failed ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<RotateCcw size={14} aria-hidden />}
+              disabled={busy}
+              onClick={() => run(() => retry(deployment.release_id))}
+            >
+              Retry deploy
+            </Button>
           ) : (
-            <EmptyState compact title="Not deployed yet">
-              Deploy a release to put this App in production.
-            </EmptyState>
-          )}
-        </CardBody>
-      </Card>
-      <Split
-        aside={
-          <Card className="release-list">
-            <CardHeader
-              title="Releases"
-              description="Immutable build, micro-app pins and Space snapshot"
-            />
-            <CardBody>
-              <PickList
-                label="Release history"
-                itemClassName="release-item"
-                disabled={busy}
-                value={selected?.id}
-                empty="No releases yet."
-                items={releases.map((r) => ({
-                  id: keyOf(r.id) ?? "",
-                  title: text(r.display_name),
-                  meta: when(r.created_at),
-                  badge:
-                    deployment && deployment.release_id === r.id ? (
-                      <StatusBadge
-                        state={deployment.state}
-                        label={live ? "Production" : undefined}
-                      />
-                    ) : undefined,
-                }))}
-                onPick={(id) =>
-                  run(async () =>
-                    setSelected(await api<Release>("/v1/releases/" + id)),
-                  )
-                }
-                footer={
-                  hasMore && (
-                    <Button
-                      size="sm"
-                      onClick={() => void releasePages.fetchNextPage()}
-                    >
-                      Load more
-                    </Button>
-                  )
-                }
-              />
-            </CardBody>
-          </Card>
+            live &&
+            development && (
+              <LinkButton
+                href={deployment.url}
+                external
+                size="sm"
+                trailingIcon={<ExternalLink size={14} aria-hidden />}
+              >
+                Open production App
+              </LinkButton>
+            )
+          ))
         }
       >
-        {selected ? (
-          <ReleaseReview
-            release={selected}
-            busy={busy}
-            preview={development ? () => run(preview) : undefined}
-            deploy={() => deploy(selected)}
-          />
-        ) : (
-          <Card>
-            <EmptyState title="No release open">
-              Select a release to review its build and backend configuration.
-            </EmptyState>
-          </Card>
-        )}
-      </Split>
+        {deployment &&
+          (steps.length ? (
+            <Stepper label="Deployment progress" steps={steps} min={160} />
+          ) : (
+            failed && (
+              <Alert as="p" live={false} title="Deployment failed">
+                {deployment.error_message}
+              </Alert>
+            )
+          ))}
+      </TitledCard>
+      <RowTable
+        className="release-list"
+        rowClassName="release-item"
+        label="Releases"
+        title="Releases"
+        note="Immutable build + micro-app pins + Space snapshot"
+        columns="minmax(200px, 2fr) 150px auto"
+        rows={rows}
+        empty={releasePages.data ? "No releases yet." : "Loading…"}
+        footer={
+          hasMore && (
+            <Button size="sm" onClick={() => void releasePages.fetchNextPage()}>
+              Load more
+            </Button>
+          )
+        }
+      />
+      {selected && (
+        <ReleaseReview
+          release={selected}
+          busy={busy}
+          preview={
+            development ? () => run(() => preview(selected.id)) : undefined
+          }
+          deploy={() => deploy(selected)}
+        />
+      )}
       {development && builds.length > 0 && (
         <Card>
           <CardHeader
@@ -595,8 +574,19 @@ export function AppReleases({
           lookups={{}}
         />
       )}
-    </Stack>
+    </PageStack>
   );
+}
+
+// "09:41" today, otherwise the date and time, in the reader's locale.
+function time(at: string) {
+  const d = new Date(at);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
 }
 
 // One immutable release: its build, pins and captured Space backend.

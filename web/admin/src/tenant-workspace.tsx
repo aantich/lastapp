@@ -65,12 +65,7 @@ import {
   type TenantOverview,
 } from "./api-types";
 import { editFields, options, type TenantScreen } from "./tenant/screen";
-import {
-  addDatabase,
-  createApp,
-  createMicro,
-  createSpace,
-} from "./tenant/forms";
+import { addDatabase, createApp, createSpace } from "./tenant/forms";
 import { AppsPage, SpacesPage } from "./tenant/inventory";
 import { HomePage } from "./tenant/home-page";
 import { sectionLabel, tenantNav, tenantTabs } from "./tenant/navigation";
@@ -191,7 +186,7 @@ export function TenantWorkspace({
       page === "space"
         ? ["spaces", v.space || route.space, v.tab || "apps"]
         : page === "app"
-          ? ["apps", v.app || route.app, v.tab || "microapps"]
+          ? ["apps", v.app || route.app, v.tab || "releases"]
           : page === "people"
             ? [
                 "people",
@@ -458,12 +453,17 @@ export function TenantWorkspace({
     all("app.manage") || (caps["app.manage"]?.spaces || []).length > 0;
   const actions = (
     <>
-      <IconButton
-        label="Refresh"
-        icon={<RefreshCw size={16} aria-hidden />}
-        tooltip="bottom"
-        onClick={refresh}
-      />
+      {route.page !== "apps" && (
+        <IconButton
+          label="Refresh"
+          icon={<RefreshCw size={16} aria-hidden />}
+          tooltip="bottom"
+          onClick={refresh}
+        />
+      )}
+      {route.page === "apps" && canCreateApp && (overview.spaces ?? 0) > 0 && (
+        <Button onClick={() => createApp(t)}>New app</Button>
+      )}
       {route.page === "spaces" && all("space.manage") && (
         <Button
           variant="primary"
@@ -473,29 +473,16 @@ export function TenantWorkspace({
           Create Space
         </Button>
       )}
-      {((route.page === "apps" && canCreateApp && (overview.spaces ?? 0) > 0) ||
-        (route.page === "space" &&
-          route.tab === "apps" &&
-          scoped("app.manage") &&
-          detailReady)) && (
-        <Button
-          variant="primary"
-          icon={<Plus size={16} aria-hidden />}
-          onClick={() => createApp(t)}
-        >
-          Create App
-        </Button>
-      )}
-      {route.page === "app" &&
-        route.tab === "microapps" &&
-        scoped("microapp.manage") &&
+      {route.page === "space" &&
+        route.tab === "apps" &&
+        scoped("app.manage") &&
         detailReady && (
           <Button
             variant="primary"
             icon={<Plus size={16} aria-hidden />}
-            onClick={() => createMicro(t)}
+            onClick={() => createApp(t)}
           >
-            Add micro-app
+            Create App
           </Button>
         )}
       {route.page === "agents" && (
@@ -589,10 +576,11 @@ export function TenantWorkspace({
               ? "Business roles live in the Space. Tenant administration grants no automatic record access."
               : undefined
         }
-        // Home and Activity draw their own heading (Activity's filters sit
-        // beside its title); so does the entity designer.
+        // Home, Activity and an App draw their own heading (Activity's
+        // filters sit beside its title); so does the entity designer.
         header={
-          (!["home", "activity"].includes(route.page) && !entityScreen) ||
+          (!["home", "activity", "app"].includes(route.page) &&
+            !entityScreen) ||
           !tenant
         }
         nav={menu}
@@ -682,7 +670,7 @@ export function TenantWorkspace({
               openSpace={(id) => go("space", { space: id })}
             />
           )}
-        {!!tabs.length && !entityScreen && (
+        {!!tabs.length && !entityScreen && route.page !== "app" && (
           <Tabs
             label={`${title} sections`}
             className="workspace-tabs"
