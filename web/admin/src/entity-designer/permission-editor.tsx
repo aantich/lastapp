@@ -89,7 +89,7 @@ export function PermissionEditor({
       </Columns>
       {!!p.roles && (
         <FieldChoices
-          legend="Space roles"
+          legend="Which Space roles"
           fields={roles.map((r) => ({ key: r.id, label: r.display_name }))}
           value={strings(p.roles)}
           onChange={(v) => patch({ roles: v })}

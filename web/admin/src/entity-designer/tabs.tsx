@@ -334,9 +334,9 @@ export function AccessTab({ d }: { d: Designer }) {
                           : "All records"}
                       </span>
                       {!!p.change_when && (
-                        <small>
+                        <span>
                           Change allowed when {describe(p.change_when, fields)}
-                        </small>
+                        </span>
                       )}
                     </Stack>
                   ),
