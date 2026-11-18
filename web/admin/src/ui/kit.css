@@ -2065,3 +2065,48 @@ a.ui-link-button {
     padding: 16px;
   }
 }
+
+/* FieldGroup: a fieldset of related controls under one legend */
+.ui-field-group {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.ui-field-group > legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+.ui-field-group-description {
+  margin: -4px 0 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ui-field-group-framed {
+  padding: 14px 16px 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+}
+.ui-field-group-framed > legend {
+  margin: 0 0 0 -6px;
+  padding: 0 6px;
+}
+.ui-field-group-nested {
+  padding-left: 14px;
+  border-left: 2px solid var(--ui-border);
+}
+.ui-field-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ui-field-group:disabled > legend,
+.ui-field-group:disabled .ui-field-label {
+  color: var(--ui-muted);
+}
