@@ -1504,7 +1504,7 @@ textarea.ui-input {
   padding: 20px;
 }
 
-/* Layout: Stack, Inline, Split */
+/* Layout: Stack, Inline, Split, Columns */
 .ui-stack {
   display: grid;
   min-width: 0;
@@ -1539,6 +1539,35 @@ textarea.ui-input {
 }
 @media (max-width: 800px) {
   .ui-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ui-columns {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--ui-columns-min)), 1fr)
+  );
+  align-items: start;
+  min-width: 0;
+}
+.ui-columns > * {
+  min-width: 0;
+}
+.ui-columns.ui-columns-weighted {
+  grid-template-columns: var(--ui-columns-weights);
+}
+.ui-columns.ui-gap-sm {
+  gap: 8px;
+}
+.ui-columns.ui-gap-md {
+  gap: 16px;
+}
+.ui-columns.ui-gap-lg {
+  gap: 24px;
+}
+@media (max-width: 800px) {
+  .ui-columns.ui-columns-weighted {
     grid-template-columns: minmax(0, 1fr);
   }
 }

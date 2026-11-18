@@ -14,7 +14,7 @@ export {
 export { StatusBadge, Badge } from "./status";
 export { statusTone, type Tone } from "./status-tone";
 export { cx, initials } from "./utils";
-export { Stack, Split, Inline } from "./layout";
+export { Stack, Split, Inline, Columns } from "./layout";
 export {
   Card,
   CardHeader,

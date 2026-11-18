@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Card, CardBody, CardHeader } from "../card";
-import { Inline, Split, Stack } from "../layout";
+import { Columns, Inline, Split, Stack } from "../layout";
 import { Badge, StatusBadge } from "../status";
 import { Button } from "../button";
 
 // layout.tsx: a screen's vertical rhythm (Stack), wrapping rows (Inline) and
-// a record list beside the open record (Split; stacks under 800 px).
+// a record list beside the open record (Split; stacks under 800 px) and
+// cards side by side (Columns: wrapping equal columns or fixed weights).
 const meta = { title: "Primitives/Layout" } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -45,5 +46,33 @@ export const SplitView: Story = {
         <CardBody>The open release.</CardBody>
       </Card>
     </Split>
+  ),
+};
+
+export const ColumnsGrid: Story = {
+  render: () => (
+    <Columns min={240}>
+      {["Customers", "Invoices", "Shipments", "Products"].map((name) => (
+        <Card key={name}>
+          <CardHeader title={name} level={3} />
+          <CardBody>Published entity</CardBody>
+        </Card>
+      ))}
+    </Columns>
+  ),
+};
+
+export const ColumnsWeighted: Story = {
+  render: () => (
+    <Columns weights="minmax(0, 2fr) minmax(0, 1fr)">
+      <Card>
+        <CardHeader title="Needs attention" />
+        <CardBody>Main column</CardBody>
+      </Card>
+      <Card>
+        <CardHeader title="Agents" />
+        <CardBody>Side column</CardBody>
+      </Card>
+    </Columns>
   ),
 };
