@@ -220,6 +220,10 @@ test("App-only managers can page, search and open all their Apps", async ({
   expect((await page.request.get(base + "/spaces/" + space)).status()).toBe(
     403,
   );
+  await nav(page, "Apps");
+  await expect(
+    page.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+  ).toBeVisible();
   await expect(
     page.getByRole("row").filter({ hasText: "Delegated 000" }),
   ).toHaveCount(0);
@@ -267,12 +271,13 @@ test("expired sessions return to login and signing out an expired session succee
     .getByRole("button", { name: "Refresh", exact: true })
     .click({ timeout: 2000 })
     .catch(async (error) => {
-      if (
-        !(await page
-          .getByRole("button", { name: "Sign in", exact: true })
-          .isVisible())
-      )
-        throw error;
+      // The recovery may still be under way; wait for it, not just a glance.
+      await page
+        .getByRole("button", { name: "Sign in", exact: true })
+        .waitFor({ timeout: 5000 })
+        .catch(() => {
+          throw error;
+        });
     });
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
