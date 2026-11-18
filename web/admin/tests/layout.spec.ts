@@ -101,6 +101,7 @@ test("first-login password setup is centered and account forms work before Tenan
   await account
     .getByRole("button", { name: "Save password", exact: true })
     .click();
+  // No Tenant yet: the console's Home is the "No Tenant yet" page.
   await expect(
     account.getByRole("heading", { name: "Home", exact: true, level: 1 }),
   ).toBeVisible();

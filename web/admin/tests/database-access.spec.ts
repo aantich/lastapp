@@ -8,6 +8,7 @@ import {
   pick,
   rootSQL,
   accountHost,
+  homeHeading,
 } from "./helpers";
 import { randomBytes } from "node:crypto";
 
@@ -147,9 +148,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
   );
-  await expect(
-    admin.getByRole("heading", { name: "Home", exact: true, level: 1 }),
-  ).toBeVisible();
+  await expect(homeHeading(admin)).toBeVisible();
   await expect(admin.getByRole("dialog")).toHaveCount(0);
   await context.close();
 });

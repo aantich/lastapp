@@ -23,12 +23,24 @@ export async function login(
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", {
-      name: subject === "operator" ? "Tenants" : "Home",
-      exact: true,
-      level: 1,
-    }),
+    subject === "operator"
+      ? page.getByRole("heading", { name: "Tenants", exact: true, level: 1 })
+      : homeHeading(page),
   ).toBeVisible();
+}
+// A Tenant's Home is titled with a greeting to the signed-in person.
+export function homeHeading(page: Page) {
+  return page.getByRole("heading", {
+    name: /^Good (morning|afternoon|evening), /,
+    level: 1,
+  });
+}
+// Opens the Tenant's Spaces list: the title of the sidebar's Spaces section.
+export async function openSpaces(page: Page) {
+  await page
+    .getByRole("complementary", { name: "Navigation" })
+    .getByRole("button", { name: "Spaces", exact: true })
+    .click();
 }
 // The account menu button: its name is the signed-in user's visible name
 // followed by "account menu" (label in name).
@@ -37,7 +49,14 @@ export function accountMenu(page: Page) {
     .locator(".profile-menu")
     .getByRole("button", { name: /, account menu$/ });
 }
+// Opens the account menu; on a narrow screen it sits in the navigation
+// drawer, which is opened first.
 export async function menu(page: Page) {
+  const drawer = page.getByRole("button", {
+    name: "Open navigation",
+    exact: true,
+  });
+  if (await drawer.isVisible()) await drawer.click();
   const trigger = accountMenu(page);
   if ((await trigger.getAttribute("aria-expanded")) !== "true")
     await trigger.click();
@@ -84,13 +103,18 @@ export async function pick(field: Locator, option: string) {
   ).click();
   await expect(field).toHaveAttribute("aria-expanded", "false");
 }
-// Switches the Tenant with the top bar's context switcher (a button named
+// Switches the Tenant with the sidebar's Tenant section (a button named
 // "Tenant <current name>" that opens a search field over the paged list).
-// With one Tenant there is no switcher and the console is already there.
+// An account without a Tenant has no switcher and nothing to switch.
+// The sidebar's Tenant switcher: "Tenant <name>" (the account menu, which
+// may also start with "Tenant", ends with "account menu").
+export function tenantSwitcher(page: Page) {
+  return page
+    .getByRole("complementary", { name: "Navigation" })
+    .getByRole("button", { name: /^Tenant (?!.*account menu$)/ });
+}
 export async function selectTenant(page: Page, tenant: string) {
-  const trigger = page
-    .locator(".topbar-context")
-    .getByRole("button", { name: /^Tenant\b/ });
+  const trigger = tenantSwitcher(page);
   if (await trigger.count()) {
     await trigger.click();
     await page

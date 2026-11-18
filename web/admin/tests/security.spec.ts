@@ -1,5 +1,13 @@
 import { test, expect, Page } from "@playwright/test";
-import { selectTenant, logout, choose, fixtureTenant, pick } from "./helpers";
+import {
+  selectTenant,
+  logout,
+  choose,
+  fixtureTenant,
+  pick,
+  openSpaces,
+  homeHeading,
+} from "./helpers";
 import { apiOrigin, uiOrigin } from "./stack";
 
 async function signIn(page: Page, origin = apiOrigin, subject = "operator") {
@@ -12,11 +20,9 @@ async function signIn(page: Page, origin = apiOrigin, subject = "operator") {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(new RegExp("^" + origin + "/console/"));
   await expect(
-    page.getByRole("heading", {
-      name: subject === "operator" ? "Tenants" : "Home",
-      exact: true,
-      level: 1,
-    }),
+    subject === "operator"
+      ? page.getByRole("heading", { name: "Tenants", exact: true, level: 1 })
+      : homeHeading(page),
   ).toBeVisible();
 }
 
@@ -71,7 +77,7 @@ test("server paging, search and option pickers reach records beyond the first pa
       display_name: `PageRole ${String(i).padStart(3, "0")}`,
     });
   }
-  await page.getByRole("button", { name: "Spaces", exact: true }).click();
+  await openSpaces(page);
   await page
     .getByRole("row")
     .filter({ hasText: "Paging" })

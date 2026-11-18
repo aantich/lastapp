@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
@@ -383,7 +383,7 @@ test("local React build uses workspace APIs, then the same files deploy to produ
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator(".sidebar")).toHaveCSS(
       "transform",
-      "matrix(1, 0, 0, 1, -244, 0)",
+      await drawerHidden(page),
     );
     await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
     await page.screenshot({
@@ -521,7 +521,7 @@ test("deployment status survives reload and retries a transient failure", async 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator(".sidebar")).toHaveCSS(
     "transform",
-    "matrix(1, 0, 0, 1, -244, 0)",
+    await drawerHidden(page),
   );
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
   await page.screenshot({
@@ -530,3 +530,16 @@ test("deployment status survives reload and retries a transient failure", async 
     animations: "disabled",
   });
 });
+
+// The closed drawer is translated by its own width, the --ui-sidebar-width
+// token (themes.css).
+async function drawerHidden(page: Page) {
+  const width = await page.evaluate(() =>
+    parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        "--ui-sidebar-width",
+      ),
+    ),
+  );
+  return `matrix(1, 0, 0, 1, -${width}, 0)`;
+}

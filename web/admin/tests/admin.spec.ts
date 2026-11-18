@@ -8,6 +8,7 @@ import {
   fixtureTenant,
   selectTenant,
   pick,
+  homeHeading,
 } from "./helpers";
 
 test("Tenant creation and one-step administrator management lead to a complete Tenant workspace", async ({
@@ -119,9 +120,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
   await admin
     .getByRole("button", { name: "Save password", exact: true })
     .click();
-  await expect(
-    admin.getByRole("heading", { name: "Home", level: 1, exact: true }),
-  ).toBeVisible();
+  await expect(homeHeading(admin)).toBeVisible();
   await admin
     .getByRole("button", { name: "Create Space", exact: true })
     .click();
@@ -221,7 +220,7 @@ test("People combines Tenant administration and team membership/roles, retaining
   expect(
     (await post(page, base + "/memberships", { user_id: outsider.id })).status,
   ).toBe(201);
-  await nav(page, "People");
+  await nav(page, "Access");
   await page
     .getByRole("row")
     .filter({ hasText: "Outside user" })

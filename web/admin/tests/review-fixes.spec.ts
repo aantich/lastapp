@@ -118,7 +118,7 @@ test("existing administrative roles can be revoked while account, membership and
       )
     ).status,
   ).toBe(200);
-  await nav(admin, "People");
+  await nav(admin, "Access");
   const row = admin.getByRole("row").filter({ hasText: outsider.display_name }),
     tenantRole = row.getByRole("checkbox", { name: /Tenant administrator/ });
   await expect(tenantRole).toBeEnabled();
@@ -234,7 +234,7 @@ test("platform can add a verified SSO identity as an ordinary member and access 
   const member = await tenantPage(browser, tenant),
     admin = member.page;
   expect((await admin.request.get("/admin/v1/users")).status()).toBe(403);
-  await nav(admin, "People");
+  await nav(admin, "Access");
   await expect(
     admin
       .getByRole("row")

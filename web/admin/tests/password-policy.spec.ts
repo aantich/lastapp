@@ -1,5 +1,14 @@
 import { test, expect, type Locator } from "@playwright/test";
-import { fixtureTenant, login, logout, menu, nav, post, pick } from "./helpers";
+import {
+  fixtureTenant,
+  login,
+  logout,
+  menu,
+  nav,
+  post,
+  pick,
+  homeHeading,
+} from "./helpers";
 
 test("all password forms and generation consume the server policy, including Unicode and focus updates", async ({
   page,
@@ -188,7 +197,5 @@ test("sign-in refreshes an older policy before initial-password replacement", as
   await page
     .getByRole("button", { name: "Save password", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Home", exact: true, level: 1 }),
-  ).toBeVisible();
+  await expect(homeHeading(page)).toBeVisible();
 });
