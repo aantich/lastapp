@@ -15,7 +15,13 @@ export function policy(min_length: number, max_length: number): PasswordPolicy {
 
 export function consoleConfig(password_policy: PasswordPolicy): ConsoleConfig {
   return {
-    development_policy: { max_release_microapps: 20 },
+    development_policy: {
+      max_release_microapps: 20,
+      deployment_states: {
+        steps: ["queued", "preparing", "publishing", "active"],
+        failed: "failed",
+      },
+    },
     oidc_enabled: true,
     password_policy,
     role_catalog: [],

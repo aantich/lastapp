@@ -25,12 +25,10 @@ import {
   type Page,
 } from "../api-types";
 import { useApiQueries, useApiQuery } from "../query";
+import { useDeploymentStates } from "../deployment";
 import { createSpace } from "./forms";
 import type { TenantScreen } from "./screen";
 
-// A deployment that is still running, as GET /v1/apps/{app}/deployment
-// reports it (internal/delivery: queued → preparing → publishing).
-const running = ["queued", "preparing", "publishing"];
 const day = 24 * 60 * 60 * 1000;
 
 // "12 min ago", "3 h ago", "yesterday" — or "in 2 days" for a future time.
@@ -59,6 +57,7 @@ function ago(at: unknown) {
 export function HomePage({ t }: { t: TenantScreen }) {
   const { all, base, can, go, me, overview, profile, scoped, tenant } = t;
   const loaded = !!overview.tenant;
+  const deploymentStates = useDeploymentStates();
   const recent = overview.recent_apps || [];
   const deployable = recent.filter((a) =>
     scoped("release.manage", text(a.space_id), text(a.id)),
@@ -123,10 +122,11 @@ export function HomePage({ t }: { t: TenantScreen }) {
     const d = deploymentOf.get(text(app.id));
     if (
       !isItem(d) ||
-      (d.state !== "failed" && !running.includes(text(d.state)))
+      (d.state !== deploymentStates.failed &&
+        !deploymentStates.running(d.state))
     )
       continue;
-    const failed = d.state === "failed";
+    const failed = d.state === deploymentStates.failed;
     attention.push(
       <AttentionCard
         key={"deploy" + text(d.id)}
