@@ -47,8 +47,10 @@ type Deployment struct {
 
 // The status names who started the deployment (the person; an agent acts for
 // one) and the release's name, so a status needs no further reads to display.
-const deploymentStatusColumns = "d.created_at,u.display_name AS deployed_by,d.error_message,d.finished_at,d.id,d.release_id,rel.display_name AS release_name,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
-const deploymentStatusFrom = " FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id JOIN users u ON u.id=d.created_by"
+const (
+	deploymentStatusColumns = "d.created_at,u.display_name AS deployed_by,d.error_message,d.finished_at,d.id,d.release_id,rel.display_name AS release_name,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+	deploymentStatusFrom    = " FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id JOIN users u ON u.id=d.created_by"
+)
 
 func (v *Deployment) ScanFields() []any {
 	return []any{&v.CreatedAt, &v.DeployedBy, &v.Error, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Release, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
