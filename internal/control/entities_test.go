@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -85,6 +86,15 @@ func TestEntityRuntime(t *testing.T) {
 	}
 	if draftFlag() != false {
 		t.Fatal("a draft equal to its active version is flagged as changed")
+	}
+	// Publishing a draft identical to the active version is rejected (console
+	// and MCP share the operation) and queues nothing.
+	unchanged := oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, registry.Integer(published["revision"]), 409)
+	if problem, _ := unchanged["error"].(map[string]any); problem["message"] != entities.UnchangedDraft {
+		t.Fatal("unchanged publication", unchanged)
+	}
+	if v, e := registry.QueryRow(ctx, s.DB, "SELECT COUNT(*) n FROM entity_versions WHERE entity_id=?", eid); e != nil || registry.Integer(v["n"]) != 1 {
+		t.Fatal("an unchanged publication queued a version", v, e)
 	}
 	appInfo := oc.want("GET", base+"/apps/"+app, nil, 0, 200)
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:8789", Inherit: true}, registry.Integer(appInfo["revision"]), 200)
