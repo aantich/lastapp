@@ -68,6 +68,8 @@ export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
 export { Select, ListboxPopup, type ListOption } from "./select";
 export { RemoteSelect } from "./remote-select";
 export { NumberInput } from "./number-input";
+export { DatePicker } from "./date-picker";
+export { isoDay, parseDay, addDays, daysBetween } from "./days";
 export { NewPasswordInput } from "./new-password-input";
 export { ConfirmDialog, ConfirmHost } from "./confirm-dialog";
 export { confirmAction, type ConfirmOptions } from "./confirm";

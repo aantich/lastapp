@@ -1647,3 +1647,146 @@ a.ui-link-button {
   }
 }
 
+/* Date picker: a trigger button and a calendar dialog (no native date input) */
+.ui-date {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.ui-date-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--ui-control-height);
+  padding: 8px 12px;
+  border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-date-trigger > svg {
+  flex: none;
+  color: var(--ui-muted);
+}
+.ui-date-trigger:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 1px;
+  border-color: var(--ui-primary);
+}
+.ui-date-trigger[aria-invalid="true"] {
+  border-color: var(--ui-danger);
+}
+.ui-date-trigger:disabled {
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  cursor: not-allowed;
+}
+.ui-date-placeholder {
+  color: var(--ui-faint);
+}
+.ui-date-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  width: 288px;
+  max-width: calc(100vw - 32px);
+  padding: 10px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-card);
+  box-shadow: var(--ui-shadow-pop);
+}
+.ui-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ui-date-title {
+  font-family: var(--ui-font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+.ui-date-nav,
+.ui-date-grid button {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  cursor: pointer;
+}
+.ui-date-nav {
+  width: 32px;
+  height: 32px;
+}
+.ui-date-nav:hover:not(:disabled),
+.ui-date-grid button:hover:not([aria-disabled]) {
+  background: var(--ui-hover);
+}
+.ui-date-nav:disabled {
+  color: var(--ui-faint);
+  cursor: not-allowed;
+}
+.ui-date-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.ui-date-grid thead {
+  background: none;
+  border: 0;
+}
+.ui-date-grid th {
+  padding: 4px 0;
+  text-align: center;
+  color: var(--ui-muted);
+  font-size: 10px;
+}
+.ui-date-grid td {
+  padding: 1px;
+  border: 0;
+  max-width: none;
+  text-align: center;
+}
+.ui-date-grid tbody tr:hover {
+  background: none;
+}
+.ui-date-grid button {
+  width: 100%;
+  height: 34px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ui-date-grid button.ui-date-outside {
+  color: var(--ui-muted);
+}
+.ui-date-grid button[aria-current="date"] {
+  box-shadow: inset 0 0 0 1px var(--ui-control-border);
+  font-weight: 600;
+}
+.ui-date-grid td[aria-selected="true"] button {
+  background: var(--ui-primary);
+  color: var(--ui-on-primary);
+}
+.ui-date-grid button[aria-disabled="true"] {
+  color: var(--ui-faint);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+.ui-date-grid button:focus-visible,
+.ui-date-nav:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 1px;
+}
