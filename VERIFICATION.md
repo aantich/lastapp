@@ -68,7 +68,10 @@ Executed checks:
   (the same steps outside the runner: under 1 s; the commit before this UI
   work failed its login wait identically), so local runs at stock timeouts
   fail at login. With a temporary 20 s expect timeout (not committed)
-  `tests/tenant-switcher.spec.ts` passed both tests; the full suite runs in CI.
+  `tests/tenant-switcher.spec.ts` passed both tests. The full suite ran in
+  CI at stock timeouts (GitHub Actions `test` run 44325920770): green, all
+  browser regressions passing, after the specs were moved to where the new
+  shell puts Spaces, Tenant settings and Refresh.
 
 ## Populated Northstar development demo — 18 November 2026
 
