@@ -1,13 +1,15 @@
-import { Check, Monitor, Moon, Palette, RotateCcw, Sun, X } from "lucide-react";
-import { useDialogFocus } from "./ui";
-import type { Appearance, Mode } from "./appearance";
+import { Check, RotateCcw } from "lucide-react";
+import { Alert, Button, Dialog, DialogBody, RadioGroup, Stack } from "./ui";
+import { modes, type Appearance, type Mode } from "./appearance";
 
-const modeOptions: { id: Mode; name: string; Icon: typeof Sun }[] = [
-  { id: "light", name: "Light", Icon: Sun },
-  { id: "dark", name: "Dark", Icon: Moon },
-  { id: "system", name: "System", Icon: Monitor },
-];
+const modeLabels: Record<Mode, string> = {
+  light: "Light",
+  dark: "Dark",
+  system: "System",
+};
 
+// The appearance dialog: the Signal theme's color mode (light, dark or the
+// device setting), applied at once and saved on this browser.
 export function AppearancePanel({
   value,
   onChange,
@@ -19,74 +21,44 @@ export function AppearancePanel({
   reset: () => void;
   close: () => void;
 }) {
-  const ref = useDialogFocus(close);
   return (
-    <div
-      className="overlay drawer-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
+    <Dialog
+      title="Appearance"
+      description="Make the workspace your own. Changes apply instantly and are saved on this browser."
+      closeLabel="Close appearance"
+      size="sm"
+      onClose={close}
+      footer={
+        <>
+          <Button icon={<RotateCcw size={15} aria-hidden />} onClick={reset}>
+            Reset to default
+          </Button>
+          <Button variant="primary" onClick={close}>
+            Done
+            <Check size={15} aria-hidden />
+          </Button>
+        </>
+      }
     >
-      <section
-        ref={ref}
-        className="appearance-drawer bg-surface text-ink"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="appearance-title"
-        tabIndex={-1}
-      >
-        <header className="drawer-header">
-          <div className="flex items-center gap-3">
-            <Palette size={20} className="text-primary" />
-            <h2 id="appearance-title">Appearance</h2>
-          </div>
-          <button
-            className="icon"
-            aria-label="Close appearance"
-            onClick={close}
-          >
-            <X size={20} />
-          </button>
-        </header>
-        <div className="drawer-body">
-          <p className="drawer-intro text-muted text-sm leading-6">
-            Make the workspace your own. Changes apply instantly and are saved
-            on this browser.
-          </p>
-          <fieldset>
-            <legend>Color mode</legend>
-            <div className="mode-options">
-              {modeOptions.map(({ id, name, Icon }) => (
-                <label key={id} className={value.mode === id ? "chosen" : ""}>
-                  <input
-                    type="radio"
-                    name="color-mode"
-                    value={id}
-                    checked={value.mode === id}
-                    onChange={() => onChange({ ...value, mode: id })}
-                  />
-                  <Icon size={21} />
-                  <span>{name}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="rounded-panel border border-line bg-subtle p-4 text-sm text-muted leading-6">
+      <DialogBody>
+        <Stack gap="md">
+          <RadioGroup
+            legend="Color mode"
+            name="color-mode"
+            horizontal
+            options={modes.map((mode) => ({
+              value: mode,
+              label: modeLabels[mode],
+            }))}
+            value={value.mode}
+            onChange={(mode) => onChange({ ...value, mode: mode as Mode })}
+          />
+          <Alert tone="info" live={false}>
             The Signal theme follows you across all console screens, forms and
             resource tables. System mode follows your device setting.
-          </div>
-        </div>
-        <footer className="drawer-footer">
-          <button className="secondary" onClick={reset}>
-            <RotateCcw size={15} />
-            Reset to default
-          </button>
-          <button className="primary" onClick={close}>
-            Done
-            <Check size={15} />
-          </button>
-        </footer>
-      </section>
-    </div>
+          </Alert>
+        </Stack>
+      </DialogBody>
+    </Dialog>
   );
 }
