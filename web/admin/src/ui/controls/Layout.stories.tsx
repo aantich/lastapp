@@ -76,3 +76,25 @@ export const ColumnsWeighted: Story = {
     </Columns>
   ),
 };
+
+// Each column keeps its own minimum; they stack as soon as both cannot fit
+// (Home: Apps beside Recent activity).
+export const ColumnsTracks: Story = {
+  render: () => (
+    <Columns
+      tracks={[
+        { grow: 8, min: 480 },
+        { grow: 5, min: 320 },
+      ]}
+    >
+      <Card>
+        <CardHeader title="Apps" description="Most recently created" />
+        <CardBody>Main column</CardBody>
+      </Card>
+      <Card>
+        <CardHeader title="Recent activity" />
+        <CardBody>Side column</CardBody>
+      </Card>
+    </Columns>
+  ),
+};

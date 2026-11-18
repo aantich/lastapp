@@ -55,6 +55,7 @@ export {
 } from "./content";
 export { SegmentedControl, type Segment } from "./segmented";
 export { AuthLayout } from "./auth-layout";
+export { Section, Lead } from "./section";
 
 // Composites
 export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
@@ -63,6 +64,7 @@ export { ContextSwitcher, type ContextOption } from "./context-switcher";
 export { CommandPalette, type Command } from "./command-palette";
 export { Menu, type MenuItem } from "./menu";
 export { DataTable, type Column } from "./data-table";
+export { RecordList, type RecordRow } from "./record-list";
 export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
 
 // Form controls

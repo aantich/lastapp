@@ -83,7 +83,8 @@ export type TimelineEvent = {
   marker: ReactNode;
   title: ReactNode;
   detail?: ReactNode;
-  // Machine-readable time for <time dateTime>; `when` is the visible text.
+  // Machine-readable time for <time dateTime> (its full local time is the
+  // hover title); `when` is the visible text.
   at?: string;
   when?: ReactNode;
   meta?: ReactNode;
@@ -110,7 +111,16 @@ export function Timeline({
               {event.meta}
             </div>
             {event.detail && <span>{event.detail}</span>}
-            {event.when && <time dateTime={event.at}>{event.when}</time>}
+            {event.when && (
+              <time
+                dateTime={event.at}
+                title={
+                  event.at ? new Date(event.at).toLocaleString() : undefined
+                }
+              >
+                {event.when}
+              </time>
+            )}
           </div>
         </li>
       ))}

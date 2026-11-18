@@ -1888,3 +1888,99 @@ a.ui-link-button {
     padding: 24px 20px;
   }
 }
+
+/* Columns with tracks: weighted columns that wrap below their minimums */
+.ui-columns-tracks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  min-width: 0;
+}
+.ui-columns-tracks > * {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+.ui-columns-tracks.ui-gap-sm {
+  gap: 8px;
+}
+.ui-columns-tracks.ui-gap-md {
+  gap: 16px;
+}
+.ui-columns-tracks.ui-gap-lg {
+  gap: 24px;
+}
+
+/* Section: a titled page part outside a card; Lead: the page's summary line */
+.ui-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.ui-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ui-section-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.ui-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ui-lead {
+  margin: -8px 0 0;
+  color: var(--ui-muted);
+}
+
+/* Record list: compact name + meta rows with trailing states */
+.ui-record-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-record-list > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ui-border);
+}
+.ui-record-list > li:last-child {
+  border-bottom: 0;
+}
+.ui-record-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.ui-record-copy > strong,
+.ui-record-copy > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-record-copy > small {
+  color: var(--ui-muted);
+}
+.ui-record-detail,
+.ui-record-trailing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+.ui-record-trailing > small {
+  color: var(--ui-muted);
+}
+@media (max-width: 800px) {
+  .ui-record-detail {
+    display: none;
+  }
+}
