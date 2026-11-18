@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Database, Plus } from "lucide-react";
 import { apiKey, queryClient, useApiQuery } from "../query";
 import {
+  isItem,
   items as itemsOf,
   num,
   text,
@@ -12,15 +13,17 @@ import {
 import { useAction } from "../use-action";
 import {
   Alert,
+  Badge,
   Button,
   Card,
-  CardBody,
-  CardHeader,
+  DesignerBody,
+  DesignerPage,
   EmptyState,
-  FactList,
-  PickList,
-  Split,
-  Stack,
+  NavList,
+  NavListNote,
+  PageHeader,
+  Panel,
+  RecordHeader,
   StatusBadge,
   Stepper,
   Tabs,
@@ -31,12 +34,19 @@ import { api } from "../api";
 import {
   definitionOf,
   discardChanges,
-  entityState,
+  draftChanges,
+  ruleRows,
   type Designer,
 } from "./shared";
 import { EditorDialog } from "./editor-dialog";
-import { EntityList } from "./entity-list";
-import { AccessTab, FieldsTab, HistoryTab, RulesTab } from "./tabs";
+import { NewEntityDialog } from "./entity-list";
+import {
+  AccessTab,
+  EntitySettings,
+  FieldsTab,
+  HistoryTab,
+  RulesTab,
+} from "./tabs";
 import { ReviewDialog } from "./review";
 import { publishSteps } from "./pipeline";
 import { EntityTest } from "./entity-test";
@@ -44,9 +54,12 @@ import { FieldEditor } from "./field-editor";
 import { PermissionEditor } from "./permission-editor";
 import { RuleEditor } from "./rule-editor";
 
-// The Space entity designer: the entity list, and for an open entity its
-// draft, tabs, editors and publication. Panels live in sibling files and read
-// the open entity through a Designer object built here.
+const plural = (n: number, word: string) =>
+  n + " " + word + (n === 1 ? "" : "s");
+
+// The Space entity designer: the entity list beside the open entity's
+// header, tabs, editors and publication. Panels live in sibling files and
+// read the open entity through a Designer object built here.
 export function EntityDesigner({
   space,
   tenant,
@@ -60,7 +73,8 @@ export function EntityDesigner({
     [draft, setDraft] = useState<Item | null>(null),
     [tab, setTab] = useState("fields"),
     [error, setError] = useState(""),
-    [review, setReview] = useState(false);
+    [review, setReview] = useState(false),
+    [creating, setCreating] = useState(false);
   const [editField, setEditField] = useState<Item | null>(null),
     [editPermission, setEditPermission] = useState<Item | null>(null),
     [editRule, setEditRule] = useState<Item | null>(null);
@@ -75,6 +89,9 @@ export function EntityDesigner({
       "/v1/tenants/" + tenant + "/spaces/" + space + "/roles",
       { refetchInterval: false },
     ),
+    spaceQuery = useApiQuery<Item>(
+      "/v1/tenants/" + tenant + "/spaces/" + space,
+    ),
     listQuery = useApiQuery<Page>(listPath);
   const catalog = catalogQuery.data,
     roles = (rolesQuery.data?.items || []).filter((x) => x.domain === "data"),
@@ -88,10 +105,10 @@ export function EntityDesigner({
     linkedQuery = useApiQuery<Item>(linked ? "/v1/entities/" + linked : null, {
       refetchInterval: false,
     }),
-    [linkHandled, setLinkHandled] = useState(false);
-  if (!linkHandled && linkedQuery.data) {
+    [linkHandled, setLinkHandled] = useState(!linked);
+  if (!linkHandled && (linkedQuery.data || linkedQuery.error)) {
     setLinkHandled(true);
-    if (!record && linkedQuery.data.space_id === space) {
+    if (!record && linkedQuery.data?.space_id === space) {
       setRecord(linkedQuery.data);
       setDraft(definitionOf(linkedQuery.data.draft_json));
     }
@@ -161,21 +178,30 @@ export function EntityDesigner({
     onSuccess: () => {},
     onError: setError,
   });
+  const show = (v: Item) => {
+    setRecord(v);
+    setDraft(definitionOf(v.draft_json));
+    history.replaceState(
+      null,
+      "",
+      location.pathname + "?entity=" + encodeURIComponent(text(v.id)),
+    );
+    setReview(false);
+    setTab("fields");
+  };
   async function open(id: string) {
     if (dirty && !(await discardChanges())) return;
     await run(async () => {
-      const v = await api<Item>("/v1/entities/" + id);
-      setRecord(v);
-      setDraft(definitionOf(v.draft_json));
-      history.replaceState(
-        null,
-        "",
-        location.pathname + "?entity=" + encodeURIComponent(text(v.id)),
-      );
-      setReview(false);
-      setTab("fields");
+      show(await api<Item>("/v1/entities/" + id));
     });
   }
+  // Without a link, the first entity opens, as the list's selection.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || !linkHandled || record || !items.length) return;
+    autoOpened.current = true;
+    void open(text(items[0].id));
+  });
   async function save() {
     const v = await api<Item>(
       "/v1/entities/" + record!.id,
@@ -220,6 +246,7 @@ export function EntityDesigner({
           me,
           catalog,
           roles,
+          entities: items,
           record,
           setRecord,
           draft,
@@ -237,7 +264,7 @@ export function EntityDesigner({
         }
       : null;
   const shownError = error || readError?.message || "";
-  if (!catalog)
+  if (!catalog || !listQuery.data)
     return shownError ? (
       <Alert>{shownError}</Alert>
     ) : (
@@ -245,187 +272,227 @@ export function EntityDesigner({
         <EmptyState compact>Loading entity designer…</EmptyState>
       </Card>
     );
-  const latest = itemsOf(record?.publications)[0];
-  const closeEntity = async () => {
-    if (!dirty || (await discardChanges())) {
-      setDraft(null);
-      setRecord(null);
-      history.replaceState(null, "", location.pathname);
-    }
-  };
-  return (
-    <Stack>
-      {shownError && <Alert>{shownError}</Alert>}
-      {!draft || !d ? (
-        <EntityList
-          space={space}
-          catalog={catalog}
-          items={items}
-          busy={busy}
-          run={run}
-          open={(id) => void open(id)}
-          opened={(v) => {
-            setRecord(v);
-            setDraft(definitionOf(v.draft_json));
-          }}
-        />
-      ) : (
-        <Split
-          aside={
+  const spaceName = text(spaceQuery.data?.display_name);
+  const nav = (
+    <NavList
+      label={spaceName ? spaceName + " entities" : "Entities"}
+      items={items.map((v) => ({
+        id: text(v.id),
+        label: text(v.id === record?.id ? draft?.label : v.label),
+        dot: !!v.has_draft_changes || (v.id === record?.id && dirty),
+        dotLabel: ", unpublished changes",
+      }))}
+      value={text(record?.id)}
+      onPick={(id) => {
+        if (id !== record?.id) void open(id);
+      }}
+      disabled={busy}
+      footer={
+        <>
+          <Button onClick={() => setCreating(true)} disabled={busy}>
+            + New entity
+          </Button>
+          {catalog.templates.length > 0 && (
+            <NavListNote>
+              Templates:{" "}
+              {catalog.templates.map((t: Item) => text(t.label)).join(", ")}
+            </NavListNote>
+          )}
+        </>
+      }
+    />
+  );
+  const creator = creating && (
+    <NewEntityDialog
+      space={space}
+      catalog={catalog}
+      run={run}
+      close={() => setCreating(false)}
+      opened={(v) => {
+        show(v);
+        void load();
+      }}
+    />
+  );
+  if (!draft || !d || !record)
+    return (
+      <DesignerPage>
+        {shownError && <Alert>{shownError}</Alert>}
+        <PageHeader title={spaceName ? spaceName + " entities" : "Entities"} />
+        <DesignerBody nav={nav}>
+          {items.length ? (
             <Card>
-              <CardHeader title="Entities" />
-              <CardBody>
-                <PickList
-                  label="Entities"
-                  items={items.map((v) => ({
-                    id: text(v.id),
-                    title: text(v.label),
-                    meta: text(v.entity_key),
-                    badge: <StatusBadge state={entityState(v)} />,
-                  }))}
-                  value={text(record?.id)}
-                  onPick={(id) => {
-                    if (id !== record?.id) void open(String(id));
-                  }}
-                  disabled={busy}
-                  footer={
-                    <Button
-                      variant="ghost"
-                      icon={<Plus size={15} aria-hidden />}
-                      onClick={() => void closeEntity()}
-                    >
-                      New entity
-                    </Button>
-                  }
-                />
-              </CardBody>
+              <EmptyState compact>Opening entity…</EmptyState>
             </Card>
-          }
-        >
-          <Stack>
+          ) : (
             <Card>
-              <CardHeader
-                title={text(draft.label)}
-                description={
-                  dirty
-                    ? "Unsaved changes"
-                    : record?.pending_version_id
-                      ? "Publishing…"
-                      : record?.active_version_id
-                        ? "Published · draft saved"
-                        : "Draft saved"
-                }
+              <EmptyState
+                icon={<Database size={28} aria-hidden />}
+                title="No entities yet"
                 actions={
-                  <>
-                    <Button
-                      disabled={!dirty || busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await save();
-                        })
-                      }
-                    >
-                      Save draft
-                    </Button>
-                    <Button
-                      variant="primary"
-                      disabled={
-                        busy ||
-                        !!record?.pending_version_id ||
-                        record?.state === "archived"
-                      }
-                      onClick={() => setReview(true)}
-                    >
-                      Review changes
-                    </Button>
-                  </>
+                  <Button
+                    variant="primary"
+                    icon={<Plus size={15} aria-hidden />}
+                    onClick={() => setCreating(true)}
+                  >
+                    New entity
+                  </Button>
                 }
-              />
-              <CardBody>
-                <FactList
-                  facts={[
-                    {
-                      label: "API key",
-                      value: text(draft.key),
-                      mono: true,
-                    },
-                    {
-                      label: "State",
-                      value: record ? (
-                        <StatusBadge state={entityState(record)} />
-                      ) : (
-                        "—"
-                      ),
-                    },
-                    {
-                      label: "Published version",
-                      value: record?.active_version_id
-                        ? text(record.active_version_id).slice(0, 8)
-                        : "Not published",
-                      mono: !!record?.active_version_id,
-                    },
-                    {
-                      label: "Draft",
-                      value: `${itemsOf(draft.fields).length} fields · ${itemsOf(draft.permissions).length} access rules · ${itemsOf(draft.rules).length} business rules`,
-                    },
-                  ]}
-                />
-              </CardBody>
+              >
+                Describe your data once. Every App in this Space shares its API,
+                access rules and validation.
+              </EmptyState>
             </Card>
-            {latest &&
-              (record?.pending_version_id || latest.state === "failed") && (
-                <Card>
-                  <CardHeader
-                    level={3}
-                    title="Publication"
-                    actions={<StatusBadge state={latest.state} />}
-                  />
-                  <CardBody>
-                    <Stack gap="md">
-                      <Stepper
-                        label="Publication"
-                        steps={publishSteps({
-                          dirty: false,
-                          publication: latest,
-                        })}
-                      />
-                      {latest.state === "failed" && (
-                        <Alert>
-                          Publishing failed: {text(latest.error_message)} Review
-                          changes and publish again.
-                        </Alert>
-                      )}
-                    </Stack>
-                  </CardBody>
-                </Card>
-              )}
-            <Tabs
-              label="Entity designer"
-              items={["fields", "access", "rules", "test", "history"].map(
-                (id) => ({ id, label: id[0].toUpperCase() + id.slice(1) }),
-              )}
-              value={tab}
-              onChange={setTab}
+          )}
+        </DesignerBody>
+        {creator}
+      </DesignerPage>
+    );
+  const publications = itemsOf(record.publications),
+    latest = publications[0],
+    active = publications.find((p) => p.id === record.active_version_id),
+    changes = draftChanges(draft, record.active_definition),
+    pending = !!record.pending_version_id,
+    archived = record.state === "archived";
+  const label = text(draft.label) || text(record.label);
+  const publishedOn = active
+    ? new Date(text(active.created_at)).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
+  const meta = [
+    text(draft.key),
+    record.active_version_id
+      ? "published" + (publishedOn ? " " + publishedOn : "")
+      : "not published",
+  ].join(" · ");
+  // The latest publication still describes this draft when its hash is the
+  // saved draft's: then its state (pending or failed) is the pipeline's.
+  const draftHash = isItem(record.draft_contract)
+      ? text(record.draft_contract.definition_hash)
+      : "",
+    current = !!latest && !dirty && text(latest.definition_hash) === draftHash,
+    failed = latest?.state === "failed" && (pending || current);
+  const showPipeline = pending || dirty || changes !== 0 || failed;
+  const diagnostics = Array.isArray(record.diagnostics)
+    ? record.diagnostics
+    : [];
+  const steps = publishSteps(
+    pending || failed
+      ? { dirty: false, publication: latest }
+      : {
+          dirty,
+          validation: dirty ? "" : diagnostics.length ? "failed" : "passed",
+          changes,
+        },
+  );
+  const rulesCount = ruleRows(d).length;
+  return (
+    <DesignerPage>
+      {shownError && <Alert>{shownError}</Alert>}
+      <RecordHeader
+        initial={label.slice(0, 1).toUpperCase()}
+        title={label}
+        meta={meta}
+        chips={
+          pending ? (
+            <StatusBadge state="publishing" />
+          ) : archived ? (
+            <StatusBadge state="archived" />
+          ) : changes === null ? (
+            <Badge chip tone="info">
+              Draft
+            </Badge>
+          ) : changes > 0 ? (
+            <Badge chip tone="info">
+              Draft · {plural(changes, "change")}
+            </Badge>
+          ) : undefined
+        }
+        actions={
+          <>
+            <Button onClick={() => setTab("test")}>Test as user…</Button>
+            {dirty && (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await save();
+                  })
+                }
+              >
+                Save draft
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              disabled={busy || pending || archived}
+              onClick={() => setReview(true)}
             >
-              {tab === "fields" && <FieldsTab d={d} />}
-              {tab === "access" && <AccessTab d={d} />}
-              {tab === "rules" && <RulesTab d={d} />}
-              {tab === "test" && (
-                <EntityTest
-                  draft={draft}
-                  record={record!}
-                  tenant={tenant}
-                  space={space}
-                  me={me}
-                />
+              Review &amp; publish
+            </Button>
+          </>
+        }
+      />
+      <Tabs
+        label="Entity sections"
+        variant="line"
+        items={[
+          { id: "fields", label: "Fields" },
+          { id: "access", label: "Access" },
+          {
+            id: "rules",
+            label: "Rules",
+            count: rulesCount || undefined,
+          },
+          { id: "test", label: "Test" },
+          { id: "history", label: "History" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      >
+        <DesignerBody nav={nav}>
+          {tab === "fields" && (
+            <>
+              <FieldsTab d={d} />
+              {showPipeline && (
+                <Panel
+                  title={
+                    (pending ? "Publishing" : "Publish changes") +
+                    " · live data keeps working while storage is prepared"
+                  }
+                >
+                  <Stepper label="Publication" steps={steps} />
+                  {failed && (
+                    <Alert live={false}>
+                      Publishing failed: {text(latest.error_message)} Review
+                      changes and publish again.
+                    </Alert>
+                  )}
+                </Panel>
               )}
-              {tab === "history" && <HistoryTab d={d} />}
-            </Tabs>
-          </Stack>
-        </Split>
-      )}
-      {d && review && <ReviewDialog d={d} />}
-      {d && editField && (
+              <EntitySettings d={d} />
+            </>
+          )}
+          {tab === "access" && <AccessTab d={d} />}
+          {tab === "rules" && <RulesTab d={d} />}
+          {tab === "test" && (
+            <EntityTest
+              draft={draft}
+              record={record}
+              tenant={tenant}
+              space={space}
+              me={me}
+            />
+          )}
+          {tab === "history" && <HistoryTab d={d} />}
+        </DesignerBody>
+      </Tabs>
+      {creator}
+      {review && <ReviewDialog d={d} />}
+      {editField && (
         <EditorDialog
           title={editField.key ? "Edit field" : "Add field"}
           close={() => setEditField(null)}
@@ -436,7 +503,7 @@ export function EntityDesigner({
             catalog={catalog}
             space={space}
             published={itemsOf(
-              definitionOf(record?.active_definition)?.fields,
+              definitionOf(record.active_definition)?.fields,
             ).some((f) => f.key === editField.key)}
             save={(f) => {
               replace("fields", text(editField.key), f);
@@ -445,7 +512,7 @@ export function EntityDesigner({
           />
         </EditorDialog>
       )}
-      {d && editPermission && (
+      {editPermission && (
         <EditorDialog
           title="Access rule"
           description="Who can do what, on which fields and which records."
@@ -464,7 +531,7 @@ export function EntityDesigner({
           />
         </EditorDialog>
       )}
-      {d && editRule && (
+      {editRule && (
         <EditorDialog title="Business rule" close={() => setEditRule(null)}>
           <RuleEditor
             value={editRule}
@@ -477,6 +544,6 @@ export function EntityDesigner({
           />
         </EditorDialog>
       )}
-    </Stack>
+    </DesignerPage>
   );
 }

@@ -81,6 +81,7 @@ test("removing an expression argument keeps the other arguments' inputs", async 
   await selectTenant(page, tenant);
   const space = await managedSpace(page, base, owner.id);
   await page.goto(`/console/tenants/${tenant}/spaces/${space}/entities`);
+  await page.getByRole("button", { name: "New entity", exact: true }).click();
   await page.getByLabel("Entity name", { exact: true }).fill("Ticket");
   await page
     .getByRole("button", { name: "Create entity", exact: true })
@@ -245,7 +246,13 @@ test("a failed designer chunk download shows the fallback and retries", async ({
   await page.goto(`/console/tenants/${tenant}/spaces/${space}/entities`);
   await expect(fallback(page)).toBeVisible();
   expect(requests).toBe(1);
-  // The shell is still usable while the designer is unavailable.
+  // The shell is still usable while the designer is unavailable: the
+  // breadcrumb leads back to the Space and its tabs.
+  await page
+    .getByRole("navigation", { name: "Breadcrumb" })
+    .getByRole("button")
+    .last()
+    .click();
   await page.getByRole("tab", { name: "Access", exact: true }).click();
   await expect(fallback(page)).toHaveCount(0);
   await page.getByRole("tab", { name: "Entities", exact: true }).click();
@@ -254,6 +261,8 @@ test("a failed designer chunk download shows the fallback and retries", async ({
   offline = false;
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(fallback(page)).toHaveCount(0);
-  await expect(page.getByLabel("Entity name", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "New entity", exact: true }),
+  ).toBeVisible();
   expect(requests).toBe(2);
 });

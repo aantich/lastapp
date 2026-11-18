@@ -1,5 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
-import { isItem, text, type EntityCatalog, type Item } from "../api-types";
+import {
+  isItem,
+  items as itemsOf,
+  text,
+  type EntityCatalog,
+  type Item,
+} from "../api-types";
 import { confirmAction } from "../ui";
 import type { Expression } from "../../../../packages/client/src/index.ts";
 
@@ -75,6 +81,54 @@ export const entityState = (v: Item) =>
       : v.active_version_id
         ? "published"
         : "draft";
+
+// A definition value with its empty members dropped and keys sorted, so a
+// draft edited in the browser compares equal to the backend's encoding of
+// the same definition (which omits empty values).
+const canonical = (v: unknown): unknown => {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (!isItem(v)) return v;
+  const out: Item = {};
+  for (const key of Object.keys(v).sort()) {
+    const x = canonical(v[key]);
+    const empty =
+      x === undefined ||
+      x === null ||
+      x === "" ||
+      x === false ||
+      (Array.isArray(x) && x.length === 0) ||
+      (isItem(x) && Object.keys(x).length === 0);
+    if (!empty) out[key] = x;
+  }
+  return out;
+};
+const same = (a: unknown, b: unknown) =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+const keyed = (v: unknown) =>
+  new Map(
+    (Array.isArray(v) ? v : []).filter(isItem).map((x) => [text(x.key), x]),
+  );
+
+// How many changes the draft makes to the active definition: each field,
+// rule and permission added, removed or changed by its key, and each
+// changed entity setting. Null when nothing is published.
+export function draftChanges(draft: Item, active: unknown): number | null {
+  if (!isItem(active)) return null;
+  let n = 0;
+  for (const list of ["fields", "rules", "permissions"]) {
+    const before = keyed(active[list]),
+      after = keyed(draft[list]);
+    for (const [key, v] of after) if (!same(v, before.get(key))) n++;
+    for (const key of before.keys()) if (!after.has(key)) n++;
+  }
+  for (const key of new Set([...Object.keys(draft), ...Object.keys(active)]))
+    if (
+      !["fields", "rules", "permissions"].includes(key) &&
+      !same(draft[key], active[key])
+    )
+      n++;
+  return n;
+}
 
 // A one-line reading of an expression for lists ("Stage ≠ "lost""). The
 // editor and the backend work on the expression itself; this is display only.
@@ -152,6 +206,8 @@ export type Designer = {
   me: Item;
   catalog: EntityCatalog;
   roles: Item[];
+  // The Space's entities (the list), for reference targets' names.
+  entities: Item[];
   record: Item | null;
   setRecord: Dispatch<SetStateAction<Item | null>>;
   draft: Item;
@@ -167,3 +223,48 @@ export type Designer = {
   setEditPermission: (permission: Item | null) => void;
   setEditRule: (rule: Item | null) => void;
 };
+
+export type RuleRow = {
+  key: string;
+  title: string;
+  kind: string;
+  expression: string;
+  note: string;
+  edit: () => void;
+  remove?: () => void;
+};
+
+// The Rules tab's rows: fields with a default or calculation, then the
+// validation and allowed-change rules.
+export function ruleRows(d: Designer): RuleRow[] {
+  const { draft, remove, setEditField, setEditRule } = d;
+  const fields = itemsOf(draft.fields);
+  return [
+    ...fields
+      .filter((f) => f.default || f.calculation)
+      .map((f) => ({
+        key: "field:" + text(f.key),
+        title: text(f.label),
+        kind: f.calculation ? "calculation" : "default",
+        expression:
+          text(f.label) + " = " + describe(f.calculation || f.default, fields),
+        note: f.calculation ? "stored" : "on create",
+        edit: () => setEditField({ ...f }),
+      })),
+    ...itemsOf(draft.rules).map((rule) => ({
+      key: "rule:" + text(rule.key),
+      title: text(rule.name || rule.key),
+      kind: rule.kind === "change" ? "allowed change" : "validation",
+      expression:
+        (rule.when ? "when " + describe(rule.when, fields) + ": " : "") +
+        describe(rule.assert, fields),
+      note: rule.message
+        ? "“" + text(rule.message) + "”"
+        : rule.kind === "change"
+          ? "on update"
+          : "on save",
+      edit: () => setEditRule({ ...rule }),
+      remove: () => remove("rules", text(rule.key)),
+    })),
+  ];
+}
