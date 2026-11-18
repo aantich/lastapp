@@ -91,6 +91,33 @@ func TestScopedRecipientOptions(t *testing.T) {
 	}
 	ownerClient.want("POST", base+"/apps/"+app+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": "00000000-0000-4000-8000-000000000006"}, 0, 201)
 	manager := platform.as(joe)
+	// App Access lists the App's own assignments, then its Space's, which
+	// apply by inheritance; reading the Space's needs Space authority.
+	listed := ownerClient.want("GET", base+"/apps/"+app+"/role-assignments?include=space", nil, 0, 200)["items"].([]any)
+	kinds := []string{}
+	for _, v := range listed {
+		kinds = append(kinds, registry.Str(v.(map[string]any)["scope_kind"]))
+	}
+	if strings.Join(kinds, ",") != "app,app,space" || listed[0].(map[string]any)["user_id"] != joe || listed[2].(map[string]any)["space_id"] != space {
+		t.Fatal("App access must list its own assignments, then its Space's", listed)
+	}
+	manager.want("GET", base+"/apps/"+app+"/role-assignments?include=space", nil, 0, 403)
+	manager.want("GET", base+"/apps/"+app+"/role-assignments", nil, 0, 200)
+	ownerClient.want("GET", base+"/spaces/"+space+"/role-assignments?include=space", nil, 0, 400)
+	// The account's fixed control roles in the Tenant, broadest first.
+	roleNames := func(c testClient) []string {
+		var out []string
+		for _, r := range c.want("GET", base+"/capabilities", nil, 0, 200)["control_roles"].([]any) {
+			out = append(out, registry.Str(r.(map[string]any)["display_name"]))
+		}
+		return out
+	}
+	if got := roleNames(manager); len(got) != 1 || got[0] != "App manager" {
+		t.Fatal("App manager's control roles", got)
+	}
+	if got := roleNames(ownerClient); len(got) < 2 || got[0] != "Tenant administrator" || got[1] != "Space manager" {
+		t.Fatal("Tenant administrator's control roles", got)
+	}
 	manager.want("GET", base+"/memberships", nil, 0, 403)
 	options := manager.want("GET", base+"/apps/"+app+"/recipients", nil, 0, 200)["items"].([]any)
 	if len(options) != 2 {
