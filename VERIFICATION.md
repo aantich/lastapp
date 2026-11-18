@@ -31,6 +31,15 @@
   `latest_deployment`, `failed_state` "publishing" on a failed activation and
   none on success, and the release creator; goldens and
   `design/control_plane.sql` were regenerated for migration 00013.
+- CI run 44343686226 (commit bf4941c, on main after #24) passed the
+  backend, MariaDB and all 37 browser regressions. Local browser runs were
+  not usable: with several stacks sharing the machine (load average ~50) the
+  console took over 5 s to leave "Opening Lastapp…", so every spec timed out
+  at sign-in. The earlier CI failures were real and fixed: the typed/untyped
+  App row comparison lacked the new fields, the App page had lost Refresh
+  with the shell header, and "active" matched the running note before the
+  deployment was live.
+
 ## Access, Agents and agent consent on the approved design — 18 November 2026
 
 - Space Access, the Agents page and the consent page were measured against
