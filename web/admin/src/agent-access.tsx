@@ -22,6 +22,7 @@ import {
   DialogFooter,
   Disclosure,
   EmptyState,
+  FactList,
   FlowCard,
   FlowSection,
   FlowStack,
@@ -424,6 +425,7 @@ function AgentGrantForm({
         <FlowCard
           title={title}
           titleId="agent-consent-title"
+          level={1}
           className="agent-consent-card agent-grant-form"
           footer={buttons}
         >
@@ -476,10 +478,11 @@ export function AgentConsent({ me }: { me: Me }) {
                 <strong>{info.client_name}</strong>
                 <span>Returns to {new URL(info.redirect_uri).host}</span>
               </Inline>
-              <Inline gap="sm">
-                <span>Client ID</span>
-                <Badge mono>{info.client_id}</Badge>
-              </Inline>
+              <FactList
+                facts={[
+                  { label: "Client ID", value: info.client_id, mono: true },
+                ]}
+              />
               <Alert tone="warning" live={false}>
                 {info.client_name} is the name the client gives itself; it is
                 not verified. Check the client ID and return address before

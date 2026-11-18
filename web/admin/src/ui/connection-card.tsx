@@ -108,10 +108,11 @@ export function ChoiceCards({
 
 // A focused single-task panel (a consent request): a title, sections one
 // under another and a footer of actions aligned to the end, at most
-// 680 px wide.
+// 680 px of content wide. `level` 1 when the card is the page's heading.
 export function FlowCard({
   title,
   titleId,
+  level = 2,
   aside,
   children,
   footer,
@@ -119,19 +120,23 @@ export function FlowCard({
 }: {
   title: ReactNode;
   titleId?: string;
+  level?: 1 | 2;
   // At the end of the title line (a close button, a status).
   aside?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
 }) {
+  const Heading = level === 1 ? "h1" : "h2";
   return (
     <section
       className={cx("panel ui-flow-card", className)}
       aria-labelledby={titleId}
     >
       <div className="ui-flow-card-head">
-        <h2 id={titleId}>{title}</h2>
+        <Heading id={titleId} className="ui-flow-title">
+          {title}
+        </Heading>
         {aside}
       </div>
       {children}
