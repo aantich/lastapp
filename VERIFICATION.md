@@ -1,5 +1,75 @@
 # Lastapp verification
 
+## Console shell and Tenant Home on the approved design — 18 November 2026
+
+- The shell (sidebar, top bar, centred content) and Home were measured
+  against the mockup's interactive prototype rendered in Chrome, region by
+  region (position, size, padding, radius, colors, font shorthand), at
+  1440×900 and 1920×1080, and checked for horizontal overflow at 390×844.
+  With the dev seed, every shell region and the header, stats, App card and
+  activity components are within 1 px of the mockup with identical type;
+  before the change the sidebar nav sat 55 px higher, the h1 was "Home" at
+  26 px instead of the 34 px greeting, the stat cards spanned the content
+  width (278×93) and at 1920 the content stretched to 1480 px instead of the
+  1240 px column. With the mockup's own data patched into the API responses
+  (verification only), the remaining differences are data-driven: two
+  attention cards instead of three (wider, one fewer wrapped line) and
+  text-length widths. The Spaces group sits 3 px higher than the mockup,
+  whose Agents row is 36 px tall only because its "◉" placeholder glyph
+  falls back to a taller font; real rows use 18 px icons.
+- A separate visual review of the screenshots (mockup, real with mockup data,
+  real with the seed, 390 px and dark) found layout, type scale, spacing and
+  components faithful; its findings (dev Space dot colour, a red border on
+  the failed card, a chevron on the account, the date comma, bold names in
+  activity sentences, an orphaned breadcrumb separator at 390 px) were fixed.
+- "Load more" in the Tenant switcher: the popup stayed open in headless
+  Chrome, but focus fell to the page when the clicked button was disabled
+  and removed, the status line switched to "Searching…" and the new options
+  landed below the scrolled view, so the list looked unchanged and stopped
+  answering the keyboard. The button now keeps focus in the search field
+  (no mouse-down focus), shows "Loading…" while only the next page loads and
+  brings the first new option into view. `tests/tenant-switcher.spec.ts`
+  creates 52 Tenants on the e2e stack and asserts more than 50 options, the
+  popup still open, focus in the search field, option 51 in view and Escape
+  closing it.
+
+- Owner review of the sidebar: Spaces carry no environment tag (there is no
+  production environment locally); development workspaces are listed under
+  their Space with a branch icon and "workspace"; every row keeps its status
+  dot. The Tenant switcher is the sidebar section label for every account
+  with a Tenant, even one, and `tests/tenant-switcher.spec.ts` reaches it by
+  role and name.
+- Content audit: the mockup sets layout and style only. The diff was searched
+  for mockup content (names, releases, hostnames, step counts, environment
+  tags, sample sentences); the real screens derive every value from API data
+  or contracts, the Connect agent dialog names no particular client, and the
+  stories use neutral sample data. Mockup elements without a data source are
+  omitted: an "unpublished entity changes" attention card, the account's
+  role label under the name and an agent's role in activity meta.
+
+Executed checks:
+
+- `go test -race` with `LASTAPP_TEST_CONFIG` over `./internal/...` (17
+  packages) passes; `TestRegistryRecordsMatchUntypedRows` covers the audit
+  trail's new `resource_name` and the overview's micro-app counts; the
+  delivery shape golden gained `deployed_by` and `release_name` only.
+- `make lint` 0 issues; console lint, typecheck, build and Storybook build
+  pass.
+- axe (WCAG 2.0/2.1 A/AA and best practice) over all 113 Storybook stories
+  in light and dark at 1440 px, and the changed groups at 390 px: no
+  violations beyond the page-level rules a component story cannot meet
+  (`landmark-one-main`, `page-has-heading-one`, `region`, as in the earlier
+  baseline) once App cards were named by their visible App name. Real Home,
+  Activity and the Connect agent dialog at 1440 px (light): the same App-card
+  finding, since fixed; no other violations.
+- Platform screens at 390 px with a long Tenant name: no horizontal overflow
+  after the current breadcrumb was allowed to shrink.
+- e2e: on this machine every browser login in the Playwright runner took 4–8 s
+  (the same steps outside the runner: under 1 s; the commit before this UI
+  work failed its login wait identically), so local runs at stock timeouts
+  fail at login. With a temporary 20 s expect timeout (not committed)
+  `tests/tenant-switcher.spec.ts` passed both tests; the full suite runs in CI.
+
 ## Populated Northstar development demo — 18 November 2026
 
 - `seed-development` now also fills the Northstar demo through the real

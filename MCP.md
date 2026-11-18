@@ -13,7 +13,8 @@ Give the agent client the server's MCP URL. For local clients on this machine:
 http://127.0.0.1:8787/mcp
 ```
 
-It is also available in **My account → Agent access → Copy MCP URL**. The client
+It is also available under **Connect agent** in the console's top bar and
+**My account → Agent access → Copy MCP URL**. The client
 discovers the authorization server, identifies/registers itself automatically,
 and opens Lastapp for sign-in and interactive consent. The user chooses one
 Tenant/team/Space/App scope and the allowed actions, then returns to the client.
@@ -45,8 +46,8 @@ match them exactly.
 Connections can be edited/revoked under **My account → Agent access**; each
 connection card shows the agent, its owner, scope, permissions, expiry and last
 mutation, and **Revoke access** asks for confirmation first. Tenant
-administrators can inspect/revoke their members' connections under **Tenant
-Settings → Agent access**, but cannot expand someone else's delegation.
+administrators can inspect/revoke their members' connections under **Agents**
+in the sidebar (Tenant settings → Agent access), but cannot expand someone else's delegation.
 Changes invalidate existing access-token revisions: refresh or reconnect, reload
 tools and reread resource revisions. Browser logout leaves approved agent access
 intact; grant expiry/revocation, password replacement, user disable and Tenant

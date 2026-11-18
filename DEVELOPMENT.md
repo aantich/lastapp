@@ -212,6 +212,18 @@ including exact decimals, nulls, permission paths and old/new update checks.
 The console has one visual theme, **Signal** ("Ink & Signal"), in light, dark
 and system color modes. New console UI follows these rules:
 
+- **Real content only.** A design mockup defines layout and visual style
+  (spacing, type, components, composition), never content. Names, counts,
+  statuses, tags, environment labels, hostnames, greetings, release numbers,
+  actor names, step names, badges and navigation counts come from real data
+  or an authoritative contract: status and step labels from `/v1/config`
+  states and `statusTone`, navigation and its badges from
+  `tenant/navigation.ts` with real permissions and counts, activity sentences
+  from audit fields through `activity.tsx` (an unknown action reads as its
+  words and its real resource). A mockup element without a data source is
+  omitted or shows a real empty state and becomes a backend follow-up; it is
+  never filled with sample values. Stories use neutral sample data.
+
 - **Tokens.** `web/admin/src/themes.css` is the only source of colors, fonts,
   radii and shadows: semantic `--ui-*` variables, redefined for
   `:root[data-mode="dark"]` and, for the ink sidebar, inside `.sidebar`. Tailwind
@@ -277,18 +289,29 @@ and system color modes. New console UI follows these rules:
     `disabled`, group actions) and `LoadingScreen` (the announced
     whole-window wait). Fields take `hideLabel`; the required mark sits beside
     the label, not in it.
-  - Composites: `SidebarNav`/`SidebarFooter` and `useSidebarCollapse` (the
-    68 px rail, remembered in the browser as `lastapp-sidebar`; ConsoleShell
-    uses them), `ContextSwitcher` (Tenant/Space popover: filter combobox over a
-    listbox; with `path` it searches and pages a list API through
-    `useRemoteOptions`, the same paging RemoteSelect uses), `CommandPalette`
+  - Composites: `SidebarNav` (a labelled nav group under an uppercase section
+    label, with count badges), `SidebarLinks` (a titled list of places with a
+    status dot and an optional tag: the Spaces and their workspaces) and `useSidebarCollapse` (the 68 px rail,
+    remembered in the browser as `lastapp-sidebar`; ConsoleShell uses them),
+    `ContextSwitcher` (Tenant/Space popover: filter combobox over a listbox;
+    `variant="section"` makes the trigger a sidebar section label, shown
+    for any account with a Tenant so switching is always discoverable; with `path`
+    it searches and pages a list API through `useRemoteOptions`, the same
+    paging RemoteSelect uses; "Load more" keeps the popup open, keeps focus in
+    the search field and brings the first new option into view),
+    `CommandPalette`
     and `useCommandPaletteShortcut` (⌘K/Ctrl+K), `Menu` (WAI-ARIA menu button;
     the account menu), `DataTable` (Collection adds server search and paging on
     top; below 640 px rows stack as label/value cards labelled by the column
     header, `stack={false}` keeps a scrolling grid) and `RoleMatrix`;
-    `AppShell` with `QuickSearch`, `AccountMenu` and `ContextLabel` (the shell
-    frame: ink sidebar, rail, drawer, top bar; it keeps the legacy shell class
-    names as theme and e2e hooks), `AuthLayout` (sign-in, first-login password
+    `AppShell` with `SearchField`, `AccountMenu` and `ContextLabel` (the shell
+    frame: ink sidebar with the brand, collapse toggle, search, navigation and
+    the account at its foot; rail; drawer; a top bar with breadcrumbs, search
+    and actions; content centred at 1240 px),
+    `PageIntro` (eyebrow, greeting-size title, summary and an aside),
+    `AttentionCard`/`AllClear`, `AppCard` (named by the App's visible name,
+    described by its address and release), `ActivityList` (actor mark, one
+    sentence, meta), `AuthLayout` (sign-in, first-login password
     and the App launch approval: one card centred outside the shell) and
     `StandalonePage` (a centred column outside the shell: agent consent).
   - Form controls and services: Select, ListboxPopup/`useListbox`
@@ -302,13 +325,18 @@ and system color modes. New console UI follows these rules:
     `filters` controls, a `render` feed instead of the table, and `poll`
     while rows are changing), ErrorBoundary, `useDialogFocus`.
 - **Shell.** `console-shell.tsx` wires the kit `AppShell` for both
-  workspaces (an optional `secondaryContext` slot holds the Space switcher): the
-  ink sidebar (`SidebarNav`, `SidebarFooter`, collapse rail, drawer under
-  800 px), the top bar (the workspace's context switchers, the ⌘K search
-  button and the account `Menu`; both are named by their visible text plus
-  visually hidden words, e.g. "<name>, account menu", so the name contains
-  what is shown and survives the narrow layout hiding the text) and
-  `PageHeader`/`Breadcrumbs`. The Tenant
+  workspaces: the ink sidebar (brand and collapse toggle, ⌘K search, the
+  Tenant switcher as the navigation's section label, `SidebarNav`, the Spaces
+  `SidebarLinks`: each Space with its status dot, its development workspaces
+  tagged "workspace"; the account `Menu` at the foot; collapse
+  rail, drawer under 800 px) and the top bar (breadcrumbs starting at the
+  Tenant, the ⌘K search and the workspace's actions; the Tenant console's is
+  **Connect agent**, a dialog with the real MCP URL from
+  `/v1/agent-access/config`, shared with Agent access through
+  `connect-agent.tsx`). Triggers are named by their visible text plus visually
+  hidden words, e.g. "<name>, account menu" and "Tenant <name>", so the name
+  contains what is shown and survives the narrow layout hiding the text.
+  Pages other than Home keep `PageHeader`. The Tenant
   navigation is defined once in `tenant/navigation.ts` (`tenantNav`,
   `tenantTabs`): the sidebar, the page `Tabs` (`.workspace-tabs`) and the
   palette's Navigate/section commands all derive from it. The palette's App,
@@ -316,11 +344,21 @@ and system color modes. New console UI follows these rules:
   (`cachedRows` in `query.ts`); it fetches nothing. Console URLs may carry a
   query string (`?entity=`), which `useConsoleURL` keeps in the route.
 - **Home.** `tenant/home-page.tsx` composes only existing authorized reads:
-  the Tenant overview (counts, recent Apps, databases pending or failed), each
-  recent App's `GET /v1/apps/{app}/deployment` where `release.manage` applies,
-  `GET /v1/agent-access` (Tenant grants for `authorization.manage`, otherwise
-  the user's own) and `audit-events?limit=8` (actors from the audit
-  `actor_kind`, agents named from their grant). A card without a backing read is omitted, not estimated.
+  the Tenant overview (entities, live Apps, recent Apps with their micro-app
+  counts, databases pending or failed), each recent App's
+  `GET /v1/apps/{app}/deployment` where `release.manage` applies (status,
+  production address, release and deployer), `GET /v1/agent-access` (Tenant
+  grants for `authorization.manage`, otherwise the user's own) and
+  `audit-events?limit=4`. It greets the person with the date, says how many
+  things need them, shows three stats (Entities, Apps live, Agents active),
+  the attention cards (or a one-line All clear), App cards and the activity
+  feed. A card without a backing read is omitted, not estimated.
+- **Activity sentences.** `activity.tsx` (`describeEvents`) is the one place
+  audit actions become sentences, for Home and the Activity page. Each event
+  carries `resource_name` (`roles.AuditResourceName`: the current name of its
+  App, Space, entity, release "<App> <release>", deployment, workspace, team,
+  role, person or Tenant); the worker is written in the passive voice and an
+  agent's line names the person it acted for.
 - **Feedback.** FormModal confirms a successful save with a success `toast`
   (from `Modal.success` or derived from the title); errors stay in the form.
 - **Delivery screens.** Apps and Spaces lists, App/Space detail tabs
