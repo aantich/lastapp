@@ -351,7 +351,7 @@ func (s *Service) failDeployment(ctx context.Context, job deploymentTask, messag
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE release_deployments SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state IN ('queued','preparing','publishing')", message, job.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE release_deployments SET failed_state=state,state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state IN ('queued','preparing','publishing')", message, job.ID); err != nil {
 		return err
 	}
 	if err = op.Audit(ctx, tx, job.TenantID, job.CreatedBy, "release.deployment_failed", "deployment", job.ID, registry.NewID(), registry.Row{"error_message": message}); err != nil {

@@ -24,6 +24,7 @@ GET /v1/apps/{app}/deployment finished -> 200
   .deployment.created_at string
   .deployment.deployed_by string
   .deployment.error_message null
+  .deployment.failed_state null
   .deployment.finished_at string
   .deployment.id string
   .deployment.release_id string
@@ -50,6 +51,7 @@ GET /v1/apps/{app}/deployment queued -> 200
   .deployment.created_at string
   .deployment.deployed_by string
   .deployment.error_message null
+  .deployment.failed_state null
   .deployment.finished_at null
   .deployment.id string
   .deployment.release_id string
@@ -64,8 +66,10 @@ GET /v1/apps/{app}/releases -> 200
   $ object
   .items array
   .items[] object
+  .items[].agent_client_name null
   .items[].build_id string
   .items[].created_at string
+  .items[].created_by_name string
   .items[].display_name string
   .items[].id string
   .items[].snapshot_hash string
@@ -110,6 +114,7 @@ GET /v1/deployments/{deployment} finished -> 200
   .created_at string
   .deployed_by string
   .error_message null
+  .failed_state null
   .finished_at string
   .id string
   .release_id string
@@ -132,6 +137,7 @@ GET /v1/deployments/{deployment} queued -> 200
   .created_at string
   .deployed_by string
   .error_message null
+  .failed_state null
   .finished_at null
   .id string
   .release_id string
@@ -509,6 +515,7 @@ mcp lastapp_get app_deployment -> 200
   .data.deployment.created_at string
   .data.deployment.deployed_by string
   .data.deployment.error_message null
+  .data.deployment.failed_state null
   .data.deployment.finished_at null
   .data.deployment.id string
   .data.deployment.release_id string
@@ -534,6 +541,7 @@ mcp lastapp_get deployment queued -> 200
   .data.created_at string
   .data.deployed_by string
   .data.error_message null
+  .data.failed_state null
   .data.finished_at null
   .data.id string
   .data.release_id string
@@ -695,8 +703,10 @@ mcp lastapp_list release -> 200
   .data.complete bool
   .data.items array
   .data.items[] object
+  .data.items[].agent_client_name string
   .data.items[].build_id string
   .data.items[].created_at string
+  .data.items[].created_by_name string
   .data.items[].display_name string
   .data.items[].id string
   .data.items[].snapshot_hash string

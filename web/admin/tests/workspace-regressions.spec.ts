@@ -115,9 +115,13 @@ test("only platform admins create global credentials; Tenant admins add existing
       capture(route);
     } else return route.continue();
   });
-  // Home has no page header; Apps carries the Refresh action, and the
-  // overview stays live on every Tenant screen.
-  await nav(member, "Apps");
+  // Home and Apps have no Refresh action; Agents carries it, and the
+  // overview stays live on every Tenant screen. Its sidebar name may carry
+  // a count.
+  await member
+    .getByRole("navigation", { name: "Console screens" })
+    .getByRole("button", { name: /^Agents\b/ })
+    .click();
   await member.getByRole("button", { name: "Refresh", exact: true }).click();
   const held = await pending;
   await menu(member);
@@ -157,9 +161,7 @@ test("only platform admins create global credentials; Tenant admins add existing
   await context.close();
 });
 
-test("App-only managers can page, search and open all their Apps", async ({
-  page,
-}) => {
+test("App-only managers can page and open all their Apps", async ({ page }) => {
   await login(page);
   const { tenant, base, owner, outsider } = await fixtureTenant(
     page,
@@ -231,19 +233,14 @@ test("App-only managers can page, search and open all their Apps", async ({
   await expect(
     page.getByRole("row").filter({ hasText: "Delegated 000" }),
   ).toBeVisible();
-  await page
-    .getByRole("textbox", { name: "Search records", exact: true })
-    .fill("Delegated 000");
-  await expect(
-    page.getByRole("button", { name: "Previous records", exact: true }),
-  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Next records", exact: true }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
+  // The whole row opens the App; its name is the row's button.
   await page
     .getByRole("row")
     .filter({ hasText: "Delegated 000" })
-    .getByRole("button", { name: "Open", exact: true })
+    .getByRole("button", { name: "Delegated 000", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Delegated 000", exact: true, level: 1 }),
@@ -293,9 +290,8 @@ test("expired sessions return to login and signing out an expired session succee
   // Finish the initial collection load and open the menu before expiring the
   // session. Otherwise a delayed GET can correctly return to login before the
   // test reaches Sign out, leaving no mounted button to click.
-  await expect(
-    page.locator(".list-panel .toolbar").getByText(/^\d+ records?$/),
-  ).toBeVisible();
+  await expect(page.getByRole("table", { name: "Apps" })).toBeVisible();
+  await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
   await menu(page);
   const expiredLogout = page.waitForResponse(
     (response) =>

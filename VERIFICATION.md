@@ -1,5 +1,45 @@
 # Lastapp verification
 
+## Apps list and App detail on the approved design — 18 November 2026
+
+- The Apps list and the App page (Releases tab of a live App) were measured
+  against the mockup's prototype in Chrome, region by region (box, padding,
+  radius, colors, font shorthand), at 1440×900 and 1920×1080 on a private
+  probe stack seeded with the Northstar demo. Header, "New app", the table
+  card, header row, rows, tiles, status badges, the App header tile and
+  title, page tabs, the Production deployment card, its steps (label and
+  note type) and the Releases header are within 2 px with identical type.
+  Before the change the page title was 26 px instead of 28 px and sat 4 px
+  low. Remaining differences are data or mockup artefacts: hostnames are the
+  real ID-based origins (widths), the mockup's rows overflow its card by
+  31 px (its Preview button is clipped) while real rows fit, release rows have
+  no "r23" number column (no safe source; titles start 93 px further left),
+  the mockup's "↗" glyph makes its header buttons 41 px tall instead of 37 px,
+  and the content height follows the number of releases.
+- A failed deployment (patched into the deployment response, verification
+  only) shows "<release> failed" in the header, a danger tile, "Production
+  still serves <active release>.", Retry deploy, the failed step marked with
+  the stored error, and the failed release listed with a Failed chip.
+- axe (wcag2a/aa, wcag21a/aa, best-practice): 0 violations on Apps and on
+  each App tab (Releases, Micro-apps, Data access, Settings) for two Apps, in
+  light and dark, at 1440 and 390 px; no horizontal overflow at 390 px.
+- A separate visual review of the screenshots found no material difference;
+  its minor findings (the Launch app arrow) were fixed or are listed above.
+- Backend: `TestDevelopmentWorkspaceReleaseFlow` (MariaDB) checks the App
+  list's `hosted_origin`, `latest_deployment` and `active_release_id` against
+  the deployment, that an App manager without `release.manage` gets no
+  `latest_deployment`, `failed_state` "publishing" on a failed activation and
+  none on success, and the release creator; goldens and
+  `design/control_plane.sql` were regenerated for migration 00013.
+- CI run 44343686226 (commit bf4941c, on main after #24) passed the
+  backend, MariaDB and all 37 browser regressions. Local browser runs were
+  not usable: with several stacks sharing the machine (load average ~50) the
+  console took over 5 s to leave "Opening Lastapp…", so every spec timed out
+  at sign-in. The earlier CI failures were real and fixed: the typed/untyped
+  App row comparison lacked the new fields, the App page had lost Refresh
+  with the shell header, and "active" matched the running note before the
+  deployment was live.
+
 ## Access, Agents and agent consent on the approved design — 18 November 2026
 
 - Space Access, the Agents page and the consent page were measured against

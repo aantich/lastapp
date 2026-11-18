@@ -1,27 +1,41 @@
+import { useState } from "react";
 import { FolderPlus } from "lucide-react";
 import {
+  AppTile,
   Button,
+  CellMono,
   Card,
   Collection,
   EmptyState,
-  Stack,
+  PageStack,
+  RowTable,
   StatusBadge,
 } from "../ui";
-import { text } from "../api-types";
+import { isItem, text, type DeploymentSummary, type Page } from "../api-types";
+import { useApiQuery } from "../query";
+import { useDeploymentStates } from "../deployment";
+import { appStatus, hostOf } from "./app-status";
 import { createSpace } from "./forms";
 import {
-  createdColumn,
   nameColumn,
   openAction,
   statusColumn,
   type TenantScreen,
 } from "./screen";
 
-// The Tenant's App list, with a first-Space prompt for a new Tenant.
+// The Tenant's Apps: one row per App with its Space, status and hosted
+// address, all from the App list (GET …/apps), which carries each App's
+// active release, hosted origin and, where this account may manage its
+// releases, its latest deployment. A new Tenant gets a first-Space prompt.
 export function AppsPage({ t }: { t: TenantScreen }) {
   const { all, base, openApp, overview } = t;
+  const [page, setPage] = useState(1);
+  const states = useDeploymentStates();
+  const list = useApiQuery<Page>(`${base}/apps?page=${page}`);
+  const apps = list.data?.items || [];
+  const more = !!list.data?.pagination?.has_more;
   return (
-    <Stack>
+    <PageStack>
       {overview.spaces === 0 && all("space.manage") && (
         <Card>
           <EmptyState
@@ -37,21 +51,64 @@ export function AppsPage({ t }: { t: TenantScreen }) {
           </EmptyState>
         </Card>
       )}
-      <Collection
-        key={base + "apps"}
-        path={base + "/apps"}
-        caption="Apps"
-        columns={[
-          nameColumn,
-          ["Space", (r) => text(r.space_name)],
-          ["Micro-apps", (r) => text(r.microapp_count)],
-          statusColumn,
-          createdColumn,
-        ]}
-        empty="No Apps are available yet."
-        actions={openAction(openApp)}
+      <RowTable
+        label="Apps"
+        columns="minmax(180px, 2fr) 120px 140px minmax(200px, 2fr)"
+        headers={["App", "Space", "Status", "Hostname"]}
+        empty={
+          list.error
+            ? list.error.message
+            : list.data
+              ? "No Apps are available yet."
+              : "Loading…"
+        }
+        rows={apps.map((a) => {
+          const name = text(a.display_name);
+          const status = appStatus(
+            a,
+            isItem(a.latest_deployment)
+              ? (a.latest_deployment as DeploymentSummary)
+              : undefined,
+            states,
+          );
+          return {
+            id: text(a.id),
+            onOpen: () => openApp(a),
+            cells: [
+              <>
+                <AppTile name={name} tone={status.tone} />
+                <strong>{name}</strong>
+              </>,
+              text(a.space_name),
+              status.badge,
+              <CellMono>{hostOf(a.hosted_origin)}</CellMono>,
+            ],
+          };
+        })}
+        footer={
+          (page > 1 || more) && (
+            <>
+              <Button
+                size="sm"
+                disabled={page === 1}
+                aria-label="Previous records"
+                onClick={() => setPage(page - 1)}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                disabled={!more}
+                aria-label="Next records"
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </Button>
+            </>
+          )
+        }
       />
-    </Stack>
+    </PageStack>
   );
 }
 

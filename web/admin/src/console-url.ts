@@ -47,7 +47,7 @@ export function parseTenantURL(path: string) {
       section === "spaces" && id
         ? tab || "apps"
         : section === "apps" && id
-          ? tab || "microapps"
+          ? tab || "releases"
           : id || "general",
     team: section === "people" ? tab : "",
   };

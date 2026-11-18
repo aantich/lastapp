@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import { Check, CircleDot, Circle, X } from "lucide-react";
 import { cx } from "./utils";
 
@@ -22,9 +22,24 @@ const spoken: Record<StepState, string> = {
 // Active) or publish (Drafted → Validated → Review → Prepare storage →
 // Published). Each step's state is spoken as text, the active step is
 // aria-current="step"; the mark shape repeats the state for sighted users.
-export function Stepper({ steps, label }: { steps: Step[]; label: string }) {
+export function Stepper({
+  steps,
+  label,
+  min,
+}: {
+  steps: Step[];
+  label: string;
+  // The narrowest a step gets before the row wraps (default 150 px).
+  min?: number;
+}) {
   return (
-    <ol className="ui-stepper" aria-label={label}>
+    <ol
+      className="ui-stepper"
+      aria-label={label}
+      style={
+        min ? ({ "--ui-step-min": min + "px" } as CSSProperties) : undefined
+      }
+    >
       {steps.map((step) => {
         const Mark = marks[step.state];
         return (

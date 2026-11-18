@@ -173,19 +173,38 @@ export type Build = {
   entrypoint: string;
 };
 
-// internal/delivery/releases.go: Deployment. deployed_by is the person who
-// started it (an agent acts for them); release_name the release's name.
-export type Deployment = {
+// internal/inventory/inventory.go: DeploymentStatus, an App list item's
+// latest deployment (present only where the reader may manage its
+// releases). failed_state is the step a failed deployment had reached.
+export type DeploymentSummary = {
   id: string;
   state: string;
+  failed_state: string | null;
   error_message: string | null;
-  url: string;
   release_id: string;
   release_name: string;
   deployed_by: string;
-  revision: number;
   created_at: string;
   finished_at: string | null;
+};
+
+// internal/delivery/releases.go: Deployment. deployed_by is the person who
+// started it (an agent acts for them); release_name the release's name.
+export type Deployment = DeploymentSummary & {
+  url: string;
+  revision: number;
+};
+
+// internal/delivery/releases.go: ReleaseItem (GET /v1/apps/{id}/releases):
+// who captured it, and the agent client that owns its workspace, if any.
+export type ReleaseItem = {
+  id: string;
+  display_name: string;
+  build_id: string;
+  created_at: string;
+  created_by_name: string;
+  agent_client_name: string | null;
+  snapshot_hash: string;
 };
 
 // internal/control/releases.go: Release (GET /v1/releases/{id}). The manifest

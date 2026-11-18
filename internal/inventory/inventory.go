@@ -56,6 +56,8 @@ type Inventory struct {
 	AllocateDatabase func(ctx context.Context, tx *sql.Tx, a op.Actor, tenant string, in databases.DatabaseInput, policy registry.Policy, workspace *access.Resource) error
 	// Passwords prepares a new Tenant's initial administrator account.
 	Passwords *membership.Passwords
+	// HostedOrigin is delivery's dedicated static origin of an App.
+	HostedOrigin func(app string) string
 }
 
 // Space is a Space read with its Tenant's name and its database binding.
@@ -222,11 +224,12 @@ func (v *Inventory) CreateSpace(ctx context.Context, a op.Actor, tenant string, 
 	return v.Run.Ref(ctx, "spaces", tenant, in.ID)
 }
 
-// App is an App read with its Tenant and Space names.
+// App is an App read with its Tenant and Space names and hosted origin.
 type App struct {
 	ActiveRelease *string `json:"active_release_id"`
 	Compute       string  `json:"compute_mode"`
 	Name          string  `json:"display_name"`
+	HostedOrigin  string  `json:"hosted_origin"`
 	ID            string  `json:"id"`
 	Revision      int64   `json:"revision"`
 	Slug          string  `json:"slug"`
@@ -242,24 +245,62 @@ func (v *App) ScanFields() []any {
 	return []any{&v.ActiveRelease, &v.Compute, &v.Name, &v.ID, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.TenantName, &v.WorkspaceID}
 }
 
-// AppItem is an App collection row with its active micro-app count.
+// AppItem is an App collection row with its active micro-app count, the
+// release it serves, its hosted origin and, where the reader may manage its
+// releases, its latest production deployment.
 type AppItem struct {
-	Compute       string    `json:"compute_mode"`
-	CreatedAt     time.Time `json:"created_at"`
-	Name          string    `json:"display_name"`
-	ID            string    `json:"id"`
-	MicroappCount int64     `json:"microapp_count"`
-	Revision      int64     `json:"revision"`
-	Slug          string    `json:"slug"`
-	SpaceID       string    `json:"space_id"`
-	SpaceName     string    `json:"space_name"`
-	State         string    `json:"state"`
-	TenantID      string    `json:"tenant_id"`
-	WorkspaceID   *string   `json:"workspace_id"`
+	ActiveRelease *string           `json:"active_release_id"`
+	Compute       string            `json:"compute_mode"`
+	CreatedAt     time.Time         `json:"created_at"`
+	Name          string            `json:"display_name"`
+	HostedOrigin  string            `json:"hosted_origin"`
+	ID            string            `json:"id"`
+	Deployment    *DeploymentStatus `json:"latest_deployment"`
+	MicroappCount int64             `json:"microapp_count"`
+	Revision      int64             `json:"revision"`
+	Slug          string            `json:"slug"`
+	SpaceID       string            `json:"space_id"`
+	SpaceName     string            `json:"space_name"`
+	State         string            `json:"state"`
+	TenantID      string            `json:"tenant_id"`
+	WorkspaceID   *string           `json:"workspace_id"`
+
+	scan *appDeployment
+}
+
+// DeploymentStatus summarizes the latest deployment that targets an App: the
+// fields a list row needs to show its state, release and failure. The full
+// status (and polling) stays GET /v1/deployments/{id}.
+type DeploymentStatus struct {
+	CreatedAt   time.Time  `json:"created_at"`
+	DeployedBy  string     `json:"deployed_by"`
+	Error       *string    `json:"error_message"`
+	FailedState *string    `json:"failed_state"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	ID          string     `json:"id"`
+	ReleaseID   string     `json:"release_id"`
+	Release     string     `json:"release_name"`
+	State       string     `json:"state"`
+}
+
+// appDeployment holds the nullable LEFT JOIN columns of an App's latest
+// deployment while a row is scanned.
+type appDeployment struct {
+	CreatedAt   *time.Time
+	DeployedBy  *string
+	Error       *string
+	FailedState *string
+	FinishedAt  *time.Time
+	ID          *string
+	ReleaseID   *string
+	Release     *string
+	State       *string
 }
 
 func (v *AppItem) ScanFields() []any {
-	return []any{&v.Compute, &v.CreatedAt, &v.Name, &v.ID, &v.MicroappCount, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.WorkspaceID}
+	d := &appDeployment{}
+	v.scan = d
+	return []any{&v.ActiveRelease, &v.Compute, &v.CreatedAt, &v.Name, &v.ID, &v.MicroappCount, &v.Revision, &v.Slug, &v.SpaceID, &v.SpaceName, &v.State, &v.TenantID, &v.WorkspaceID, &d.CreatedAt, &d.DeployedBy, &d.Error, &d.FailedState, &d.FinishedAt, &d.ID, &d.ReleaseID, &d.Release, &d.State}
 }
 
 // Apps pages the Apps a may read in tenant, optionally of one Space. Without a
@@ -269,9 +310,22 @@ func (v *Inventory) Apps(ctx context.Context, a op.Actor, tenant, space string, 
 	if e != nil {
 		return op.Page[AppItem]{}, e
 	}
+	// The latest deployment is joined only where the reader may manage the
+	// App's releases, under the same scope rule GET /v1/apps/{id}/deployment
+	// authorizes.
+	releases, e := v.Run.Scopes(ctx, a, tenant, "release.manage")
+	if e != nil {
+		return op.Page[AppItem]{}, e
+	}
+	deployable, deployArgs := access.ScopeSQL(releases, "a.space_id", "a.id")
 	filter, args := access.ScopeSQL(sc, "a.space_id", "a.id")
-	args = append([]any{tenant}, args...)
-	query := "SELECT a.compute_mode,a.created_at,a.display_name,a.id,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,sp.workspace_id FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND " + filter
+	args = append(append(deployArgs, tenant), args...)
+	query := "SELECT a.active_release_id,a.compute_mode,a.created_at,a.display_name,a.id,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,sp.workspace_id," +
+		"d.created_at AS deployment_created_at,u.display_name AS deployed_by,d.error_message,d.failed_state,d.finished_at,d.id AS deployment_id,d.release_id,rel.display_name AS release_name,d.state AS deployment_state" +
+		" FROM apps a JOIN spaces sp ON sp.id=a.space_id" +
+		" LEFT JOIN release_deployments d ON d.id=(SELECT l.id FROM release_deployments l WHERE l.target_app_id=a.id ORDER BY l.created_at DESC,l.id DESC LIMIT 1) AND " + deployable +
+		" LEFT JOIN app_releases rel ON rel.id=d.release_id LEFT JOIN users u ON u.id=d.created_by" +
+		" WHERE a.tenant_id=? AND " + filter
 	if space != "" {
 		if e = v.Run.Authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, Space: space}); e != nil {
 			return op.Page[AppItem]{}, e
@@ -281,7 +335,18 @@ func (v *Inventory) Apps(ctx context.Context, a op.Actor, tenant, space string, 
 	} else {
 		query += " AND sp.workspace_id IS NULL"
 	}
-	return op.PageScan[AppItem](ctx, v.DB, page, op.CollectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
+	out, e := op.PageScan[AppItem](ctx, v.DB, page, op.CollectionFor("apps"), query+" ORDER BY a.created_at DESC", args...)
+	for i := range out.Items {
+		it := &out.Items[i]
+		if v.HostedOrigin != nil {
+			it.HostedOrigin = v.HostedOrigin(it.ID)
+		}
+		if d := it.scan; d != nil && d.ID != nil {
+			it.Deployment = &DeploymentStatus{CreatedAt: *d.CreatedAt, DeployedBy: *d.DeployedBy, Error: d.Error, FailedState: d.FailedState, FinishedAt: d.FinishedAt, ID: *d.ID, ReleaseID: *d.ReleaseID, Release: *d.Release, State: *d.State}
+		}
+		it.scan = nil
+	}
+	return out, e
 }
 
 // AppRow reads an App's full registry row through q (a transaction or the
@@ -294,7 +359,11 @@ func (v *Inventory) App(ctx context.Context, a op.Actor, tenant, app string) (Ap
 	if e := v.Run.Authorize(ctx, a, "app.read", access.Resource{Tenant: tenant, App: app}); e != nil {
 		return App{}, e
 	}
-	return registry.ScanOne[App](ctx, v.DB, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	out, e := registry.ScanOne[App](ctx, v.DB, "SELECT a.active_release_id,a.compute_mode,a.display_name,a.id,a.revision,a.slug,a.space_id,sp.display_name AS space_name,a.state,a.tenant_id,t.display_name AS tenant_name,sp.workspace_id FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	if e == nil && v.HostedOrigin != nil {
+		out.HostedOrigin = v.HostedOrigin(out.ID)
+	}
+	return out, e
 }
 
 func (v *Inventory) CreateApp(ctx context.Context, a op.Actor, tenant, space string, in AppCreateInput) (op.Ref, error) {

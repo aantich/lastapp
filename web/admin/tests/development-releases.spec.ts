@@ -399,12 +399,17 @@ test("local React build uses workspace APIs, then the same files deploy to produ
       .getByRole("dialog")
       .getByRole("button", { name: "Deploy to production", exact: true })
       .click();
-    await expect(page.locator(".deployment-status")).toContainText("active", {
-      timeout: 45000,
-    });
+    await expect(page.locator(".deployment-status")).toContainText(
+      "active since",
+      {
+        timeout: 45000,
+      },
+    );
     // A real durable deployment remains visible after leaving/reloading the UI.
     await page.reload();
-    await expect(page.locator(".deployment-status")).toContainText("active");
+    await expect(page.locator(".deployment-status")).toContainText(
+      "active since",
+    );
     const productionURL = await page
       .getByRole("link", { name: "Open production App" })
       .getAttribute("href");
@@ -494,9 +499,11 @@ test("deployment status survives reload and retries a transient failure", async 
     });
   });
   await page.goto(`/console/tenants/${tenant}/apps/${app}/releases`);
-  await expect(page.locator(".deployment-status")).toContainText("queued");
+  // The timeline marks the deployment's current step.
+  const current = page.locator('.deployment-status [aria-current="step"]');
+  await expect(current).toContainText("Queued");
   await page.reload();
-  await expect(page.locator(".deployment-status")).toContainText("queued");
+  await expect(current).toContainText("Queued");
   const before = requests;
   failures = 1;
   state = "active";
@@ -504,9 +511,10 @@ test("deployment status survives reload and retries a transient failure", async 
     timeout: 10000,
   });
   // No click or manual refresh: the same poll loop must recover by itself.
-  await expect(page.locator(".deployment-status")).toContainText("active", {
-    timeout: 15000,
-  });
+  await expect(page.locator(".deployment-status")).toContainText(
+    "active since",
+    { timeout: 15000 },
+  );
   expect(requests).toBeGreaterThanOrEqual(before + 2);
   await expect(page.getByRole("alert")).toHaveCount(0);
   state = "failed";

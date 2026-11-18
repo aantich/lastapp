@@ -189,7 +189,7 @@ func Open(c config.Config) (*Server, error) {
 	// One PBKDF2 work pool bounds password login, password change and every
 	// account-creation path.
 	passwords := membership.NewPasswords(2)
-	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, Passwords: passwords}
+	s.inv = &inventory.Inventory{DB: db, Run: s.run, AllocateDatabase: s.storage.Allocate, Passwords: passwords, HostedOrigin: s.delivery.HostedOrigin}
 	s.members = &membership.Members{DB: db, Run: s.run, Passwords: passwords}
 	s.sessions = &session.Manager{DB: db, Config: &s.Config, Sealer: seal, Passwords: passwords, Proxies: &s.trustedProxies}
 	s.authority = &roles.Authority{DB: db, Run: s.run}

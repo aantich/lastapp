@@ -155,12 +155,15 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, apps.Items, "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND sp.workspace_id IS NULL ORDER BY a.created_at DESC,a.id", tenant)
+	// The hosted origin is derived from configuration around the App ID; no
+	// App here has been deployed.
+	pre, post, _ := strings.Cut(s.delivery.HostedOrigin("APP"), "APP")
+	sameJSON(t, s.DB, apps.Items, "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.active_release_id,CONCAT(?,a.id,?) AS hosted_origin,NULL AS latest_deployment,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND sp.workspace_id IS NULL ORDER BY a.created_at DESC,a.id", pre, post, tenant)
 	one2, e := s.inv.App(ctx, admin, tenant, app)
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, one2, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	sameJSON(t, s.DB, one2, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,CONCAT(?,a.id,?) AS hosted_origin,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", pre, post, tenant, app)
 
 	// The Tenant overview, with databases that need attention.
 	var target string

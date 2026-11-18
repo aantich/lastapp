@@ -245,7 +245,8 @@ claim production load testing or additional database-engine support.
 
 `lastapp_get resource=app_deployment`, with `id` equal to a development or
 production App ID, recovers the latest deployment or the current shared Space
-blocker after a lost response. It returns `{deployment: null}` when none exists.
+blocker after a lost response. It returns `{deployment: null}` when none exists. A failed deployment carries
+`failed_state`, the step it had reached.
 App context includes this job automatically. The console uses the same authorized
 `GET /v1/apps/{app}/deployment` operation; no new delegation permission is needed.
 A known job is still inspected with `resource=deployment` and its job ID.

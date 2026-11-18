@@ -96,6 +96,21 @@ export { CommandPalette, type Command } from "./command-palette";
 export { Menu, type MenuItem } from "./menu";
 export { DataTable, type Column } from "./data-table";
 export { RecordList, type RecordRow } from "./record-list";
+export {
+  RowTable,
+  CellTitle,
+  CellMono,
+  CellActions,
+  type RowTableRow,
+} from "./row-table";
+export {
+  AppHeader,
+  AppTile,
+  CardRow,
+  PageStack,
+  TitledCard,
+  ValueBox,
+} from "./app-header";
 export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
 export {
   AccessMatrix,

@@ -693,3 +693,7 @@ UPDATE app_releases r JOIN development_workspaces w ON w.id=r.workspace_id SET r
 
 ALTER TABLE entity_versions DROP CONSTRAINT ck_version_state,
  ADD CONSTRAINT ck_version_state CHECK(state IN ('queued','publishing','prepared','published','failed'));
+
+-- The step a failed deployment had reached, so its status can name it.
+ALTER TABLE release_deployments ADD COLUMN failed_state VARCHAR(16) NULL AFTER state,
+ ADD CONSTRAINT ck_deployment_failed_state CHECK(failed_state IS NULL OR (state='failed' AND failed_state IN ('queued','preparing','publishing')));

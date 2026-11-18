@@ -156,6 +156,12 @@ test("Tenant creation and one-step administrator management lead to a complete T
     .filter({ hasText: "CRM" })
     .getByRole("button", { name: "Open", exact: true })
     .click();
+  // An App opens on its first section, Releases.
+  await expect(admin).toHaveURL(/\/apps\/.+\/releases$/);
+  await admin
+    .locator(".workspace-tabs")
+    .getByRole("tab", { name: "Micro-apps", exact: true })
+    .click();
   await expect(admin).toHaveURL(/\/apps\/.+\/microapps$/);
   await admin
     .getByRole("button", { name: "Add micro-app", exact: true })
@@ -170,7 +176,10 @@ test("Tenant creation and one-step administrator management lead to a complete T
     admin.getByRole("row").filter({ hasText: "Deal review" }),
   ).toBeVisible();
   await admin.goBack();
+  await expect(admin).toHaveURL(/\/releases$/);
+  await admin.goBack();
   await expect(admin).toHaveURL(spaceURL);
+  await admin.goForward();
   await admin.goForward();
   await expect(admin).toHaveURL(/\/microapps$/);
   await expect(
