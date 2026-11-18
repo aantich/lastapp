@@ -133,15 +133,20 @@ export function ConsoleShell({
             name={me.display_name}
             detail={role}
             rail={rail}
-            // On a narrow screen the account sits in the drawer: choosing
-            // an item closes it, as the navigation does.
-            items={accountItems.map((item) => ({
-              ...item,
-              onSelect: () => {
-                close();
-                item.onSelect();
-              },
-            }))}
+            // On a narrow screen the account sits in the drawer: an item
+            // that changes the page closes it, as the navigation does.
+            // Appearance opens above the drawer and returns focus to it.
+            items={accountItems.map((item) =>
+              item.id === "appearance"
+                ? item
+                : {
+                    ...item,
+                    onSelect: () => {
+                      close();
+                      item.onSelect();
+                    },
+                  },
+            )}
           />
         </>
       )}
