@@ -39,6 +39,7 @@ export function ConsoleShell({
   actions,
   topActions,
   commands = [],
+  paletteExamples,
   accountItems: extraAccountItems = [],
   children,
   appearanceControls,
@@ -62,6 +63,8 @@ export function ConsoleShell({
   actions?: ReactNode;
   topActions?: ReactNode;
   commands?: Command[];
+  // Words that find some of `commands`, suggested in the palette.
+  paletteExamples?: string[];
   // Workspace entries of the account menu before My account (Settings).
   accountItems?: MenuItem[];
   children: ReactNode;
@@ -97,7 +100,7 @@ export function ConsoleShell({
   const paletteCommands: Command[] = [
     ...nav.map(({ id, label, icon: Icon }) => ({
       id: "nav:" + id,
-      label,
+      label: `Go to ${label}`,
       group: "Navigate",
       icon: <Icon size={16} />,
       run: () => navigate(id),
@@ -158,7 +161,7 @@ export function ConsoleShell({
             <CommandPalette
               commands={paletteCommands}
               onClose={() => setPalette(false)}
-              placeholder="Search screens, Apps, Spaces and entities…"
+              examples={paletteExamples}
             />
           )}
           {appearanceOpen && (

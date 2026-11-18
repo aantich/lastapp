@@ -311,7 +311,8 @@ and system color modes. New console UI follows these rules:
     `PageIntro` (eyebrow, greeting-size title, summary and an aside),
     `AttentionCard`/`AllClear`, `AppCard` (named by the App's visible name,
     described by its address and release), `ActivityList` (actor mark, one
-    sentence, meta), `AuthLayout` (sign-in, first-login password
+    sentence, meta; `variant="rows"` puts via and when in columns, stacked
+    under 720 px), `AuthLayout` (sign-in, first-login password
     and the App launch approval: one card centred outside the shell) and
     `StandalonePage` (a centred column outside the shell: agent consent).
   - Form controls and services: Select, ListboxPopup/`useListbox`
@@ -336,13 +337,21 @@ and system color modes. New console UI follows these rules:
   `connect-agent.tsx`). Triggers are named by their visible text plus visually
   hidden words, e.g. "<name>, account menu" and "Tenant <name>", so the name
   contains what is shown and survives the narrow layout hiding the text.
-  Pages other than Home keep `PageHeader`. The Tenant
+  Pages other than Home keep `PageHeader` (Activity draws its own, with its
+  filters beside the title). The Tenant
   navigation is defined once in `tenant/navigation.ts` (`tenantNav`,
   `tenantTabs`): the sidebar, the page `Tabs` (`.workspace-tabs`) and the
-  palette's Navigate/section commands all derive from it. The palette's App,
-  Space and entity jumps read only list rows already in the query cache
-  (`cachedRows` in `query.ts`); it fetches nothing. Console URLs may carry a
-  query string (`?entity=`), which `useConsoleURL` keeps in the route.
+  palette's "Go to …"/section commands all derive from it. The palette (one
+  row per command: glyph, label, its kind at the end; the input suggests words
+  that find real commands) offers "Open …" for entities, Apps and Spaces from
+  list rows already in the query cache (`cachedRows`), **Retry <App> deploy**
+  for a failed deployment Home has already read (`cachedData`, under
+  `release.manage`; the same `retryDeployment` as Home), **Connect a new
+  agent** (the top bar's dialog) and "Activity · … only" for each actor kind;
+  it fetches nothing. Mockup commands without a backing operation or read
+  (publish an entity with draft changes, role matrix, test as a person) are
+  not offered. Console URLs may carry a query string (`?entity=`,
+  `?actor=`, `?resource_id=`), which `useConsoleURL` keeps in the route.
 - **Home.** `tenant/home-page.tsx` composes only existing authorized reads:
   the Tenant overview (entities, live Apps, recent Apps with their micro-app
   counts, databases pending or failed), each recent App's
@@ -358,7 +367,12 @@ and system color modes. New console UI follows these rules:
   carries `resource_name` (`roles.AuditResourceName`: the current name of its
   App, Space, entity, release "<App> <release>", deployment, workspace, team,
   role, person or Tenant); the worker is written in the passive voice and an
-  agent's line names the person it acted for.
+  agent's line names the person it acted for, and the grant's preset when its
+  permissions are exactly one of `/v1/agent-access/config` presets. The
+  Activity page (`activity-log.tsx`) shows one row per event (mark, sentence,
+  via, when) and joins consecutive events of one actor, action and resource
+  into one line whose "N changes" opens that resource's trail
+  (`?resource_id=`).
 - **Feedback.** FormModal confirms a successful save with a success `toast`
   (from `Modal.success` or derived from the title); errors stay in the form.
 - **Delivery screens.** Apps and Spaces lists, App/Space detail tabs
@@ -370,9 +384,11 @@ and system color modes. New console UI follows these rules:
   the stepper, the polling and Home's attention cards read it. **Retry deploy**
   is `POST /v1/releases/{id}/deploy` of the failed deployment's release. The
   audit trail carries `actor_kind` (person, agent, system; classified once in
-  `roles.Audits`), filtered with `?actor=` and `?kind=` before search and
-  paging; `GET …/audit-kinds` lists the kinds a trail holds. `actors.ts`
-  names actors for Home and Activity.
+  `roles.Audits`), filtered with `?actor=`, `?kind=` and `?resource_id=`
+  (one object's changes) before search and paging, under the same
+  `audit.read` check; `GET …/audit-kinds` lists the kinds a trail holds.
+  `actors.ts` names actors for Home and Activity and holds the actor filter's
+  choices.
 - **Entity, access, agent and platform screens.** The entity designer
   (`entity-designer/`, no stylesheet: list beside the open entity, Fields /
   Access / Rules / Test / History tabs, permission paths shown as who +

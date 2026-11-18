@@ -14,19 +14,17 @@ import {
   StatGrid,
   StatusBadge,
 } from "../ui";
-import { api } from "../api";
 import {
   isItem,
   text,
   type AgentGrant,
   type Deployment,
   type Page,
-  type Release,
 } from "../api-types";
-import { refreshQueries, useApiQueries, useApiQuery } from "../query";
+import { useApiQueries, useApiQuery } from "../query";
 import {
-  deployModal,
   deploymentStepLabel,
+  retryDeployment,
   useDeploymentStates,
 } from "../deployment";
 import { agentGrantsPath, ago } from "../actors";
@@ -87,13 +85,8 @@ export function HomePage({ t }: { t: TenantScreen }) {
   );
   const tenantName = text(profile.display_name);
 
-  function retry(d: Deployment) {
-    void api<Release>("/v1/releases/" + d.release_id).then(
-      (release) =>
-        setModal(deployModal(tenant, release, true, () => refreshQueries())),
-      (e: Error) => t.setError(e.message),
-    );
-  }
+  const retry = (d: Deployment) =>
+    retryDeployment(tenant, d, setModal, t.setError);
 
   const attention: ReactNode[] = [];
   if (loaded && overview.spaces === 0 && all("space.manage"))
