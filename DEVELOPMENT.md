@@ -322,7 +322,14 @@ and system color modes. New console UI follows these rules:
     and actions; content centred at 1240 px),
     `PageIntro` (eyebrow, greeting-size title, summary and an aside),
     `AttentionCard`/`AllClear`, `AppCard` (named by the App's visible name,
-    described by its address and release), `ActivityList` (actor mark, one
+    described by its address and release), `RowTable` (a titled card holding
+    a role=table grid: `columns` tracks, uppercase headers, rows whose
+    `onOpen` makes the first cell a button stretched over the row; cells
+    `CellTitle`, `CellMono`, `CellActions`; scrolls sideways when narrow),
+    `AppHeader`/`AppTile` (an App's initials tile, title, address, status
+    and actions), `TitledCard` (title, note and actions inline or stacked),
+    `CardRow`, `PageStack`, `ValueBox`, `Stepper min` (the narrowest step),
+    `ActivityList` (actor mark, one
     sentence, meta; `variant="rows"` puts via and when in columns, stacked
     under 720 px), `AuthLayout` (sign-in, first-login password
     and the App launch approval: one card centred outside the shell) and
@@ -389,7 +396,17 @@ and system color modes. New console UI follows these rules:
   (from `Modal.success` or derived from the title); errors stay in the form.
 - **Delivery screens.** Apps and Spaces lists, App/Space detail tabs
   (micro-apps, settings), Space → Development, App → Releases and Activity are
-  built only from kit parts. Deployment progress derives from
+  built only from kit parts. The Apps list is a `RowTable` read from
+  `GET /v1/tenants/{t}/apps`, whose items carry `active_release_id`,
+  `hosted_origin` and, where `release.manage` applies, `latest_deployment`
+  (state, `failed_state`, release name, deployer); `tenant/app-status.tsx`
+  derives the one status badge used by the list and the App header. An App
+  opens on Releases, then Micro-apps, Data access, Access and Settings: the
+  production deployment timeline marks the step a failed deployment reached
+  (`failed_state`), and release rows name their creator and, for agent
+  workspaces, the agent client (`created_by_name`, `agent_client_name`).
+  Releases carry no number: per-App ordinals would collide across
+  development Apps or count private workspace releases. Deployment progress derives from
   `GET /v1/config` → `development_policy.deployment_states` (`deployment.ts`;
   `delivery.DeploymentSteps`/`DeploymentFailed`, kept equal to the
   `release_deployments` state constraint by `TestDeploymentStatesMatchSchema`):

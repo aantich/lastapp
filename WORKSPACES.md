@@ -72,11 +72,15 @@ production deployment, with **Get starter** and **Upload build folder**. The
 **Production deployment** card follows the deployment's real states, which the
 server publishes in `GET /v1/config` (`development_policy.deployment_states`:
 `queued → preparing → publishing → active`, or `failed`); the console polls
-while a deployment is in a running state. A failed deployment shows its stored
-error and **Retry deploy**, which starts a new deployment of the same release
-through the ordinary deploy operation (the same checks apply; there is no
-in-place retry of the failed job). Release history lists beside the open
-release, with its build, micro-app pins and captured Space backend.
+while a deployment is in a running state. A failed deployment records the step
+it had reached (`failed_state`: queued, preparing or publishing), and the
+timeline marks that step with its stored error and **Retry deploy**, which
+starts a new deployment of the same release through the ordinary deploy
+operation (the same checks apply; there is no in-place retry of the failed job).
+Release history lists each release with its age, creator
+(`created_by_name`) and, for an agent workspace, the agent client
+(`agent_client_name`); **Details** opens its build, micro-app pins and
+captured Space backend.
 
 ## Isolation and ownership
 
