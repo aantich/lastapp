@@ -816,6 +816,7 @@ textarea.ui-input {
 }
 .ui-step {
   display: grid;
+  align-content: start;
   gap: 4px;
   padding: 12px;
   border: 1px solid transparent;
@@ -1406,7 +1407,7 @@ textarea.ui-input {
   font-weight: 400;
 }
 .ui-disclosure-body {
-  padding: 4px 0 8px 22px;
+  padding: 4px 0 8px;
   min-width: 0;
 }
 
@@ -1452,6 +1453,9 @@ textarea.ui-input {
   color: var(--ui-text);
   text-align: left;
 }
+.ui-pick-item > .badge {
+  flex-shrink: 0;
+}
 .ui-pick-item > span {
   display: grid;
   gap: 2px;
@@ -1489,6 +1493,10 @@ textarea.ui-input {
   gap: 8px 12px;
   flex: 1 1 auto;
   min-width: 0;
+}
+.ui-collection-filters > .select-control {
+  flex: 0 1 200px;
+  min-width: 160px;
 }
 .ui-collection-feed {
   display: grid;
@@ -1556,5 +1564,17 @@ a.ui-link-button {
   }
   .ui-card-header > .row-actions {
     justify-content: flex-start;
+  }
+}
+
+/* A card header with only a title centres it on its actions */
+.ui-card-header:not(:has(p)) {
+  align-items: center;
+}
+
+/* Phone tables scroll sideways instead of breaking words mid-letter */
+@media (max-width: 640px) {
+  .ui-table td {
+    overflow-wrap: break-word;
   }
 }

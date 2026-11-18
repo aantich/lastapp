@@ -85,7 +85,11 @@ function ScopedCollection({
           />
         </label>
         {filters && <div className="ui-collection-filters">{filters}</div>}
-        <span>{loading ? "Loading…" : `${items.length} records`}</span>
+        <span>
+          {loading
+            ? "Loading…"
+            : `${items.length} ${items.length === 1 ? "record" : "records"}`}
+        </span>
       </div>
       {error && <Alert>{error}</Alert>}
       {render ? (
