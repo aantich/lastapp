@@ -13,7 +13,7 @@ async function signIn(page: Page, origin = apiOrigin, subject = "operator") {
   await expect(page).toHaveURL(new RegExp("^" + origin + "/console/"));
   await expect(
     page.getByRole("heading", {
-      name: subject === "operator" ? "Tenants" : "Apps",
+      name: subject === "operator" ? "Tenants" : "Home",
       exact: true,
       level: 1,
     }),
@@ -77,7 +77,7 @@ test("server paging, search and option pickers reach records beyond the first pa
     .filter({ hasText: "Paging" })
     .getByRole("button", { name: "Open", exact: true })
     .click();
-  await page.getByRole("button", { name: "Access", exact: true }).click();
+  await page.getByRole("tab", { name: "Access", exact: true }).click();
   await page.getByRole("button", { name: "Manage roles", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "PageRole 100" }),

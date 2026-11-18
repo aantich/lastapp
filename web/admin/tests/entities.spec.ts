@@ -106,13 +106,13 @@ test("entity designer creates, tests and publishes a real shared backend", async
     page.getByRole("heading", { name: "Deal", exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("navigation", { name: "Entity designer" })
-    .getByRole("button", { name: "Access", exact: true })
+    .getByRole("tablist", { name: "Entity designer" })
+    .getByRole("tab", { name: "Access", exact: true })
     .click();
   await expect(page.getByText("View deals", { exact: true })).toBeVisible();
   await page
-    .getByRole("navigation", { name: "Entity designer" })
-    .getByRole("button", { name: "Test", exact: true })
+    .getByRole("tablist", { name: "Entity designer" })
+    .getByRole("tab", { name: "Test", exact: true })
     .click();
   await page
     .getByRole("textbox", { name: "Name", exact: true })
@@ -141,8 +141,8 @@ test("entity designer creates, tests and publishes a real shared backend", async
     page.getByText("Published · draft saved", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("navigation", { name: "Entity designer" })
-    .getByRole("button", { name: "Fields", exact: true })
+    .getByRole("tablist", { name: "Entity designer" })
+    .getByRole("tab", { name: "Fields", exact: true })
     .click();
   await page.getByText("Entity settings", { exact: true }).click();
   const nameInput = await page
@@ -166,7 +166,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await capture("entity-designer-desktop.png");
   await menu(page);
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Appearance", exact: true }).click();
   const appearance = page.getByRole("dialog", {
     name: "Appearance",
     exact: true,
@@ -175,7 +175,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
   await appearance.getByRole("button", { name: "Done", exact: true }).click();
   await capture("entity-designer-dark.png");
   await menu(page);
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Appearance", exact: true }).click();
   await appearance.getByRole("button", { name: "Reset to default" }).click();
   await appearance.getByRole("button", { name: "Done", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });

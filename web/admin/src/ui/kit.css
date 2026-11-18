@@ -1215,8 +1215,7 @@ textarea.ui-input {
 }
 .sidebar-collapsed .ui-nav-badge,
 .sidebar-collapsed .ui-nav-section,
-.sidebar-collapsed .ui-sidebar-footer > span,
-.sidebar-collapsed .tenant-switch {
+.sidebar-collapsed .ui-sidebar-footer > span {
   display: none;
 }
 .sidebar-collapsed .ui-sidebar-footer {
@@ -1233,4 +1232,84 @@ textarea.ui-input {
   .ui-switch::after {
     transition: none;
   }
+}
+
+/* A paged context list's status line and "Load more" */
+.ui-context-popup > small {
+  display: block;
+  padding: 8px 10px 4px;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-context-popup > .text-button {
+  margin: 4px 6px 2px;
+}
+
+/* Menu button (account menu, row actions) */
+.ui-menu {
+  position: relative;
+  display: inline-flex;
+}
+.ui-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--ui-control-height);
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.ui-menu-trigger:hover,
+.ui-menu-trigger[aria-expanded="true"] {
+  background: var(--ui-hover);
+}
+.ui-menu-trigger > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+.ui-menu-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-pop);
+}
+.ui-menu-popup.ui-start {
+  right: auto;
+  left: 0;
+}
+.ui-menu-popup [role="menuitem"] {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-text);
+  font-size: 13px;
+  text-align: left;
+}
+.ui-menu-popup [role="menuitem"] > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+.ui-menu-popup [role="menuitem"]:hover,
+.ui-menu-popup [role="menuitem"]:focus-visible {
+  background: var(--ui-hover);
+}
+.ui-menu-popup [role="menuitem"].danger {
+  color: var(--ui-danger);
 }

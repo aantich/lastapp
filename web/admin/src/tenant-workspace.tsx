@@ -1,30 +1,28 @@
 import { useEffect } from "react";
-import {
-  AppWindow,
-  FolderOpen,
-  Users,
-  ScrollText,
-  Settings,
-  Plus,
-  RefreshCw,
-} from "lucide-react";
+import { AppWindow, Database, FolderOpen, Plus, RefreshCw } from "lucide-react";
 import { api } from "./api";
 import { DevelopmentBanner } from "./development-workspaces";
 import { ConsoleShell } from "./console-shell";
 import { consoleURL, parseTenantURL, useConsoleURL } from "./console-url";
 import {
+  Alert,
+  Button,
+  ContextSwitcher,
+  EmptyState,
+  ErrorBoundary,
   FormModal,
+  IconButton,
+  Tabs,
+  type Command,
+  type Crumb,
   type Field,
   type Modal,
-  RemoteSelect,
-  ErrorBoundary,
-  Alert,
 } from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
 import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
-import { LiveRefresh, refreshQueries, useApiQuery } from "./query";
+import { cachedRows, LiveRefresh, refreshQueries, useApiQuery } from "./query";
 import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
@@ -45,20 +43,15 @@ import {
   createSpace,
 } from "./tenant/forms";
 import { AppsPage, SpacesPage } from "./tenant/inventory";
+import { HomePage } from "./tenant/home-page";
+import { sectionLabel, tenantNav, tenantTabs } from "./tenant/navigation";
 import { SpacePage } from "./tenant/space-page";
 import { AppPage } from "./tenant/app-page";
 import { TenantSettings } from "./tenant/settings-page";
 
 // The Tenant console: resolves the Tenant and route, loads what every page
 // shares (overview, capabilities and the open Space or App) and composes the
-// pages under tenant/.
-const nav = [
-  { id: "apps", label: "Apps", icon: AppWindow },
-  { id: "spaces", label: "Spaces", icon: FolderOpen },
-  { id: "people", label: "People", icon: Users },
-  { id: "activity", label: "Activity", icon: ScrollText },
-  { id: "settings", label: "Settings", icon: Settings },
-];
+// pages under tenant/. Navigation comes from tenant/navigation.ts.
 export function TenantWorkspace({
   me,
   appearanceControls,
@@ -162,13 +155,13 @@ export function TenantWorkspace({
   function selectTenant(id: string) {
     if (!id) return;
     savePreference("lastapp-tenant", id);
-    navigate(consoleURL.tenant(id, "apps"));
+    navigate(consoleURL.tenant(id, "home"));
   }
   const openSpace = (r: Item) => go("space", { space: optText(r.id) }),
     openApp = (r: Item) => go("app", { app: optText(r.id) });
   useEffect(() => {
     if (parsed.area !== "tenants" && parsed.area !== "account" && tenant)
-      navigate(consoleURL.tenant(tenant, "apps"), true);
+      navigate(consoleURL.tenant(tenant, "home"), true);
   }, [parsed.area, tenant, navigate]);
   function done() {
     setModal(null);
@@ -229,38 +222,9 @@ export function TenantWorkspace({
         ? "members"
         : "teams"
       : route.tab;
-  const tabs =
-    route.page === "space"
-      ? [
-          ["apps", "Apps"],
-          ...(!space.workspace_id && scoped("workspace.manage")
-            ? [["development", "Development"]]
-            : []),
-          ...(scoped("entity.manage") ? [["entities", "Entities"]] : []),
-          ...(scoped("authorization.read") ? [["access", "Access"]] : []),
-          ["settings", "Settings"],
-        ]
-      : route.page === "app"
-        ? [
-            ["microapps", "Micro-apps"],
-            ...(scoped("release.manage") ? [["releases", "Releases"]] : []),
-            ...(scoped("authorization.read") ? [["access", "Access"]] : []),
-            ["settings", "Settings"],
-          ]
-        : route.page === "people"
-          ? [
-              ...(all("membership.read") ? [["members", "Members"]] : []),
-              ...(can("team.read") ? [["teams", "Teams"]] : []),
-            ]
-          : route.page === "settings"
-            ? [
-                ["general", "General"],
-                ...(all("database.read") ? [["databases", "Databases"]] : []),
-                ...(all("authorization.manage")
-                  ? [["agents", "Agent access"]]
-                  : []),
-              ]
-            : [];
+  const capabilities = { all, can, scoped };
+  const tabs = tenantTabs(route.page, capabilities, space);
+  const activeTab = route.page === "people" ? peopleTab : route.tab;
   const title =
     route.page === "account"
       ? "My account"
@@ -270,52 +234,190 @@ export function TenantWorkspace({
           : route.page === "space"
             ? "Space"
             : "App"
-        : nav.find((p) => p.id === route.page)?.label || "Apps";
-  const menu = nav
-    .filter((n) => n.id !== "spaces" || can("space.read"))
-    .filter(
-      (n) => n.id !== "people" || all("membership.read") || can("team.manage"),
-    )
-    .filter((n) => n.id !== "activity" || can("audit.read"));
+        : sectionLabel(route.page) || "Home";
+  const menu = tenantNav(capabilities);
+  const tenantName =
+    text(profile.display_name) ||
+    memberships.find((m) => m.id === tenant)?.display_name ||
+    "";
+  const crumbs: Crumb[] =
+    route.page === "space"
+      ? [
+          {
+            label: "Spaces",
+            onClick: can("space.read") ? () => go("spaces") : undefined,
+          },
+          { label: title },
+        ]
+      : route.page === "app"
+        ? [
+            { label: "Apps", onClick: () => go("apps") },
+            ...(detailReady
+              ? [
+                  {
+                    label: text(app.space_name),
+                    onClick: scoped("space.read", optText(app.space_id), "")
+                      ? () => openSpace({ id: app.space_id })
+                      : undefined,
+                  },
+                ]
+              : []),
+            { label: title },
+          ]
+        : [];
+  // The palette's jumps beyond the sidebar sections: this page's tabs, the
+  // other sections' tabs, and Apps, Spaces and entities this session has
+  // already loaded (nothing is fetched for the palette).
+  const commands = (): Command[] => {
+    const subject = route.page === "space" || route.page === "app" ? title : "";
+    const tabCommands = (page: string, label: string, group: string) =>
+      tenantTabs(page, capabilities, space).map(({ id, label: tab }) => ({
+        id: `tab:${page}:${id}`,
+        label: `${label} › ${String(tab)}`,
+        group,
+        run: () => go(page, { space: route.space, app: route.app, tab: id }),
+      }));
+    const apps = new Map<string, Item>();
+    for (const a of [
+      ...(overview.recent_apps || []),
+      ...cachedRows((p) => p === base + "/apps"),
+    ])
+      apps.set(text(a.id), a);
+    const entities = cachedRows((p) =>
+      /^\/v1\/spaces\/[^/]+\/entities$/.test(p),
+    );
+    return [
+      ...(subject && detailReady
+        ? tabCommands(route.page, subject, "This page")
+        : []),
+      ...["people", "settings"]
+        .filter((page) => menu.some((m) => m.id === page))
+        .flatMap((page) =>
+          tabCommands(page, sectionLabel(page) || page, "Sections"),
+        ),
+      ...[...apps.values()].map((a) => ({
+        id: "app:" + text(a.id),
+        label: text(a.display_name),
+        group: "Apps",
+        keywords: text(a.space_name),
+        hint: text(a.space_name),
+        icon: <AppWindow size={16} />,
+        run: () => openApp(a),
+      })),
+      ...cachedRows((p) => p === base + "/spaces").map((sp) => ({
+        id: "space:" + text(sp.id),
+        label: text(sp.display_name),
+        group: "Spaces",
+        icon: <FolderOpen size={16} />,
+        run: () => openSpace(sp),
+      })),
+      ...entities.map((e) => ({
+        id: "entity:" + text(e.id),
+        label: text(e.label),
+        group: "Entities",
+        keywords: text(e.entity_key),
+        hint: text(e.entity_key),
+        icon: <Database size={16} />,
+        run: () =>
+          navigate(
+            consoleURL.tenant(tenant, "spaces", text(e.space_id), "entities") +
+              "?entity=" +
+              encodeURIComponent(text(e.id)),
+          ),
+      })),
+    ];
+  };
   const canCreateApp =
     all("app.manage") || (caps["app.manage"]?.spaces || []).length > 0;
   const actions = (
     <>
-      <button className="icon" aria-label="Refresh" onClick={refresh}>
-        <RefreshCw size={16} />
-      </button>
+      <IconButton
+        label="Refresh"
+        icon={<RefreshCw size={16} aria-hidden />}
+        tooltip="bottom"
+        onClick={refresh}
+      />
       {route.page === "spaces" && all("space.manage") && (
-        <button className="primary" onClick={() => void createSpace(t)}>
-          <Plus size={16} />
+        <Button
+          variant="primary"
+          icon={<Plus size={16} aria-hidden />}
+          onClick={() => void createSpace(t)}
+        >
           Create Space
-        </button>
+        </Button>
       )}
       {((route.page === "apps" && canCreateApp && (overview.spaces ?? 0) > 0) ||
         (route.page === "space" &&
           route.tab === "apps" &&
           scoped("app.manage") &&
           detailReady)) && (
-        <button className="primary" onClick={() => createApp(t)}>
-          <Plus size={16} />
+        <Button
+          variant="primary"
+          icon={<Plus size={16} aria-hidden />}
+          onClick={() => createApp(t)}
+        >
           Create App
-        </button>
+        </Button>
       )}
       {route.page === "app" &&
         route.tab === "microapps" &&
         scoped("microapp.manage") &&
         detailReady && (
-          <button className="primary" onClick={() => createMicro(t)}>
-            <Plus size={16} />
+          <Button
+            variant="primary"
+            icon={<Plus size={16} aria-hidden />}
+            onClick={() => createMicro(t)}
+          >
             Add micro-app
-          </button>
+          </Button>
         )}
       {route.page === "settings" &&
         route.tab === "databases" &&
         all("database.manage") && (
-          <button className="primary" onClick={() => void addDatabase(t)}>
+          <Button variant="primary" onClick={() => void addDatabase(t)}>
             Add database
-          </button>
+          </Button>
         )}
+    </>
+  );
+  const spaceName =
+    route.page === "space"
+      ? detailReady
+        ? text(space.display_name)
+        : ""
+      : route.page === "app" && detailReady
+        ? text(app.space_name)
+        : "";
+  const context = (
+    <>
+      {memberships.length > 1 || me.pagination?.has_more ? (
+        <ContextSwitcher
+          kind="Tenant"
+          path="/v1/my-tenants"
+          value={tenant}
+          current={tenantName}
+          options={options(memberships)}
+          onChange={selectTenant}
+        />
+      ) : (
+        <span className="company-name">
+          <small>Tenant</small>
+          <strong>{tenantName || "No Tenant access"}</strong>
+        </span>
+      )}
+      {tenant && can("space.read") && (
+        <span className="topbar-space">
+          <ContextSwitcher
+            kind="Space"
+            path={base + "/spaces"}
+            value={route.space || undefined}
+            current={spaceName}
+            placeholder="All Spaces"
+            options={[]}
+            onChange={(id) => go("space", { space: id })}
+          />
+        </span>
+      )}
     </>
   );
   return (
@@ -333,42 +435,9 @@ export function TenantWorkspace({
               : route.page
         }
         navigate={go}
-        context={
-          memberships.length > 1 || me.pagination?.has_more ? (
-            <RemoteSelect
-              path="/v1/my-tenants"
-              label="Tenant"
-              value={tenant}
-              onChange={selectTenant}
-              initial={options(memberships)}
-            />
-          ) : (
-            <strong className="company-name">
-              {text(profile.display_name) ||
-                memberships[0]?.display_name ||
-                "No Tenant access"}
-            </strong>
-          )
-        }
-        breadcrumbs={
-          <>
-            <button className="text-button" onClick={() => go("apps")}>
-              {text(profile.display_name) || "Tenant"}
-            </button>
-            {route.page === "app" && detailReady && (
-              <>
-                <span> / </span>
-                <button
-                  className="text-button"
-                  disabled={!scoped("space.read", optText(app.space_id), "")}
-                  onClick={() => openSpace({ id: app.space_id })}
-                >
-                  {text(app.space_name)}
-                </button>
-              </>
-            )}
-          </>
-        }
+        context={context}
+        breadcrumbs={crumbs}
+        commands={commands()}
         actions={actions}
         appearanceControls={appearanceControls}
         account={() => go("account")}
@@ -388,37 +457,28 @@ export function TenantWorkspace({
             />
           )}
         {!!tabs.length && (
-          <div className="tabs workspace-tabs">
-            {tabs.map(([id, label]) => (
-              <button
-                key={id}
-                className={
-                  (route.page === "people" ? peopleTab : route.tab) === id
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  go(route.page, {
-                    space: route.space,
-                    app: route.app,
-                    tab: id,
-                  })
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            label={`${title} sections`}
+            className="workspace-tabs"
+            items={tabs}
+            value={activeTab}
+            onChange={(id) =>
+              go(route.page, { space: route.space, app: route.app, tab: id })
+            }
+          />
         )}
         <ErrorBoundary key={url}>
           {route.page === "account" ? (
             <AccountPage me={me} refreshMe={refreshMe} />
           ) : !tenant ? (
-            <section className="panel empty">
-              <p>Your administrator can add this account to a Tenant.</p>
+            <section className="panel">
+              <EmptyState title="No Tenant yet">
+                Your administrator can add this account to a Tenant.
+              </EmptyState>
             </section>
           ) : (
             <>
+              {route.page === "home" && <HomePage t={t} />}
               {route.page === "apps" && <AppsPage t={t} />}
               {route.page === "spaces" && <SpacesPage t={t} />}
               {route.page === "space" && detailReady && <SpacePage t={t} />}

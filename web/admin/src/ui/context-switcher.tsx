@@ -1,19 +1,31 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { text, type Item } from "../api-types";
 import { useListbox, type ListOption } from "./listbox";
+import { useRemoteOptions } from "./remote-options";
+import { RemoteListStatus } from "./remote-select";
 
 export type ContextOption = ListOption & { description?: ReactNode };
+
+const byName = (items: Item[]): ContextOption[] =>
+  items.map((x) => ({ value: text(x.id), label: text(x.display_name) }));
 
 // Switches the working Tenant or Space. The trigger shows the kind and the
 // current name; it opens a popover with a filter field (a combobox) over a
 // listbox: ↑/↓ move, Enter chooses, Escape closes and returns focus to the
 // trigger, a press outside closes. Shares keyboard state with Select
-// (useListbox).
+// (useListbox). With `path` the choices come from that management list API:
+// the filter searches on the server and further pages load inside the popup
+// (the paging RemoteSelect uses); `options` are then the choices shown before
+// the first search and `current` names a value not among them.
 export function ContextSwitcher({
   kind,
   value,
   options,
   onChange,
+  path,
+  convert = byName,
+  current: currentLabel,
   placeholder = "Choose…",
   empty = "Nothing matches.",
 }: {
@@ -22,31 +34,46 @@ export function ContextSwitcher({
   value: string | undefined;
   options: ContextOption[];
   onChange: (value: string) => void;
+  path?: string;
+  convert?: (items: Item[]) => ContextOption[];
+  current?: string;
   placeholder?: string;
   empty?: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null),
-    trigger = useRef<HTMLButtonElement>(null),
-    [query, setQuery] = useState("");
+    trigger = useRef<HTMLButtonElement>(null);
+  // Owned here because the remote list loads only while the popup is open.
+  const openState = useState(false);
+  const remote = useRemoteOptions({
+    path: path || "",
+    open: openState[0] && !!path,
+    convert,
+    initial: options,
+  });
+  const { query, setQuery } = remote;
   const shown = useMemo(() => {
+    if (path) return remote.options;
     const q = query.trim().toLowerCase();
     return q
       ? options.filter((o) => o.label.toLowerCase().includes(q))
       : options;
-  }, [options, query]);
-  const list = useListbox(shown, choose, root);
-  const current = options.find((o) => o.value === value);
+  }, [path, remote.options, options, query]);
+  const list = useListbox(shown, choose, root, openState);
+  const current =
+    options.find((o) => o.value === value) ||
+    remote.options.find((o) => o.value === value);
   function choose(option: ContextOption) {
     onChange(option.value);
     close();
   }
   function close() {
     list.setOpen(false);
-    setQuery("");
+    remote.reset();
     trigger.current?.focus();
   }
   function open() {
-    const index = options.findIndex((o) => o.value === value);
+    remote.reset();
+    const index = shown.findIndex((o) => o.value === value);
     list.setActive(index >= 0 ? index : 0);
     list.setOpen(true);
   }
@@ -68,7 +95,7 @@ export function ContextSwitcher({
       >
         <span>
           <small>{kind}</small>
-          <strong>{current?.label || placeholder}</strong>
+          <strong>{current?.label || currentLabel || placeholder}</strong>
         </span>
         <ChevronsUpDown size={16} aria-hidden />
       </button>
@@ -130,8 +157,11 @@ export function ContextSwitcher({
                 {option.value === value && <Check size={15} aria-hidden />}
               </div>
             ))}
-            {!shown.length && <div className="ui-option-empty">{empty}</div>}
+            {!path && !shown.length && (
+              <div className="ui-option-empty">{empty}</div>
+            )}
           </div>
+          {path && <RemoteListStatus remote={remote} count={shown.length} />}
         </div>
       )}
     </div>

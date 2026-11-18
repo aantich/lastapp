@@ -28,8 +28,10 @@ export const consoleURL = {
 export const isConsolePath = (path: string | null | undefined) =>
   !!path?.startsWith(root) && !path.startsWith(root + "/");
 
-// Path segments after "/console". Empty segments are dropped.
-const segments = (path: string) => path.split("/").filter(Boolean).slice(1);
+// Path segments after "/console", without the query string. Empty segments
+// are dropped.
+const segments = (path: string) =>
+  path.split("?")[0].split("/").filter(Boolean).slice(1);
 
 export function parseTenantURL(path: string) {
   const [area = "", tenant = "", section = "", id = "", tab = ""] =
@@ -38,7 +40,7 @@ export function parseTenantURL(path: string) {
     // "tenants", "account", or anything else (redirected by the workspace).
     area,
     tenant: area === "tenants" ? tenant : "",
-    page: area === "account" ? "account" : section || "apps",
+    page: area === "account" ? "account" : section || "home",
     space: section === "spaces" ? id : "",
     app: section === "apps" ? id : "",
     tab:
@@ -75,23 +77,26 @@ const navigationAllowed = (proceed: () => void) =>
     }),
   );
 
+// The current console location: the path and, when a link carries one (an
+// entity opened by ?entity=), its query string.
+const here = () => location.pathname + location.search;
+
 export function useConsoleURL() {
-  const [path, setPath] = useState(location.pathname);
+  const [path, setPath] = useState(here);
   // The URL to restore when a listener cancels a back/forward navigation.
-  const current = useRef(location.pathname + location.search);
+  const current = useRef(here());
   useLayoutEffect(() => {
-    current.current = path + location.search;
+    current.current = here();
   });
   useEffect(() => {
     const pop = () => {
-      const target = location.pathname + location.search;
+      const target = here();
       const proceed = () => {
-        if (location.pathname + location.search !== target)
-          history.pushState(null, "", target);
-        setPath(location.pathname);
+        if (here() !== target) history.pushState(null, "", target);
+        setPath(target);
       };
       if (navigationAllowed(proceed)) {
-        setPath(location.pathname);
+        setPath(target);
         return;
       }
       history.pushState(null, "", current.current);
@@ -101,7 +106,7 @@ export function useConsoleURL() {
   }, []);
   // Stable, so screens can redirect from an effect that lists it.
   const navigate = useCallback((next: string, replace = false) => {
-    if (next === location.pathname) return;
+    if (next === here()) return;
     const proceed = () => {
       history[replace ? "replaceState" : "pushState"](null, "", next);
       setPath(next);

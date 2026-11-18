@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { login, menu, nav } from "./helpers";
+import { accountMenu, login, menu, nav } from "./helpers";
 async function appearance(page: import("@playwright/test").Page) {
   await menu(page);
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Appearance", exact: true }).click();
   return page.getByRole("dialog", { name: "Appearance", exact: true });
 }
 test("appearance changes shared screens, persists and resets with focus restoration", async ({
@@ -64,7 +64,7 @@ test("appearance changes shared screens, persists and resets with focus restorat
   await drawer.getByRole("button", { name: "Reset to default" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "light");
   await page.keyboard.press("Escape");
-  await expect(page.getByLabel("Account menu", { exact: true })).toBeFocused();
+  await expect(accountMenu(page)).toBeFocused();
   expect(errors).toEqual([]);
 });
 test("system mode, cross-tab sync and invalid preferences recover", async ({
@@ -114,7 +114,7 @@ test("mobile navigation, forms and theme drawer fit and trap focus", async ({
   await expect(
     page.getByRole("heading", { name: "Settings", exact: true, level: 1 }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Plans", exact: true }).click();
+  await page.getByRole("tab", { name: "Plans", exact: true }).click();
   await page.getByRole("button", { name: "Create plan", exact: true }).click();
   await fits();
   await page.keyboard.press("Escape");
@@ -131,7 +131,7 @@ test("mobile navigation, forms and theme drawer fit and trap focus", async ({
     drawer.getByRole("button", { name: "Close appearance", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(page.getByLabel("Account menu", { exact: true })).toBeFocused();
+  await expect(accountMenu(page)).toBeFocused();
   await fits();
 });
 test("navigation and appearance work with browser storage disabled", async ({

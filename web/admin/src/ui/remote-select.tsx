@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { api } from "../api";
 import { text, type Item, type Page } from "../api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
-import { apiKey, useApiQuery } from "../query";
+import { useApiQuery } from "../query";
 import { ListboxPopup } from "./select";
+import {
+  useRemoteOptions,
+  withParams,
+  type RemoteOptions,
+} from "./remote-options";
 
 type RemoteSelectProps = {
   path: string;
@@ -42,11 +45,7 @@ function PathSelect({
 }: RemoteSelectProps) {
   const root = useRef<HTMLSpanElement>(null),
     input = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState(""),
-    [search, setSearch] = useState(""),
-    [chosen, setChosen] = useState<Option>();
-  const url = (params: string) =>
-    path + (path.includes("?") ? "&" : "?") + params;
+  const [chosen, setChosen] = useState<Option>();
   const convert = (items: Item[]) =>
     items
       .filter(
@@ -66,45 +65,10 @@ function PathSelect({
             ? ` (${String(x.email)})`
             : ""),
       }));
-  // Typing waits briefly before searching so each keystroke is not a request.
-  useEffect(() => {
-    const timer = setTimeout(() => setSearch(query), 150);
-    return () => clearTimeout(timer);
-  }, [query]);
   const openState = useState(false),
     [open, setOpen] = openState;
-  // One cached result per search; "Load more" appends the next page. The
-  // AbortSignal cancels a superseded or abandoned request.
-  const results = useInfiniteQuery({
-    queryKey: [...apiKey(path), "search", search],
-    queryFn: ({ pageParam, signal }) =>
-      api<Page>(
-        url(`page=${pageParam}&limit=50&q=${encodeURIComponent(search)}`),
-        "GET",
-        undefined,
-        undefined,
-        signal,
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, _pages, page) =>
-      last.pagination?.has_more ? page + 1 : undefined,
-    enabled: open,
-  });
-  const typing = query !== search;
-  const options: Option[] = typing
-    ? []
-    : results.data
-      ? results.data.pages
-          .flatMap((p) => convert(p.items))
-          .filter(
-            (o, i, all) => all.findIndex((x) => x.value === o.value) === i,
-          )
-      : search
-        ? []
-        : initial;
-  const busy = typing || results.isPending || results.isFetchingNextPage,
-    more = !typing && results.hasNextPage,
-    error = results.error?.message || "";
+  const remote = useRemoteOptions({ path, open, convert, initial }),
+    { options } = remote;
   // A value set from outside that is not among the loaded options is looked
   // up by search so the input can show its label.
   const known =
@@ -112,7 +76,9 @@ function PathSelect({
     initial.find((o) => o.value === value) ||
     options.find((o) => o.value === value);
   const lookup = useApiQuery<Page>(
-    value && !known ? url("limit=50&q=" + encodeURIComponent(value)) : null,
+    value && !known
+      ? withParams(path, "limit=50&q=" + encodeURIComponent(value))
+      : null,
   );
   const selected = value
     ? known ||
@@ -129,8 +95,7 @@ function PathSelect({
     setChosen(o);
     onChange(o.value);
     setOpen(false);
-    setQuery("");
-    setSearch("");
+    remote.reset();
   }
   return (
     <span className="search-combobox" ref={root}>
@@ -146,17 +111,18 @@ function PathSelect({
           required={required && !value}
           autoComplete="off"
           value={
-            open ? query : selected?.label || (value ? "Selected item" : "")
+            open
+              ? remote.query
+              : selected?.label || (value ? "Selected item" : "")
           }
           placeholder={`Choose ${label.toLowerCase()}…`}
           onFocus={() => {
             setOpen(true);
-            setQuery("");
-            setSearch("");
+            remote.reset();
           }}
           onChange={(e) => {
             setOpen(true);
-            setQuery(e.target.value);
+            remote.setQuery(e.target.value);
             setActive(0);
             if (value) onChange("");
           }}
@@ -175,21 +141,38 @@ function PathSelect({
           value={value}
           choose={choose}
         >
-          {busy && <small>Searching…</small>}
-          {!busy && !options.length && !error && <small>No matches</small>}
-          {error && <small role="alert">{error}</small>}
-          {more && (
-            <button
-              type="button"
-              className="text-button"
-              disabled={busy}
-              onClick={() => void results.fetchNextPage()}
-            >
-              Load more
-            </button>
-          )}
+          <RemoteListStatus remote={remote} count={options.length} />
         </ListboxPopup>
       )}
     </span>
+  );
+}
+
+// The paged list's status line under its options: searching, no matches, a
+// request error, and the "Load more" button for the next page.
+export function RemoteListStatus({
+  remote,
+  count,
+}: {
+  remote: Pick<RemoteOptions, "busy" | "more" | "error" | "loadMore">;
+  count: number;
+}) {
+  const { busy, more, error, loadMore } = remote;
+  return (
+    <>
+      {busy && <small>Searching…</small>}
+      {!busy && !count && !error && <small>No matches</small>}
+      {error && <small role="alert">{error}</small>}
+      {more && (
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy}
+          onClick={loadMore}
+        >
+          Load more
+        </button>
+      )}
+    </>
   );
 }

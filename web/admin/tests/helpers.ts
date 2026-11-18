@@ -24,29 +24,37 @@ export async function login(
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: subject === "operator" ? "Tenants" : "Apps",
+      name: subject === "operator" ? "Tenants" : "Home",
       exact: true,
       level: 1,
     }),
   ).toBeVisible();
 }
+// The account menu button: its name is the signed-in user's visible name
+// followed by "account menu" (label in name).
+export function accountMenu(page: Page) {
+  return page
+    .locator(".profile-menu")
+    .getByRole("button", { name: /, account menu$/ });
+}
 export async function menu(page: Page) {
-  if (
-    !(await page
-      .locator(".profile-menu")
-      .evaluate((e: HTMLDetailsElement) => e.open))
-  )
-    await page.getByLabel("Account menu", { exact: true }).click();
+  const trigger = accountMenu(page);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true")
+    await trigger.click();
+  await expect(page.getByRole("menu")).toBeVisible();
 }
 export async function logout(page: Page) {
   await menu(page);
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
 }
 export async function nav(page: Page, name: string) {
-  await page.locator("nav").getByRole("button", { name, exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Console screens" })
+    .getByRole("button", { name, exact: true })
+    .click();
 }
 export async function choose(
   page: Page,
@@ -76,9 +84,23 @@ export async function pick(field: Locator, option: string) {
   ).click();
   await expect(field).toHaveAttribute("aria-expanded", "false");
 }
+// Switches the Tenant with the top bar's context switcher (a button named
+// "Tenant <current name>" that opens a search field over the paged list).
+// With one Tenant there is no switcher and the console is already there.
 export async function selectTenant(page: Page, tenant: string) {
-  const field = page.getByRole("combobox", { name: "Tenant", exact: true });
-  if (await field.count()) await choose(page, "Tenant", tenant);
+  const trigger = page
+    .locator(".topbar-context")
+    .getByRole("button", { name: /^Tenant\b/ });
+  if (await trigger.count()) {
+    await trigger.click();
+    await page
+      .getByRole("combobox", { name: "Find a Tenant", exact: true })
+      .fill(tenant);
+    await page
+      .getByRole("listbox", { name: "Tenants", exact: true })
+      .locator(`[role="option"][data-value="${tenant}"]`)
+      .click();
+  }
   await expect(page).toHaveURL(new RegExp("/tenants/" + tenant + "/"));
 }
 export async function post(

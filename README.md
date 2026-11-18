@@ -55,11 +55,11 @@ Do not delete `.local/config.json` while retaining its database: its encryption 
 
 1. As **Platform operator**, open **Tenants → Create Tenant**. Choose a plan, enter the administrator's name/email/initial password (or generate one), or select an existing account. An existing account's password is never replaced.
 2. Sign out, then sign in with that email/password. Replace the initial password to unlock the workspace. Alternatively, use the development **Tenant administrator** SSO account to inspect the Northstar demo.
-3. Tenant users land on **Apps**, the complete searchable, paginated directory. The sidebar is **Apps, Spaces, People, Activity, Settings**, filtered by authority. App-only managers need no parent-Space visibility. A single searchable Tenant switcher appears for multiple memberships.
+3. Tenant users land on **Home**: what needs them now (failed or running deployments of recent Apps they may release, databases being prepared or failed, agent access expiring within a week), counts of Spaces, Apps, micro-apps, databases and active agents, the most recent Apps, connected agents and the latest audit events with agents shown as actors. Every figure comes from the same authorized management reads as the other screens. The sidebar is **Home, Apps, Spaces, People, Activity, Settings**, filtered by authority, and collapses to an icon rail (remembered on this browser). **Apps** is the complete searchable, paginated directory; App-only managers need no parent-Space visibility. The top bar holds the context switchers: **Tenant** (for multiple memberships; it searches and pages through your Tenants) and **Space** (jumps to any Space you can read). **Search or jump to…** or **⌘K / Ctrl+K** opens the command palette: the sidebar sections, the current page's and the People/Settings tabs, Apps, Spaces and entities you have already loaded in this session, and the account actions.
 4. **Spaces → Create Space:** enter a name. The current user becomes manager; managed creation uses the effective Tenant/plan database layout and an eligible server, reusing the Tenant's shared database where applicable. **Advanced** exposes slug, manager, layout/server and existing-resource choices. A Space opens on **Apps**, with **Entities**, **Access** and **Settings**; database details are in Settings.
 5. An App opens on **Micro-apps**, with **Access** and **Settings**. Create Apps and micro-app registrations by name; technical metadata and compute preferences are under Advanced. The compute preference remains editable under App **Settings → Edit App → Advanced**. These preferences and registrations do not execute Apps.
 6. **People → Members:** Tenant administrator checkboxes and Tenant access controls are directly on member rows. Add existing local accounts by email. **Teams** opens a team's members with Administrator/Reviewer checkboxes on the same rows. Space/App **Access → Manage roles** is the secondary custom-role editor. The last active Tenant administrator remains protected. Existing roles can be revoked while the account or access is disabled; new assignments require active recipients.
-7. Tenant **Settings** contains general information, plan limits and databases. Existing database registration preserves business tables; connection checks/retries, credential replacement and retirement use the provisioning API. The **account menu** contains **My account**, **Appearance** and **Sign out**.
+7. Tenant **Settings** contains general information, plan limits and databases. Existing database registration preserves business tables; connection checks/retries, credential replacement and retirement use the provisioning API. The **account menu** (your name in the top bar) contains **My account**, **Appearance** and **Sign out**; saved forms confirm with a short notification.
 8. Platform navigation is **Tenants, Users, Activity, Settings**. Open a Tenant for **Overview, Administrators, Settings**. **Administrators → Add administrator** creates or selects an account, activates its membership and grants Tenant administration atomically. Existing passwords are never replaced. **Users** contains platform administrator checkboxes and global account enable/disable; **Settings** contains database servers and plans. **Users → Add to Tenant** adds an existing local or SSO identity as an ordinary member, with no automatic administrator grant. Platform accounts cannot author Tenant Spaces/Apps or hold Tenant/team roles.
 
 Console URLs identify the current Tenant, Space/App and tab. Reloads, direct links and browser Back/Forward preserve that location. Searchable pickers load results and further pages inside one control; list pagination disappears when unnecessary.
@@ -123,11 +123,12 @@ See [FOUNDATION.md](FOUNDATION.md), [CONCEPT.md](CONCEPT.md), and [VERIFICATION.
 
 The console uses one theme, **Signal** ("Ink & Signal"): warm paper canvas,
 white cards, an ink sidebar, signal-blue accents, Inter body text, Inter Tight
-headings and JetBrains Mono identifiers. Use **Account menu → Appearance** to
+headings and JetBrains Mono identifiers. Use **account menu → Appearance** to
 choose **Light**, **Dark** or **System** color mode. The preference is saved on
 this browser and applies across console screens and forms; a preset saved by
-the former Neo/Studio/Evergreen themes is ignored and its mode is kept. Mobile
-has an offcanvas menu that includes the Tenant workspace selector.
+the former Neo/Studio/Evergreen themes is ignored and its mode is kept. On
+narrow screens the sidebar becomes an offcanvas menu and the top bar keeps
+the Tenant switcher, search and account menu.
 
 The theme is a set of semantic `--ui-*` CSS variables in
 `web/admin/src/themes.css`, exposed through Tailwind 4 utilities such as

@@ -100,7 +100,7 @@ test("all password forms and generation consume the server policy, including Uni
   required = false;
   await page.reload();
   await menu(page);
-  await page.getByRole("button", { name: "My account", exact: true }).click();
+  await page.getByRole("menuitem", { name: "My account", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Change password" }),
   ).toBeVisible();
@@ -189,6 +189,6 @@ test("sign-in refreshes an older policy before initial-password replacement", as
     .getByRole("button", { name: "Save password", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+    page.getByRole("heading", { name: "Home", exact: true, level: 1 }),
   ).toBeVisible();
 });

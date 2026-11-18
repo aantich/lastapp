@@ -102,11 +102,11 @@ test("first-login password setup is centered and account forms work before Tenan
     .getByRole("button", { name: "Save password", exact: true })
     .click();
   await expect(
-    account.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+    account.getByRole("heading", { name: "Home", exact: true, level: 1 }),
   ).toBeVisible();
   await menu(account);
   await account
-    .getByRole("button", { name: "My account", exact: true })
+    .getByRole("menuitem", { name: "My account", exact: true })
     .click();
   await expect(
     account.getByRole("heading", { name: "Change password", level: 2 }),

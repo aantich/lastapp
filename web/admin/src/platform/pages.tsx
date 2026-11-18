@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { num, text } from "../api-types";
-import { Checkbox, Collection } from "../ui";
+import { Checkbox, Collection, Tabs } from "../ui";
 import { useBuiltinRoles } from "../console-config";
 import { addToTenant, editTenant, planForm, serverForm } from "./forms";
 import { columnsName, columnsStatus, type PlatformScreen } from "./screen";
@@ -11,17 +11,16 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
   const { tab } = route;
   return (
     <>
-      <div className="tabs workspace-tabs">
-        {["overview", "administrators", "settings"].map((id) => (
-          <button
-            key={id}
-            className={tab === id ? "active" : ""}
-            onClick={() => go("tenants", tenant, id)}
-          >
-            {id[0].toUpperCase() + id.slice(1)}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Tenant sections"
+        className="workspace-tabs"
+        items={["overview", "administrators", "settings"].map((id) => ({
+          id,
+          label: id[0].toUpperCase() + id.slice(1),
+        }))}
+        value={tab}
+        onChange={(id) => go("tenants", tenant, id)}
+      />
       {tab === "overview" && (
         <>
           <section className="panel workspace-section">
@@ -209,20 +208,16 @@ export function PlatformSettings({ p }: { p: PlatformScreen }) {
   const { settingsTab } = route;
   return (
     <>
-      <div className="tabs workspace-tabs">
-        {[
-          ["servers", "Database servers"],
-          ["plans", "Plans"],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            className={settingsTab === id ? "active" : ""}
-            onClick={() => go("settings", id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Platform settings"
+        className="workspace-tabs"
+        items={[
+          { id: "servers", label: "Database servers" },
+          { id: "plans", label: "Plans" },
+        ]}
+        value={settingsTab}
+        onChange={(id) => go("settings", id)}
+      />
       {settingsTab === "plans" ? (
         <Collection
           path="/admin/v1/plans"

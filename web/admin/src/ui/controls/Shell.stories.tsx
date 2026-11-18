@@ -14,10 +14,14 @@ import type { Me } from "../../api-types";
 import { ContextSwitcher } from "../context-switcher";
 import { SidebarFooter, SidebarNav } from "../sidebar";
 import { Button } from "../button";
+import { ConsoleStory } from "../storybook/console-story";
+import { policy } from "../storybook/fixtures";
 
-// The console shell built from the kit's sidebar parts: the ink sidebar,
-// SidebarNav (aria-current, rail tooltips) and the persisted collapse
-// (useSidebarCollapse, `sidebar-collapsed` on .shell).
+// The console shell built from the kit: the ink sidebar (SidebarNav with
+// aria-current and rail tooltips, SidebarFooter, the persisted collapse), the
+// top bar with a context switcher, the ⌘K command palette (Navigate and
+// Account commands come from the same nav and menu items) and the account
+// Menu, and PageHeader with Breadcrumbs.
 const me: Me = {
   id: "usr_0001",
   display_name: "Ava Chen",
@@ -60,6 +64,18 @@ function Shell() {
           onChange={setTenant}
         />
       }
+      breadcrumbs={[
+        { label: "Northstar", onClick: () => setActive("overview") },
+        { label: nav.find((n) => n.id === active)?.label || "" },
+      ]}
+      commands={[
+        {
+          id: "space:crm",
+          label: "CRM",
+          group: "Spaces",
+          run: () => setActive("spaces"),
+        },
+      ]}
       actions={<Button variant="primary">Create Space</Button>}
       appearanceControls={{
         appearance: { mode: "light" },
@@ -86,7 +102,11 @@ type Story = StoryObj<typeof meta>;
 // Collapse with the top-bar button; the choice survives a reload.
 export const ConsoleShellStory: Story = {
   name: "Console shell",
-  render: () => <Shell />,
+  render: () => (
+    <ConsoleStory passwordPolicy={policy(12, 128)}>
+      <Shell />
+    </ConsoleStory>
+  ),
 };
 
 function Parts({ collapsed }: { collapsed: boolean }) {

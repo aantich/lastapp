@@ -29,7 +29,7 @@ test("existing database registration, shared access controls and Tenant-switch i
   await login(admin, "tenant-admin");
   await selectTenant(admin, tenant);
   await nav(admin, "Settings");
-  await admin.getByRole("button", { name: "Databases", exact: true }).click();
+  await admin.getByRole("tab", { name: "Databases", exact: true }).click();
   await admin
     .getByRole("button", { name: "Add database", exact: true })
     .click();
@@ -76,7 +76,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     .getByRole("button", { name: "Open", exact: true })
     .click();
   const access = async (name: string) => {
-    await admin.getByRole("button", { name: "Access", exact: true }).click();
+    await admin.getByRole("tab", { name: "Access", exact: true }).click();
     await admin
       .getByRole("button", { name: "Manage roles", exact: true })
       .click();
@@ -98,7 +98,7 @@ test("existing database registration, shared access controls and Tenant-switch i
     path: "../../artifacts/simple-space-access.png",
     fullPage: true,
   });
-  await admin.getByRole("button", { name: "Apps", exact: true }).last().click();
+  await admin.getByRole("tab", { name: "Apps", exact: true }).click();
   await admin.getByRole("button", { name: "Create App", exact: true }).click();
   await admin.getByLabel("Name", { exact: true }).fill("Sales CRM");
   await admin
@@ -148,7 +148,7 @@ test("existing database registration, shared access controls and Tenant-switch i
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
   );
   await expect(
-    admin.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+    admin.getByRole("heading", { name: "Home", exact: true, level: 1 }),
   ).toBeVisible();
   await expect(admin.getByRole("dialog")).toHaveCount(0);
   await context.close();

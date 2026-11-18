@@ -6,6 +6,7 @@ import {
   fixtureTenant,
   logout,
   menu,
+  nav,
 } from "./helpers";
 
 test("only platform admins create global credentials; Tenant admins add existing accounts", async ({
@@ -99,7 +100,7 @@ test("only platform admins create global credentials; Tenant admins add existing
     .getByRole("button", { name: "Save password", exact: true })
     .click();
   await expect(
-    member.getByRole("heading", { name: "Apps", exact: true }),
+    member.getByRole("heading", { name: "Home", exact: true }),
   ).toBeVisible();
   await expect(member.locator(".company-name")).toContainText(
     "Trusted accounts",
@@ -118,7 +119,9 @@ test("only platform admins create global credentials; Tenant admins add existing
   await member.getByRole("button", { name: "Refresh", exact: true }).click();
   const held = await pending;
   await menu(member);
-  await member.getByRole("button", { name: "My account", exact: true }).click();
+  await member
+    .getByRole("menuitem", { name: "My account", exact: true })
+    .click();
   await member.getByLabel("Current password", { exact: true }).fill(personal);
   await member
     .getByLabel("New password", { exact: true })
@@ -209,7 +212,7 @@ test("App-only managers can page, search and open all their Apps", async ({
   await login(page, "outsider");
   await selectTenant(page, tenant);
   await expect(
-    page.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+    page.getByRole("heading", { name: "Home", exact: true, level: 1 }),
   ).toBeVisible();
   expect(
     (await (await page.request.get(base + "/spaces")).json()).items,
@@ -217,6 +220,10 @@ test("App-only managers can page, search and open all their Apps", async ({
   expect((await page.request.get(base + "/spaces/" + space)).status()).toBe(
     403,
   );
+  await nav(page, "Apps");
+  await expect(
+    page.getByRole("heading", { name: "Apps", exact: true, level: 1 }),
+  ).toBeVisible();
   await expect(
     page.getByRole("row").filter({ hasText: "Delegated 000" }),
   ).toHaveCount(0);
@@ -264,18 +271,19 @@ test("expired sessions return to login and signing out an expired session succee
     .getByRole("button", { name: "Refresh", exact: true })
     .click({ timeout: 2000 })
     .catch(async (error) => {
-      if (
-        !(await page
-          .getByRole("button", { name: "Sign in", exact: true })
-          .isVisible())
-      )
-        throw error;
+      // The recovery may still be under way; wait for it, not just a glance.
+      await page
+        .getByRole("button", { name: "Sign in", exact: true })
+        .waitFor({ timeout: 5000 })
+        .catch(() => {
+          throw error;
+        });
     });
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Apps", exact: true }),
+    page.getByRole("heading", { name: "Home", exact: true }),
   ).toHaveCount(0);
   // Complete another login directly from the recovered UI, without a reload.
   await page.getByRole("link", { name: "Continue with SSO" }).click();
@@ -283,8 +291,9 @@ test("expired sessions return to login and signing out an expired session succee
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Apps", exact: true }),
+    page.getByRole("heading", { name: "Home", exact: true }),
   ).toBeVisible();
+  await nav(page, "Apps");
   // Finish the initial collection load and open the menu before expiring the
   // session. Otherwise a delayed GET can correctly return to login before the
   // test reaches Sign out, leaving no mounted button to click.
@@ -298,13 +307,13 @@ test("expired sessions return to login and signing out an expired session succee
       response.request().method() === "POST",
   );
   await context.clearCookies();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   expect((await expiredLogout).status()).toBe(401);
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Apps", exact: true }),
+    page.getByRole("heading", { name: "Home", exact: true }),
   ).toHaveCount(0);
   expect(errors).toEqual([]);
 });
