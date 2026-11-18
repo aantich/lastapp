@@ -284,7 +284,13 @@ and system color modes. New console UI follows these rules:
     where it is edited), `AssignmentList` (role → holder · scope lines),
     `ConnectionCard`/`ConnectionGrid` (a delegated connection), `FlowCard`/
     `FlowSection`/`FlowStack` (one focused task such as a consent), the `pill`
-    Badge and
+    Badge,
+    the record designer parts (`designer-parts.tsx`: `RecordHeader`,
+    `NavList`/`NavListNote`, `GridTable` (a grid-template table that scrolls
+    sideways in its card), `Panel` (titled card, `flush` for a table),
+    `PathCard`, `Callout`, `ChipRow`, `ResultTile(s)`, `DesignerPage`,
+    `DesignerBody`, `DesignerNote`; their chips are the `pill` Badge),
+    `Tabs variant="line"` (a page's 14 px section strip) and
     the layout parts `Stack`, `Inline` (`align="end"` lines a labelled field
     up with a button), `Split` (list | record, stacked under 800 px) and
     `Columns` (wrapping equal columns with a minimum width, fixed `weights`
@@ -396,9 +402,22 @@ and system color modes. New console UI follows these rules:
   `actors.ts` names actors for Home and Activity and holds the actor filter's
   choices.
 - **Entity, access, agent and platform screens.** The entity designer
-  (`entity-designer/`, no stylesheet: list beside the open entity, Fields /
-  Access / Rules / Test / History tabs, permission paths shown as who +
-  operation + fields + record condition, the publication `Stepper`), Space/App
+  (`entity-designer/`, no stylesheet) is the Entities section's own screen:
+  the Space header and tabs give way to its `RecordHeader` (initial tile,
+  name, `key · published <date>` from the active publication, a "Draft · N
+  changes" chip counted client-side against `active_definition`), line
+  `Tabs` (Fields / Access / Rules with its rule count / Test / History) and,
+  in the tab panel, the Space's entities as a `NavList` (dot =
+  `has_draft_changes` from the list, or unsaved edits; "+ New entity" opens
+  a dialog) beside the tab content. Fields is a `GridTable` (type,
+  required/Auto/—, behaviour derived from the field definition) with the
+  publication `Stepper` and the entity settings below; Access shows each
+  permission path as a `PathCard` (who + operation + fields + record
+  condition) and a `Callout` for fields no read path reaches, whose button
+  adds them to the first read path in the draft; Rules are `ChipRow`s; Test
+  shows `ResultTile`s (allowed/denied and the fields of the complete matching
+  paths, never a record count). Without an `?entity=` link the first entity
+  opens. Space/App
   Access (`access-control.tsx`: `AccessMatrix`, read-only, derived from the
   entity's published and draft permission paths; `AssignmentList`; the Roles
   collection) and People/Teams, the Agents page and agent connections

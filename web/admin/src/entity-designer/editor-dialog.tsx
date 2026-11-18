@@ -24,14 +24,12 @@ export function RowActions({
 }) {
   return (
     <Inline gap="sm">
-      <Button
-        size="sm"
-        icon={<Pencil size={13} aria-hidden />}
-        aria-label={"Edit " + title}
+      <IconButton
+        label={"Edit " + title}
+        tooltip
+        icon={<Pencil size={15} aria-hidden />}
         onClick={edit}
-      >
-        Edit
-      </Button>
+      />
       {remove && (
         <IconButton
           label={"Remove " + title}

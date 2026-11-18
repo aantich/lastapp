@@ -51,19 +51,37 @@ func (v *EntityDefinition) ScanFields() []any {
 // draft decodes the saved draft definition.
 func (v EntityDefinition) DraftDefinition() (entity.Definition, error) { return DefOf(v.Draft.Value()) }
 
-// EntityItem is an entity in a Space's entity collection.
+// EntityItem is an entity in a Space's entity collection. HasDraftChanges
+// says whether the saved draft differs from the active version: nothing is
+// published, or the draft's definition hash differs from the active one's.
 type EntityItem struct {
-	ActiveVersion  *string `json:"active_version_id"`
-	Key            string  `json:"entity_key"`
-	ID             string  `json:"id"`
-	Label          string  `json:"label"`
-	PendingVersion *string `json:"pending_version_id"`
-	Revision       int64   `json:"revision"`
-	State          string  `json:"state"`
+	ActiveVersion   *string `json:"active_version_id"`
+	Key             string  `json:"entity_key"`
+	HasDraftChanges bool    `json:"has_draft_changes"`
+	ID              string  `json:"id"`
+	Label           string  `json:"label"`
+	PendingVersion  *string `json:"pending_version_id"`
+	Revision        int64   `json:"revision"`
+	State           string  `json:"state"`
+	draft           []byte
+	activeHash      *string
 }
 
+const entityItemColumns = "e.active_version_id,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state,e.draft_json,v.definition_hash"
+
 func (v *EntityItem) ScanFields() []any {
-	return []any{&v.ActiveVersion, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
+	return []any{&v.ActiveVersion, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State, &v.draft, &v.activeHash}
+}
+
+// draftChanged compares the draft's definition hash, computed as publication
+// computes it (entity.Hash of the decoded definition), with the active
+// version's. A draft that does not decode counts as changed.
+func (v *EntityItem) draftChanged() bool {
+	if v.activeHash == nil {
+		return true
+	}
+	d, e := entity.Decode(v.draft)
+	return e != nil || entity.Hash(d) != *v.activeHash
 }
 
 // PublicationItem is one of an entity's recent publications.
@@ -290,9 +308,13 @@ func (v *Authoring) Entities(ctx context.Context, a op.Actor, space string) (reg
 	if e != nil {
 		return nil, e
 	}
-	items, e := registry.ScanAll[EntityItem](ctx, v.DB, "SELECT active_version_id,entity_key,id,label,pending_version_id,revision,state FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", sp.Space, sp.Tenant)
+	items, e := registry.ScanAll[EntityItem](ctx, v.DB, "SELECT "+entityItemColumns+" FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id", sp.Space, sp.Tenant)
 	if e != nil {
 		return nil, e
+	}
+	for i := range items {
+		items[i].HasDraftChanges = items[i].draftChanged()
+		items[i].draft, items[i].activeHash = nil, nil
 	}
 	return registry.Row{"items": items}, nil
 }

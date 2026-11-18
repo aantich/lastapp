@@ -300,35 +300,46 @@ export function TenantWorkspace({
     text(profile.display_name) ||
     memberships.find((m) => m.id === tenant)?.display_name ||
     "";
+  // The Space's entity designer is its own screen (the Entities section):
+  // it draws its own header and list, so the Space header and tabs give way.
+  const entityScreen = route.page === "space" && route.tab === "entities";
   const crumbs: Crumb[] = [
     {
       label: tenantName || "Tenant",
       onClick: () => go("home"),
     },
-    ...(route.page === "space"
+    ...(entityScreen
       ? [
           {
-            label: "Spaces",
-            onClick: can("space.read") ? () => go("spaces") : undefined,
+            label: title,
+            onClick: () => go("space", { space: route.space }),
           },
-          { label: title },
+          { label: "Entities" },
         ]
-      : route.page === "app"
+      : route.page === "space"
         ? [
-            { label: "Apps", onClick: () => go("apps") },
-            ...(detailReady
-              ? [
-                  {
-                    label: text(app.space_name),
-                    onClick: scoped("space.read", optText(app.space_id), "")
-                      ? () => openSpace({ id: app.space_id })
-                      : undefined,
-                  },
-                ]
-              : []),
+            {
+              label: "Spaces",
+              onClick: can("space.read") ? () => go("spaces") : undefined,
+            },
             { label: title },
           ]
-        : [{ label: sectionLabel(route.page) || title }]),
+        : route.page === "app"
+          ? [
+              { label: "Apps", onClick: () => go("apps") },
+              ...(detailReady
+                ? [
+                    {
+                      label: text(app.space_name),
+                      onClick: scoped("space.read", optText(app.space_id), "")
+                        ? () => openSpace({ id: app.space_id })
+                        : undefined,
+                    },
+                  ]
+                : []),
+              { label: title },
+            ]
+          : [{ label: sectionLabel(route.page) || title }]),
   ];
   // The palette's commands beyond the sidebar sections: entities, Apps and
   // Spaces this session has already loaded, actions with a real operation
@@ -579,8 +590,11 @@ export function TenantWorkspace({
               : undefined
         }
         // Home and Activity draw their own heading (Activity's filters sit
-        // beside its title).
-        header={!["home", "activity"].includes(route.page) || !tenant}
+        // beside its title); so does the entity designer.
+        header={
+          (!["home", "activity"].includes(route.page) && !entityScreen) ||
+          !tenant
+        }
         nav={menu}
         active={
           route.page === "space" && route.tab === "entities"
@@ -668,7 +682,7 @@ export function TenantWorkspace({
               openSpace={(id) => go("space", { space: id })}
             />
           )}
-        {!!tabs.length && (
+        {!!tabs.length && !entityScreen && (
           <Tabs
             label={`${title} sections`}
             className="workspace-tabs"

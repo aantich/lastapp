@@ -8,10 +8,11 @@ their storage. This implementation includes the optional record-sharing mileston
 ## Try the designer
 
 Sign in as a Tenant administrator or Space manager, open a Space, and select
-**Entities**. Create a blank entity or use the Company, Contact or Deal template.
-Templates start without access grants. An open entity shows the Space's other
-entities beside it and the tabs **Fields, Access, Rules, Test, History**. Add
-fields (fields not in the published version are marked **New**), choose the
+**Entities**. Use **+ New entity** to create a blank entity or start from the
+Company, Contact or Deal template. Templates start without access grants. An
+open entity shows the Space's entities beside it (a dot marks unpublished
+changes) and the tabs **Fields, Access, Rules, Test, History**. Add
+fields (fields not in the published version are marked **new**), choose the
 default read projection, and configure Access. Access lists each permission path
 as one unit: who, the operation, the fields it reaches and its record condition
 (plus any allowed-change condition), and names the fields no read path reaches,
@@ -25,11 +26,12 @@ evaluator and current same-Tenant relationships. It never fetches or writes a
 business record. Live uniqueness, referenced-record existence and actual shares
 are explicitly outside that simulation.
 
-Save incomplete drafts, then use **Review changes → Validate → Publish**. Review
+Save incomplete drafts, then use **Review & publish → Validate → Publish**. Review
 shows the changes and a pipeline (Drafted → Validated → Review → Prepare storage
 → Published) derived from the saved draft, the last validation of that exact
-draft and the latest publication; the page shows the same pipeline while a
-publication is pending or failed. The published version remains separate from
+draft and the latest publication; the Fields tab shows the same pipeline
+while the draft differs from the active version or a publication is pending
+or failed. The published version remains separate from
 the draft. The UI preserves the selected
 entity across reloads and warns before abandoning unsaved edits. Publication
 status stays pending until the generated storage is ready to serve that version.
@@ -111,7 +113,7 @@ API key, while management `{entity}` is its registry UUID.
 | Endpoint group | Purpose |
 | --- | --- |
 | `GET /v1/entity-capabilities` | Authoritative types, operators, limits and templates |
-| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions |
+| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions; each listed item carries `has_draft_changes` (no active version, or the saved draft's definition hash differs from the active version's) |
 | `GET/PATCH /v1/entities/{entity}` | Inspect/replace a draft or change lifecycle |
 | `POST /v1/entities/{entity}/validate` and `/test` | Shared validator and synthetic evaluator |
 | `POST /v1/entities/{entity}/publications`; `GET .../publications/{version}` | Queue and inspect exact-version publication |

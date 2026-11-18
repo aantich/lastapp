@@ -1126,7 +1126,7 @@ textarea.ui-input {
 .ui-step {
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: 6px;
   padding: 12px;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -1145,9 +1145,9 @@ textarea.ui-input {
   flex-shrink: 0;
 }
 .ui-step-note {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: normal;
+  color: var(--ui-neutral);
   overflow-wrap: anywhere;
 }
 .ui-step[data-state="done"] {
@@ -1157,16 +1157,367 @@ textarea.ui-input {
 .ui-step[data-state="active"] {
   background: var(--ui-surface);
   border-color: var(--ui-primary);
-  color: var(--ui-info);
+  color: var(--ui-primary-hover);
 }
 .ui-step[data-state="failed"] {
   background: var(--ui-danger-soft);
   border-color: var(--ui-danger-border);
   color: var(--ui-danger);
 }
-.ui-step[data-state="done"] .ui-step-note,
 .ui-step[data-state="failed"] .ui-step-note {
   color: inherit;
+}
+
+/* Record designer parts (designer-parts.tsx): the entity designer. */
+.ui-designer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  line-height: normal;
+}
+.ui-record-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.ui-record-tile {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--ui-action);
+  color: var(--ui-on-action);
+  font: 600 18px var(--ui-font-heading);
+}
+.ui-record-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ui-record-title > h1 {
+  margin: 0;
+  font: 600 28px var(--ui-font-heading);
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+.ui-record-title > span {
+  color: var(--ui-muted);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+}
+.ui-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.tabs.ui-tabs-line {
+  gap: 22px;
+  padding: 0;
+  border-bottom: 1px solid var(--ui-border);
+}
+.tabs.ui-tabs-line [role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  font-size: 14px;
+}
+.tabs.ui-tabs-line [role="tab"][aria-selected="true"] {
+  border-color: var(--ui-text);
+}
+.tabs.ui-tabs-line .ui-tag.ui-count {
+  min-width: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ui-info-soft);
+  color: var(--ui-primary-hover);
+  font-size: 12px;
+  line-height: normal;
+}
+.ui-designer-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+.ui-designer-main {
+  display: flex;
+  flex: 999 1 560px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/* 190-230 px of content plus padding and border, as in the mockup. */
+.ui-nav-list.panel {
+  display: flex;
+  flex: 1 1 212px;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  max-width: 252px;
+  padding: 10px;
+}
+/* Alone on its row on a phone, the list takes the full width. */
+@media (max-width: 600px) {
+  .ui-nav-list.panel {
+    max-width: none;
+  }
+}
+.ui-nav-list-label {
+  padding: 6px 10px;
+  color: var(--ui-muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ui-nav-list > button[type="button"]:not(.secondary) {
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: transparent;
+  color: var(--ui-neutral);
+  justify-content: flex-start;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-nav-list > button[type="button"]:not(.secondary):hover {
+  background: var(--ui-hover);
+}
+.ui-nav-list > button[type="button"][aria-current="true"]:not(.secondary) {
+  background: var(--ui-selected);
+  box-shadow: inset 3px 0 0 var(--ui-text);
+  color: var(--ui-text);
+  font-weight: 600;
+}
+.ui-nav-list
+  > button[type="button"][aria-current="true"]:not(.secondary):hover {
+  background: var(--ui-selected);
+}
+.ui-nav-list-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--ui-chart-primary);
+}
+.ui-nav-list > .secondary {
+  justify-content: center;
+  margin-top: 8px;
+  border-style: dashed;
+}
+.ui-nav-list-note {
+  padding: 6px 10px;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-panel.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+.ui-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 8px;
+}
+.ui-panel-head > h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font: 600 15px var(--ui-font-heading);
+}
+.ui-panel-head > span {
+  flex-basis: 100%;
+  order: 2;
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-panel-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.ui-panel.ui-panel-flush {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.ui-panel-flush > .ui-panel-head {
+  padding: 14px 16px;
+}
+.ui-grid-table-scroll {
+  overflow-x: auto;
+}
+/* Positioned, so spoken-only headers stay inside the scrolling area. */
+.ui-grid-table {
+  position: relative;
+}
+.ui-grid-table [role="row"] {
+  display: grid;
+  grid-template-columns: var(--ui-grid-tracks);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ui-divider);
+  font-size: 14px;
+}
+.ui-grid-table .ui-grid-head {
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ui-grid-table [role="row"][data-highlight] {
+  background: var(--ui-highlight);
+  box-shadow: inset 3px 0 0 var(--ui-primary);
+}
+.ui-grid-table [role="cell"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-grid-table [role="cell"][data-muted] {
+  color: var(--ui-muted);
+}
+.ui-grid-table [role="cell"] code {
+  font: 14px var(--ui-font-mono);
+}
+/* Row actions sit inside the text line, so a row keeps its 43 px height. */
+.ui-grid-table [role="cell"] .icon {
+  margin: -5px 0;
+  padding: 4.5px;
+}
+.ui-grid-table [role="cell"][data-muted] code {
+  color: var(--ui-neutral);
+  font-size: 13px;
+}
+.ui-path {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+}
+.ui-path-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ui-path-can {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-path-aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-path-condition {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ui-subtle);
+  color: var(--ui-neutral);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ui-path-fields {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px dashed var(--ui-callout-border);
+  border-radius: 12px;
+  background: var(--ui-callout);
+}
+.ui-callout-copy {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 2px;
+}
+.ui-callout-copy > strong {
+  color: var(--ui-primary-hover);
+  font-size: 13px;
+}
+.ui-callout-copy > span {
+  color: var(--ui-neutral);
+  font-size: 12px;
+}
+.ui-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+}
+.ui-chip-row-expression {
+  min-width: 0;
+  font-family: var(--ui-font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ui-chip-row-note {
+  margin-left: auto;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-result-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ui-result-tile {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--ui-subtle);
+}
+.ui-result-tile.ui-result-wide {
+  flex: 2 1 280px;
+}
+.ui-result-tile > span {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-result-value {
+  font: 600 26px var(--ui-font-heading);
+}
+.ui-result-mono {
+  font-family: var(--ui-font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ui-designer-note {
+  margin: 0;
+  color: var(--ui-neutral);
+  font-size: 13px;
 }
 .ui-progress {
   display: grid;
