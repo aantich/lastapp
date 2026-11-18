@@ -135,6 +135,23 @@ export function draftChanges(draft: Item, active: unknown): number | null {
   return n;
 }
 
+// The draft's changes to the active version: null before the first
+// publication, 0 when publishing would change nothing. A saved draft is
+// compared by definition hash, as the backend decides (it rejects publishing
+// an unchanged draft); unsaved edits by the field-by-field diff.
+export function publishableChanges(
+  draft: Item,
+  record: Item,
+  dirty: boolean,
+): number | null {
+  const n = draftChanges(draft, record.active_definition);
+  const hash = (v: unknown) => (isItem(v) ? text(v.definition_hash) : "");
+  const saved = hash(record.draft_contract),
+    live = hash(record.published_contract);
+  if (n === null || dirty || !saved || !live) return n;
+  return saved === live ? 0 : Math.max(n, 1);
+}
+
 // A one-line reading of an expression for lists ("Stage ≠ "lost""). The
 // editor and the backend work on the expression itself; this is display only.
 const infix: Record<string, string> = {
@@ -218,6 +235,8 @@ export type Designer = {
   draft: Item;
   setDraft: Dispatch<SetStateAction<Item | null>>;
   dirty: boolean;
+  // The draft's changes to the active version (publishableChanges).
+  changes: number | null;
   busy: boolean;
   run: (fn: () => Promise<unknown>) => Promise<void>;
   save: () => Promise<Item>;

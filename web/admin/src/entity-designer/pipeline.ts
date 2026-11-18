@@ -36,15 +36,20 @@ export function publishSteps(
       : changes
         ? changes + (changes === 1 ? " change" : " changes")
         : "";
+  // A draft identical to the active version has nothing to publish: the
+  // backend rejects it, so neither drafting nor review is done.
+  const unchanged = changes === 0 && !queued;
   return [
-    dirty
-      ? step(
-          "draft",
-          "Drafted",
-          "active",
-          count ? count + " · not saved" : "Not saved yet",
-        )
-      : step("draft", "Drafted", "done", count || "Draft saved"),
+    unchanged
+      ? step("draft", "Drafted", "pending", "No changes to publish")
+      : dirty
+        ? step(
+            "draft",
+            "Drafted",
+            "active",
+            count ? count + " · not saved" : "Not saved yet",
+          )
+        : step("draft", "Drafted", "done", count || "Draft saved"),
     queued
       ? step("validate", "Validated", "done", "Checked when queued")
       : validation === "passed"
@@ -54,7 +59,9 @@ export function publishSteps(
           : step("validate", "Validated", "pending", "Run Validate"),
     queued
       ? step("review", "Review", "done", "Publication queued")
-      : step("review", "Review", "active", "Waiting for you"),
+      : unchanged
+        ? step("review", "Review", "pending", "Change the draft first")
+        : step("review", "Review", "active", "Waiting for you"),
     state === "failed"
       ? step("prepare", "Prepare storage", "failed", "Failed · see below")
       : state === "queued" || state === "publishing"
