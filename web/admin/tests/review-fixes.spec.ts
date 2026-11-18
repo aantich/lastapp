@@ -397,8 +397,15 @@ test("access refresh preserves stale editors and App compute preferences survive
   ]) {
     const scope = base + "/" + kind + "/" + id;
     await admin.goto(`/console/tenants/${tenant}/${kind}/${id}/access`);
+    // The owner manages the scope (an App also lists its Space's
+    // assignments, inherited).
     await expect(
-      admin.getByRole("listitem").filter({ hasText: owner.display_name }),
+      admin
+        .getByRole("listitem")
+        .filter({ hasText: owner.display_name })
+        .filter({
+          hasText: kind === "spaces" ? "Space manager" : "App manager",
+        }),
     ).toBeVisible();
     const r = await create(admin, scope + "/roles", {
       id: crypto.randomUUID(),
