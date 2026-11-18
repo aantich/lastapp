@@ -34,11 +34,14 @@ function PanelMark({ open }: { open: boolean }) {
 // under 800 px), the top bar with the breadcrumbs, the search field and the
 // page's primary actions, and the centred content column with a skip link.
 // The sidebar's own content is a render function: `rail` says whether only
-// icons show, `close` shuts the drawer after a choice. The frame's class
+// icons show, `close` shuts the drawer after a choice. `context` (the
+// Tenant switcher) sits under the brand row, above the search field. The
+// frame's class
 // names (.shell, aside.sidebar, .main, .topbar, .content, .sidebar-collapsed)
 // are also the e2e and theme hooks.
 export function AppShell({
   sidebar,
+  context,
   breadcrumbs,
   onSearch,
   actions,
@@ -46,6 +49,8 @@ export function AppShell({
   children,
 }: {
   sidebar: (state: { rail: boolean; close: () => void }) => ReactNode;
+  // The working-context control under the brand row.
+  context?: (rail: boolean) => ReactNode;
   // The top bar's location (a Breadcrumbs element).
   breadcrumbs?: ReactNode;
   // Opens the command palette from the sidebar and top bar search fields.
@@ -125,6 +130,7 @@ export function AppShell({
           <strong className="ui-brand-name">Lastapp</strong>
           {toggle}
         </div>
+        {context?.(rail)}
         <SearchField
           variant="sidebar"
           label="Search or run…"

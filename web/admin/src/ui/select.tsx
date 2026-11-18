@@ -1,65 +1,188 @@
-import { useRef, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown } from "lucide-react";
 import { useListbox, type Listbox, type ListOption } from "./listbox";
+import { cx } from "./utils";
 export type { ListOption } from "./listbox";
-// Opens below the anchor, or above it when the viewport has more room there,
-// and never taller than the space available.
-function place(popup: HTMLElement | null) {
-  const anchor = popup?.parentElement;
-  if (!popup || !anchor) return;
-  const r = anchor.getBoundingClientRect(),
-    below = window.innerHeight - r.bottom - 12,
-    above = r.top - 12,
-    up = below < 200 && above > below;
-  popup.classList.toggle("above", up);
-  popup.style.maxHeight =
-    Math.max(96, Math.min(270, up ? above : below)) + "px";
+
+const gap = 4,
+  margin = 8;
+// The element a popup is portalled into: the open modal dialog that holds
+// the control (so its focus trap and aria-modal still include the popup),
+// otherwise <body>. The popup never takes part in the control's layout. The
+// ink sidebar (a modal drawer on narrow screens) is never the host: a popup
+// opened from it uses the page's surface tokens, not the sidebar's.
+function portalHost(anchor: HTMLElement) {
+  return (
+    anchor.closest<HTMLElement>('[aria-modal="true"]:not(.sidebar)') ||
+    document.body
+  );
 }
-export function ListboxPopup<T extends ListOption>({
+// Floats the popup over the page beside its anchor: below it, or above when
+// the viewport has more room there ("right": beside a rail tile), at least
+// as wide as the anchor and never taller than the space available; the list
+// inside it scrolls.
+function place(
+  popup: HTMLElement,
+  anchor: HTMLElement,
+  side: "bottom" | "right",
+  minWidth: number,
+  cap: number,
+) {
+  const r = anchor.getBoundingClientRect(),
+    width = Math.min(Math.max(r.width, minWidth), innerWidth - 2 * margin);
+  popup.style.width = width + "px";
+  let left: number,
+    top: number,
+    up = false;
+  if (side === "right") {
+    popup.style.maxHeight = Math.min(cap, innerHeight - 2 * margin) + "px";
+    left = r.right + margin;
+    top = Math.max(
+      margin,
+      Math.min(r.top, innerHeight - margin - popup.offsetHeight),
+    );
+  } else {
+    const below = innerHeight - r.bottom - gap - margin,
+      above = r.top - gap - margin;
+    up = below < 200 && above > below;
+    popup.style.maxHeight =
+      Math.max(96, Math.min(cap, up ? above : below)) + "px";
+    left = r.left;
+    top = up ? r.top - gap - popup.offsetHeight : r.bottom + gap;
+  }
+  left = Math.max(margin, Math.min(left, innerWidth - margin - width));
+  // A fixed popup inside a transformed host (the narrow-screen drawer) is
+  // placed relative to that host.
+  const host = popup.parentElement;
+  if (
+    host &&
+    host !== document.body &&
+    getComputedStyle(host).transform !== "none"
+  ) {
+    const h = host.getBoundingClientRect();
+    left += host.scrollLeft - h.left;
+    top += host.scrollTop - h.top;
+  }
+  popup.classList.toggle("above", up);
+  popup.style.left = left + "px";
+  popup.style.top = top + "px";
+}
+
+// The floating popup of every console list control (Select, RemoteSelect,
+// ContextSwitcher): portalled out of the control so it never changes the
+// layout around it or inherits its surface, placed by `place` and following
+// scrolling and resizing. `header` sits above the options (a search field),
+// `children` under them (paging status, "Load more"). The current option
+// carries a check mark.
+export function ListboxPopup<
+  T extends ListOption & { description?: ReactNode },
+>({
   list,
   label,
   options,
   value,
   choose,
+  header,
   children,
+  side = "bottom",
+  minWidth = 0,
+  maxHeight = 270,
+  className,
 }: {
   list: Listbox;
   label?: string;
   options: T[];
   value: string;
   choose: (option: T) => void;
+  header?: ReactNode;
   children?: ReactNode;
+  side?: "bottom" | "right";
+  minWidth?: number;
+  maxHeight?: number;
+  className?: string;
 }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null),
+    [popup, setPopupElement] = useState<HTMLElement | null>(null);
+  const { setPopup } = list;
+  // The placeholder stays inside the control; its parent is the anchor.
+  const placeholder = useCallback(
+    (el: HTMLElement | null) => setAnchor(el?.parentElement ?? null),
+    [],
+  );
+  const popupRef = useCallback(
+    (el: HTMLElement | null) => {
+      setPopupElement(el);
+      setPopup(el);
+    },
+    [setPopup],
+  );
+  useLayoutEffect(() => {
+    if (!popup || !anchor) return;
+    const update = () => place(popup, anchor, side, minWidth, maxHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(popup);
+    observer.observe(anchor);
+    addEventListener("scroll", update, true);
+    addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      removeEventListener("scroll", update, true);
+      removeEventListener("resize", update);
+    };
+  }, [popup, anchor, side, minWidth, maxHeight]);
   return (
-    <span
-      className="combobox-popup"
-      ref={place}
-      // Keep focus on the control, and stop an enclosing <label> from
-      // re-dispatching the click to it.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => e.preventDefault()}
-    >
-      <span role="listbox" id={list.id} aria-label={label}>
-        {options.map((o, i) => (
+    <>
+      <span hidden ref={placeholder} />
+      {anchor &&
+        createPortal(
           <span
-            role="option"
-            id={`${list.id}-${i}`}
-            key={o.value}
-            data-value={o.value}
-            aria-selected={value === o.value}
-            aria-disabled={o.disabled || undefined}
-            className={list.active === i ? "focused" : undefined}
-            onClick={() => {
-              if (!o.disabled) choose(o);
+            className={cx("combobox-popup", className)}
+            ref={popupRef}
+            // Keep focus on the control (a search field keeps its own), and
+            // stop an enclosing <label> from re-dispatching the click to it.
+            onMouseDown={(e) => {
+              if (!(e.target as HTMLElement).closest("input"))
+                e.preventDefault();
             }}
-            onMouseMove={() => list.setActive(i)}
+            onClick={(e) => e.preventDefault()}
           >
-            {o.label}
-          </span>
-        ))}
-      </span>
-      {children}
-    </span>
+            {header}
+            <span role="listbox" id={list.id} aria-label={label}>
+              {options.map((o, i) => (
+                <span
+                  role="option"
+                  id={`${list.id}-${i}`}
+                  key={o.value}
+                  data-value={o.value}
+                  aria-selected={value === o.value}
+                  aria-disabled={o.disabled || undefined}
+                  className={list.active === i ? "focused" : undefined}
+                  onClick={() => {
+                    if (!o.disabled) choose(o);
+                  }}
+                  onMouseMove={() => list.setActive(i)}
+                >
+                  <span>
+                    {o.label}
+                    {o.description && <small>{o.description}</small>}
+                  </span>
+                  {value === o.value && <Check size={15} aria-hidden />}
+                </span>
+              ))}
+            </span>
+            {children}
+          </span>,
+          portalHost(anchor),
+        )}
+    </>
   );
 }
 // Text of the <span> that opens the enclosing <label>, the console's labelling

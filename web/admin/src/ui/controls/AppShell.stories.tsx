@@ -21,8 +21,8 @@ import { policy } from "../storybook/fixtures";
 import { ConsoleStory } from "../storybook/console-story";
 
 // app-shell.tsx: the console frame (AppShell) as in the approved mockup: the
-// 240 px ink sidebar (brand tile, collapse toggle, search, the Tenant as the
-// section label or a switcher, screens with a count badge, the Spaces list
+// 240 px ink sidebar (brand tile and collapse toggle, the Tenant switcher
+// under them, search, screens with a count badge, the Spaces list
 // and the account menu at the bottom), a rail at 68 px, a drawer under
 // 800 px; the top bar with breadcrumbs, search and the primary action; the
 // content column centred at 1240 px.
@@ -51,6 +51,21 @@ function Frame({ switcher }: { switcher: boolean }) {
   return (
     <AppShell
       onSearch={() => setSearches((n) => n + 1)}
+      context={(rail) => (
+        <ContextSwitcher
+          kind="Tenant"
+          variant="sidebar"
+          rail={rail}
+          value="ten_1"
+          options={[
+            { value: "ten_1", label: "Example Co" },
+            ...(switcher
+              ? [{ value: "ten_2", label: "Harbor Logistics" }]
+              : []),
+          ]}
+          onChange={() => {}}
+        />
+      )}
       sidebar={({ rail, close }) => (
         <>
           <SidebarNav
@@ -58,20 +73,6 @@ function Frame({ switcher }: { switcher: boolean }) {
             items={nav}
             active={active}
             collapsed={rail}
-            section={
-              <ContextSwitcher
-                kind="Tenant"
-                variant="section"
-                value="ten_1"
-                options={[
-                  { value: "ten_1", label: "Example Co" },
-                  ...(switcher
-                    ? [{ value: "ten_2", label: "Harbor Logistics" }]
-                    : []),
-                ]}
-                onChange={() => {}}
-              />
-            }
             onSelect={(id) => {
               setActive(id);
               close();
@@ -138,7 +139,7 @@ function Frame({ switcher }: { switcher: boolean }) {
   );
 }
 
-// One Tenant: the section label is still the Tenant switcher, so switching
+// One Tenant: the Tenant switcher still shows under the brand row, so switching
 // stays discoverable; it lists the one Tenant.
 export const SingleTenant: Story = {
   render: () => (

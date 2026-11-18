@@ -305,9 +305,13 @@ and system color modes. New console UI follows these rules:
     label, with count badges), `SidebarLinks` (a titled list of places with a
     status dot and an optional tag: the Spaces and their workspaces) and `useSidebarCollapse` (the 68 px rail,
     remembered in the browser as `lastapp-sidebar`; ConsoleShell uses them),
-    `ContextSwitcher` (Tenant/Space popover: filter combobox over a listbox;
-    `variant="section"` makes the trigger a sidebar section label, shown
-    for any account with a Tenant so switching is always discoverable; with `path`
+    `ContextSwitcher` (Tenant/Space searchable select: a filter combobox over
+    the listbox in the floating `ListboxPopup`; `variant="sidebar"` is the
+    ink sidebar's bordered control under the brand row (initials tile,
+    "Tenant" caption, name, chevron; the tile alone with a tooltip on the
+    rail, its popup opening beside it), shown for any account with a Tenant
+    so switching is always discoverable; typing on the trigger opens it and
+    starts the search; with `path`
     it searches and pages a list API through `useRemoteOptions`, the same
     paging RemoteSelect uses; "Load more" keeps the popup open, keeps focus in
     the search field and brings the first new option into view),
@@ -335,7 +339,11 @@ and system color modes. New console UI follows these rules:
     and the App launch approval: one card centred outside the shell) and
     `StandalonePage` (a centred column outside the shell: agent consent).
   - Form controls and services: Select, ListboxPopup/`useListbox`
-    (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput (all three
+    (`listbox.ts`; the one popup of every list control, portalled to
+    `<body>` or the open modal dialog, never the ink sidebar, and placed
+    fixed under its control (flipped up without room, at least as wide, the
+    list scrolling inside) so it never moves surrounding layout; the current
+    option carries a check mark), RemoteSelect, NumberInput, NewPasswordInput (all three
     carry `ui-input` and take FormField's id/description wiring),
     `DatePicker` (a button opening a WAI-ARIA calendar dialog with min/max;
     day helpers in `days.ts`), `UploadButton` (a folder/file picker as a kit
@@ -345,8 +353,9 @@ and system color modes. New console UI follows these rules:
     `filters` controls, a `render` feed instead of the table, and `poll`
     while rows are changing), ErrorBoundary, `useDialogFocus`.
 - **Shell.** `console-shell.tsx` wires the kit `AppShell` for both
-  workspaces: the ink sidebar (brand and collapse toggle, ⌘K search, the
-  Tenant switcher as the navigation's section label, `SidebarNav`, the Spaces
+  workspaces: the ink sidebar (brand and collapse toggle, the Tenant
+  switcher under them (`context`), ⌘K search, `SidebarNav` (its section label
+  only when there is nothing to switch: "Platform" or "No Tenant access"), the Spaces
   `SidebarLinks`: each Space with its status dot, its development workspaces
   tagged "workspace"; the account `Menu` at the foot; collapse
   rail, drawer under 800 px) and the top bar (breadcrumbs starting at the

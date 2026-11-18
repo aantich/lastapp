@@ -40,6 +40,23 @@
   with the shell header, and "active" matched the running note before the
   deployment was live.
 
+## Tenant switcher under the brand row; floating list popup — 18 November 2026
+
+- Storybook (App shell, ContextSwitcher, Select, RemoteSelect, FormModal),
+  headless Chromium: the switcher is a 212×47 control under the brand row;
+  its popup is portalled to `<body>` (inside the dialog for a FormModal
+  Select), 4 px under the trigger (beside the 40 px tile on the rail), with
+  the page surface colour in both modes, and opening it does not move the
+  sidebar search field. Focus goes to "Find a Tenant"; Load more (5 per
+  mocked page) appended a page with the popup open and focus kept; Escape
+  closed it; a search with no result shows "No Tenants match". Select
+  (keyboard and mouse, outside press), the FormModal Select and RemoteSelect
+  still choose and close.
+- axe-core on the sidebar and open popup: no violations in light and dark at
+  1440 px, 390 px (drawer) and on the collapsed rail, except the drawer's
+  existing `aria-allowed-role` (role=dialog on `aside`), unchanged here.
+- Not run locally: the Playwright e2e suite (left to CI's `test` check).
+
 ## Access, Agents and agent consent on the approved design — 18 November 2026
 
 - Space Access, the Agents page and the consent page were measured against

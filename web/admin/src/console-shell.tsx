@@ -18,7 +18,8 @@ import {
 import type { Me } from "./api-types";
 
 // The console frame shared by the Platform and Tenant workspaces: the ink
-// sidebar (the workspace's section label or switcher over its screens, any
+// sidebar (the workspace's switcher under the brand row, its section label
+// over its screens, any
 // further places such as Spaces, and the account menu at the bottom), the top
 // bar (breadcrumbs, search and the workspace's primary actions), the command
 // palette (⌘K/Ctrl+K) and the page header. The palette's Navigate and
@@ -34,6 +35,7 @@ export function ConsoleShell({
   active,
   navigate,
   section,
+  context,
   places,
   breadcrumbs,
   actions,
@@ -58,6 +60,8 @@ export function ConsoleShell({
   active: string;
   navigate: (page: string) => void;
   section?: ReactNode;
+  // The workspace's switcher under the brand row (the Tenant switcher).
+  context?: (rail: boolean) => ReactNode;
   places?: (rail: boolean, close: () => void) => ReactNode;
   breadcrumbs: Crumb[];
   actions?: ReactNode;
@@ -117,6 +121,7 @@ export function ConsoleShell({
   return (
     <AppShell
       onSearch={openPalette}
+      context={context}
       sidebar={({ rail, close }) => (
         <>
           <SidebarNav
