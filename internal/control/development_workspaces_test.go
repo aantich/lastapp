@@ -23,6 +23,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/publisher"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
 func TestDevelopmentWorkspaceReleaseFlow(t *testing.T) {
@@ -40,10 +41,8 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	s.Config.ArtifactDirectory = t.TempDir()
 	ctx := context.Background()
 	oc := c.as(owner)
-	admin, e := LoadConfig(filepath.Join(filepath.Dir(os.Getenv("LASTAPP_TEST_CONFIG")), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
+	admin := testdb.Load(t, testdb.ConfigEnv).Admin
+	targetHost, targetPort := registryAddress(admin.RegistryDSN)
 	dsn, e := mariadb.ParseDSN(admin.RegistryDSN)
 	if e != nil {
 		t.Fatal(e)
@@ -56,7 +55,7 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Workspace test','127.0.0.1',33317,'disabled',1,?)", target, enc); e != nil {
+	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Workspace test',?,?,'disabled',1,?)", target, targetHost, targetPort, enc); e != nil {
 		t.Fatal(e)
 	}
 	cleanup := func() {

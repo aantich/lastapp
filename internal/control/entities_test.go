@@ -438,10 +438,11 @@ func businessDatabaseFixture(t *testing.T, s *Server, tenant string, managed boo
 	})
 	enc, _ := s.sealer.Seal("database", resource, tenant, runtime)
 	schema, _ := s.sealer.Seal("schema", resource, tenant, ddl)
+	host, port := registryAddress(s.Config.RegistryDSN) // the test server holding the database above
 	if managed {
-		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Test','127.0.0.1',33317,'disabled',1,X'00')", target)
+		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Test',?,?,'disabled',1,X'00')", target, host, port)
 	} else {
-		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES(?,'Test','127.0.0.1',33317,'disabled')", target)
+		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES(?,'Test',?,?,'disabled')", target, host, port)
 	}
 	exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,schema_credentials_enc) VALUES(?,?,?,?,'registered','shared','ready',?,?)", resource, tenant, target, name, enc, schema)
 	return resource, target

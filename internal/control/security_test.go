@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -22,13 +21,14 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 	"github.com/aantich/lastapp/internal/worker"
 )
 
 // Regression tests for the ten independently reproduced security review findings.
 // They run against a disposable registry and remove only their own databases/users.
 func TestSecurityRegressions(t *testing.T) {
-	s, admin, provisioner := disposableRegistry(t, "LASTAPP_SECURITY_CONFIG", "lastapp_review_")
+	s, admin, provisioner := disposableRegistry(t, "lastapp_review_")
 	cfg := s.Config
 	e := s.SeedDevelopment(context.Background(), provisioner)
 	if e != nil {
@@ -264,10 +264,7 @@ func TestSecurityRegressions(t *testing.T) {
 		}
 	})
 	t.Run("ProductionRegistryRejectsPlaintextTCP", func(t *testing.T) {
-		production, e := LoadConfig(os.Getenv("LASTAPP_SECURITY_CONFIG"))
-		if e != nil {
-			t.Fatal(e)
-		}
+		production := testdb.Load(t, testdb.ConfigEnv).Config
 		production.Development = false
 		production.PublicURL = "https://review.example"
 		production.Address = "127.0.0.1:0"

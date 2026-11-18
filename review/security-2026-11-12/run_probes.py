@@ -2,11 +2,8 @@
 """Run secure regressions for the original security findings.
 The original vulnerable-behavior probes are preserved as historical .txt evidence.
 """
-import argparse, os, pathlib, subprocess
+import os, pathlib, subprocess, sys
 ROOT=pathlib.Path(__file__).resolve().parents[2]
-parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--config',type=pathlib.Path,default=ROOT/'.local/config.json')
-args=parser.parse_args()
-env=dict(os.environ,LASTAPP_SECURITY_CONFIG=str(args.config.resolve()))
-env.setdefault('GOCACHE',str(ROOT/'.local/go-cache'))
-raise SystemExit(subprocess.run(['go','test','-race','./internal/control','-run','^TestSecurityRegressions$','-v','-count=1'],cwd=ROOT,env=env).returncode)
+# On the disposable test MariaDB of scripts/testdb.py, never the development data.
+env=dict(os.environ);env.setdefault('GOCACHE',str(ROOT/'.local/go-cache'))
+raise SystemExit(subprocess.run([sys.executable,ROOT/'scripts/testdb.py','-race','./internal/control','-run','^TestSecurityRegressions$','-v','-count=1'],cwd=ROOT,env=env).returncode)

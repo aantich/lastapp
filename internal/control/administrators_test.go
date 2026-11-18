@@ -75,7 +75,7 @@ func TestScopedRecipientOptions(t *testing.T) {
 	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": joe}, 0, 201)
 	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": operator}, 0, 201)
 	target, db, space, app, sibling := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
-	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Recipients','127.0.0.1',33317,'disabled')", target); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Recipients','127.0.0.1',3306,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
 	enc, e := s.sealer.Seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
@@ -159,7 +159,7 @@ func TestRecommendedSpaceDatabase(t *testing.T) {
 	}
 	create(409) // A missing managed target gives actionable setup feedback, without allocation.
 	target := registry.NewID()
-	platform.want("POST", "/admin/v1/database-targets", registry.Row{"id": target, "display_name": "Recommended", "canonical_host": "127.0.0.1", "port": 33317, "tls_mode": "disabled", "managed_enabled": true, "credentials": registry.Row{"username": "fixture", "password": "Never used: no worker in this test"}}, 0, 201)
+	platform.want("POST", "/admin/v1/database-targets", registry.Row{"id": target, "display_name": "Recommended", "canonical_host": "127.0.0.1", "port": 3306, "tls_mode": "disabled", "managed_enabled": true, "credentials": registry.Row{"username": "fixture", "password": "Never used: no worker in this test"}}, 0, 201)
 	first := create(201)
 	second := create(201)
 	if first["database_resource_id"] != second["database_resource_id"] {

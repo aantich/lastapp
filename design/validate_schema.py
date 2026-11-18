@@ -2,14 +2,15 @@
 """Generate/check the DDL document and reuse the Go foundation SQL/API tests.
 
 --write regenerates from migrations; --check verifies parity offline. The default
-also requires `make dev` and uses a disposable registry on that existing server.
-Does not start another MariaDB or maintain a separate authorization spec.
+also runs the foundation tests on the disposable test MariaDB of scripts/testdb.py
+(Docker), never the development data. It maintains no separate authorization spec.
 """
 import argparse
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
@@ -30,12 +31,8 @@ if actual != expected:
 if options.check:
     print('Canonical DDL matches executable migrations.')
     raise SystemExit(0)
-config = Path(os.environ.get('LASTAPP_TEST_CONFIG', ROOT / '.local/config.json')).resolve()
-if not config.is_file():
-    raise SystemExit('Run make dev first, or set LASTAPP_TEST_CONFIG to the local development config.')
-env = dict(os.environ, LASTAPP_TEST_CONFIG=str(config), GOCACHE=str(ROOT / '.local/go-cache'))
-go = shutil.which('go')
-if not go:
+env = dict(os.environ, GOCACHE=str(ROOT / '.local/go-cache'))
+if not shutil.which('go'):
     raise SystemExit('Go is required.')
 print('Canonical DDL matches bootstrap. Running current foundation SQL/API checks.', flush=True)
-subprocess.run([go, 'test', '-count=1', '-v', '-run', '^TestAuthorizationFoundation$', './internal/control'], cwd=ROOT, env=env, check=True)
+subprocess.run([sys.executable, ROOT / 'scripts/testdb.py', '-count=1', '-v', '-run', '^TestAuthorizationFoundation$', './internal/control'], cwd=ROOT, env=env, check=True)

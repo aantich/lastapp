@@ -3,11 +3,8 @@ package control
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,30 +12,18 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
-// disposableRegistry opens a Server on a new, migrated registry beside the
-// local development registry whose configuration env names. Its builds go to a
-// test directory. Cleanup drops the managed databases and accounts it created
-// and the registry. It also returns an administrative Server on the local
-// registry and the local provisioner password the development seed needs.
-func disposableRegistry(t *testing.T, env, prefix string) (*Server, *Server, string) {
+// disposableRegistry opens a Server on a new, migrated registry on the
+// disposable test server (internal/testdb). Its builds go to a test directory.
+// Cleanup drops the managed databases and accounts it created and the
+// registry. It also returns an administrative Server on that test server and
+// the provisioner password the development seed needs.
+func disposableRegistry(t *testing.T, prefix string) (*Server, *Server, string) {
 	t.Helper()
-	configPath := os.Getenv(env)
-	if configPath == "" {
-		t.Skip("set " + env + " to local .local/config.json")
-	}
-	cfg, e := LoadConfig(configPath)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if !cfg.Development {
-		t.Fatal("requires local development configuration")
-	}
-	adminCfg, e := LoadConfig(filepath.Join(filepath.Dir(configPath), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
+	files := testdb.Load(t, testdb.ConfigEnv)
+	cfg, adminCfg := files.Config, files.Admin
 	admin, e := Open(adminCfg)
 	if e != nil {
 		t.Fatal(e)
@@ -82,17 +67,7 @@ func disposableRegistry(t *testing.T, env, prefix string) (*Server, *Server, str
 	if e = Migrate(context.Background(), s.DB); e != nil {
 		t.Fatal(e)
 	}
-	var state struct {
-		Provisioner string `json:"provisioner_password"`
-	}
-	raw, e := os.ReadFile(filepath.Join(filepath.Dir(configPath), "state.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = json.Unmarshal(raw, &state); e != nil {
-		t.Fatal(e)
-	}
-	return s, admin, state.Provisioner
+	return s, admin, files.State.Provisioner
 }
 
 // The demo definitions satisfy the entity contract before any registry check.
@@ -108,7 +83,7 @@ func TestNorthstarDemoDefinitions(t *testing.T) {
 // entities and an active production deployment per App, captured in a release
 // workspace that is archived afterwards. A second run is a no-op.
 func TestNorthstarDemoSeed(t *testing.T) {
-	s, _, provisioner := disposableRegistry(t, "LASTAPP_TEST_CONFIG", "lastapp_demo_")
+	s, _, provisioner := disposableRegistry(t, "lastapp_demo_")
 	ctx := context.Background()
 	if e := s.SeedDevelopment(ctx, provisioner); e != nil {
 		t.Fatal(e)

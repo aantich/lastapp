@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,14 +13,14 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 	"github.com/pressly/goose/v3"
 
-	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
 // registryFixture creates a fresh registry database from the ordered
-// migrations on the local MariaDB named by LASTAPP_TEST_CONFIG (its
-// migrate.json administrator account) and returns one pinned connection with
+// migrations on the disposable test server (internal/testdb, its
+// administrator account) and returns one pinned connection with
 // foreign key checks disabled, so a test inserts only the rows its query
 // reads. The test owns the database and drops it on cleanup.
 func registryFixture(t *testing.T) *sql.Conn {
@@ -34,24 +33,7 @@ func registryFixture(t *testing.T) *sql.Conn {
 // database handle for further migrations or concurrent transactions.
 func registryAt(t *testing.T, version int64) (*sql.Conn, *sql.DB) {
 	t.Helper()
-	file := os.Getenv("LASTAPP_TEST_CONFIG")
-	if file == "" {
-		t.Skip("set LASTAPP_TEST_CONFIG for the installed local MariaDB")
-	}
-	b, e := os.ReadFile(filepath.Join(filepath.Dir(file), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	var c config.Config
-	if e = json.Unmarshal(b, &c); e != nil {
-		t.Fatal(e)
-	}
-	cfg, e := mariadb.ParseDSN(c.RegistryDSN)
-	if e != nil {
-		t.Fatal("invalid registry DSN")
-	}
-	cfg.DBName = ""
-	cfg.ParseTime = true
+	cfg := testdb.Load(t, testdb.ConfigEnv).AdminDSN(t)
 	cfg.Loc = time.UTC
 	connector, e := mariadb.NewConnector(cfg)
 	if e != nil {
