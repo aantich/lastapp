@@ -669,6 +669,10 @@ button.ui-stat:hover {
   line-height: normal;
   overflow-wrap: anywhere;
 }
+/* A title-only header centres its actions on the title, as the design does */
+.ui-page-header:has(> .ui-page-header-copy > h1:only-child) {
+  align-items: center;
+}
 .ui-page-header-copy > p {
   color: var(--ui-muted);
   font-size: 14px;
@@ -1117,7 +1121,10 @@ textarea.ui-input {
 /* Stepper (pipelines) */
 .ui-stepper {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--ui-step-min, 150px), 100%), 1fr)
+  );
   gap: 10px;
   margin: 0;
   padding: 0;
@@ -3610,4 +3617,224 @@ button.ui-section-trigger[aria-current="page"] {
   padding-left: 20px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Row table: a card of fixed-track grid rows (Apps, releases, micro-apps) */
+.ui-row-table {
+  line-height: normal;
+}
+.ui-row-table-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 14px 16px;
+}
+.ui-row-table-head h2,
+.ui-titled-card h2 {
+  font: 600 15px var(--ui-font-heading);
+  letter-spacing: normal;
+}
+.ui-row-table-head > span {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-row-table-actions,
+.ui-titled-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.ui-row-table-scroll {
+  overflow-x: auto;
+}
+.ui-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--ui-row-columns);
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-top: 1px solid var(--ui-divider);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: 14px;
+}
+.ui-row > [role="cell"],
+.ui-row > [role="columnheader"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-row-head {
+  border-top: 0;
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ui-row-link:hover {
+  background: var(--ui-subtle);
+}
+.ui-row-link:has(.ui-row-open:focus-visible) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+.ui-row-open {
+  justify-content: flex-start;
+  gap: 10px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.ui-row-open:focus-visible {
+  outline: none;
+}
+.ui-row-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.ui-row [role="cell"] :is(button, a):not(.ui-row-open) {
+  position: relative;
+}
+.ui-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.ui-row-actions > :is(.primary, .secondary, .ui-ghost).ui-sm {
+  padding: 6px 10px;
+}
+.ui-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ui-row-meta > span + span,
+.ui-row-mono {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-row-mono {
+  font-family: var(--ui-font-mono);
+}
+.ui-row-table-empty {
+  padding: 14px 16px;
+  border-top: 1px solid var(--ui-divider);
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-row-table-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--ui-divider);
+}
+
+/* App tiles in lists and the App header */
+.ui-app-tile.ui-tile-sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font: 600 12px var(--ui-font-heading);
+}
+.ui-app-tile.ui-tile-lg {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  font: 600 18px var(--ui-font-heading);
+}
+.ui-app-tile.tone-danger {
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+}
+
+/* App header: tile, name over address, status and actions */
+.ui-app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  line-height: normal;
+}
+.ui-app-header-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ui-app-header h1 {
+  font: 600 28px var(--ui-font-heading);
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+.ui-app-header-name > span {
+  color: var(--ui-muted);
+  font: 12px var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+.ui-app-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Titled card: heading with a note beside or under it, then its body */
+.ui-titled-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  line-height: normal;
+}
+.ui-titled-card > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ui-titled-card > header > span {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-titled-card.ui-titled-stacked {
+  gap: 12px;
+}
+.ui-titled-stacked > header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ui-titled-stacked > header > .ui-titled-card-actions {
+  margin-left: 0;
+}
+.ui-card-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.ui-card-row > * {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+.ui-value-box {
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  font: 13px var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+/* A screen's blocks one above the other, 24 px apart (Apps, an App) */
+.ui-page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  line-height: normal;
 }
