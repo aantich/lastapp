@@ -103,7 +103,8 @@ const (
 	ActorSystem = "system"
 )
 
-const auditActorKind = "CASE WHEN JSON_VALUE(a.details_json,'$.agent_grant_id') IS NOT NULL THEN '" + ActorAgent + "' WHEN a.actor_user_id IS NULL THEN '" + ActorSystem + "' ELSE '" + ActorPerson + "' END"
+// AuditActorKind is the SQL expression of an audit row's (alias a) actor kind.
+const AuditActorKind = "CASE WHEN JSON_VALUE(a.details_json,'$.agent_grant_id') IS NOT NULL THEN '" + ActorAgent + "' WHEN a.actor_user_id IS NULL THEN '" + ActorSystem + "' ELSE '" + ActorPerson + "' END"
 
 // AuditFilter narrows an audit trail to one actor kind and/or one resource
 // type; empty fields do not filter.
@@ -135,7 +136,7 @@ func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, p
 	switch filter.Actor {
 	case "":
 	case ActorPerson, ActorAgent, ActorSystem:
-		where += " AND " + auditActorKind + "=?"
+		where += " AND " + AuditActorKind + "=?"
 		args = append(args, filter.Actor)
 	default:
 		return op.Page[AuditEvent]{}, registry.Bad("Actor must be person, agent or system.")
@@ -147,7 +148,7 @@ func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, p
 		where += " AND a.resource_type=?"
 		args = append(args, filter.Kind)
 	}
-	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,"+auditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,"+AuditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 }
 
 // maxAuditKinds bounds the resource types an audit filter offers.
