@@ -8,8 +8,6 @@ import {
   Breadcrumbs,
   CommandPalette,
   PageHeader,
-  QuickSearch,
-  SidebarFooter,
   SidebarNav,
   useCommandPaletteShortcut,
   type Command,
@@ -20,41 +18,51 @@ import {
 import type { Me } from "./api-types";
 
 // The console frame shared by the Platform and Tenant workspaces: the ink
-// sidebar (collapsible to a rail, a drawer on narrow screens), the top bar
-// with the workspace's context switchers, the command palette (⌘K/Ctrl+K)
-// and the account menu, and the page header. The palette's Navigate and
+// sidebar (the workspace's section label or switcher over its screens, any
+// further places such as Spaces, and the account menu at the bottom), the top
+// bar (breadcrumbs, search and the workspace's primary actions), the command
+// palette (⌘K/Ctrl+K) and the page header. The palette's Navigate and
 // Account commands come from the same `nav` and account items the sidebar
 // and menu show; workspaces add their own jumps in `commands`.
 export function ConsoleShell({
   me,
-  kind,
+  role,
   title,
   description,
+  header = true,
   nav,
   active,
   navigate,
-  context,
-  secondaryContext,
+  section,
+  places,
   breadcrumbs,
   actions,
+  topActions,
   commands = [],
+  accountItems: extraAccountItems = [],
   children,
   appearanceControls,
   account,
   signOut,
 }: {
   me: Me;
-  kind: string;
+  // The signed-in person's role under their name ("Tenant admin").
+  role?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
+  // False when the page draws its own heading (Home).
+  header?: boolean;
   nav: NavItem[];
   active: string;
   navigate: (page: string) => void;
-  context?: ReactNode;
-  secondaryContext?: ReactNode;
-  breadcrumbs?: Crumb[];
+  section?: ReactNode;
+  places?: (rail: boolean, close: () => void) => ReactNode;
+  breadcrumbs: Crumb[];
   actions?: ReactNode;
+  topActions?: ReactNode;
   commands?: Command[];
+  // Workspace entries of the account menu before My account (Settings).
+  accountItems?: MenuItem[];
   children: ReactNode;
   appearanceControls: ReturnType<typeof useAppearance>;
   account: () => void;
@@ -62,8 +70,10 @@ export function ConsoleShell({
 }) {
   const [appearanceOpen, setAppearanceOpen] = useState(false),
     [palette, setPalette] = useState(false);
-  useCommandPaletteShortcut(useCallback(() => setPalette(true), []));
+  const openPalette = useCallback(() => setPalette(true), []);
+  useCommandPaletteShortcut(openPalette);
   const accountItems: MenuItem[] = [
+    ...extraAccountItems,
     {
       id: "account",
       label: "My account",
@@ -102,7 +112,7 @@ export function ConsoleShell({
   ];
   return (
     <AppShell
-      kind={kind}
+      onSearch={openPalette}
       sidebar={({ rail, close }) => (
         <>
           <SidebarNav
@@ -110,27 +120,24 @@ export function ConsoleShell({
             items={nav}
             active={active}
             collapsed={rail}
+            section={section}
             onSelect={(id) => {
               navigate(id);
               close();
             }}
           />
-          <SidebarFooter name={me.display_name} detail={me.email} />
-        </>
-      )}
-      context={context}
-      secondaryContext={secondaryContext}
-      actions={
-        <>
-          <QuickSearch onOpen={() => setPalette(true)} />
+          {places?.(rail, close)}
           <AccountMenu
             className="profile-menu"
             name={me.display_name}
+            detail={role}
+            rail={rail}
             items={accountItems}
           />
         </>
-      }
-      footer={<span>© {new Date().getFullYear()} Lastapp</span>}
+      )}
+      breadcrumbs={<Breadcrumbs items={breadcrumbs} />}
+      actions={topActions}
       overlays={
         <>
           {palette && (
@@ -151,16 +158,9 @@ export function ConsoleShell({
         </>
       }
     >
-      <PageHeader
-        title={title}
-        description={description}
-        breadcrumbs={
-          breadcrumbs && breadcrumbs.length > 1 ? (
-            <Breadcrumbs items={breadcrumbs} />
-          ) : undefined
-        }
-        actions={actions}
-      />
+      {header && (
+        <PageHeader title={title} description={description} actions={actions} />
+      )}
       {children}
     </AppShell>
   );

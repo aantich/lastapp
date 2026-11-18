@@ -29,6 +29,7 @@ export function Menu({
   label,
   items,
   align = "end",
+  placement = "below",
   className,
   triggerClassName,
 }: {
@@ -36,6 +37,8 @@ export function Menu({
   label?: string;
   items: MenuItem[];
   align?: "start" | "end";
+  // "above" opens upward (a trigger at the bottom of the sidebar).
+  placement?: "below" | "above";
   className?: string;
   triggerClassName?: string;
 }) {
@@ -110,7 +113,11 @@ export function Menu({
           id={id}
           role="menu"
           aria-labelledby={id + "-trigger"}
-          className={cx("ui-menu-popup", align === "start" && "ui-start")}
+          className={cx(
+            "ui-menu-popup",
+            align === "start" && "ui-start",
+            placement === "above" && "ui-above",
+          )}
           onKeyDown={onKeyDown}
         >
           {items.map((item) => (

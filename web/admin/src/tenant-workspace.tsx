@@ -1,5 +1,12 @@
-import { useEffect } from "react";
-import { AppWindow, Database, FolderOpen, Plus, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  AppWindow,
+  Database,
+  FolderOpen,
+  Plus,
+  RefreshCw,
+  Settings,
+} from "lucide-react";
 import { api } from "./api";
 import { DevelopmentBanner } from "./development-workspaces";
 import { ConsoleShell } from "./console-shell";
@@ -11,6 +18,9 @@ import {
   ContextLabel,
   ContextSwitcher,
   EmptyState,
+  SidebarLinks,
+  statusTone,
+  type Tone,
   ErrorBoundary,
   FormModal,
   IconButton,
@@ -24,17 +34,26 @@ import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
 import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
-import { cachedRows, LiveRefresh, refreshQueries, useApiQuery } from "./query";
+import {
+  cachedRows,
+  LiveRefresh,
+  refreshQueries,
+  useApiQueries,
+  useApiQuery,
+} from "./query";
 import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
 import { agentGrantsPath } from "./actors";
+import { ConnectAgentDialog } from "./connect-agent";
 import {
   num,
   optText,
   text,
+  type AgentGrant,
   type Item,
   type Me,
+  type Page,
   type TenantCapabilities,
   type TenantOverview,
 } from "./api-types";
@@ -76,6 +95,7 @@ export function TenantWorkspace({
   const tenant = parsed.area === "tenants" ? parsed.tenant : fallback,
     base = "/v1/tenants/" + tenant;
   const [modal, setModal] = useRouteState<Modal | null>(url, null);
+  const [connecting, setConnecting] = useState(false);
   // Everything this workspace shows refreshes every 5 s while no form is open.
   // refetchInterval never overlaps requests and pauses in a hidden tab.
   const live = tenant && !modal ? 5000 : false;
@@ -98,6 +118,19 @@ export function TenantWorkspace({
       tenant && parsed.page === "apps" && parsed.app
         ? base + "/apps/" + parsed.app
         : null,
+      { refetchInterval: live },
+    );
+  // The sidebar's Spaces (the first page) and its Agents count (active,
+  // unexpired grants: every grant in the Tenant for a security manager,
+  // otherwise the person's own, as Home counts them).
+  const canSpaces = !!capsQuery.data?.permissions["space.read"]?.available,
+    manager = !!capsQuery.data?.permissions["authorization.manage"]?.all;
+  const spacesQuery = useApiQuery<Page>(
+      tenant && canSpaces ? base + "/spaces?limit=8" : null,
+      { refetchInterval: live },
+    ),
+    grantsQuery = useApiQuery<Page<AgentGrant>>(
+      tenant && capsQuery.data ? agentGrantsPath(tenant, manager) : null,
       { refetchInterval: live },
     );
   const overview: TenantOverview = overviewQuery.data || {},
@@ -134,9 +167,21 @@ export function TenantWorkspace({
     onSuccess: () => done(),
     onError: setError,
   });
+  const sidebarSpaces = spacesQuery.data?.items || [];
   function go(page: string, v: Partial<typeof route> = {}) {
     if (page === "account") {
       navigate(consoleURL.account);
+      return;
+    }
+    if (page === "agents") {
+      if (all("authorization.manage")) go("settings", { tab: "agents" });
+      else go("account");
+      return;
+    }
+    if (page === "entities") {
+      const space = route.space || text(sidebarSpaces[0]?.id);
+      if (space) go("space", { space, tab: "entities" });
+      else go("spaces");
       return;
     }
     const path =
@@ -238,13 +283,26 @@ export function TenantWorkspace({
             ? "Space"
             : "App"
         : sectionLabel(route.page) || "Home";
-  const menu = tenantNav(capabilities);
+  // Active, unexpired grants, measured when the grants were read.
+  const activeAgents = grantsQuery.data
+    ? grantsQuery.data.items.filter(
+        (g) =>
+          g.tenant_id === tenant &&
+          g.state === "active" &&
+          new Date(g.expires_at).getTime() > grantsQuery.dataUpdatedAt,
+      ).length
+    : undefined;
+  const menu = tenantNav(capabilities, { agents: activeAgents });
   const tenantName =
     text(profile.display_name) ||
     memberships.find((m) => m.id === tenant)?.display_name ||
     "";
-  const crumbs: Crumb[] =
-    route.page === "space"
+  const crumbs: Crumb[] = [
+    {
+      label: tenantName || "Tenant",
+      onClick: () => go("home"),
+    },
+    ...(route.page === "space"
       ? [
           {
             label: "Spaces",
@@ -267,7 +325,8 @@ export function TenantWorkspace({
               : []),
             { label: title },
           ]
-        : [];
+        : [{ label: title }]),
+  ];
   // The palette's jumps beyond the sidebar sections: this page's tabs, the
   // other sections' tabs, and Apps, Spaces and entities this session has
   // already loaded (nothing is fetched for the palette).
@@ -383,18 +442,11 @@ export function TenantWorkspace({
         )}
     </>
   );
-  const spaceName =
-    route.page === "space"
-      ? detailReady
-        ? text(space.display_name)
-        : ""
-      : route.page === "app" && detailReady
-        ? text(app.space_name)
-        : "";
-  const context =
+  const tenantSection =
     memberships.length > 1 || me.pagination?.has_more ? (
       <ContextSwitcher
         kind="Tenant"
+        variant="section"
         path="/v1/my-tenants"
         value={tenant}
         current={tenantName}
@@ -404,45 +456,122 @@ export function TenantWorkspace({
     ) : (
       <ContextLabel
         className="company-name"
-        kind="Tenant"
         value={tenantName || "No Tenant access"}
       />
     );
-  const spaceContext = tenant && can("space.read") && (
-    <ContextSwitcher
-      kind="Space"
-      path={base + "/spaces"}
-      value={route.space || undefined}
-      current={spaceName}
-      placeholder="All Spaces"
-      options={[]}
-      onChange={(id) => go("space", { space: id })}
-    />
+  // Each listed Space's development workspaces this account may manage
+  // (marked "dev"); production Spaces are "prod".
+  const workspaceParents = sidebarSpaces
+    .map((sp) => text(sp.id))
+    .filter((id) => scoped("workspace.manage", id, ""));
+  const workspaceQueries = useApiQueries<Page>(
+    workspaceParents.map((id) => "/v1/spaces/" + id + "/workspaces?limit=20"),
   );
+  const places = sidebarSpaces.flatMap((sp) => [
+    {
+      id: text(sp.id),
+      label: text(sp.display_name),
+      tone: statusTone(text(sp.database_state || sp.state)),
+      tag: "prod",
+    },
+    ...(
+      workspaceQueries[workspaceParents.indexOf(text(sp.id))]?.data?.items || []
+    )
+      .filter(
+        (w) =>
+          !!w.backing_space_id &&
+          !["archived", "deleted"].includes(text(w.state)),
+      )
+      .map((w) => ({
+        id: text(w.backing_space_id),
+        label: text(w.display_name),
+        // A dev Space reads amber, as in the design, unless it failed.
+        tone: (statusTone(text(w.state)) === "danger"
+          ? "danger"
+          : "warning") as Tone,
+        tag: "dev",
+      })),
+  ]);
   return (
     <LiveRefresh value={live}>
       <ConsoleShell
         me={me}
-        kind="Tenant"
+        role={me.email}
         title={title}
+        header={route.page !== "home"}
         nav={menu}
         active={
-          route.page === "space"
-            ? "spaces"
+          route.page === "space" && route.tab === "entities"
+            ? "entities"
             : route.page === "app"
               ? "apps"
-              : route.page
+              : route.page === "settings" && route.tab === "agents"
+                ? "agents"
+                : route.page
         }
         navigate={go}
-        context={context}
-        secondaryContext={spaceContext}
+        section={tenantSection}
+        places={
+          tenant && canSpaces
+            ? (rail, close) => (
+                <SidebarLinks
+                  label="Spaces"
+                  collapsed={rail}
+                  title={
+                    <button
+                      type="button"
+                      className="ui-nav-section ui-section-trigger"
+                      aria-current={
+                        route.page === "spaces" ? "page" : undefined
+                      }
+                      onClick={() => {
+                        go("spaces");
+                        close();
+                      }}
+                    >
+                      Spaces
+                    </button>
+                  }
+                  items={places}
+                  active={route.page === "space" ? route.space : undefined}
+                  onSelect={(id) => {
+                    go("space", { space: id });
+                    close();
+                  }}
+                />
+              )
+            : undefined
+        }
         breadcrumbs={crumbs}
         commands={commands()}
         actions={actions}
+        topActions={
+          <Button variant="primary" onClick={() => setConnecting(true)}>
+            Connect agent
+          </Button>
+        }
+        accountItems={[
+          {
+            id: "settings",
+            label: "Tenant settings",
+            icon: <Settings size={16} aria-hidden />,
+            onSelect: () => go("settings"),
+          },
+        ]}
         appearanceControls={appearanceControls}
         account={() => go("account")}
         signOut={signOut}
       >
+        {connecting && (
+          <ConnectAgentDialog
+            tenantName={tenantName}
+            agentAccess={() => {
+              setConnecting(false);
+              go("agents");
+            }}
+            close={() => setConnecting(false)}
+          />
+        )}
         {error && (
           <Alert onDismiss={dismiss} dismissLabel="Dismiss error">
             {error}

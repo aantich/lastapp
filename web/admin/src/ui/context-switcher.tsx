@@ -4,6 +4,7 @@ import { text, type Item } from "../api-types";
 import { useListbox, type ListOption } from "./listbox";
 import { useRemoteOptions } from "./remote-options";
 import { RemoteListStatus } from "./remote-select";
+import { cx } from "./utils";
 
 export type ContextOption = ListOption & { description?: ReactNode };
 
@@ -28,6 +29,7 @@ export function ContextSwitcher({
   current: currentLabel,
   placeholder = "Choose…",
   empty = "Nothing matches.",
+  variant = "field",
 }: {
   // "Tenant" or "Space": the eyebrow and the accessible names.
   kind: string;
@@ -39,6 +41,8 @@ export function ContextSwitcher({
   current?: string;
   placeholder?: string;
   empty?: ReactNode;
+  // "section": the trigger is the ink sidebar's uppercase section label.
+  variant?: "field" | "section";
 }) {
   const root = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLButtonElement>(null);
@@ -78,11 +82,21 @@ export function ContextSwitcher({
     list.setOpen(true);
   }
   return (
-    <div className="ui-context" ref={root}>
+    <div
+      className={cx(
+        "ui-context",
+        variant === "section" && "ui-section-context",
+      )}
+      ref={root}
+    >
       <button
         ref={trigger}
         type="button"
-        className="ui-context-trigger"
+        className={
+          variant === "section"
+            ? "ui-nav-section ui-section-trigger"
+            : "ui-context-trigger"
+        }
         aria-haspopup="listbox"
         aria-expanded={list.open}
         onClick={() => (list.open ? close() : open())}
@@ -93,11 +107,18 @@ export function ContextSwitcher({
           }
         }}
       >
-        <span>
-          <small>{kind}</small>
-          <strong>{current?.label || currentLabel || placeholder}</strong>
-        </span>
-        <ChevronsUpDown size={16} aria-hidden />
+        {variant === "section" ? (
+          <span>
+            <span className="ui-sr-only">{kind} </span>
+            {current?.label || currentLabel || placeholder}
+          </span>
+        ) : (
+          <span>
+            <small>{kind}</small>
+            <strong>{current?.label || currentLabel || placeholder}</strong>
+          </span>
+        )}
+        <ChevronsUpDown size={variant === "section" ? 13 : 16} aria-hidden />
       </button>
       {list.open && (
         <div className="ui-context-popup">
@@ -161,7 +182,13 @@ export function ContextSwitcher({
               <div className="ui-option-empty">{empty}</div>
             )}
           </div>
-          {path && <RemoteListStatus remote={remote} count={shown.length} />}
+          {path && (
+            <RemoteListStatus
+              remote={remote}
+              count={shown.length}
+              reveal={list.setActive}
+            />
+          )}
         </div>
       )}
     </div>

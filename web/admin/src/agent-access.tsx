@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Bot, Copy, RefreshCw, X } from "lucide-react";
+import { Bot, RefreshCw, X } from "lucide-react";
 import { api } from "./api";
 import {
   addDays,
@@ -12,7 +12,6 @@ import {
   CardFooter,
   CardHeader,
   Checkbox,
-  CodeBlock,
   Columns,
   confirmAction,
   DatePicker,
@@ -39,6 +38,7 @@ import {
   StatusBadge,
 } from "./ui";
 import { useAction } from "./use-action";
+import { agentConfigPath, McpConnection } from "./connect-agent";
 import { refreshQueries, useApiQuery } from "./query";
 
 import type {
@@ -50,7 +50,6 @@ import type {
   Page,
   Redirect,
 } from "./api-types";
-const agentConfigPath = "/v1/agent-access/config";
 // Quick expiry choices, offered only where the backend's max_days allows.
 const quickDays = [7, 30, 90];
 type GrantValues = {
@@ -612,8 +611,7 @@ export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {
   const [page, setPage] = useState(1),
     [actionError, setError] = useState(""),
     [editing, setEditing] = useState<AgentGrant | null>(null),
-    [revoking, setRevoking] = useState(""),
-    [copied, setCopied] = useState(false);
+    [revoking, setRevoking] = useState("");
   const configQuery = useApiQuery<AgentConfig>(agentConfigPath),
     listQuery = useApiQuery<Page<AgentGrant>>(
       `/v1/agent-access?page=${page}&limit=20${tenant ? "&tenant_id=" + tenant : ""}`,
@@ -676,31 +674,7 @@ export function AgentAccess({ me, tenant }: { me: Me; tenant?: string }) {
         />
         {config && (
           <CardBody>
-            <Stack gap="sm">
-              <Inline gap="md">
-                <strong>Connect from Codex or Claude</strong>
-                <Button
-                  size="sm"
-                  icon={<Copy size={14} aria-hidden />}
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(config.mcp_url);
-                      setCopied(true);
-                    } catch {
-                      setError("Select and copy the MCP URL below.");
-                    }
-                  }}
-                >
-                  {copied ? "URL copied" : "Copy MCP URL"}
-                </Button>
-              </Inline>
-              <CodeBlock label="MCP URL">{config.mcp_url}</CodeBlock>
-              <small>
-                Add this URL in your agent client. It opens Lastapp sign-in and
-                asks you to approve access. No API keys or OAuth client setup
-                required.
-              </small>
-            </Stack>
+            <McpConnection config={config} />
           </CardBody>
         )}
       </Card>

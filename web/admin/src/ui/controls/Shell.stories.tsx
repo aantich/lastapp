@@ -1,27 +1,20 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  Boxes,
-  Building2,
-  Database,
-  Home,
-  ShieldCheck,
-  Users,
-  Bot,
-} from "lucide-react";
+import { Boxes, Building2, Home, ShieldCheck, Users, Bot } from "lucide-react";
 import { ConsoleShell } from "../../console-shell";
 import type { Me } from "../../api-types";
 import { ContextSwitcher } from "../context-switcher";
-import { SidebarFooter, SidebarNav } from "../sidebar";
+import { AccountMenu, ContextLabel } from "../app-shell";
+import { SidebarLinks, SidebarNav } from "../sidebar";
 import { Button } from "../button";
 import { ConsoleStory } from "../storybook/console-story";
 import { policy } from "../storybook/fixtures";
 
-// The console shell built from the kit: the ink sidebar (SidebarNav with
-// aria-current and rail tooltips, SidebarFooter, the persisted collapse), the
-// top bar with a context switcher, the ⌘K command palette (Navigate and
-// Account commands come from the same nav and menu items) and the account
-// Menu, and PageHeader with Breadcrumbs.
+// The console shell built from the kit: the ink sidebar (the Tenant
+// switcher as section label, SidebarNav with aria-current and rail tooltips,
+// the account menu, the persisted collapse), the top bar with breadcrumbs and
+// search, the ⌘K command palette (Navigate and Account commands come from the
+// same nav and menu items), and PageHeader.
 const me: Me = {
   id: "usr_0001",
   display_name: "Ava Chen",
@@ -51,14 +44,15 @@ function Shell() {
   return (
     <ConsoleShell
       me={me}
-      kind="Tenant console"
+      role={me.email}
       title={nav.find((n) => n.id === active)?.label || ""}
       nav={nav}
       active={active}
       navigate={setActive}
-      context={
+      section={
         <ContextSwitcher
           kind="Tenant"
+          variant="section"
           value={tenant}
           options={tenants}
           onChange={setTenant}
@@ -116,24 +110,34 @@ function Parts({ collapsed }: { collapsed: boolean }) {
       <aside className="sidebar" aria-label="Navigation">
         <SidebarNav
           label="Console screens"
-          section="Northstar"
+          section={<ContextLabel value="Northstar" />}
           items={nav.map((n) => (n.id === "agents" ? { ...n, badge: 2 } : n))}
           active={active}
           onSelect={setActive}
           collapsed={collapsed}
         />
-        <SidebarNav
+        <SidebarLinks
           label="Spaces"
-          section="Spaces"
+          title={<span className="ui-nav-section">Spaces</span>}
           items={[
-            { id: "crm", label: "CRM", icon: Database },
-            { id: "field", label: "Field Service", icon: Database },
+            { id: "crm", label: "CRM", tone: "success", tag: "prod" },
+            {
+              id: "field",
+              label: "Field Service",
+              tone: "warning",
+              tag: "dev",
+            },
           ]}
           active={active}
           onSelect={setActive}
           collapsed={collapsed}
         />
-        <SidebarFooter name="Ava Chen" detail="Tenant administrator" />
+        <AccountMenu
+          name="Ava Chen"
+          detail="Tenant administrator"
+          rail={collapsed}
+          items={[]}
+        />
       </aside>
     </div>
   );

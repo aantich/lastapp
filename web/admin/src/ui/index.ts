@@ -25,8 +25,11 @@ export {
   StatGrid,
   AttentionCard,
   AttentionGrid,
+  AllClear,
+  AppCard,
 } from "./card";
-export { PageHeader, Breadcrumbs, type Crumb } from "./page-header";
+export { PageHeader, PageIntro, Breadcrumbs, type Crumb } from "./page-header";
+export { ActivityList, ActorMark, type ActivityItem } from "./activity-list";
 export { Tabs, type TabItem } from "./tabs";
 export { EmptyState } from "./empty-state";
 export { Alert, InlineError, type AlertTone } from "./alert";
@@ -62,8 +65,13 @@ export { AuthLayout } from "./auth-layout";
 export { Section, Lead } from "./section";
 
 // Composites
-export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
-export { AppShell, QuickSearch, AccountMenu, ContextLabel } from "./app-shell";
+export {
+  SidebarNav,
+  SidebarLinks,
+  type NavItem,
+  type SidebarLink,
+} from "./sidebar";
+export { AppShell, SearchField, AccountMenu, ContextLabel } from "./app-shell";
 export { useSidebarCollapse, useCommandPaletteShortcut } from "./hooks";
 export { ContextSwitcher, type ContextOption } from "./context-switcher";
 export { CommandPalette, type Command } from "./command-palette";

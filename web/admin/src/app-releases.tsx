@@ -11,7 +11,11 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Failure } from "./api";
 import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
-import { deploymentSteps, useDeploymentStates } from "./deployment";
+import {
+  deployModal,
+  deploymentSteps,
+  useDeploymentStates,
+} from "./deployment";
 import {
   Alert,
   Button,
@@ -268,41 +272,17 @@ export function AppReleases({
     refresh();
     window.open(result.url, "_blank", "noopener,noreferrer");
   }
-  // Deploys a release to production: a new deployment of the same release
-  // is also how a failed one is retried (POST /v1/releases/{id}/deploy).
+  // Deploys a release to production (also how a failed one is retried).
   function deploy(release: Release, retry = false) {
-    setModal({
-      title: (retry ? "Retry deploy of " : "Deploy ") + release.display_name,
-      description:
-        (retry ? "Starts a new deployment of this release. " : "") +
-        "Applies the captured shared Space backend configuration, then activates this App build. Other Apps reuse those Space entities and permissions. Database changes are not automatically rolled back if a step fails.",
-      success: "Deployment queued",
-      initial: {},
-      fields: [],
-      submit: retry ? "Retry deploy" : "Deploy to production",
-      save: async () => {
-        let revision: number | undefined = 1;
-        try {
-          const target = await api<Item>(
-            `/v1/tenants/${tenant}/apps/${release.production_app_id}`,
-          );
-          revision = num(target.revision);
-        } catch (e) {
-          if ((e as { status?: number }).status !== 404) throw e;
-        }
-        const result = await api<Deployment>(
-          `/v1/releases/${release.id}/deploy`,
-          "POST",
-          {},
-          revision,
-        );
+    setModal(
+      deployModal(tenant, release, retry, (result) => {
         // Show the new deployment at once; its state restarts the polling.
         previousDeployment.current = result;
         queryClient.setQueryData(apiKey(deploymentPath), {
           deployment: result,
         });
-      },
-    });
+      }),
+    );
   }
   const deployed = deployment
     ? releases.find((r) => r.id === deployment.release_id)
