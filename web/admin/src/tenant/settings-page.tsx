@@ -1,7 +1,16 @@
 import { AgentAccess } from "../agent-access";
 import { api } from "../api";
-import { Collection, confirmAction } from "../ui";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Collection,
+  FactList,
+  confirmAction,
+} from "../ui";
 import { num, text } from "../api-types";
+import { status } from "../console-forms";
 import { statusColumn, type TenantScreen } from "./screen";
 
 // Tenant settings: General, Databases and Agent access.
@@ -14,38 +23,51 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
         <AgentAccess key={tenant} me={me} tenant={tenant} />
       )}
       {route.tab === "general" && (
-        <section className="panel workspace-section">
-          <dl className="workspace-facts">
-            <dt>Name</dt>
-            <dd>{text(profile.display_name)}</dd>
-            <dt>Plan</dt>
-            <dd>{text(profile.plan_name)}</dd>
-            <dt>Status</dt>
-            <dd>{text(profile.state)}</dd>
-            <dt>Spaces / Apps / Databases</dt>
-            <dd>
-              {text(profile.max_spaces ?? "Unlimited")} /{" "}
-              {text(profile.max_apps ?? "Unlimited")} /{" "}
-              {text(profile.max_databases ?? "Unlimited")}
-            </dd>
-          </dl>
-          {all("tenant.manage") && (
-            <button
-              className="secondary"
-              onClick={() =>
-                edit(profile, base, "Edit Tenant", [
-                  { key: "display_name", label: "Name", required: true },
-                ])
-              }
-            >
-              Edit Tenant
-            </button>
-          )}
-        </section>
+        <Card>
+          <CardHeader
+            title="General"
+            description="The company name is yours to change; plan and status are set by the platform."
+            actions={
+              all("tenant.manage") && (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    edit(profile, base, "Edit Tenant", [
+                      { key: "display_name", label: "Name", required: true },
+                    ])
+                  }
+                >
+                  Edit Tenant
+                </Button>
+              )
+            }
+          />
+          <CardBody>
+            <FactList
+              className="workspace-facts"
+              facts={[
+                { label: "Name", value: text(profile.display_name) },
+                { label: "Plan", value: text(profile.plan_name) || "—" },
+                { label: "Status", value: status(profile.state) },
+                {
+                  label: "Plan limits: Spaces / Apps / Databases",
+                  value: `${text(profile.max_spaces ?? "Unlimited")} / ${text(profile.max_apps ?? "Unlimited")} / ${text(profile.max_databases ?? "Unlimited")}`,
+                },
+              ]}
+            />
+          </CardBody>
+        </Card>
       )}
       {route.tab === "databases" && (
         <Collection
           path={base + "/database-resources"}
+          caption="Databases"
+          header={
+            <CardHeader
+              title="Databases"
+              description="Database resources that back this Tenant's Spaces. A Space's binding never changes; retiring a resource preserves its physical data."
+            />
+          }
           columns={[
             [
               "Database",
@@ -66,8 +88,9 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
               ? (r) => (
                   <>
                     {["ready", "failed"].includes(text(r.state)) && (
-                      <button
-                        className="text-button"
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         disabled={busy}
                         onClick={() =>
                           act(() =>
@@ -81,12 +104,13 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                         }
                       >
                         {r.state === "failed" ? "Retry" : "Recheck connection"}
-                      </button>
+                      </Button>
                     )}
                     {r.management_mode === "registered" &&
                       !["provisioning", "retired"].includes(text(r.state)) && (
-                        <button
-                          className="text-button"
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           onClick={() =>
                             setModal({
                               title: "Update database credentials",
@@ -121,12 +145,13 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                           }
                         >
                           Update credentials
-                        </button>
+                        </Button>
                       )}
                     {r.management_mode === "registered" &&
                       r.state === "ready" && (
-                        <button
-                          className="text-button"
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           onClick={() =>
                             setModal({
                               title: "Schema credentials",
@@ -159,11 +184,12 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                           }
                         >
                           Set schema credentials
-                        </button>
+                        </Button>
                       )}
                     {!["provisioning", "retired"].includes(text(r.state)) && (
-                      <button
-                        className="text-button danger"
+                      <Button
+                        variant="danger"
+                        size="sm"
                         disabled={busy}
                         onClick={async () => {
                           if (
@@ -186,7 +212,7 @@ export function TenantSettings({ t }: { t: TenantScreen }) {
                         }}
                       >
                         Retire
-                      </button>
+                      </Button>
                     )}
                   </>
                 )
