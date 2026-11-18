@@ -139,6 +139,8 @@ func TestDeliveryShapeGolden(t *testing.T) {
 		t.Fatal("deployment did not complete", deployed)
 	}
 	rec.http(oc, "GET /v1/apps/{app}/deployment finished", "GET", "/v1/apps/"+prodApp+"/deployment", nil, 0, 200)
+	rec.http(oc, "POST /v1/deployments/{deployment}/retry stale", "POST", jobPath+"/retry", registry.Row{}, registry.Integer(deployed["revision"])+9, 412)
+	rec.http(oc, "POST /v1/deployments/{deployment}/retry not failed", "POST", jobPath+"/retry", registry.Row{}, registry.Integer(deployed["revision"]), 409)
 	ws = oc.want("GET", "/v1/workspaces/"+wid, nil, 0, 200)
 	rec.http(oc, "POST /v1/workspaces/{workspace}/archive", "POST", "/v1/workspaces/"+wid+"/archive", registry.Row{}, registry.Integer(ws["revision"]), 200)
 
@@ -205,6 +207,8 @@ func TestDeliveryShapeGolden(t *testing.T) {
 	rec.mcp(s, noDeploy, "lastapp_release deploy without production.deploy", "lastapp_release", agent.ReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]), RequestKey: registry.NewID()}, false)
 	rec.mcp(s, agentToken, "lastapp_release deploy stale", "lastapp_release", agent.ReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]) + 9, RequestKey: registry.NewID()}, false)
 	ajob := rec.mcp(s, agentToken, "lastapp_release deploy", "lastapp_release", agent.ReleaseInput{Action: "deploy", Release: arelID, Revision: registry.Integer(prod["revision"]), RequestKey: registry.NewID()}, true)
+	rec.mcp(s, noDeploy, "lastapp_release retry without production.deploy", "lastapp_release", agent.ReleaseInput{Action: "retry", Deployment: registry.Str(mcpData(ajob)["id"]), Revision: 1, RequestKey: registry.NewID()}, false)
+	rec.mcp(s, agentToken, "lastapp_release retry not failed", "lastapp_release", agent.ReleaseInput{Action: "retry", Deployment: registry.Str(mcpData(ajob)["id"]), Revision: 1, RequestKey: registry.NewID()}, false)
 	rec.mcp(s, agentToken, "lastapp_get deployment queued", "lastapp_get", agent.ReadInput{Resource: "deployment", ID: registry.Str(mcpData(ajob)["id"])}, true)
 	rec.mcp(s, agentToken, "lastapp_get app_deployment", "lastapp_get", agent.ReadInput{Resource: "app_deployment", ID: aapp}, true)
 	rec.mcp(s, agentToken, "lastapp_get deployment missing", "lastapp_get", agent.ReadInput{Resource: "deployment", ID: registry.NewID()}, false)

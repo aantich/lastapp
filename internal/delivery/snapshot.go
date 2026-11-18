@@ -305,6 +305,9 @@ func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v re
 		if e != nil {
 			return e
 		}
+		if e = s.workspaceStep(ctx, q, v, WorkspaceSteps[1]); e != nil {
+			return e
+		}
 		if e = s.prepareSnapshotTables(ctx, access.Deref(v.DatabaseResource), defs); e != nil {
 			return e
 		}
@@ -349,6 +352,11 @@ func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v re
 		}
 		// Unpublished entities that are all already queued: wait for them.
 		waiting = !ready && !queued
+		if !ready {
+			if e = s.workspaceStep(ctx, tx, v, WorkspaceSteps[2]); e != nil {
+				return e
+			}
+		}
 		if ready {
 			apps, err := registry.ScanAll[registry.AppRecord](ctx, tx, "SELECT "+registry.AppRecordColumns+" FROM apps WHERE space_id=?", v.BackingSpace)
 			if err != nil {
@@ -363,7 +371,7 @@ func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v re
 					return err
 				}
 			}
-			if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state='ready',revision=revision+1 WHERE id=? AND state='preparing'", v.ID); e != nil {
+			if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state='ready',preparation_step=NULL,revision=revision+1 WHERE id=? AND state='preparing'", v.ID); e != nil {
 				return e
 			}
 		}
@@ -383,6 +391,14 @@ func (s *Service) prepareWorkspace(ctx context.Context, q registry.Queryer, v re
 	}
 	_, e = q.ExecContext(parent, "UPDATE development_workspaces SET state='failed',error_message=?,revision=revision+1 WHERE id=? AND state='preparing'", message, v.ID)
 	return true, e
+}
+
+// workspaceStep records that a preparing workspace has reached step (one of
+// WorkspaceSteps). It never moves a workspace back, so a pass that repeats an
+// earlier step (waiting for publications) leaves the later one in place.
+func (s *Service) workspaceStep(ctx context.Context, q registry.Queryer, v registry.Workspace, step string) error {
+	_, e := q.ExecContext(ctx, "UPDATE development_workspaces SET preparation_step=?,revision=revision+1 WHERE id=? AND state='preparing' AND FIND_IN_SET(COALESCE(preparation_step,''),?)<FIND_IN_SET(?,?)", step, v.ID, strings.Join(WorkspaceSteps, ","), step, strings.Join(WorkspaceSteps, ","))
+	return e
 }
 
 func snapshotContractHash(v spaceSnapshot) string {

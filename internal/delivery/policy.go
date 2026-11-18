@@ -16,8 +16,16 @@ var DeploymentSteps = []string{"queued", "preparing", "publishing", registry.Sta
 
 const DeploymentFailed = "failed"
 
+// WorkspaceSteps are the steps a preparing development workspace passes
+// through, in worker order (prepareWorkspace): its database is provisioned,
+// its entity tables are prepared, then its entity publications finish, and
+// the workspace is ready. They are the development_workspaces.preparation_step
+// CHECK constraint (TestWorkspaceStepsMatchSchema); the console derives its
+// preparation progress from Policy.
+var WorkspaceSteps = []string{"storage", "tables", "publishing"}
+
 func Policy() registry.Row {
-	return registry.Row{"deployment_states": registry.Row{"steps": DeploymentSteps, "failed": DeploymentFailed}, "max_workspace_apps": registry.MaxWorkspaceApps, "max_release_microapps": registry.MaxReleaseMicroapps, "max_release_dependencies": registry.MaxReleaseDependencies, "max_snapshot_bytes": registry.MaxSpaceSnapshotBytes, "max_app_builds": registry.MaxAppBuilds, "max_app_releases": registry.MaxAppReleases, "max_owned_workspaces": registry.MaxOwnedWorkspaces, "max_space_workspaces": registry.MaxSpaceWorkspaces, "upload": artifact.Limits}
+	return registry.Row{"deployment_states": registry.Row{"steps": DeploymentSteps, "failed": DeploymentFailed}, "workspace_steps": WorkspaceSteps, "max_workspace_apps": registry.MaxWorkspaceApps, "max_release_microapps": registry.MaxReleaseMicroapps, "max_release_dependencies": registry.MaxReleaseDependencies, "max_snapshot_bytes": registry.MaxSpaceSnapshotBytes, "max_app_builds": registry.MaxAppBuilds, "max_app_releases": registry.MaxAppReleases, "max_owned_workspaces": registry.MaxOwnedWorkspaces, "max_space_workspaces": registry.MaxSpaceWorkspaces, "upload": artifact.Limits}
 }
 
 func (s *Service) snapshotAppQuota(ctx context.Context, q registry.Queryer, tenant string, snap spaceSnapshot) error {

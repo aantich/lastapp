@@ -30,6 +30,8 @@ type ReleaseCreateInput struct {
 // persisted plan or delegation details through a status response.
 // Deployment is a production deployment's status and the URL it serves.
 type Deployment struct {
+	// Attempts counts the deployment's runs: 1, plus one per retry.
+	Attempts   int64     `json:"attempts"`
 	CreatedAt  time.Time `json:"created_at"`
 	DeployedBy string    `json:"deployed_by"`
 	Error      *string   `json:"error_message"`
@@ -39,23 +41,25 @@ type Deployment struct {
 	ID          string     `json:"id"`
 	ReleaseID   string     `json:"release_id"`
 	Release     string     `json:"release_name"`
-	Revision    int64      `json:"revision"`
-	SpaceID     string     `json:"space_id"`
-	State       string     `json:"state"`
-	TargetApp   string     `json:"target_app_id"`
-	TenantID    string     `json:"tenant_id"`
-	URL         string     `json:"url"`
+	// RetriedBy names the person who last retried it; null before a retry.
+	RetriedBy *string `json:"retried_by"`
+	Revision  int64   `json:"revision"`
+	SpaceID   string  `json:"space_id"`
+	State     string  `json:"state"`
+	TargetApp string  `json:"target_app_id"`
+	TenantID  string  `json:"tenant_id"`
+	URL       string  `json:"url"`
 }
 
 // The status names who started the deployment (the person; an agent acts for
 // one) and the release's name, so a status needs no further reads to display.
 const (
-	deploymentStatusColumns = "d.created_at,u.display_name AS deployed_by,d.error_message,d.failed_state,d.finished_at,d.id,d.release_id,rel.display_name AS release_name,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
-	deploymentStatusFrom    = " FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id JOIN users u ON u.id=d.created_by"
+	deploymentStatusColumns = "d.attempts,d.created_at,u.display_name AS deployed_by,d.error_message,d.failed_state,d.finished_at,d.id,d.release_id,rel.display_name AS release_name,r.display_name AS retried_by,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+	deploymentStatusFrom    = " FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id JOIN users u ON u.id=d.created_by LEFT JOIN users r ON r.id=d.retried_by"
 )
 
 func (v *Deployment) ScanFields() []any {
-	return []any{&v.CreatedAt, &v.DeployedBy, &v.Error, &v.FailedState, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Release, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
+	return []any{&v.Attempts, &v.CreatedAt, &v.DeployedBy, &v.Error, &v.FailedState, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Release, &v.RetriedBy, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
 }
 
 // Release is a captured App release with its workspace ownership and
