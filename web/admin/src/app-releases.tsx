@@ -31,6 +31,7 @@ import {
   Stack,
   StatusBadge,
   Stepper,
+  UploadButton,
   type Modal,
   type Step,
 } from "./ui";
@@ -77,8 +78,7 @@ export function AppReleases({
     [modal, setModal] = useState<Modal | null>(null);
   const { config } = useConsoleConfig();
   const states = useDeploymentStates();
-  const folder = useRef<HTMLInputElement>(null),
-    development = !!app.workspace_id;
+  const development = !!app.workspace_id;
   // Release history pages accumulate behind "Load more".
   const releasesPath = `/v1/apps/${app.id}/releases`;
   const releasePages = useInfiniteQuery({
@@ -152,8 +152,7 @@ export function AppReleases({
     onSuccess: () => {},
     onError: setError,
   });
-  async function upload(files: FileList | null) {
-    if (!files?.length) return;
+  async function upload(files: FileList) {
     await run(async () => {
       const ticket = await api<UploadTicket>(
           `/v1/apps/${app.id}/upload-tickets`,
@@ -187,7 +186,6 @@ export function AppReleases({
       void refreshQueries();
       await capture(result.id);
     });
-    if (folder.current) folder.current.value = "";
   }
   async function capture(buildID: string) {
     const [latest, inventory] = await Promise.all([
@@ -376,24 +374,15 @@ export function AppReleases({
                 >
                   Get starter
                 </LinkButton>
-                <Button
+                <UploadButton
+                  directory
                   variant="primary"
                   loading={busy}
                   icon={<Upload size={16} aria-hidden />}
-                  onClick={() => {
-                    folder.current?.setAttribute("webkitdirectory", "");
-                    folder.current?.click();
-                  }}
+                  onFiles={upload}
                 >
                   {busy ? "Working…" : "Upload build folder"}
-                </Button>
-                <input
-                  ref={folder}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => upload(e.target.files)}
-                />
+                </UploadButton>
               </>
             }
           />
@@ -646,7 +635,7 @@ function ReleaseReview({
     pins = Object.entries(release.manifest_json?.microapps || {}),
     packages = Object.keys(release.manifest_json?.dependencies || {});
   return (
-    <Card as="article" className="release-review">
+    <Card as="article">
       <CardHeader
         title={release.display_name}
         description={`Immutable build · ${release.build_id.slice(0, 8)}`}
@@ -696,7 +685,7 @@ function ReleaseReview({
               },
             ]}
           />
-          <div>
+          <Stack gap="sm">
             {snapshot.entities.map((e) => (
               <Disclosure
                 key={e.id}
@@ -736,7 +725,7 @@ function ReleaseReview({
                 )}
               </CodeBlock>
             </Disclosure>
-          </div>
+          </Stack>
         </Stack>
       </CardBody>
     </Card>

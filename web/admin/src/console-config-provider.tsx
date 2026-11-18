@@ -2,7 +2,7 @@ import { useCallback, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiKey } from "./query";
 import { ConfigContext, configPath, loadConsoleConfig } from "./console-config";
-import { Alert, Button } from "./ui";
+import { Alert, Button, LoadingScreen } from "./ui";
 
 // Loads the console configuration before anything else renders and refreshes
 // it whenever the window regains focus or is restored from the back/forward
@@ -47,7 +47,7 @@ export function ConsoleConfigProvider({ children }: { children: ReactNode }) {
           {children}
         </ConfigContext.Provider>
       ) : (
-        !error && <div className="boot">Opening Lastapp…</div>
+        !error && <LoadingScreen label="Opening Lastapp…" />
       )}
     </>
   );
