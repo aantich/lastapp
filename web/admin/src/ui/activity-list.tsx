@@ -9,14 +9,19 @@ export type ActivityItem = {
   actor: { name: string; kind: AvatarKind };
   // One sentence built from the event ("<actor> <did> <resource>").
   text: ReactNode;
-  // Who it was for or through, and when ("for <person> · <ago>").
+  // Who it was for or through, and when ("for <person> · <ago>"): the feed's
+  // line under the sentence.
   meta?: ReactNode;
+  // The same two parts as columns of a full-width row ("rows").
+  via?: ReactNode;
+  when?: ReactNode;
   // ISO time for <time>.
   at?: string;
 };
 
-// A compact feed of humanized audit events: a square actor mark, one
-// sentence and a muted meta line per item.
+// Humanized audit events: a square actor mark and one sentence per item. The
+// "feed" (Home) puts a muted meta line under the sentence; "rows" (the
+// Activity page) is a full-width list with "via" and "when" as columns.
 export function ActivityList({
   label,
   items,
@@ -29,23 +34,34 @@ export function ActivityList({
 }) {
   return (
     <ol className={cx("ui-activity-list", "ui-" + variant)} aria-label={label}>
-      {items.map((item) => (
-        <li key={item.id}>
-          <ActorMark {...item.actor} />
-          <span className="ui-activity-copy">
-            <span>{item.text}</span>
-            {item.meta && (
-              <span className="ui-activity-meta">
-                {item.at ? (
-                  <time dateTime={item.at}>{item.meta}</time>
-                ) : (
-                  item.meta
-                )}
-              </span>
-            )}
-          </span>
-        </li>
-      ))}
+      {items.map((item) =>
+        variant === "rows" ? (
+          <li key={item.id}>
+            <ActorMark {...item.actor} />
+            <span className="ui-activity-text">{item.text}</span>
+            <span className="ui-activity-via">{item.via}</span>
+            <time className="ui-activity-when" dateTime={item.at}>
+              {item.when}
+            </time>
+          </li>
+        ) : (
+          <li key={item.id}>
+            <ActorMark {...item.actor} />
+            <span className="ui-activity-copy">
+              <span>{item.text}</span>
+              {item.meta && (
+                <span className="ui-activity-meta">
+                  {item.at ? (
+                    <time dateTime={item.at}>{item.meta}</time>
+                  ) : (
+                    item.meta
+                  )}
+                </span>
+              )}
+            </span>
+          </li>
+        ),
+      )}
     </ol>
   );
 }
