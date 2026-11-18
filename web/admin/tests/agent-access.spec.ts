@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { login, logout, fixtureTenant, choose } from "./helpers";
+import { login, logout, fixtureTenant, choose, confirmDialog } from "./helpers";
 import { apiOrigin } from "./stack";
 
 test("OAuth consent scopes an agent and account settings edit and revoke it", async ({
@@ -61,7 +61,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   expect(
     await page
       .locator(
-        '.agent-grant-form input:not([type="checkbox"]), .agent-grant-form .select-trigger',
+        '.agent-grant-form input:not([type="checkbox"]), .agent-grant-form .select-trigger, .agent-grant-form .ui-date-trigger',
       )
       .evaluateAll((nodes) =>
         nodes.every((node) => node.getBoundingClientRect().height >= 36),
@@ -185,6 +185,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   };
   await page.route("**/v1/agent-access/*", rejectRevoke);
   await grant.getByRole("button", { name: "Revoke access" }).click();
+  await confirmDialog(page, "Revoke access");
   await expect(page.getByRole("alert")).toContainText("Refresh before saving.");
   await expect(grant).toBeVisible();
   await expect(
@@ -194,6 +195,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   await page.getByRole("button", { name: "Refresh connections" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await grant.getByRole("button", { name: "Revoke access" }).click();
+  await confirmDialog(page, "Revoke access");
   await expect(grant).toContainText("revoked");
   await expect(grant.getByRole("button", { name: "Edit access" })).toHaveCount(
     0,
