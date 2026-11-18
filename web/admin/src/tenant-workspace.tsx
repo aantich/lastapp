@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { DevelopmentBanner } from "./development-workspaces";
+import { workspacesPath } from "./workspaces";
 import { ConsoleShell } from "./console-shell";
 import { consoleURL, parseTenantURL, useConsoleURL } from "./console-url";
 import {
@@ -204,7 +205,13 @@ export function TenantWorkspace({
     navigate(consoleURL.tenant(id, "home"));
   }
   const openSpace = (r: Item) => go("space", { space: optText(r.id) }),
-    openApp = (r: Item) => go("app", { app: optText(r.id) });
+    openApp = (r: Item) => go("app", { app: optText(r.id) }),
+    openEntity = (space: string, entity: string) =>
+      navigate(
+        consoleURL.tenant(tenant, "spaces", space, "entities") +
+          "?entity=" +
+          encodeURIComponent(entity),
+      );
   useEffect(() => {
     if (parsed.area !== "tenants" && parsed.area !== "account" && tenant)
       navigate(consoleURL.tenant(tenant, "home"), true);
@@ -251,8 +258,10 @@ export function TenantWorkspace({
     can,
     scoped,
     go,
+    spaces: sidebarSpaces,
     openSpace,
     openApp,
+    openEntity,
     edit,
     setModal,
     setError,
@@ -378,12 +387,7 @@ export function TenantWorkspace({
         keywords: text(e.entity_key),
         hint: text(e.entity_key),
         icon: <Database size={16} />,
-        run: () =>
-          navigate(
-            consoleURL.tenant(tenant, "spaces", text(e.space_id), "entities") +
-              "?entity=" +
-              encodeURIComponent(text(e.id)),
-          ),
+        run: () => openEntity(text(e.space_id), text(e.id)),
       })),
       ...[...apps.values()].map((a) => ({
         id: "app:" + text(a.id),
@@ -407,7 +411,7 @@ export function TenantWorkspace({
         group: "Action",
         keywords: d.release_name,
         icon: <RotateCcw size={16} />,
-        run: () => retryDeployment(tenant, d, setModal, setError),
+        run: () => retryDeployment(d, setModal),
       })),
       {
         id: "action:connect-agent",
@@ -532,7 +536,7 @@ export function TenantWorkspace({
     .map((sp) => text(sp.id))
     .filter((id) => scoped("workspace.manage", id, ""));
   const workspaceQueries = useApiQueries<Page>(
-    workspaceParents.map((id) => "/v1/spaces/" + id + "/workspaces?limit=20"),
+    workspaceParents.map(workspacesPath),
   );
   const places = sidebarSpaces.flatMap((sp) => [
     {

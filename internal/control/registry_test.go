@@ -505,7 +505,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, workspaces.Items, "SELECT id,display_name,production_space_id,backing_space_id,state,error_message,revision,created_at,owner_agent_grant_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? ORDER BY created_at DESC,id", reviewSpace, p.ID)
+	sameJSON(t, s.DB, workspaces.Items, "SELECT w.id,w.display_name,w.production_space_id,w.backing_space_id,w.state,w.error_message,w.revision,w.created_at,w.owner_agent_grant_id,g.client_name AS agent_client_name,w.preparation_step FROM development_workspaces w LEFT JOIN agent_grants g ON g.id=w.owner_agent_grant_id WHERE w.production_space_id=? AND w.owner_user_id=? ORDER BY w.created_at DESC,w.id", reviewSpace, p.ID)
 
 	// The principal's Tenants and agent connections.
 	myTenants := rawFields(t, c, "/v1/my-tenants")

@@ -21,6 +21,7 @@ export function consoleConfig(password_policy: PasswordPolicy): ConsoleConfig {
         steps: ["queued", "preparing", "publishing", "active"],
         failed: "failed",
       },
+      workspace_steps: ["storage", "tables", "publishing"],
     },
     oidc_enabled: true,
     password_policy,

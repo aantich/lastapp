@@ -95,19 +95,23 @@
       "read_only": false
     },
     {
-      "description": "Upload locally built static files, capture a pinned immutable App release, activate its workspace preview, or explicitly deploy it to production. Sequence: inspect contracts → get starter → build/test locally → upload_ticket → HTTP upload → capture with exact micro-app/dependency versions → inspect release → preview/test → deploy with separate production.deploy authority. The MCP never runs npm, shell commands or user backend code. Tickets are short-lived and single-content; do not embed them in files. A release captures shared Space backend configuration: review snapshot_json. Production must still match the workspace base; the worker prepares compatible storage before coordinated registry security/client activation. Poll lastapp_get resource=deployment; queued is not completion. Storage preparation can leave compatible DDL/drafts after failure; live registry security and client selection activate together. Changed entity APIs can pause during preparation. Recover a lost job via lastapp_get resource=app_deployment with the App ID. No automatic destructive rollback.",
+      "description": "Upload locally built static files, capture a pinned immutable App release, activate its workspace preview, explicitly deploy it to production, or retry a failed deployment. Sequence: inspect contracts → get starter → build/test locally → upload_ticket → HTTP upload → capture with exact micro-app/dependency versions → inspect release → preview/test → deploy with separate production.deploy authority. The MCP never runs npm, shell commands or user backend code. Tickets are short-lived and single-content; do not embed them in files. A release captures shared Space backend configuration: review snapshot_json. Production must still match the workspace base; the worker prepares compatible storage before coordinated registry security/client activation. Poll lastapp_get resource=deployment; queued is not completion. Storage preparation can leave compatible DDL/drafts after failure; live registry security and client selection activate together. Changed entity APIs can pause during preparation. Recover a lost job via lastapp_get resource=app_deployment with the App ID. retry re-runs a failed deployment (same release and target, expected_revision = the deployment's revision) through every step with the same checks; it is refused once production changed after the failure. No automatic destructive rollback.",
       "input_schema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "description": "upload_ticket, capture, preview or deploy. All builds compile locally. Upload tickets accept one bounded immutable file tree; they cannot execute code."
+            "description": "upload_ticket, capture, preview, deploy or retry. All builds compile locally. Upload tickets accept one bounded immutable file tree; they cannot execute code. retry re-runs a failed deployment (same release and target) from its first step."
           },
           "app_id": {
             "type": "string"
           },
           "release_id": {
             "type": "string"
+          },
+          "deployment_id": {
+            "type": "string",
+            "description": "Failed deployment to retry."
           },
           "capture": {
             "type": [
@@ -154,7 +158,7 @@
           },
           "expected_revision": {
             "type": "integer",
-            "description": "Current development App revision for capture/preview; current production App revision for deploy (1 if it does not exist)."
+            "description": "Current development App revision for capture/preview; current production App revision for deploy (1 if it does not exist); the failed deployment's revision for retry."
           },
           "request_key": {
             "type": "string"

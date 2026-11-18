@@ -144,19 +144,24 @@ func scanWorkspaceStorage(ctx context.Context, q registry.Queryer, where string,
 
 // WorkspaceItem is a workspace in a Space's collection.
 type WorkspaceItem struct {
-	BackingSpace    string    `json:"backing_space_id"`
-	CreatedAt       time.Time `json:"created_at"`
-	Name            string    `json:"display_name"`
-	Error           *string   `json:"error_message"`
-	ID              string    `json:"id"`
-	OwnerGrant      *string   `json:"owner_agent_grant_id"`
-	ProductionSpace string    `json:"production_space_id"`
-	Revision        int64     `json:"revision"`
-	State           string    `json:"state"`
+	// AgentClient names the agent client that owns an agent workspace.
+	AgentClient  *string   `json:"agent_client_name"`
+	BackingSpace string    `json:"backing_space_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	Name         string    `json:"display_name"`
+	Error        *string   `json:"error_message"`
+	ID           string    `json:"id"`
+	OwnerGrant   *string   `json:"owner_agent_grant_id"`
+	// PreparationStep is the WorkspaceSteps step a preparing workspace has
+	// reached, or a failed one failed at.
+	PreparationStep *string `json:"preparation_step"`
+	ProductionSpace string  `json:"production_space_id"`
+	Revision        int64   `json:"revision"`
+	State           string  `json:"state"`
 }
 
 func (v *WorkspaceItem) ScanFields() []any {
-	return []any{&v.BackingSpace, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.ProductionSpace, &v.Revision, &v.State}
+	return []any{&v.AgentClient, &v.BackingSpace, &v.CreatedAt, &v.Name, &v.Error, &v.ID, &v.OwnerGrant, &v.PreparationStep, &v.ProductionSpace, &v.Revision, &v.State}
 }
 
 // workspaceIDs maps a workspace's development ids to production ids.
@@ -190,13 +195,13 @@ func (s *Service) Workspaces(ctx context.Context, actor op.Actor, space string, 
 	if e := s.Access.Authorize(ctx, s.DB, p, "workspace.manage", access.Resource{Tenant: tenant, Space: space}, true); e != nil {
 		return op.Page[WorkspaceItem]{}, e
 	}
-	query := "SELECT backing_space_id,created_at,display_name,error_message,id,owner_agent_grant_id,production_space_id,revision,state FROM development_workspaces WHERE production_space_id=? AND owner_user_id=?"
+	query := "SELECT g.client_name AS agent_client_name,w.backing_space_id,w.created_at,w.display_name,w.error_message,w.id,w.owner_agent_grant_id,w.preparation_step,w.production_space_id,w.revision,w.state FROM development_workspaces w LEFT JOIN agent_grants g ON g.id=w.owner_agent_grant_id WHERE w.production_space_id=? AND w.owner_user_id=?"
 	args := []any{space, p.ID}
 	if p.Agent != nil {
-		query += " AND owner_agent_grant_id=?"
+		query += " AND w.owner_agent_grant_id=?"
 		args = append(args, p.Agent.ID)
 	}
-	return op.PageScan[WorkspaceItem](ctx, s.DB, page, op.CollectionFor("workspaces"), query+" ORDER BY created_at DESC,id", args...)
+	return op.PageScan[WorkspaceItem](ctx, s.DB, page, op.CollectionFor("workspaces"), query+" ORDER BY w.created_at DESC,w.id", args...)
 }
 
 func (s *Service) Workspace(ctx context.Context, actor op.Actor, workspace string) (registry.Workspace, error) {
@@ -267,7 +272,7 @@ func (s *Service) CreateWorkspace(ctx context.Context, actor op.Actor, space str
 		if p.Agent != nil {
 			grant = p.Agent.ID
 		}
-		if _, e = tx.ExecContext(ctx, "INSERT INTO development_workspaces(id,tenant_id,production_space_id,backing_space_id,owner_user_id,owner_agent_grant_id,display_name,base_hash,base_json) VALUES(?,?,?,?,?,?,?,?,?)", in.ID, res.Tenant, res.Space, backing, p.ID, grant, in.Name, entity.Hash(base), b); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO development_workspaces(id,tenant_id,production_space_id,backing_space_id,owner_user_id,owner_agent_grant_id,display_name,base_hash,base_json,preparation_step) VALUES(?,?,?,?,?,?,?,?,?,?)", in.ID, res.Tenant, res.Space, backing, p.ID, grant, in.Name, entity.Hash(base), b, WorkspaceSteps[0]); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE spaces SET workspace_id=? WHERE id=?", in.ID, backing); e != nil {
@@ -333,7 +338,8 @@ func (s *Service) ChangeWorkspace(ctx context.Context, actor op.Actor, workspace
 				return e
 			}
 		}
-		if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state=?,error_message=NULL,revision=revision+1 WHERE id=?", state, v.ID); e != nil {
+		// A retry starts again from the first preparation step.
+		if _, e = tx.ExecContext(ctx, "UPDATE development_workspaces SET state=?,error_message=NULL,preparation_step=IF(?,?,preparation_step),revision=revision+1 WHERE id=?", state, retry, WorkspaceSteps[0], v.ID); e != nil {
 			return e
 		}
 		if !retry {

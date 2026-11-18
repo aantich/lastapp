@@ -385,8 +385,13 @@ and system color modes. New console UI follows these rules:
   counts, databases pending or failed), each recent App's
   `GET /v1/apps/{app}/deployment` where `release.manage` applies (status,
   production address, release and deployer), `GET /v1/agent-access` (Tenant
-  grants for `authorization.manage`, otherwise the user's own) and
-  `audit-events?limit=4`. It greets the person with the date, says how many
+  grants for `authorization.manage`, otherwise the user's own),
+  `audit-events?limit=4` and, for the sidebar's Spaces, the user's own
+  workspaces (`GET /v1/spaces/{s}/workspaces`, where `workspace.manage`
+  applies; a preparing one shows its `preparation_step` as "Step N of M")
+  and entities (`GET /v1/spaces/{s}/entities`, where `entity.manage`
+  applies; one card per entity with `has_draft_changes` and no pending
+  publication, opening the entity designer). It greets the person with the date, says how many
   things need them, shows three stats (Entities, Apps live, Agents active),
   the attention cards (or a one-line All clear), App cards and the activity
   feed. A card without a backing read is omitted, not estimated.
@@ -420,7 +425,12 @@ and system color modes. New console UI follows these rules:
   `delivery.DeploymentSteps`/`DeploymentFailed`, kept equal to the
   `release_deployments` state constraint by `TestDeploymentStatesMatchSchema`):
   the stepper, the polling and Home's attention cards read it. **Retry deploy**
-  is `POST /v1/releases/{id}/deploy` of the failed deployment's release. The
+  (App page, Home, palette; `retryModal`) is `POST /v1/deployments/{id}/retry`
+  with the deployment's revision: the same deployment runs again
+  (`delivery.RetryDeployment`, see WORKSPACES.md). Workspace preparation
+  progress derives from `development_policy.workspace_steps`
+  (`delivery.WorkspaceSteps`, kept equal to the `preparation_step` constraint
+  by `TestWorkspaceStepsMatchSchema`; `workspaces.ts`). The
   audit trail carries `actor_kind` (person, agent, system; classified once in
   `roles.Audits`), filtered with `?actor=`, `?kind=` and `?resource_id=`
   (one object's changes) before search and paging, under the same

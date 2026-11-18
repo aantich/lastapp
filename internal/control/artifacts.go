@@ -31,6 +31,7 @@ func (s *Server) releaseRoutes() {
 	s.api("POST /v1/releases/{release}/preview", s.releasePreview)
 	s.api("POST /v1/releases/{release}/deploy", s.releaseDeploy)
 	s.api("GET /v1/deployments/{deployment}", s.deploymentGet)
+	s.api("POST /v1/deployments/{deployment}/retry", s.deploymentRetry)
 	s.api("GET /v1/apps/{app}/starter", s.appStarter)
 	s.api("GET /v1/apps/{app}/starter.zip", s.appStarterArchive)
 }

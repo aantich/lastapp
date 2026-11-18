@@ -12,6 +12,7 @@ import {
   IconButton,
   Inline,
   InlineError,
+  Progress,
   Stack,
   StatusBadge,
   statusTone,
@@ -21,6 +22,7 @@ import {
 import { num, text, type Item } from "./api-types";
 import { useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
+import { useWorkspaceProgress } from "./workspaces";
 
 // A Space's Development tab: the signed-in author's isolated workspaces (an
 // agent's own workspaces included). Each copies the published Space
@@ -35,6 +37,7 @@ export function DevelopmentWorkspaces({
 }) {
   const [modal, setModal] = useState<Modal | null>(null),
     [error, setError] = useState("");
+  const progress = useWorkspaceProgress();
   const { busy, run } = useAction(space, {
     onSuccess: () => {},
     onError: setError,
@@ -131,7 +134,23 @@ export function DevelopmentWorkspaces({
               </Stack>
             ),
           ],
-          ["Status", (r) => <StatusBadge state={r.state} />],
+          [
+            "Status",
+            (r) => {
+              const step =
+                r.state === "preparing" ? progress(r.preparation_step) : null;
+              return step ? (
+                <Stack gap="sm">
+                  <Inline>
+                    <StatusBadge state={r.state} />
+                  </Inline>
+                  <Progress {...step} />
+                </Stack>
+              ) : (
+                <StatusBadge state={r.state} />
+              );
+            },
+          ],
           ["Created", (r) => new Date(text(r.created_at)).toLocaleString()],
         ]}
         empty="Create a workspace here, or let your connected agent create its own."

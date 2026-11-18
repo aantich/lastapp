@@ -51,12 +51,15 @@ export type PasswordPolicy = {
 
 // internal/control/http.go: GET /v1/config (fields the console reads).
 // internal/delivery/policy.go: Policy. deployment_states lists a production
-// deployment's states in worker order (DeploymentSteps) and its failure state.
+// deployment's states in worker order (DeploymentSteps) and its failure state;
+// workspace_steps a preparing workspace's steps in worker order
+// (WorkspaceSteps).
 export type DeploymentStates = { steps: string[]; failed: string };
 export type ConsoleConfig = {
   development_policy: {
     max_release_microapps: number;
     deployment_states: DeploymentStates;
+    workspace_steps: string[];
   };
   oidc_enabled: boolean;
   password_policy: PasswordPolicy;
@@ -189,10 +192,45 @@ export type DeploymentSummary = {
 };
 
 // internal/delivery/releases.go: Deployment. deployed_by is the person who
-// started it (an agent acts for them); release_name the release's name.
+// started it (an agent acts for them); release_name the release's name;
+// attempts counts its runs and retried_by names who last retried it.
 export type Deployment = DeploymentSummary & {
   url: string;
   revision: number;
+  attempts: number;
+  retried_by: string | null;
+};
+
+// internal/entities/entities.go: EntityItem (GET /v1/spaces/{id}/entities).
+// has_draft_changes: the saved draft differs from the active version (or
+// nothing is published yet).
+export type EntityItem = {
+  id: string;
+  entity_key: string;
+  label: string;
+  state: string;
+  revision: number;
+  active_version_id: string | null;
+  pending_version_id: string | null;
+  has_draft_changes: boolean;
+};
+
+// internal/delivery/workspaces.go: WorkspaceItem (GET
+// /v1/spaces/{id}/workspaces). preparation_step is the WorkspaceSteps step a
+// preparing workspace has reached (or a failed one failed at);
+// agent_client_name names the agent client that owns an agent workspace.
+export type WorkspaceItem = {
+  id: string;
+  display_name: string;
+  backing_space_id: string;
+  production_space_id: string;
+  owner_agent_grant_id: string | null;
+  agent_client_name: string | null;
+  preparation_step: string | null;
+  error_message: string | null;
+  state: string;
+  revision: number;
+  created_at: string;
 };
 
 // internal/delivery/releases.go: ReleaseItem (GET /v1/apps/{id}/releases):

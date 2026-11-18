@@ -108,39 +108,67 @@ export function deploymentSteps(
   }));
 }
 
-// Retrying a failed deployment (Home, the command palette): read its release,
-// then confirm a new deployment of it; on success every read refreshes.
-export function retryDeployment(
-  tenant: string,
+// The confirmation that retries a failed deployment (App page, Home, the
+// command palette): POST /v1/deployments/{id}/retry, expecting the
+// deployment's revision, re-runs that same deployment of its release from its
+// first step under this account's authority. The server refuses it when
+// production changed after the failure. `queued` receives the deployment as
+// queued again, so a caller can show it before the next read.
+export function retryModal(
   deployment: Deployment,
-  setModal: (modal: Modal) => void,
-  setError: (message: string) => void,
-) {
-  void api<Release>("/v1/releases/" + deployment.release_id).then(
-    (release) =>
-      setModal(deployModal(tenant, release, true, () => refreshQueries())),
-    (e: Error) => setError(e.message),
-  );
+  queued: (d: Deployment) => void,
+): Modal {
+  return {
+    title: `Retry deploy of ${deployment.release_name || "this release"}`,
+    description:
+      "Runs this deployment again from its first step, with the same release and the same checks. It is refused if production's configuration changed after it failed. Production keeps serving its current release until this one is active.",
+    success: "Deployment queued",
+    initial: {},
+    fields: [],
+    submit: "Retry deploy",
+    save: async () => {
+      const result = await api<{ state: string; attempts: number }>(
+        `/v1/deployments/${deployment.id}/retry`,
+        "POST",
+        {},
+        deployment.revision,
+      );
+      queued({
+        ...deployment,
+        state: result.state,
+        attempts: result.attempts,
+        failed_state: null,
+        error_message: null,
+        finished_at: null,
+      });
+    },
+  };
 }
 
-// The confirmation that deploys a release to production: a new deployment of
-// the same release is also how a failed one is retried (POST
+// Retrying from a place that only lists deployments (Home, the palette):
+// every read refreshes once it is queued.
+export function retryDeployment(
+  deployment: Deployment,
+  setModal: (modal: Modal) => void,
+) {
+  setModal(retryModal(deployment, () => void refreshQueries()));
+}
+
+// The confirmation that deploys a release to production (POST
 // /v1/releases/{id}/deploy, expecting the production App's revision).
 export function deployModal(
   tenant: string,
   release: Release,
-  retry: boolean,
   deployed: (result: Deployment) => void,
 ): Modal {
   return {
-    title: (retry ? "Retry deploy of " : "Deploy ") + release.display_name,
+    title: "Deploy " + release.display_name,
     description:
-      (retry ? "Starts a new deployment of this release. " : "") +
       "Applies the captured shared Space backend configuration, then activates this App build. Other Apps reuse those Space entities and permissions. Database changes are not automatically rolled back if a step fails.",
     success: "Deployment queued",
     initial: {},
     fields: [],
-    submit: retry ? "Retry deploy" : "Deploy to production",
+    submit: "Deploy to production",
     save: async () => {
       let revision: number | undefined = 1;
       try {

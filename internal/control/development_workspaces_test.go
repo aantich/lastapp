@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -153,18 +154,26 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		t.Fatal("workspace shares production database")
 	}
 	c.as(joe).want("GET", "/v1/workspaces/"+wid, nil, 0, 404)
+	if ws["preparation_step"] != delivery.WorkspaceSteps[0] {
+		t.Fatal("a new workspace did not start at the first preparation step", ws)
+	}
 	provision(resource)
+	// The list names the step each pass reached: entity publications once
+	// storage and tables are prepared, then none when ready.
+	var steps []any
 	for i := 0; i < 10; i++ {
 		if _, _, e = s.delivery.WorkspaceJob(ctx, s.DB, ""); e != nil {
 			t.Fatal(e)
 		}
+		listed := oc.want("GET", "/v1/spaces/"+space+"/workspaces", nil, 0, 200)["items"].([]any)[0].(map[string]any)
+		steps = append(steps, listed["preparation_step"])
 		if _, e = s.publisher.Job(ctx, s.DB); e != nil {
 			t.Fatal(e)
 		}
 	}
 	ws = oc.want("GET", "/v1/workspaces/"+wid, nil, 0, 200)
-	if ws["state"] != "ready" {
-		t.Fatal(ws)
+	if ws["state"] != "ready" || ws["preparation_step"] != nil || steps[0] != delivery.WorkspaceSteps[2] {
+		t.Fatal(ws, steps)
 	}
 	var devApp, devEntity string
 	for _, m := range ws["mappings"].([]any) {
@@ -397,6 +406,26 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		if status, v := requestData("http://localhost:5390", prodToken, "POST", "/entities/company/query", registry.Row{"include_count": true}); status != 200 || registry.Integer(v["count"]) != 1 {
 			t.Fatal("failed deployment did not restore compatible old API", status, v)
 		}
+		retryFailedDeployment(t, s, oc, deployed, owner, func() {
+			// Remove the injected fault; the retry then succeeds.
+			switch failure {
+			case "activation_failure":
+				if _, e := s.DB.Exec("UPDATE apps SET origin_host=NULL WHERE id=?", devApp); e != nil {
+					t.Fatal(e)
+				}
+			case "missing_build":
+				buildRow, err := registry.QueryRow(ctx, s.DB, "SELECT content_hash FROM app_builds WHERE id=?", build["id"])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = os.WriteFile(filepath.Join(s.Config.ArtifactDirectory, registry.Str(buildRow["content_hash"]), "index.html"), files[0].Content, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+		if listed := listedApp(t, oc, base, app); listed["active_release_id"] != rel["id"] {
+			t.Fatal("retried deployment did not activate its release", listed)
+		}
 		return
 	}
 	if deployed["state"] != "active" || deployed["failed_state"] != nil || listed["active_release_id"] != rel["id"] {
@@ -457,4 +486,63 @@ func listedApp(t *testing.T, c testClient, base, app string) map[string]any {
 	}
 	t.Fatal("App is not listed", app, page)
 	return nil
+}
+
+// retryFailedDeployment retries a failed deployment through the console
+// operation: fix removes the fault, a stale revision is refused, two
+// concurrent retries of the failure re-queue it exactly once, the same record
+// then completes, the audit trail attributes the retry and the activation to
+// actor, and a deployment that is no longer failed cannot be retried.
+func retryFailedDeployment(t *testing.T, s *Server, oc testClient, failed registry.Row, actor string, fix func()) {
+	t.Helper()
+	ctx := context.Background()
+	id := registry.Str(failed["id"])
+	path := "/v1/deployments/" + id
+	revision := registry.Integer(failed["revision"])
+	fix()
+	oc.want("POST", path+"/retry", registry.Row{}, revision+1, 412)
+	// Any production configuration change after the failure refuses it.
+	for _, step := range []string{"+", "-"} {
+		if _, e := s.DB.Exec("UPDATE spaces SET revision=revision"+step+"1 WHERE id=?", failed["space_id"]); e != nil {
+			t.Fatal(e)
+		}
+		if step == "+" {
+			oc.want("POST", path+"/retry", registry.Row{}, revision, 409)
+		}
+	}
+	statuses := make(chan int, 2)
+	for range 2 {
+		go func() {
+			status, _ := oc.req("POST", path+"/retry", registry.Row{}, revision)
+			statuses <- status
+		}()
+	}
+	got := []int{<-statuses, <-statuses}
+	sort.Ints(got)
+	if got[0] != 202 || got[1] != 412 {
+		t.Fatal("concurrent retries were not serialized", got)
+	}
+	queued := oc.want("GET", path, nil, 0, 200)
+	if queued["state"] != "queued" || registry.Integer(queued["attempts"]) != 2 || queued["failed_state"] != nil || queued["error_message"] != nil || queued["retried_by"] == nil {
+		t.Fatal("retry did not re-queue the same deployment", queued)
+	}
+	for range 8 {
+		if _, _, e := s.delivery.DeploymentJob(ctx, s.DB, ""); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := s.publisher.Job(ctx, s.DB); e != nil {
+			t.Fatal(e)
+		}
+	}
+	done := oc.want("GET", path, nil, 0, 200)
+	if done["state"] != "active" || registry.Integer(done["attempts"]) != 2 {
+		t.Fatal("retried deployment did not complete", done)
+	}
+	for _, action := range []string{"release.deployment_retried", "release.deployed"} {
+		var by string
+		if e := s.DB.QueryRow("SELECT actor_user_id FROM audit_events WHERE action=? AND resource_id=?", action, id).Scan(&by); e != nil || by != actor {
+			t.Fatal("audit did not attribute", action, by, e)
+		}
+	}
+	oc.want("POST", path+"/retry", registry.Row{}, registry.Integer(done["revision"]), 409)
 }

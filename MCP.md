@@ -115,7 +115,7 @@ intended change.
 | `lastapp_app_access_update` | Update App access settings; Space authority controls origins/ceilings |
 | `lastapp_database_provision` | Allocate managed storage or retry a resource within approved limits |
 | `lastapp_workspace` | Create/archive/retry owned isolated copies; issue PKCE development launch codes |
-| `lastapp_release` | Issue upload tickets, capture releases, activate previews or explicitly deploy |
+| `lastapp_release` | Issue upload tickets, capture releases, activate previews, explicitly deploy or retry a failed deployment |
 
 Authoritative guides are served through `lastapp_describe` and the same
 `lastapp://docs/{hierarchy,entities,access,client,reuse,safety,development}` resources. Describe
@@ -250,6 +250,11 @@ blocker after a lost response. It returns `{deployment: null}` when none exists.
 App context includes this job automatically. The console uses the same authorized
 `GET /v1/apps/{app}/deployment` operation; no new delegation permission is needed.
 A known job is still inspected with `resource=deployment` and its job ID.
+`lastapp_release action=retry` (`deployment_id`, `expected_revision` = the
+deployment's revision, `production.deploy`) re-runs a failed deployment from its
+first step under the caller's current authority; it is the console's
+`POST /v1/deployments/{id}/retry` operation and is refused once production
+changed after the failure (see WORKSPACES.md).
 
 Release publications reach `prepared` without activating registry authority.
 After all storage is prepared, entity ACLs, role states, App policies and client
