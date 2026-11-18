@@ -1,5 +1,32 @@
 # Lastapp verification
 
+## Entity designer review fixes — 19 November 2026
+
+- Backend (MariaDB, `TestEntityRuntime`): after v1 is published, publishing
+  the unchanged draft returns 409 `conflict` ("The draft matches the published
+  version…") and queues no version; `PublishEntity` is the one operation
+  behind the console route and `lastapp_entity_publish` (tool description and
+  its golden updated). All Go packages passed with
+  `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` set; `make lint` clean.
+- Browser (`tests/entities.spec.ts`, `tests/access.spec.ts`,
+  `tests/layout.spec.ts` on the disposable e2e stack): the page has exactly
+  one h1 (the entity name, already rendered by `RecordHeader`; h2s follow);
+  the Fields tab shows the read-only permission paths beside the fields with
+  the "not in any read path yet" callout; with no changes the Review dialog's
+  **Publish v2** is disabled, a reason names it (`aria-describedby`) and the
+  Drafted step reads "No changes to publish" (not done); on Space Access the
+  sidebar has one `aria-current` item.
+- Probe (same stack, not committed): the five pipeline steps share one row in
+  the dialog and in the Fields-tab card at 1440 px; Fields (605 px) and
+  Permission paths sit side by side at 1440 px; axe (wcag2a/aa, wcag21a/aa,
+  best-practice) 0 violations on the Fields tab with and without a draft, the
+  Review dialog, the Fields tab at 390 px and Space Access; no horizontal
+  overflow at 390 px. A text-only visual review against `Entity.dc.html` led
+  to a wider Fields track and removed a repeated reason in the dialog. Not
+  addressed here: the pipeline/settings cards span the content column, not the
+  entity list column as in the mockup, and the fields grid clips its
+  Behaviour column at 390 px (existing grid behaviour).
+
 ## Access navigation, control role and inherited App assignments — 19 November 2026
 
 - Backend (MariaDB, `TestScopedRecipientOptions`): `GET …/capabilities`
