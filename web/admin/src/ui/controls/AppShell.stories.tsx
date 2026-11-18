@@ -9,8 +9,9 @@ import {
   LogOut,
   Shield,
   UserRound,
+  GitBranch,
 } from "lucide-react";
-import { AccountMenu, AppShell, ContextLabel } from "../app-shell";
+import { AccountMenu, AppShell } from "../app-shell";
 import { ContextSwitcher } from "../context-switcher";
 import { SidebarLinks, SidebarNav } from "../sidebar";
 import { Breadcrumbs, PageHeader } from "../page-header";
@@ -46,7 +47,7 @@ function Frame({ switcher }: { switcher: boolean }) {
     [searches, setSearches] = useState(0);
   const label =
     nav.find((n) => n.id === active)?.label ||
-    (active === "crm" ? "CRM" : "crm-pricing-exp");
+    (active === "crm" ? "CRM" : "sales-exp");
   return (
     <AppShell
       onSearch={() => setSearches((n) => n + 1)}
@@ -58,20 +59,18 @@ function Frame({ switcher }: { switcher: boolean }) {
             active={active}
             collapsed={rail}
             section={
-              switcher ? (
-                <ContextSwitcher
-                  kind="Tenant"
-                  variant="section"
-                  value="ten_1"
-                  options={[
-                    { value: "ten_1", label: "Northstar demo" },
-                    { value: "ten_2", label: "Harbor Logistics" },
-                  ]}
-                  onChange={() => {}}
-                />
-              ) : (
-                <ContextLabel value="Northstar demo" />
-              )
+              <ContextSwitcher
+                kind="Tenant"
+                variant="section"
+                value="ten_1"
+                options={[
+                  { value: "ten_1", label: "Example Co" },
+                  ...(switcher
+                    ? [{ value: "ten_2", label: "Harbor Logistics" }]
+                    : []),
+                ]}
+                onChange={() => {}}
+              />
             }
             onSelect={(id) => {
               setActive(id);
@@ -83,20 +82,25 @@ function Frame({ switcher }: { switcher: boolean }) {
             collapsed={rail}
             title={<span className="ui-nav-section">Spaces</span>}
             items={[
-              { id: "crm", label: "CRM", tone: "success", tag: "prod" },
+              { id: "crm", label: "CRM", tone: "success" },
               {
                 id: "crm-dev",
-                label: "crm-pricing-exp",
-                tone: "warning",
-                tag: "dev",
+                label: "sales-exp",
+                tone: "success",
+                tag: (
+                  <>
+                    <GitBranch size={12} aria-hidden />
+                    workspace
+                  </>
+                ),
               },
             ]}
             active={active}
             onSelect={setActive}
           />
           <AccountMenu
-            name="Maya Chen"
-            detail="maya@northstar.example"
+            name="Alex Kim"
+            detail="alex@example.test"
             rail={rail}
             items={[
               {
@@ -118,7 +122,7 @@ function Frame({ switcher }: { switcher: boolean }) {
       breadcrumbs={
         <Breadcrumbs
           items={[
-            { label: "Northstar demo", onClick: () => setActive("home") },
+            { label: "Example Co", onClick: () => setActive("home") },
             { label },
           ]}
         />
@@ -134,7 +138,8 @@ function Frame({ switcher }: { switcher: boolean }) {
   );
 }
 
-// One Tenant: its name is the sidebar's section label.
+// One Tenant: the section label is still the Tenant switcher, so switching
+// stays discoverable; it lists the one Tenant.
 export const SingleTenant: Story = {
   render: () => (
     <ConsoleStory passwordPolicy={policy(12, 128)}>
@@ -143,7 +148,7 @@ export const SingleTenant: Story = {
   ),
 };
 
-// Several Tenants: the section label is a Tenant switcher.
+// Several Tenants: the switcher lists them all.
 export const TenantSwitcher: Story = {
   render: () => (
     <ConsoleStory passwordPolicy={policy(12, 128)}>

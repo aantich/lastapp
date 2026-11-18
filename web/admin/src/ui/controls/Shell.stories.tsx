@@ -1,6 +1,14 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Boxes, Building2, Home, ShieldCheck, Users, Bot } from "lucide-react";
+import {
+  Boxes,
+  Building2,
+  Home,
+  ShieldCheck,
+  Users,
+  Bot,
+  GitBranch,
+} from "lucide-react";
 import { ConsoleShell } from "../../console-shell";
 import type { Me } from "../../api-types";
 import { ContextSwitcher } from "../context-switcher";
@@ -110,7 +118,7 @@ function Parts({ collapsed }: { collapsed: boolean }) {
       <aside className="sidebar" aria-label="Navigation">
         <SidebarNav
           label="Console screens"
-          section={<ContextLabel value="Northstar" />}
+          section={<ContextLabel value="Example Co" />}
           items={nav.map((n) => (n.id === "agents" ? { ...n, badge: 2 } : n))}
           active={active}
           onSelect={setActive}
@@ -120,12 +128,17 @@ function Parts({ collapsed }: { collapsed: boolean }) {
           label="Spaces"
           title={<span className="ui-nav-section">Spaces</span>}
           items={[
-            { id: "crm", label: "CRM", tone: "success", tag: "prod" },
+            { id: "crm", label: "CRM", tone: "success" },
             {
               id: "field",
               label: "Field Service",
-              tone: "warning",
-              tag: "dev",
+              tone: "success",
+              tag: (
+                <>
+                  <GitBranch size={12} aria-hidden />
+                  workspace
+                </>
+              ),
             },
           ]}
           active={active}

@@ -30,6 +30,7 @@ export function ContextSwitcher({
   placeholder = "Choose…",
   empty = "Nothing matches.",
   variant = "field",
+  className,
 }: {
   // "Tenant" or "Space": the eyebrow and the accessible names.
   kind: string;
@@ -43,6 +44,7 @@ export function ContextSwitcher({
   empty?: ReactNode;
   // "section": the trigger is the ink sidebar's uppercase section label.
   variant?: "field" | "section";
+  className?: string;
 }) {
   const root = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLButtonElement>(null);
@@ -86,6 +88,7 @@ export function ContextSwitcher({
       className={cx(
         "ui-context",
         variant === "section" && "ui-section-context",
+        className,
       )}
       ref={root}
     >

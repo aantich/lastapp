@@ -69,7 +69,7 @@ export type SidebarLink = {
   label: string;
   // The status square before the name.
   tone: Tone;
-  // A short mono tag after the name ("prod", "dev").
+  // A short mono tag after the name (a workspace's "workspace").
   tag?: ReactNode;
 };
 

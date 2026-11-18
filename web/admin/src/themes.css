@@ -32,6 +32,7 @@
   --ui-button-border-hover: #b9b5ac;
   /* The brand tile ("L") in the sidebar, Signal blue in both modes */
   --ui-brand: #2f5bea;
+  --ui-on-brand: #ffffff;
 
   /* Ink sidebar (dark in both modes) */
   --ui-sidebar: #0e0f12;
@@ -49,6 +50,9 @@
   --ui-sidebar-kbd-border: #2f323b;
   --ui-sidebar-label: #9da1ab;
   --ui-sidebar-rule: #23262e;
+  /* Status dots on the ink sidebar (both modes) */
+  --ui-sidebar-dot-success: #3fb27f;
+  --ui-sidebar-dot-warning: #e3a23b;
 
   /* Signal blue */
   --ui-primary: #2f5bea;

@@ -2324,7 +2324,7 @@ a.ui-link-button {
   height: 28px;
   border-radius: 8px;
   background: var(--ui-brand);
-  color: #ffffff;
+  color: var(--ui-on-brand);
   font: 700 15px var(--ui-font-heading);
 }
 .ui-brand-name {
@@ -2437,6 +2437,16 @@ button.ui-section-trigger[aria-expanded="true"],
 button.ui-section-trigger[aria-current="page"] {
   color: var(--ui-sidebar-active-text);
 }
+/* The Tenant switcher reads as a control: a hover/open surface around its
+   name and chevron. */
+.ui-section-context > button.ui-section-trigger {
+  margin: -4px 0;
+  padding-block: 4px;
+}
+.ui-section-context > button.ui-section-trigger:hover,
+.ui-section-context > button.ui-section-trigger[aria-expanded="true"] {
+  background: var(--ui-sidebar-field);
+}
 .ui-section-context .ui-context-popup {
   left: 0;
   width: 260px;
@@ -2487,13 +2497,13 @@ button.ui-section-trigger[aria-current="page"] {
   background: var(--ui-chart-success);
 }
 .ui-nav-dot.tone-warning {
-  background: #e3a23b;
+  background: var(--ui-sidebar-dot-warning);
 }
 .ui-nav-dot.tone-danger {
   background: var(--ui-chart-danger);
 }
 .ui-nav-dot.tone-success {
-  background: #3fb27f;
+  background: var(--ui-sidebar-dot-success);
 }
 .ui-nav-dot.tone-info {
   background: var(--ui-chart-primary);
@@ -2502,6 +2512,9 @@ button.ui-section-trigger[aria-current="page"] {
   background: var(--ui-sidebar-muted);
 }
 .ui-nav-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   color: var(--ui-sidebar-muted);
   font: 11px var(--ui-font-mono);

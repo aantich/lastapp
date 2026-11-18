@@ -3,6 +3,7 @@ import {
   AppWindow,
   Database,
   FolderOpen,
+  GitBranch,
   Plus,
   RefreshCw,
   Settings,
@@ -20,7 +21,6 @@ import {
   EmptyState,
   SidebarLinks,
   statusTone,
-  type Tone,
   ErrorBoundary,
   FormModal,
   IconButton,
@@ -442,11 +442,14 @@ export function TenantWorkspace({
         )}
     </>
   );
+  // The Tenant switcher is always shown when the account has a Tenant, even
+  // just one, so switching is discoverable; it pages /v1/my-tenants.
   const tenantSection =
-    memberships.length > 1 || me.pagination?.has_more ? (
+    memberships.length || me.pagination?.has_more ? (
       <ContextSwitcher
         kind="Tenant"
         variant="section"
+        className="company-name"
         path="/v1/my-tenants"
         value={tenant}
         current={tenantName}
@@ -459,8 +462,9 @@ export function TenantWorkspace({
         value={tenantName || "No Tenant access"}
       />
     );
-  // Each listed Space's development workspaces this account may manage
-  // (marked "dev"); production Spaces are "prod".
+  // Each listed Space's development workspaces this account may manage,
+  // tagged "workspace" under their Space; Spaces themselves carry no tag.
+  // Every row keeps its status dot.
   const workspaceParents = sidebarSpaces
     .map((sp) => text(sp.id))
     .filter((id) => scoped("workspace.manage", id, ""));
@@ -472,7 +476,6 @@ export function TenantWorkspace({
       id: text(sp.id),
       label: text(sp.display_name),
       tone: statusTone(text(sp.database_state || sp.state)),
-      tag: "prod",
     },
     ...(
       workspaceQueries[workspaceParents.indexOf(text(sp.id))]?.data?.items || []
@@ -485,11 +488,13 @@ export function TenantWorkspace({
       .map((w) => ({
         id: text(w.backing_space_id),
         label: text(w.display_name),
-        // A dev Space reads amber, as in the design, unless it failed.
-        tone: (statusTone(text(w.state)) === "danger"
-          ? "danger"
-          : "warning") as Tone,
-        tag: "dev",
+        tone: statusTone(text(w.state)),
+        tag: (
+          <>
+            <GitBranch size={12} aria-hidden />
+            workspace
+          </>
+        ),
       })),
   ]);
   return (
