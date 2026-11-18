@@ -63,6 +63,24 @@ export {
 export { SegmentedControl, type Segment } from "./segmented";
 export { AuthLayout } from "./auth-layout";
 export { Section, Lead } from "./section";
+export {
+  RecordHeader,
+  NavList,
+  NavListNote,
+  GridTable,
+  Panel,
+  PathCard,
+  Callout,
+  ChipRow,
+  ResultTile,
+  ResultTiles,
+  DesignerPage,
+  DesignerBody,
+  DesignerNote,
+  type NavListItem,
+  type GridColumn,
+  type GridRow,
+} from "./designer-parts";
 
 // Composites
 export {

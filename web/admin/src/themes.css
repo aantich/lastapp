@@ -60,6 +60,13 @@
   --ui-on-primary: #ffffff;
   --ui-primary-soft: #e8eefd;
   --ui-focus: #2f5bea;
+  /* Info text on info-soft chips ("Draft", "new") */
+  --ui-info-strong: #1e3fb8;
+  /* The open item of a record list; a new definition row; a dashed call to action */
+  --ui-selected: #edebe5;
+  --ui-highlight: #f4f7ff;
+  --ui-callout: #f8faff;
+  --ui-callout-border: #c9d4f8;
 
   /*
    * Status: foreground on its soft background (AA). The three status text
@@ -138,6 +145,11 @@
   --ui-on-primary: #0b1433;
   --ui-primary-soft: #1f2a4d;
   --ui-focus: #9db4ff;
+  --ui-info-strong: #9db4ff;
+  --ui-selected: #2c2e34;
+  --ui-highlight: #1a2033;
+  --ui-callout: #181d2b;
+  --ui-callout-border: #34416b;
 
   --ui-success: #6fcf9c;
   --ui-success-soft: #13291d;

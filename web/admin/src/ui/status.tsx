@@ -41,6 +41,7 @@ export function Badge({
   mono,
   count,
   pill,
+  chip,
   className,
   title,
 }: {
@@ -50,6 +51,8 @@ export function Badge({
   count?: boolean;
   // The rounder, larger chip of cards (a preset, a permission, a scope).
   pill?: boolean;
+  // The rounded 12 px chip (a state or kind in a designer).
+  chip?: boolean;
   className?: string;
   title?: string;
 }) {
@@ -61,6 +64,7 @@ export function Badge({
         mono && "ui-mono",
         count && "ui-count",
         pill && "ui-pill",
+        chip && "ui-chip",
         className,
       )}
       title={title}
