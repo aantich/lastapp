@@ -13,7 +13,8 @@ import { ContextSwitcher } from "../context-switcher";
 import { SidebarFooter, SidebarNav } from "../sidebar";
 import { PageHeader } from "../page-header";
 import { Card, CardBody, CardHeader } from "../card";
-import { spaces } from "../storybook/fixtures";
+import { policy, spaces } from "../storybook/fixtures";
+import { ConsoleStory } from "../storybook/console-story";
 
 // app-shell.tsx: the console frame (AppShell: sidebar that collapses to a
 // rail or becomes a drawer under 800 px, top bar, content and footer), the
@@ -118,7 +119,19 @@ function Frame({ switcher }: { switcher: boolean }) {
 }
 
 // One Tenant: the name is a fixed ContextLabel.
-export const SingleTenant: Story = { render: () => <Frame switcher={false} /> };
+export const SingleTenant: Story = {
+  render: () => (
+    <ConsoleStory passwordPolicy={policy(12, 128)}>
+      <Frame switcher={false} />
+    </ConsoleStory>
+  ),
+};
 
 // Several Tenants: the context is a ContextSwitcher.
-export const TenantSwitcher: Story = { render: () => <Frame switcher /> };
+export const TenantSwitcher: Story = {
+  render: () => (
+    <ConsoleStory passwordPolicy={policy(12, 128)}>
+      <Frame switcher />
+    </ConsoleStory>
+  ),
+};
