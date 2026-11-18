@@ -133,7 +133,15 @@ export function ConsoleShell({
             name={me.display_name}
             detail={role}
             rail={rail}
-            items={accountItems}
+            // On a narrow screen the account sits in the drawer: choosing
+            // an item closes it, as the navigation does.
+            items={accountItems.map((item) => ({
+              ...item,
+              onSelect: () => {
+                close();
+                item.onSelect();
+              },
+            }))}
           />
         </>
       )}

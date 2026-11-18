@@ -2696,6 +2696,16 @@ button.ui-section-trigger[aria-current="page"] {
   gap: 8px;
   white-space: nowrap;
 }
+/* A long current name shortens with an ellipsis instead of widening the
+   page. */
+.topbar .ui-breadcrumbs ol,
+.topbar .ui-breadcrumbs li:last-child {
+  min-width: 0;
+}
+.topbar .ui-breadcrumbs li:last-child > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .topbar .ui-breadcrumbs li + li::before {
   color: var(--ui-muted);
 }
