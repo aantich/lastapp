@@ -1819,3 +1819,72 @@ a.ui-link-button {
   outline: 2px solid var(--ui-focus);
   outline-offset: 1px;
 }
+
+/* Auth layout: a signed-out or onboarding card centred on the canvas */
+.ui-auth {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 32px 16px;
+  background: var(--ui-canvas);
+  color: var(--ui-text);
+}
+.ui-auth-card {
+  display: grid;
+  gap: 24px;
+  width: min(100%, 460px);
+  padding: 32px;
+  box-shadow: var(--ui-shadow);
+}
+.ui-auth-head {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.ui-auth-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 8px;
+  border-radius: var(--ui-radius);
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+}
+.ui-auth-eyebrow {
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.ui-auth-head h1 {
+  margin: 0;
+  font-family: var(--ui-font-heading);
+  font-size: 26px;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+}
+.ui-auth-head p {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.ui-auth-footer {
+  display: grid;
+  gap: 12px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+@media (max-width: 520px) {
+  .ui-auth {
+    padding: 16px;
+  }
+  .ui-auth-card {
+    padding: 24px 20px;
+  }
+}

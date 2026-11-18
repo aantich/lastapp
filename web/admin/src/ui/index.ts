@@ -54,6 +54,7 @@ export {
   type PickItem,
 } from "./content";
 export { SegmentedControl, type Segment } from "./segmented";
+export { AuthLayout } from "./auth-layout";
 
 // Composites
 export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
