@@ -88,47 +88,6 @@
   font-weight: 500;
   color: var(--ui-muted);
 }
-.tenant-switch {
-  margin: 0 18px 22px;
-  padding: 14px;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-}
-.tenant-switch .company-name {
-  display: block;
-  padding-top: 8px;
-  overflow-wrap: anywhere;
-}
-.tenant-switch .lookup-select {
-  display: grid;
-  width: 100%;
-  min-width: 0;
-  gap: 7px;
-  margin-top: 8px;
-}
-.tenant-switch input,
-.tenant-switch .select-trigger {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  background: var(--ui-surface);
-  color: var(--ui-text);
-}
-.tenant-switch .lookup-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  font-size: 10px;
-}
-.tenant-switch .lookup-controls button {
-  min-width: 0;
-  padding: 3px 5px;
-}
 .tenant-console .profile-button {
   border: 0;
   background: transparent;
@@ -280,7 +239,6 @@
 .attention-row > span:first-of-type {
   flex: 1;
 }
-.tenant-console.sidebar-collapsed .tenant-switch,
 .tenant-console.sidebar-collapsed .sidebar-brand strong {
   display: none;
 }
@@ -768,18 +726,8 @@ code {
 }
 .content {
   padding: 0 24px 22px;
-  max-width: 1920px;
+  max-width: 1480px;
   margin: auto;
-}
-.page-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-  min-height: 60px;
-}
-.page-title-row > h1 {
-  font-size: 15px;
 }
 .breadcrumbs {
   display: flex;
@@ -1841,12 +1789,6 @@ td {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .page-title-row {
-    min-height: 55px;
-  }
-  .page-title-row > h1 {
-    font-size: 13px;
-  }
   .heading {
     align-items: flex-start;
     gap: 15px;
@@ -2103,43 +2045,6 @@ summary {
   align-items: center;
   gap: 10px;
 }
-.profile-menu {
-  position: relative;
-}
-.profile-menu > summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  list-style: none;
-  color: var(--ui-text);
-  font-size: 13px;
-}
-.profile-menu > summary::-webkit-details-marker {
-  display: none;
-}
-.profile-menu-items {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 12px);
-  z-index: 40;
-  display: grid;
-  min-width: 190px;
-  padding: 6px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  box-shadow: 0 8px 30px #0002;
-}
-.profile-menu-items button {
-  text-align: left;
-  padding: 10px 12px;
-  border: 0;
-  background: transparent;
-  color: var(--ui-text);
-}
-.profile-menu-items button:hover {
-  background: var(--ui-hover);
-}
 .search-combobox {
   display: block;
   position: relative;
@@ -2274,13 +2179,6 @@ summary {
   color: var(--ui-muted);
   padding: 10px;
 }
-.tenant-switch .search-combobox input {
-  border: 1px solid var(--ui-border);
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  border-radius: 5px;
-  padding: 10px 28px 10px 10px;
-}
 .role-check,
 .role-checks,
 .role-checks label {
@@ -2299,31 +2197,15 @@ summary {
   height: 15px;
   accent-color: var(--ui-primary);
 }
-.tenant-console .page-title-row {
-  margin-bottom: 24px;
-}
 .tenant-console .menu-toggle {
   display: inline-flex;
 }
 @media (max-width: 800px) {
-  .profile-menu summary > span:not(.avatar) {
-    display: none;
-  }
   .topbar-workspace {
     max-width: 52vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .page-title-row {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .page-title-row h1 {
-    font-size: 20px;
-  }
-  .page-title-row > .row-actions {
-    flex-wrap: wrap;
   }
 }
 
@@ -2348,5 +2230,146 @@ summary {
   }
   .tabs {
     gap: 20px;
+  }
+}
+
+/* Shell: top bar context, search and account menu */
+.topbar-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.topbar-context .ui-context {
+  width: 220px;
+}
+.topbar-context .ui-context-trigger {
+  min-height: 42px;
+  padding: 4px 10px;
+}
+.topbar-space {
+  display: contents;
+}
+.company-name {
+  display: grid;
+  min-width: 0;
+  padding: 0 4px;
+}
+.company-name small {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.company-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.quick-search {
+  gap: 8px;
+  color: var(--ui-muted);
+}
+.quick-search > span {
+  display: inline-flex;
+}
+.quick-search > span:last-child {
+  margin-left: auto;
+}
+.sidebar .ui-sidebar-footer {
+  margin: auto 10px 0;
+  padding: 12px 6px 16px;
+  color: var(--ui-sidebar-text);
+}
+.sidebar .ui-sidebar-footer small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-sidebar-muted);
+  font-size: 11px;
+}
+.content > .ui-page-header {
+  padding: 22px 0 18px;
+}
+
+/* Tenant Home */
+.home {
+  display: grid;
+  gap: 20px;
+}
+.home-greeting {
+  margin: -8px 0 0;
+  color: var(--ui-muted);
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.home-column {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.home-heading {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.home-list ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.home-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ui-border);
+  min-width: 0;
+}
+.home-list li:last-child {
+  border-bottom: 0;
+}
+.home-list li > span:not([class]) {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.home-list li strong,
+.home-list li small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-list li small {
+  margin: 0;
+  color: var(--ui-muted);
+}
+.home-when {
+  flex-shrink: 0;
+}
+@media (max-width: 1100px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 800px) {
+  .topbar-space,
+  .profile-name {
+    display: none;
+  }
+  .topbar-context .ui-context {
+    width: min(200px, 46vw);
+  }
+  .content > .ui-page-header {
+    padding: 16px 0 14px;
+  }
+  .home-list li .badge:not(:last-of-type) {
+    display: none;
   }
 }

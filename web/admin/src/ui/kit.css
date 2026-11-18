@@ -1215,8 +1215,7 @@ textarea.ui-input {
 }
 .sidebar-collapsed .ui-nav-badge,
 .sidebar-collapsed .ui-nav-section,
-.sidebar-collapsed .ui-sidebar-footer > span,
-.sidebar-collapsed .tenant-switch {
+.sidebar-collapsed .ui-sidebar-footer > span {
   display: none;
 }
 .sidebar-collapsed .ui-sidebar-footer {

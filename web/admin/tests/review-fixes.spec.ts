@@ -152,7 +152,7 @@ test("existing administrative roles can be revoked while account, membership and
       user_id: outsider.id,
       role_id,
     });
-  await admin.getByRole("button", { name: "Teams", exact: true }).click();
+  await admin.getByRole("tab", { name: "Teams", exact: true }).click();
   await admin
     .getByRole("row")
     .filter({ hasText: "Offboarding" })

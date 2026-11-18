@@ -10,7 +10,7 @@ import {
   type Page,
 } from "../api-types";
 import { useAction } from "../use-action";
-import { confirmAction, Alert } from "../ui";
+import { confirmAction, Alert, Tabs } from "../ui";
 import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 import { api } from "../api";
 import { definitionOf, discardChanges, type Designer } from "./shared";
@@ -292,17 +292,16 @@ export function EntityDesigner({
               </button>
             </div>
           </header>
-          <nav className="tabs entity-tabs" aria-label="Entity designer">
-            {["fields", "access", "rules", "test"].map((t) => (
-              <button
-                key={t}
-                className={tab === t ? "active" : ""}
-                onClick={() => setTab(t)}
-              >
-                {t[0].toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </nav>
+          <Tabs
+            label="Entity designer"
+            className="entity-tabs"
+            items={["fields", "access", "rules", "test"].map((id) => ({
+              id,
+              label: id[0].toUpperCase() + id.slice(1),
+            }))}
+            value={tab}
+            onChange={setTab}
+          />
           {tab === "fields" && <FieldsTab d={d} />}
           {tab === "access" && <AccessTab d={d} />}
           {tab === "rules" && <RulesTab d={d} />}

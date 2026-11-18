@@ -52,9 +52,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
   await expect(page).toHaveURL(
     new RegExp("/platform/tenants/" + tenant + "/overview"),
   );
-  await page
-    .getByRole("button", { name: "Administrators", exact: true })
-    .click();
+  await page.getByRole("tab", { name: "Administrators", exact: true }).click();
   await expect(page.getByRole("row").filter({ hasText: email })).toBeVisible();
   await page
     .getByRole("button", { name: "Add administrator", exact: true })
@@ -122,7 +120,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
     .getByRole("button", { name: "Save password", exact: true })
     .click();
   await expect(
-    admin.getByRole("heading", { name: "Apps", level: 1, exact: true }),
+    admin.getByRole("heading", { name: "Home", level: 1, exact: true }),
   ).toBeVisible();
   await admin
     .getByRole("button", { name: "Create Space", exact: true })
@@ -190,7 +188,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
     .click();
   await admin
     .locator(".workspace-tabs")
-    .getByRole("button", { name: "Settings", exact: true })
+    .getByRole("tab", { name: "Settings", exact: true })
     .click();
   await expect(admin.locator(".workspace-facts")).toContainText("ready", {
     timeout: 30000,
@@ -235,7 +233,7 @@ test("People combines Tenant administration and team membership/roles, retaining
       .filter({ hasText: "Outside user" })
       .getByRole("checkbox"),
   ).toBeChecked();
-  await page.getByRole("button", { name: "Teams", exact: true }).click();
+  await page.getByRole("tab", { name: "Teams", exact: true }).click();
   await page.getByRole("button", { name: "Create team", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Marketing");
   await page
@@ -344,7 +342,7 @@ test("Platform settings and direct user administration retain authorization guar
   await expect(
     page.getByRole("button", { name: "Add database server", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Plans", exact: true }).click();
+  await page.getByRole("tab", { name: "Plans", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "Development" }),
   ).toBeVisible();

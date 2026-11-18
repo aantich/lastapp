@@ -30,7 +30,7 @@ test("database actions guard double clicks and confirm through ConfirmDialog", a
   await login(admin, "tenant-admin");
   await selectTenant(admin, tenant);
   await nav(admin, "Settings");
-  await admin.getByRole("button", { name: "Databases", exact: true }).click();
+  await admin.getByRole("tab", { name: "Databases", exact: true }).click();
   await admin
     .getByRole("button", { name: "Add database", exact: true })
     .click();

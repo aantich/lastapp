@@ -9,7 +9,14 @@ import {
 } from "lucide-react";
 import { ConsoleShell } from "./console-shell";
 import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
-import { FormModal, type Modal, ErrorBoundary, Alert } from "./ui";
+import {
+  Alert,
+  Button,
+  ErrorBoundary,
+  FormModal,
+  IconButton,
+  type Modal,
+} from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
@@ -98,31 +105,27 @@ export function PlatformWorkspace({
     : page === "account"
       ? "My account"
       : nav.find((p) => p.id === page)?.label || "Tenants";
+  const add = (label: string, run: () => void) => (
+    <Button
+      variant="primary"
+      icon={<Plus size={16} aria-hidden />}
+      onClick={run}
+    >
+      {label}
+    </Button>
+  );
   const addButton =
-    tenant && tab === "administrators" ? (
-      <button className="primary" onClick={() => addAdmin(p)}>
-        <Plus size={16} />
-        Add administrator
-      </button>
-    ) : !tenant && page === "tenants" ? (
-      <button className="primary" onClick={() => createTenant(p)}>
-        <Plus size={16} />
-        Create Tenant
-      </button>
-    ) : page === "users" ? (
-      <button className="primary" onClick={() => createUser(p)}>
-        <Plus size={16} />
-        Create account
-      </button>
-    ) : page === "settings" ? (
-      <button
-        className="primary"
-        onClick={() => (settingsTab === "plans" ? planForm(p) : serverForm(p))}
-      >
-        <Plus size={16} />
-        {settingsTab === "plans" ? "Create plan" : "Add database server"}
-      </button>
-    ) : null;
+    tenant && tab === "administrators"
+      ? add("Add administrator", () => addAdmin(p))
+      : !tenant && page === "tenants"
+        ? add("Create Tenant", () => createTenant(p))
+        : page === "users"
+          ? add("Create account", () => createUser(p))
+          : page === "settings"
+            ? settingsTab === "plans"
+              ? add("Create plan", () => planForm(p))
+              : add("Add database server", () => serverForm(p))
+            : null;
   return (
     <ConsoleShell
       me={me}
@@ -135,22 +138,21 @@ export function PlatformWorkspace({
       account={() => go("account")}
       signOut={signOut}
       breadcrumbs={
-        tenant ? (
-          <>
-            <button className="text-button" onClick={() => go("tenants")}>
-              Tenants
-            </button>
-            <span> / {text(profile.display_name) || "Tenant"}</span>
-          </>
-        ) : (
-          "Platform"
-        )
+        tenant
+          ? [
+              { label: "Tenants", onClick: () => go("tenants") },
+              { label: title },
+            ]
+          : undefined
       }
       actions={
         <>
-          <button className="icon" aria-label="Refresh" onClick={refresh}>
-            <RefreshCw size={16} />
-          </button>
+          <IconButton
+            label="Refresh"
+            icon={<RefreshCw size={16} aria-hidden />}
+            tooltip="bottom"
+            onClick={refresh}
+          />
           {addButton}
         </>
       }

@@ -89,7 +89,7 @@ test("removing an expression argument keeps the other arguments' inputs", async 
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Name", { exact: true }).fill("Title");
   await dialog.getByRole("button", { name: "Save field", exact: true }).click();
-  await page.getByRole("button", { name: "Rules", exact: true }).click();
+  await page.getByRole("tab", { name: "Rules", exact: true }).click();
   await page.getByRole("button", { name: "Add rule", exact: true }).click();
   await pick(
     dialog.getByLabel("Must be true operator", { exact: true }),
@@ -149,6 +149,7 @@ test("split Tenant and Platform pages fit desktop and phone widths", async ({
   await selectTenant(page, tenant);
   const space = await managedSpace(page, base, owner.id);
   const tenantPages = [
+    `/console/tenants/${tenant}/home`,
     `/console/tenants/${tenant}/apps`,
     `/console/tenants/${tenant}/spaces`,
     `/console/tenants/${tenant}/spaces/${space}/settings`,
@@ -204,7 +205,7 @@ test("a page that throws while rendering shows the fallback inside a working she
     });
   await page.route("**/v1/agent-access?*", malformed);
   await menu(page);
-  await page.getByRole("button", { name: "My account", exact: true }).click();
+  await page.getByRole("menuitem", { name: "My account", exact: true }).click();
   await expect(fallback(page)).toBeVisible();
   await expect(fallback(page)).toContainText("Cannot read properties of null");
   // The shell around the failed page still works.
@@ -245,9 +246,9 @@ test("a failed designer chunk download shows the fallback and retries", async ({
   await expect(fallback(page)).toBeVisible();
   expect(requests).toBe(1);
   // The shell is still usable while the designer is unavailable.
-  await page.getByRole("button", { name: "Access", exact: true }).click();
+  await page.getByRole("tab", { name: "Access", exact: true }).click();
   await expect(fallback(page)).toHaveCount(0);
-  await page.getByRole("button", { name: "Entities", exact: true }).click();
+  await page.getByRole("tab", { name: "Entities", exact: true }).click();
   await expect(fallback(page)).toBeVisible();
   expect(requests).toBe(1);
   offline = false;
