@@ -153,11 +153,10 @@ function TestResult({ result }: { result: Item }) {
           </ResultTile>
         </ResultTiles>
       </div>
-      <DesignerNote>
-        {why}
-        {notChecked.length > 0 &&
-          " Not checked: " + notChecked.join(", ") + "."}
-      </DesignerNote>
+      <DesignerNote>{why}</DesignerNote>
+      {notChecked.length > 0 && (
+        <DesignerNote>Not checked: {notChecked.join(", ")}.</DesignerNote>
+      )}
       {items(result.diagnostics).map((d, i) => (
         <Alert as="p" tone="warning" live={false} key={i}>
           {text(d.path)}: {text(d.message)}
