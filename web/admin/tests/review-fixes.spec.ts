@@ -390,7 +390,7 @@ test("access refresh preserves stale editors and App compute preferences survive
     const scope = base + "/" + kind + "/" + id;
     await admin.goto(`/console/tenants/${tenant}/${kind}/${id}/access`);
     await expect(
-      admin.getByRole("row").filter({ hasText: owner.display_name }),
+      admin.getByRole("listitem").filter({ hasText: owner.display_name }),
     ).toBeVisible();
     const r = await create(admin, scope + "/roles", {
       id: crypto.randomUUID(),
@@ -404,7 +404,7 @@ test("access refresh preserves stale editors and App compute preferences survive
     });
     await admin.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(
-      admin.getByRole("row").filter({ hasText: outsider.display_name }),
+      admin.getByRole("listitem").filter({ hasText: outsider.display_name }),
     ).toContainText("Refreshed assignment");
   }
   expect(
