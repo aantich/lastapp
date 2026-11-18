@@ -426,9 +426,13 @@ test("access refresh preserves stale editors and App compute preferences survive
     admin.getByRole("heading", { name: "Compute App", exact: true, level: 1 }),
   ).toBeVisible();
   await admin.getByText("Advanced", { exact: true }).click();
+  // The fact's value is the definition paired with its term.
   await expect(
-    admin.getByText("Compute preference: dedicated", { exact: true }),
-  ).toBeVisible();
+    admin
+      .getByRole("term")
+      .filter({ hasText: /^Compute preference$/ })
+      .locator("xpath=following-sibling::dd[1]"),
+  ).toHaveText("dedicated");
   await admin.getByRole("button", { name: "Edit App", exact: true }).click();
   let dialog = admin.getByRole("dialog");
   await dialog.getByText("Advanced", { exact: true }).click();

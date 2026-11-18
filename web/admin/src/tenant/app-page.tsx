@@ -1,8 +1,19 @@
+import { Pencil } from "lucide-react";
 import { AppReleases } from "../app-releases";
 import { AppDataAccess } from "../entity-designer/app-access";
-import { Collection } from "../ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Collection,
+  Disclosure,
+  FactList,
+  Stack,
+  StatusBadge,
+} from "../ui";
 import { AccessControl } from "../access-control";
-import { status as badge } from "../console-forms";
 import { refreshQueries } from "../query";
 import { keyOf, optText, text } from "../api-types";
 import {
@@ -35,13 +46,28 @@ export function AppPage({ t }: { t: TenantScreen }) {
         <Collection
           key={app.id + "microapps"}
           path={base + "/microapps?app_id=" + app.id}
-          columns={[nameColumn, statusColumn]}
+          caption={`${text(app.display_name)} micro-apps`}
+          columns={[
+            ["Order", (r) => text(r.navigation_order)],
+            nameColumn,
+            [
+              "Artifact",
+              (r) =>
+                optText(r.artifact_ref) ? (
+                  <Badge mono>{text(r.artifact_ref)}</Badge>
+                ) : (
+                  "—"
+                ),
+            ],
+            statusColumn,
+          ]}
           empty="Add your first micro-app."
           actions={
             scoped("microapp.manage")
               ? (r) => (
-                  <button
-                    className="text-button"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() =>
                       edit(r, base + "/microapps/" + r.id, "Edit micro-app", [
                         {
@@ -71,7 +97,7 @@ export function AppPage({ t }: { t: TenantScreen }) {
                     }
                   >
                     Edit micro-app
-                  </button>
+                  </Button>
                 )
               : undefined
           }
@@ -87,36 +113,52 @@ export function AppPage({ t }: { t: TenantScreen }) {
         />
       )}
       {route.tab === "settings" && (
-        <>
-          <section className="panel workspace-section">
-            <div className="settings-heading">
-              <div className="settings-summary">
-                <h2>General</h2>
-                {badge(app.state)}
-              </div>
-              {scoped("app.manage") && (
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    edit(app, base + "/apps/" + app.id, "Edit App", [
-                      ...editFields,
-                      computeField(
-                        !!profile.allow_dedicated_compute ||
-                          app.compute_mode === "dedicated",
-                      ),
-                    ])
-                  }
-                >
-                  Edit App
-                </button>
-              )}
-            </div>
-            <details>
-              <summary>Advanced</summary>
-              <p>Slug: {text(app.slug)}</p>
-              <p>Compute preference: {text(app.compute_mode)}</p>
-            </details>
-          </section>
+        <Stack>
+          <Card>
+            <CardHeader
+              title="General"
+              actions={
+                <>
+                  <StatusBadge state={app.state} />
+                  {scoped("app.manage") && (
+                    <Button
+                      icon={<Pencil size={14} aria-hidden />}
+                      onClick={() =>
+                        edit(app, base + "/apps/" + app.id, "Edit App", [
+                          ...editFields,
+                          computeField(
+                            !!profile.allow_dedicated_compute ||
+                              app.compute_mode === "dedicated",
+                          ),
+                        ])
+                      }
+                    >
+                      Edit App
+                    </Button>
+                  )}
+                </>
+              }
+            />
+            <CardBody>
+              <FactList
+                facts={[
+                  { label: "Name", value: text(app.display_name) },
+                  { label: "Space", value: text(app.space_name) },
+                ]}
+              />
+              <Disclosure summary="Advanced">
+                <FactList
+                  facts={[
+                    { label: "Slug", value: text(app.slug), mono: true },
+                    {
+                      label: "Compute preference",
+                      value: text(app.compute_mode),
+                    },
+                  ]}
+                />
+              </Disclosure>
+            </CardBody>
+          </Card>
           {scoped("app.manage") && (
             <AppDataAccess
               key={keyOf(app.id)}
@@ -124,7 +166,7 @@ export function AppPage({ t }: { t: TenantScreen }) {
               spaceManager={scoped("entity.manage", optText(app.space_id), "")}
             />
           )}
-        </>
+        </Stack>
       )}
     </>
   );
