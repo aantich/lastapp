@@ -1,11 +1,39 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Upload, RefreshCw, ExternalLink } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  RefreshCw,
+  Rocket,
+  RotateCcw,
+  Upload,
+} from "lucide-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Failure } from "./api";
 import { apiKey, queryClient, refreshQueries, useApiQuery } from "./query";
 import { useConsoleConfig } from "./console-config";
-import { FormModal, type Modal, Alert } from "./ui";
-import { status } from "./console-forms";
+import { deploymentSteps, useDeploymentStates } from "./deployment";
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CodeBlock,
+  DataTable,
+  Disclosure,
+  EmptyState,
+  FactList,
+  FormModal,
+  IconButton,
+  LinkButton,
+  PickList,
+  Split,
+  Stack,
+  StatusBadge,
+  Stepper,
+  type Modal,
+  type Step,
+} from "./ui";
 import {
   keyOf,
   num,
@@ -18,7 +46,6 @@ import {
   type ReleaseManifest,
   type UploadTicket,
 } from "./api-types";
-import "./development-workspaces.css";
 import { errorMessage, useAction } from "./use-action";
 
 async function encode(file: File) {
@@ -28,6 +55,12 @@ async function encode(file: File) {
     text += String.fromCharCode(...bytes.subarray(i, i + 8192));
   return btoa(text);
 }
+const when = (at: unknown) => new Date(text(at)).toLocaleString();
+
+// An App's Releases tab: the ship flow. In a development workspace App the
+// author uploads a build, captures it as an immutable release, previews it
+// and deploys it; a production App shows what it runs and where to develop.
+// The production deployment card follows the real deployment states.
 export function AppReleases({
   app,
   tenant,
@@ -43,6 +76,7 @@ export function AppReleases({
     [error, setError] = useState(""),
     [modal, setModal] = useState<Modal | null>(null);
   const { config } = useConsoleConfig();
+  const states = useDeploymentStates();
   const folder = useRef<HTMLInputElement>(null),
     development = !!app.workspace_id;
   // Release history pages accumulate behind "Load more".
@@ -73,7 +107,7 @@ export function AppReleases({
   const builds =
     useApiQuery<Page<Build>>(development ? `/v1/apps/${app.id}/builds` : null)
       .data?.items || [];
-  // Production deployment status: poll while it is in progress, backing off
+  // Production deployment status: poll while it is running, backing off
   // from 1.5 s to 10 s after failures, and stop at a final state or when
   // access is gone. refetchInterval never overlaps requests.
   const deploymentPath = `/v1/apps/${app.id}/deployment`,
@@ -93,10 +127,7 @@ export function AppReleases({
           return Math.min(1500 * 2 ** failures.current.count, 10000);
         }
         failures.current = { at: 0, count: 0 };
-        return data?.deployment &&
-          ["queued", "preparing", "publishing"].includes(data.deployment.state)
-          ? 1500
-          : false;
+        return states.running(data?.deployment?.state) ? 1500 : false;
       },
     },
   );
@@ -104,19 +135,19 @@ export function AppReleases({
     deploymentError = deploymentQuery.error
       ? `Could not refresh deployment status: ${errorMessage(deploymentQuery.error)}`
       : "";
-  // When this deployment finishes, the App itself changed: refresh it.
+  // When this deployment goes live, the App itself changed: refresh it.
   const previousDeployment = useRef<Deployment | undefined>(undefined);
   useEffect(() => {
     const previous = previousDeployment.current;
     previousDeployment.current = deployment;
     if (
-      deployment?.state === "active" &&
+      deployment?.state === states.live &&
       previous &&
       previous.id === deployment.id &&
-      previous.state !== "active"
+      previous.state !== states.live
     )
       refresh();
-  }, [deployment, refresh]);
+  }, [deployment, refresh, states.live]);
   const { busy, run } = useAction(app.id, {
     onSuccess: () => {},
     onError: setError,
@@ -178,6 +209,7 @@ export function AppReleases({
       title: "Create release",
       description:
         "Pin every micro-app version. The release also captures the published Space entities, rules and ACLs for review.",
+      success: "Release created",
       initial: {
         display_name: "",
         dependencies: JSON.stringify(previous.dependencies || {}, null, 2),
@@ -238,27 +270,30 @@ export function AppReleases({
     refresh();
     window.open(result.url, "_blank", "noopener,noreferrer");
   }
-  function deploy() {
-    if (!selected) return;
+  // Deploys a release to production: a new deployment of the same release
+  // is also how a failed one is retried (POST /v1/releases/{id}/deploy).
+  function deploy(release: Release, retry = false) {
     setModal({
-      title: "Deploy " + selected.display_name,
+      title: (retry ? "Retry deploy of " : "Deploy ") + release.display_name,
       description:
+        (retry ? "Starts a new deployment of this release. " : "") +
         "Applies the captured shared Space backend configuration, then activates this App build. Other Apps reuse those Space entities and permissions. Database changes are not automatically rolled back if a step fails.",
+      success: "Deployment queued",
       initial: {},
       fields: [],
-      submit: "Deploy to production",
+      submit: retry ? "Retry deploy" : "Deploy to production",
       save: async () => {
         let revision: number | undefined = 1;
         try {
           const target = await api<Item>(
-            `/v1/tenants/${tenant}/apps/${selected.production_app_id}`,
+            `/v1/tenants/${tenant}/apps/${release.production_app_id}`,
           );
           revision = num(target.revision);
         } catch (e) {
           if ((e as { status?: number }).status !== 404) throw e;
         }
         const result = await api<Deployment>(
-          `/v1/releases/${selected.id}/deploy`,
+          `/v1/releases/${release.id}/deploy`,
           "POST",
           {},
           revision,
@@ -271,199 +306,317 @@ export function AppReleases({
       },
     });
   }
+  const deployed = deployment
+    ? releases.find((r) => r.id === deployment.release_id)
+    : undefined;
+  const failed = deployment?.state === states.failed,
+    live = deployment?.state === states.live;
+  const refreshButton = (
+    <IconButton
+      label="Refresh releases"
+      icon={<RefreshCw size={16} aria-hidden />}
+      tooltip="bottom"
+      disabled={busy}
+      onClick={() => void refreshQueries()}
+    />
+  );
+  // Where this development App is on the way to production.
+  const ship: Step[] = [
+    {
+      id: "workspace",
+      label: "Workspace",
+      note: "Isolated from production",
+      state: "done",
+    },
+    {
+      id: "build",
+      label: "Upload a build",
+      note: builds.length
+        ? `${builds.length} uploaded`
+        : "Build locally, then upload the folder",
+      state: builds.length ? "done" : "active",
+    },
+    {
+      id: "release",
+      label: "Create a release",
+      note: releases[0]
+        ? `Latest: ${text(releases[0].display_name)}`
+        : "Pins the build, micro-apps and Space snapshot",
+      state: releases.length ? "done" : builds.length ? "active" : "pending",
+    },
+    {
+      id: "deploy",
+      label: "Deploy to production",
+      note: deployment ? `Latest deployment: ${deployment.state}` : undefined,
+      state: !deployment
+        ? "pending"
+        : live
+          ? "done"
+          : failed
+            ? "failed"
+            : "active",
+    },
+  ];
   return (
-    <section className="development-page">
-      <div className="development-heading">
-        <div>
-          <h2>Releases</h2>
-          <p>
-            {development
-              ? "Build locally, test this workspace, then deploy a reviewed release."
-              : "Production runs a selected immutable release. Develop changes in an isolated workspace."}
-          </p>
-        </div>
-        <div className="development-actions">
-          <button
-            aria-label="Refresh releases"
-            disabled={busy}
-            onClick={() => void refreshQueries()}
-          >
-            <RefreshCw size={16} />
-          </button>
-          {development ? (
-            <>
-              <button
-                disabled={busy}
-                onClick={() => {
-                  window.location.href = `/v1/apps/${app.id}/starter.zip`;
-                }}
-              >
-                <Download size={16} />
-                Get starter
-              </button>
-              <button
-                className="primary"
-                disabled={busy}
-                onClick={() => {
-                  folder.current?.setAttribute("webkitdirectory", "");
-                  folder.current?.click();
-                }}
-              >
-                <Upload size={16} />
-                {busy ? "Working…" : "Upload build folder"}
-              </button>
-              <input
-                ref={folder}
-                type="file"
-                multiple
-                hidden
-                onChange={(e) => upload(e.target.files)}
-              />
-            </>
-          ) : (
-            <button className="primary" onClick={openWorkspaces}>
-              Open development workspaces
-            </button>
-          )}
-        </div>
-      </div>
+    <Stack>
       {(error || listError || deploymentError) && (
         <Alert>{error || listError || deploymentError}</Alert>
       )}
-      {deployment && (
-        <div className="panel deployment-status" role="status">
-          <strong>Production deployment</strong>
-          {status(deployment.state)}
-          {deployment.error_message && (
-            <Alert as="p" live={false}>
-              {deployment.error_message}
-            </Alert>
-          )}
-          {deployment.state === "active" && (
-            <a href={deployment.url} target="_blank" rel="noreferrer">
-              Open production App <ExternalLink size={14} />
-            </a>
-          )}
-        </div>
+      {development ? (
+        <Card>
+          <CardHeader
+            title="Ship this App"
+            description="Build locally, test this workspace, then deploy a reviewed release."
+            actions={
+              <>
+                {refreshButton}
+                <LinkButton
+                  href={`/v1/apps/${app.id}/starter.zip`}
+                  icon={<Download size={16} aria-hidden />}
+                >
+                  Get starter
+                </LinkButton>
+                <Button
+                  variant="primary"
+                  loading={busy}
+                  icon={<Upload size={16} aria-hidden />}
+                  onClick={() => {
+                    folder.current?.setAttribute("webkitdirectory", "");
+                    folder.current?.click();
+                  }}
+                >
+                  {busy ? "Working…" : "Upload build folder"}
+                </Button>
+                <input
+                  ref={folder}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => upload(e.target.files)}
+                />
+              </>
+            }
+          />
+          <CardBody>
+            <Stack gap="md">
+              <Stepper label="Ship flow" steps={ship} />
+              <Alert tone="info" live={false}>
+                Your agent can obtain the starter and perform uploads through
+                MCP. The starter download contains files to write locally,
+                pinned package versions and step-by-step instructions.
+              </Alert>
+            </Stack>
+          </CardBody>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader
+            title="Ship changes"
+            description="Production runs a selected immutable release. Develop changes in an isolated workspace, then deploy a release from it."
+            actions={
+              <>
+                {refreshButton}
+                <Button variant="primary" onClick={openWorkspaces}>
+                  Open development workspaces
+                </Button>
+              </>
+            }
+          />
+        </Card>
       )}
-      <div className="release-layout">
-        <div className="panel release-list">
-          <h3>Release history</h3>
-          {!releases.length && <p className="muted">No releases yet.</p>}
-          {releases.map((r) => (
-            <button
-              key={keyOf(r.id)}
-              className={
-                "release-item " + (selected?.id === r.id ? "selected" : "")
-              }
-              onClick={() =>
-                run(async () =>
-                  setSelected(await api<Release>("/v1/releases/" + r.id)),
-                )
-              }
-            >
-              <strong>{text(r.display_name)}</strong>
-              <small>{new Date(text(r.created_at)).toLocaleString()}</small>
-            </button>
-          ))}
-          {hasMore && (
-            <button onClick={() => void releasePages.fetchNextPage()}>
-              Load more
-            </button>
-          )}
-        </div>
-        {selected ? (
-          <article className="panel release-review">
-            <div className="development-heading">
-              <div>
-                <h3>{selected.display_name}</h3>
-                <p>Immutable build · {selected.build_id.slice(0, 8)}</p>
-              </div>
-              <div className="development-actions">
-                {development && (
-                  <button disabled={busy} onClick={() => run(preview)}>
-                    Open preview <ExternalLink size={14} />
-                  </button>
+      <Card className="deployment-status" role="status">
+        <CardHeader
+          title="Production deployment"
+          description={
+            !deployment
+              ? undefined
+              : failed
+                ? "The previous release stays selected in production."
+                : live
+                  ? `${deployed ? text(deployed.display_name) : "This release"} is live.`
+                  : "Production keeps serving the previous release until this one is active."
+          }
+          actions={
+            deployment && (
+              <>
+                <StatusBadge state={deployment.state} />
+                {live && (
+                  <LinkButton
+                    href={deployment.url}
+                    external
+                    size="sm"
+                    trailingIcon={<ExternalLink size={14} aria-hidden />}
+                  >
+                    Open production App
+                  </LinkButton>
                 )}
-                <button className="primary" disabled={busy} onClick={deploy}>
-                  Deploy to production
-                </button>
-              </div>
-            </div>
-            <h4>Captured Space backend</h4>
-            <p>
-              {selected.snapshot_json.entities.length} entities ·{" "}
-              {selected.snapshot_json.roles.length} business roles ·{" "}
-              {selected.snapshot_json.apps.length} Apps
-            </p>
-            <div className="release-entities">
-              {selected.snapshot_json.entities.map((e) => (
-                <details key={e.id}>
-                  <summary>
-                    {e.definition.label}{" "}
-                    <span className="muted">
-                      {e.definition.fields.length} fields ·{" "}
-                      {e.definition.permissions.length} permissions
-                    </span>
-                  </summary>
-                  <div className="release-field-list">
-                    {e.definition.fields.map((f) => (
-                      <div key={keyOf(f.key)}>
-                        <strong>{text(f.label)}</strong>
-                        <span>
-                          {text(f.type)}
-                          {f.required ? " · Required" : ""}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ))}
-            </div>
-            <details>
-              <summary>Manifest and full configuration</summary>
-              <pre>
-                {JSON.stringify(
+                {failed && deployment.release_id && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<RotateCcw size={14} aria-hidden />}
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () =>
+                        deploy(
+                          await api<Release>(
+                            "/v1/releases/" + deployment.release_id,
+                          ),
+                          true,
+                        ),
+                      )
+                    }
+                  >
+                    Retry deploy
+                  </Button>
+                )}
+              </>
+            )
+          }
+        />
+        <CardBody>
+          {deployment ? (
+            <Stack gap="md">
+              {failed ? (
+                <Alert as="p" live={false} title="Deployment failed">
+                  {deployment.error_message}
+                </Alert>
+              ) : (
+                <Stepper
+                  label="Deployment progress"
+                  steps={deploymentSteps(states.steps, deployment.state)}
+                />
+              )}
+              <FactList
+                facts={[
                   {
-                    manifest: selected.manifest_json,
-                    snapshot: selected.snapshot_json,
+                    label: "Release",
+                    value: deployed
+                      ? text(deployed.display_name)
+                      : text(deployment.release_id).slice(0, 8),
+                    mono: !deployed,
                   },
-                  null,
-                  2,
-                )}
-              </pre>
-            </details>
-          </article>
+                  ...(deployment.created_at
+                    ? [{ label: "Started", value: when(deployment.created_at) }]
+                    : []),
+                  ...(deployment.finished_at
+                    ? [
+                        {
+                          label: "Finished",
+                          value: when(deployment.finished_at),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </Stack>
+          ) : (
+            <EmptyState compact title="Not deployed yet">
+              Deploy a release to put this App in production.
+            </EmptyState>
+          )}
+        </CardBody>
+      </Card>
+      <Split
+        aside={
+          <Card className="release-list">
+            <CardHeader
+              title="Releases"
+              description="Immutable build, micro-app pins and Space snapshot"
+            />
+            <CardBody>
+              <PickList
+                label="Release history"
+                itemClassName="release-item"
+                disabled={busy}
+                value={selected?.id}
+                empty="No releases yet."
+                items={releases.map((r) => ({
+                  id: keyOf(r.id) ?? "",
+                  title: text(r.display_name),
+                  meta: when(r.created_at),
+                  badge:
+                    deployment && deployment.release_id === r.id ? (
+                      <StatusBadge
+                        state={deployment.state}
+                        label={live ? "Production" : undefined}
+                      />
+                    ) : undefined,
+                }))}
+                onPick={(id) =>
+                  run(async () =>
+                    setSelected(await api<Release>("/v1/releases/" + id)),
+                  )
+                }
+                footer={
+                  hasMore && (
+                    <Button
+                      size="sm"
+                      onClick={() => void releasePages.fetchNextPage()}
+                    >
+                      Load more
+                    </Button>
+                  )
+                }
+              />
+            </CardBody>
+          </Card>
+        }
+      >
+        {selected ? (
+          <ReleaseReview
+            release={selected}
+            busy={busy}
+            preview={development ? () => run(preview) : undefined}
+            deploy={() => deploy(selected)}
+          />
         ) : (
-          <div className="panel empty">
-            <p>
+          <Card>
+            <EmptyState title="No release open">
               Select a release to review its build and backend configuration.
-            </p>
-          </div>
+            </EmptyState>
+          </Card>
         )}
-      </div>
+      </Split>
       {development && builds.length > 0 && (
-        <details className="panel uploaded-builds">
-          <summary>Uploaded builds</summary>
-          {builds.map((b) => (
-            <div key={b.id} className="development-heading">
-              <span>
-                {b.content_hash.slice(0, 12)} · {Math.ceil(b.size_bytes / 1024)}{" "}
-                KB
-              </span>
-              <button disabled={busy} onClick={() => run(() => capture(b.id))}>
+        <Card>
+          <CardHeader
+            title="Uploaded builds"
+            description="Create a release from an earlier upload."
+          />
+          <DataTable
+            caption="Uploaded builds"
+            rows={builds}
+            rowKey={(b) => b.id}
+            columns={[
+              {
+                key: "build",
+                header: "Build",
+                render: (b) => <code>{b.content_hash.slice(0, 12)}</code>,
+              },
+              {
+                key: "size",
+                header: "Size",
+                numeric: true,
+                render: (b) => `${Math.ceil(b.size_bytes / 1024)} KB`,
+              },
+              {
+                key: "uploaded",
+                header: "Uploaded",
+                render: (b) => when(b.created_at),
+              },
+            ]}
+            actions={(b) => (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => run(() => capture(b.id))}
+              >
                 Create release
-              </button>
-            </div>
-          ))}
-        </details>
-      )}
-      {development && (
-        <p className="muted">
-          Your agent can obtain the starter and perform uploads through MCP. The
-          starter download contains files to write locally, pinned package
-          versions and step-by-step instructions.
-        </p>
+              </Button>
+            )}
+          />
+        </Card>
       )}
       {modal && (
         <FormModal
@@ -473,6 +626,119 @@ export function AppReleases({
           lookups={{}}
         />
       )}
-    </section>
+    </Stack>
+  );
+}
+
+// One immutable release: its build, pins and captured Space backend.
+function ReleaseReview({
+  release,
+  busy,
+  preview,
+  deploy,
+}: {
+  release: Release;
+  busy: boolean;
+  preview?: () => void;
+  deploy: () => void;
+}) {
+  const snapshot = release.snapshot_json,
+    pins = Object.entries(release.manifest_json?.microapps || {}),
+    packages = Object.keys(release.manifest_json?.dependencies || {});
+  return (
+    <Card as="article" className="release-review">
+      <CardHeader
+        title={release.display_name}
+        description={`Immutable build · ${release.build_id.slice(0, 8)}`}
+        actions={
+          <>
+            {preview && (
+              <Button
+                disabled={busy}
+                icon={<ExternalLink size={14} aria-hidden />}
+                onClick={preview}
+              >
+                Open preview
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              disabled={busy}
+              icon={<Rocket size={16} aria-hidden />}
+              onClick={deploy}
+            >
+              Deploy to production
+            </Button>
+          </>
+        }
+      />
+      <CardBody>
+        <Stack gap="md">
+          <FactList
+            facts={[
+              { label: "Build", value: release.build_id, mono: true },
+              { label: "Created", value: when(release.created_at) },
+              {
+                label: "Micro-apps",
+                value: pins.length
+                  ? pins.map(([slug, v]) => `${slug} ${v}`).join(", ")
+                  : "None pinned",
+              },
+              {
+                label: "Shared packages",
+                value: packages.length
+                  ? `${packages.length} pinned`
+                  : "None pinned",
+              },
+              {
+                label: "Captured Space backend",
+                value: `${snapshot.entities.length} entities · ${snapshot.roles.length} business roles · ${snapshot.apps.length} Apps`,
+              },
+            ]}
+          />
+          <div>
+            {snapshot.entities.map((e) => (
+              <Disclosure
+                key={e.id}
+                summary={e.definition.label}
+                meta={`${e.definition.fields.length} fields · ${e.definition.permissions.length} permissions`}
+              >
+                <DataTable
+                  caption={`${e.definition.label} fields`}
+                  rows={e.definition.fields}
+                  rowKey={(f) => keyOf(f.key)}
+                  columns={[
+                    {
+                      key: "field",
+                      header: "Field",
+                      render: (f) => <strong>{text(f.label)}</strong>,
+                    },
+                    {
+                      key: "type",
+                      header: "Type",
+                      render: (f) => <code>{text(f.type)}</code>,
+                    },
+                    {
+                      key: "required",
+                      header: "Required",
+                      render: (f) => (f.required ? "Required" : "Optional"),
+                    },
+                  ]}
+                />
+              </Disclosure>
+            ))}
+            <Disclosure summary="Manifest and full configuration">
+              <CodeBlock label={`${release.display_name} configuration`}>
+                {JSON.stringify(
+                  { manifest: release.manifest_json, snapshot },
+                  null,
+                  2,
+                )}
+              </CodeBlock>
+            </Disclosure>
+          </div>
+        </Stack>
+      </CardBody>
+    </Card>
   );
 }
