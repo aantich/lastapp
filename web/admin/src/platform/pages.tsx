@@ -1,7 +1,22 @@
 import { api } from "../api";
 import { num, text } from "../api-types";
-import { Checkbox, Collection, Tabs } from "../ui";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardFooter,
+  CardHeader,
+  Checkbox,
+  Collection,
+  FactList,
+  Stack,
+  StatCard,
+  StatGrid,
+  Tabs,
+  confirmAction,
+} from "../ui";
 import { useBuiltinRoles } from "../console-config";
+import { status } from "../console-forms";
 import { addToTenant, editTenant, planForm, serverForm } from "./forms";
 import { columnsName, columnsStatus, type PlatformScreen } from "./screen";
 
@@ -10,7 +25,7 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
   const { act, busy, go, overview, profile, route, tenant } = p;
   const { tab } = route;
   return (
-    <>
+    <Stack>
       <Tabs
         label="Tenant sections"
         className="workspace-tabs"
@@ -23,28 +38,43 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
       />
       {tab === "overview" && (
         <>
-          <section className="panel workspace-section">
-            <dl className="workspace-facts">
-              <dt>Plan</dt>
-              <dd>{text(profile.plan_name)}</dd>
-              <dt>Status</dt>
-              <dd>{text(profile.state)}</dd>
-              <dt>Spaces / Apps / Databases</dt>
-              <dd>
-                {overview.spaces} / {overview.apps} / {overview.databases}
-              </dd>
-            </dl>
-            <button
-              className="primary"
-              onClick={() => go("tenants", tenant, "administrators")}
-            >
-              Manage administrators
-            </button>
-          </section>
-          <h2 className="section-title">Recent Apps</h2>
+          <StatGrid>
+            <StatCard label="Spaces" value={text(overview.spaces ?? "—")} />
+            <StatCard label="Apps" value={text(overview.apps ?? "—")} />
+            <StatCard
+              label="Databases"
+              value={text(overview.databases ?? "—")}
+            />
+          </StatGrid>
+          <Card>
+            <CardHeader
+              title="Tenant"
+              description="Plan and lifecycle status, set by the platform."
+              actions={
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => go("tenants", tenant, "administrators")}
+                >
+                  Manage administrators
+                </Button>
+              }
+            />
+            <CardBody>
+              <FactList
+                className="workspace-facts"
+                facts={[
+                  { label: "Plan", value: text(profile.plan_name) || "—" },
+                  { label: "Status", value: status(profile.state) },
+                ]}
+              />
+            </CardBody>
+          </Card>
           <Collection
             key={tenant + "inventory"}
             path={`/v1/tenants/${tenant}/apps`}
+            caption="Recent Apps"
+            header={<CardHeader title="Recent Apps" />}
             columns={[
               columnsName,
               ["Space", (r) => text(r.space_name)],
@@ -57,50 +87,71 @@ export function PlatformTenant({ p }: { p: PlatformScreen }) {
         <Collection
           key={tenant + "admins"}
           path={`/admin/v1/tenants/${tenant}/administrators`}
+          caption="Administrators"
+          header={
+            <CardHeader
+              title="Administrators"
+              description="They manage this Tenant's teams, roles and Space/App managers. Tenant administration grants no automatic access to business records."
+            />
+          }
           columns={[
             columnsName,
             columnsStatus,
             ["Account", (r) => text(r.user_state)],
           ]}
           actions={(r) => (
-            <button
-              className="text-button danger"
+            <Button
+              variant="danger"
+              size="sm"
               disabled={busy}
-              onClick={() =>
-                act(() =>
-                  api(
-                    `/v1/tenants/${tenant}/role-assignments/${r.id}`,
-                    "DELETE",
-                    undefined,
-                    num(r.revision),
-                  ),
+              onClick={async () => {
+                if (
+                  await confirmAction({
+                    title: "Remove administrator?",
+                    message: `${text(r.display_name)} loses administrator access to this Tenant. The account itself stays.`,
+                    confirmLabel: "Remove administrator",
+                    danger: true,
+                  })
                 )
-              }
+                  act(() =>
+                    api(
+                      `/v1/tenants/${tenant}/role-assignments/${r.id}`,
+                      "DELETE",
+                      undefined,
+                      num(r.revision),
+                    ),
+                  );
+              }}
             >
               Remove administrator
-            </button>
+            </Button>
           )}
         />
       )}
       {tab === "settings" && (
-        <section className="panel workspace-section">
-          <p>
-            {text(profile.plan_name)} · {text(profile.state)}
-          </p>
-          <div className="section-actions">
-            <button className="secondary" onClick={() => editTenant(p)}>
-              Edit Tenant
-            </button>
-            <button
-              className="text-button"
-              onClick={() => go("activity", tenant)}
-            >
+        <Card>
+          <CardHeader
+            title="Tenant settings"
+            description="The Tenant's name, plan and status."
+          />
+          <CardBody>
+            <FactList
+              facts={[
+                { label: "Name", value: text(profile.display_name) || "—" },
+                { label: "Plan", value: text(profile.plan_name) || "—" },
+                { label: "Status", value: status(profile.state) },
+              ]}
+            />
+          </CardBody>
+          <CardFooter>
+            <Button variant="link" onClick={() => go("activity", tenant)}>
               View Tenant activity
-            </button>
-          </div>
-        </section>
+            </Button>
+            <Button onClick={() => editTenant(p)}>Edit Tenant</Button>
+          </CardFooter>
+        </Card>
       )}
-    </>
+    </Stack>
   );
 }
 // Every Tenant on the platform.
@@ -109,6 +160,7 @@ export function TenantsPage({ p }: { p: PlatformScreen }) {
   return (
     <Collection
       path="/admin/v1/tenants"
+      caption="Tenants"
       columns={[
         columnsName,
         ["Plan", (r) => text(r.plan_name)],
@@ -117,12 +169,13 @@ export function TenantsPage({ p }: { p: PlatformScreen }) {
         columnsStatus,
       ]}
       actions={(r) => (
-        <button
-          className="text-button"
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => go("tenants", text(r.id), "overview")}
         >
           Open
-        </button>
+        </Button>
       )}
     />
   );
@@ -134,6 +187,7 @@ export function UsersPage({ p }: { p: PlatformScreen }) {
   return (
     <Collection
       path="/admin/v1/users"
+      caption="Accounts"
       columns={[
         columnsName,
         [
@@ -177,26 +231,38 @@ export function UsersPage({ p }: { p: PlatformScreen }) {
       actions={(r) => (
         <>
           {!r.platform_admin && r.state === "active" && (
-            <button className="text-button" onClick={() => addToTenant(p, r)}>
+            <Button size="sm" variant="ghost" onClick={() => addToTenant(p, r)}>
               Add to Tenant
-            </button>
+            </Button>
           )}
-          <button
-            className="text-button"
+          <Button
+            size="sm"
+            variant={r.state === "active" ? "danger" : "secondary"}
             disabled={busy}
-            onClick={() =>
+            onClick={async () => {
+              const disable = r.state === "active";
+              if (
+                disable &&
+                !(await confirmAction({
+                  title: "Disable account?",
+                  message: `${text(r.display_name)} can no longer sign in and their sessions end. You can enable the account again later.`,
+                  confirmLabel: "Disable account",
+                  danger: true,
+                }))
+              )
+                return;
               act(() =>
                 api(
                   "/admin/v1/users/" + r.id,
                   "PATCH",
-                  { state: r.state === "active" ? "disabled" : "active" },
+                  { state: disable ? "disabled" : "active" },
                   num(r.revision),
                 ),
-              )
-            }
+              );
+            }}
           >
             {r.state === "active" ? "Disable account" : "Enable account"}
-          </button>
+          </Button>
         </>
       )}
     />
@@ -207,7 +273,7 @@ export function PlatformSettings({ p }: { p: PlatformScreen }) {
   const { go, route } = p;
   const { settingsTab } = route;
   return (
-    <>
+    <Stack>
       <Tabs
         label="Platform settings"
         className="workspace-tabs"
@@ -221,6 +287,13 @@ export function PlatformSettings({ p }: { p: PlatformScreen }) {
       {settingsTab === "plans" ? (
         <Collection
           path="/admin/v1/plans"
+          caption="Plans"
+          header={
+            <CardHeader
+              title="Plans"
+              description="Limits a Tenant's Spaces, Apps and databases. Empty means unlimited."
+            />
+          }
           columns={[
             columnsName,
             [
@@ -230,26 +303,33 @@ export function PlatformSettings({ p }: { p: PlatformScreen }) {
             ],
           ]}
           actions={(r) => (
-            <button className="text-button" onClick={() => planForm(p, r)}>
+            <Button size="sm" variant="ghost" onClick={() => planForm(p, r)}>
               Edit plan
-            </button>
+            </Button>
           )}
         />
       ) : (
         <Collection
           path="/admin/v1/database-targets"
+          caption="Database servers"
+          header={
+            <CardHeader
+              title="Database servers"
+              description="MariaDB servers that host Space databases."
+            />
+          }
           columns={[
             columnsName,
             ["Endpoint", (r) => r.canonical_host + ":" + r.port],
             columnsStatus,
           ]}
           actions={(r) => (
-            <button className="text-button" onClick={() => serverForm(p, r)}>
+            <Button size="sm" variant="ghost" onClick={() => serverForm(p, r)}>
               Edit server
-            </button>
+            </Button>
           )}
         />
       )}
-    </>
+    </Stack>
   );
 }
