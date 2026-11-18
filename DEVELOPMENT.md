@@ -455,8 +455,10 @@ and system color modes. New console UI follows these rules:
   paths, never a record count). Without an `?entity=` link the first entity
   opens. Space/App
   Access (`access-control.tsx`: `AccessMatrix`, read-only, derived from the
-  entity's published and draft permission paths; `AssignmentList`; the Roles
-  collection) and People/Teams, the Agents page and agent connections
+  entity's published and draft permission paths, holders from every page of
+  the Space's assignments (`useAllPages`), a cell opening the entity's Access
+  tab; `AssignmentList`, an App's inherited Space assignments tagged and
+  read-only; the Roles collection) and People/Teams, the Agents page and agent connections
   (`ConnectionCard`; preset read as an exact match of the grant's permissions)
   and the consent page (`agent-access.tsx`, a `FlowCard`; preset `ChoiceCards`
   with the config's descriptions, the config's `day_choices` and a
