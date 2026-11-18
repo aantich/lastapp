@@ -705,7 +705,7 @@ td {
   width: 100%;
   min-height: var(--ui-control-height);
   padding: 8px 12px;
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--ui-control-border);
   border-radius: var(--ui-radius);
   font-size: 12px;
   background: var(--ui-surface);
@@ -971,13 +971,9 @@ td {
   border-top: 1px solid var(--ui-border);
   padding-top: 14px;
 }
-.advanced-fields > .fields {
-  padding: 20px 0 0;
+.advanced-fields .fields {
+  padding: 12px 0 0;
   margin: 0;
-}
-.advanced-fields > summary {
-  font-size: 12px;
-  font-weight: 500;
 }
 summary {
   cursor: pointer;
@@ -1059,7 +1055,7 @@ summary {
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--ui-control-border);
   border-radius: var(--ui-radius);
   background: var(--ui-surface);
   color: var(--ui-text);
