@@ -601,6 +601,20 @@ export function TenantWorkspace({
       })),
   ]);
   // A Space's Access tab is headed as the Space's access.
+  // The one highlighted sidebar item: a Space's Entities and Access tabs
+  // belong to the Entities and Access screens, so the Space's own link is
+  // current only on its other tabs.
+  const navActive =
+    route.page === "space" && route.tab === "entities"
+      ? "entities"
+      : (route.page === "space" && route.tab === "access") ||
+          route.page === "people"
+        ? "access"
+        : route.page === "app"
+          ? "apps"
+          : route.page === "settings" && route.tab === "agents"
+            ? "agents"
+            : route.page;
   const spaceAccess =
     route.page === "space" && route.tab === "access" && detailReady;
   return (
@@ -631,18 +645,7 @@ export function TenantWorkspace({
           !tenant
         }
         nav={menu}
-        active={
-          route.page === "space" && route.tab === "entities"
-            ? "entities"
-            : (route.page === "space" && route.tab === "access") ||
-                route.page === "people"
-              ? "access"
-              : route.page === "app"
-                ? "apps"
-                : route.page === "settings" && route.tab === "agents"
-                  ? "agents"
-                  : route.page
-        }
+        active={navActive}
         navigate={go}
         section={tenantSection}
         context={tenantSwitcher}
@@ -668,7 +671,7 @@ export function TenantWorkspace({
                     </button>
                   }
                   items={places}
-                  active={route.page === "space" ? route.space : undefined}
+                  active={navActive === "space" ? route.space : undefined}
                   onSelect={(id) => {
                     go("space", { space: id });
                     close();

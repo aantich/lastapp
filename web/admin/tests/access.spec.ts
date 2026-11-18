@@ -135,6 +135,12 @@ test("Access opens the Space's access, with every role holder and inherited App 
       .getByRole("navigation", { name: "Console screens" })
       .getByRole("button", { name: "Access", exact: true }),
   ).toHaveAttribute("aria-current", "page");
+  // Access is the one current item: the Space's own link is not.
+  await expect(
+    page
+      .getByRole("complementary", { name: "Navigation" })
+      .locator("[aria-current=page]"),
+  ).toHaveCount(1);
 
   // Every holder counts, not just the first page of assignments.
   const matrix = page.getByRole("table", { name: "Who may do what to Deal" });
