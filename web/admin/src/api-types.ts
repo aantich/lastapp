@@ -50,8 +50,14 @@ export type PasswordPolicy = {
 };
 
 // internal/control/http.go: GET /v1/config (fields the console reads).
+// internal/delivery/policy.go: Policy. deployment_states lists a production
+// deployment's states in worker order (DeploymentSteps) and its failure state.
+export type DeploymentStates = { steps: string[]; failed: string };
 export type ConsoleConfig = {
-  development_policy: { max_release_microapps: number };
+  development_policy: {
+    max_release_microapps: number;
+    deployment_states: DeploymentStates;
+  };
   oidc_enabled: boolean;
   password_policy: PasswordPolicy;
   role_catalog: { id: string; code: string }[];

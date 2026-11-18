@@ -1,43 +1,60 @@
-import { Collection } from "../ui";
+import { FolderPlus } from "lucide-react";
+import {
+  Button,
+  Card,
+  Collection,
+  EmptyState,
+  Stack,
+  StatusBadge,
+} from "../ui";
 import { text } from "../api-types";
-import { status as badge } from "../console-forms";
 import { createSpace } from "./forms";
-import { nameColumn, statusColumn, type TenantScreen } from "./screen";
+import {
+  createdColumn,
+  nameColumn,
+  openAction,
+  statusColumn,
+  type TenantScreen,
+} from "./screen";
 
 // The Tenant's App list, with a first-Space prompt for a new Tenant.
 export function AppsPage({ t }: { t: TenantScreen }) {
   const { all, base, openApp, overview } = t;
   return (
-    <>
+    <Stack>
       {overview.spaces === 0 && all("space.manage") && (
-        <section className="panel first-space">
-          <div>
-            <h2>Create your first Space</h2>
-            <p>A Space gives your Apps a shared database.</p>
-          </div>
-          <button className="primary" onClick={() => void createSpace(t)}>
-            Create Space
-          </button>
-        </section>
+        <Card>
+          <EmptyState
+            icon={<FolderPlus size={28} aria-hidden />}
+            title="Create your first Space"
+            actions={
+              <Button variant="primary" onClick={() => void createSpace(t)}>
+                Create Space
+              </Button>
+            }
+          >
+            A Space gives your Apps a shared database.
+          </EmptyState>
+        </Card>
       )}
       <Collection
         key={base + "apps"}
         path={base + "/apps"}
+        caption="Apps"
         columns={[
           nameColumn,
           ["Space", (r) => text(r.space_name)],
+          ["Micro-apps", (r) => text(r.microapp_count)],
           statusColumn,
+          createdColumn,
         ]}
         empty="No Apps are available yet."
-        actions={(r) => (
-          <button className="text-button" onClick={() => openApp(r)}>
-            Open
-          </button>
-        )}
+        actions={openAction(openApp)}
       />
-    </>
+    </Stack>
   );
 }
+
 // The Tenant's Spaces.
 export function SpacesPage({ t }: { t: TenantScreen }) {
   const { base, openSpace } = t;
@@ -45,18 +62,16 @@ export function SpacesPage({ t }: { t: TenantScreen }) {
     <Collection
       key={base + "spaces"}
       path={base + "/spaces"}
+      caption="Spaces"
       columns={[
         nameColumn,
         ["Apps", (r) => text(r.app_count)],
-        ["Database", (r) => badge(r.database_state)],
+        ["Database", (r) => <StatusBadge state={r.database_state} />],
+        ["Layout", (r) => text(r.database_layout)],
         statusColumn,
       ]}
       empty="Create a Space to organize your Apps."
-      actions={(r) => (
-        <button className="text-button" onClick={() => openSpace(r)}>
-          Open
-        </button>
-      )}
+      actions={openAction(openSpace)}
     />
   );
 }

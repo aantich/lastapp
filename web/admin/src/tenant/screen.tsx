@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Field, Modal } from "../ui";
+import { Button, type Field, type Modal } from "../ui";
 import {
   text,
   type Item,
@@ -75,4 +75,15 @@ export const nameColumn: [string, (r: Item) => ReactNode] = [
   statusColumn: [string, (r: Item) => ReactNode] = [
     "Status",
     (r) => badge(r.state),
+  ],
+  createdColumn: [string, (r: Item) => ReactNode] = [
+    "Created",
+    (r) => new Date(text(r.created_at)).toLocaleDateString(),
   ];
+
+// The Open action of a list row (Apps, Spaces).
+export const openAction = (open: (row: Item) => void) => (row: Item) => (
+  <Button size="sm" variant="ghost" onClick={() => open(row)}>
+    Open
+  </Button>
+);

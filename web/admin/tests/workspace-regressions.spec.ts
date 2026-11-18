@@ -298,7 +298,7 @@ test("expired sessions return to login and signing out an expired session succee
   // session. Otherwise a delayed GET can correctly return to login before the
   // test reaches Sign out, leaving no mounted button to click.
   await expect(
-    page.locator(".list-panel .toolbar").getByText(/^\d+ records$/),
+    page.locator(".list-panel .toolbar").getByText(/^\d+ records?$/),
   ).toBeVisible();
   await menu(page);
   const expiredLogout = page.waitForResponse(

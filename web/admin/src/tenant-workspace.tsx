@@ -26,6 +26,7 @@ import { cachedRows, LiveRefresh, refreshQueries, useApiQuery } from "./query";
 import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
+import { agentGrantsPath } from "./actors";
 import {
   num,
   optText,
@@ -494,7 +495,10 @@ export function TenantWorkspace({
                 />
               )}
               {route.page === "activity" && (
-                <ActivityLog path={base + "/audit-events"} />
+                <ActivityLog
+                  path={base + "/audit-events"}
+                  grants={agentGrantsPath(tenant, all("authorization.manage"))}
+                />
               )}
               {route.page === "settings" && <TenantSettings t={t} />}
             </>

@@ -6,6 +6,7 @@
 export {
   Button,
   IconButton,
+  LinkButton,
   type ButtonProps,
   type ButtonVariant,
   type IconButtonProps,
@@ -13,6 +14,7 @@ export {
 export { StatusBadge, Badge } from "./status";
 export { statusTone, type Tone } from "./status-tone";
 export { cx, initials } from "./utils";
+export { Stack, Split, Inline } from "./layout";
 export {
   Card,
   CardHeader,
@@ -43,6 +45,15 @@ export {
 export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
+export {
+  FactList,
+  Disclosure,
+  CodeBlock,
+  PickList,
+  type Fact,
+  type PickItem,
+} from "./content";
+export { SegmentedControl, type Segment } from "./segmented";
 
 // Composites
 export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";

@@ -216,6 +216,10 @@ GET /v1/config -> 200
   .csrf_cookie string
   .development bool
   .development_policy object
+  .development_policy.deployment_states object
+  .development_policy.deployment_states.failed string
+  .development_policy.deployment_states.steps array
+  .development_policy.deployment_states.steps[] string
   .development_policy.max_app_builds number
   .development_policy.max_app_releases number
   .development_policy.max_owned_workspaces number

@@ -249,7 +249,13 @@ and system color modes. New console UI follows these rules:
     17 px face, indeterminate), `Switch` (role=switch), `RadioGroup`,
     `FormField`/`TextField`/`Textarea` (label, hint and error wired by id),
     `Stepper`, `Progress`, `Timeline`, `Avatar` (person, agent, system),
-    `Tooltip`, `Spinner`, `Skeleton`, `Kbd`.
+    `Tooltip`, `Spinner`, `Skeleton`, `Kbd`, `LinkButton` (an anchor with the
+    button look, for navigation), `FactList` (a record's labelled values;
+    term/definition pairs), `Disclosure` (details/summary), `CodeBlock`,
+    `PickList` (a record list beside the open record; pressed toggle rows),
+    `SegmentedControl` (a few views of one list; pressed toggle buttons) and
+    the layout parts `Stack`, `Inline` and `Split` (list | record, stacked
+    under 800 px).
   - Composites: `SidebarNav`/`SidebarFooter` and `useSidebarCollapse` (the
     68 px rail, remembered in the browser as `lastapp-sidebar`; ConsoleShell
     uses them), `ContextSwitcher` (Tenant/Space popover: filter combobox over a
@@ -260,8 +266,10 @@ and system color modes. New console UI follows these rules:
     top) and `RoleMatrix`.
   - Form controls and services: Select, ListboxPopup/`useListbox`
     (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput,
-    ConfirmDialog/ConfirmHost/`confirmAction`, FormModal, Collection,
-    ErrorBoundary, `useDialogFocus`.
+    ConfirmDialog/ConfirmHost/`confirmAction`, FormModal, Collection (server
+    search/paging; `header` slot, server filter `params` with their
+    `filters` controls, a `render` feed instead of the table, and `poll`
+    while rows are changing), ErrorBoundary, `useDialogFocus`.
 - **Shell.** `console-shell.tsx` composes the kit for both workspaces: the
   ink sidebar (`SidebarNav`, `SidebarFooter`, collapse rail, drawer under
   800 px), the top bar (the workspace's context switchers, the ⌘K search
@@ -279,13 +287,25 @@ and system color modes. New console UI follows these rules:
   the Tenant overview (counts, recent Apps, databases pending or failed), each
   recent App's `GET /v1/apps/{app}/deployment` where `release.manage` applies,
   `GET /v1/agent-access` (Tenant grants for `authorization.manage`, otherwise
-  the user's own) and `audit-events?limit=8` (agent actors from the audit
-  `agent_grant_id`). A card without a backing read is omitted, not estimated.
+  the user's own) and `audit-events?limit=8` (actors from the audit
+  `actor_kind`, agents named from their grant). A card without a backing read is omitted, not estimated.
 - **Feedback.** FormModal confirms a successful save with a success `toast`
   (from `Modal.success` or derived from the title); errors stay in the form.
-- **Not yet on the kit.** Screen contents (entity designer panels,
-  release/deploy timelines, access matrix, agent access, people) still
-  hand-write most buttons and headings; the U4 screen rewrites move them.
+- **Delivery screens.** Apps and Spaces lists, App/Space detail tabs
+  (micro-apps, settings), Space → Development, App → Releases and Activity are
+  built only from kit parts. Deployment progress derives from
+  `GET /v1/config` → `development_policy.deployment_states` (`deployment.ts`;
+  `delivery.DeploymentSteps`/`DeploymentFailed`, kept equal to the
+  `release_deployments` state constraint by `TestDeploymentStatesMatchSchema`):
+  the stepper, the polling and Home's attention cards read it. **Retry deploy**
+  is `POST /v1/releases/{id}/deploy` of the failed deployment's release. The
+  audit trail carries `actor_kind` (person, agent, system; classified once in
+  `roles.Audits`), filtered with `?actor=` and `?kind=` before search and
+  paging; `GET …/audit-kinds` lists the kinds a trail holds. `actors.ts`
+  names actors for Home and Activity.
+- **Not yet on the kit.** Entity designer panels, the access matrix, agent
+  access, people and the Platform screens still hand-write most buttons and
+  headings; U4b moves them.
 - **Stories.** Every kit component has stories
   (`src/ui/controls/*.stories.tsx`, grouped as Primitives, Composites and
   Controls) with realistic Northstar data;

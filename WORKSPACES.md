@@ -61,7 +61,22 @@ A console author uses **Space → Development → Create workspace**, then opens
 Apps and Releases. The Development tab appears on ordinary (non-workspace) Spaces
 for authors with `workspace.manage`; an App's Releases tab requires
 `release.manage`. Human-created workspaces belong to that human; a connected
-agent creates its own workspace. The human owner can inspect that agent's copy.
+agent creates its own workspace (marked **Agent workspace**). The human owner can
+inspect that agent's copy. The workspace list refreshes itself while a workspace
+is preparing; **Retry** re-runs a failed preparation and **Archive** asks for
+confirmation.
+
+An App's **Releases** tab is the ship flow. In a workspace App, **Ship this App**
+shows the way from the workspace to an uploaded build, a release and a
+production deployment, with **Get starter** and **Upload build folder**. The
+**Production deployment** card follows the deployment's real states, which the
+server publishes in `GET /v1/config` (`development_policy.deployment_states`:
+`queued → preparing → publishing → active`, or `failed`); the console polls
+while a deployment is in a running state. A failed deployment shows its stored
+error and **Retry deploy**, which starts a new deployment of the same release
+through the ordinary deploy operation (the same checks apply; there is no
+in-place retry of the failed job). Release history lists beside the open
+release, with its build, micro-app pins and captured Space backend.
 
 ## Isolation and ownership
 

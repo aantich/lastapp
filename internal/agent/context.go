@@ -14,6 +14,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // Target selects the scope of an agent tool call within the bound grant.
@@ -244,7 +245,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in ReadInput
 		}
 		return agentPage(s.Storage.AvailableTargets(ctx, op.AgentActor(ctx, p), res.Tenant, false, in.pageRequest()))
 	case "audit_event":
-		return agentPage(s.Authority.Audits(ctx, op.AgentActor(ctx, p), res.Tenant, in.pageRequest()))
+		return agentPage(s.Authority.Audits(ctx, op.AgentActor(ctx, p), res.Tenant, in.pageRequest(), roles.AuditFilter{}))
 	case "tenant":
 		if target.Kind != "platform" {
 			return nil, registry.Bad("Tenant inventory requires a platform connection.")

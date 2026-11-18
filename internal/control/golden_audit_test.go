@@ -126,4 +126,37 @@ func TestAuditAttributionGolden(t *testing.T) {
 	oc.want("PATCH", base+"/apps/"+app, registry.Row{"display_name": "CRM audited"}, 1, 200)
 	phase("console: human update after the agent's work")
 	compareGolden(t, "audit_attribution.golden.txt", []byte(out.String()))
+
+	// The console's activity filters: actor kind and resource type narrow the
+	// trail before paging, and the kinds list offers what the trail holds.
+	events := func(query string) []any {
+		t.Helper()
+		items, _ := oc.want("GET", base+"/audit-events?limit=200"+query, nil, 0, 200)["items"].([]any)
+		return items
+	}
+	kindsOf := func(items []any) map[string]int {
+		n := map[string]int{}
+		for _, v := range items {
+			n[registry.Str(v.(map[string]any)["actor_kind"])]++
+		}
+		return n
+	}
+	all := kindsOf(events(""))
+	if all["agent"] != 3 || all["person"] == 0 || all["system"] != 0 {
+		t.Fatalf("actor kinds %v", all)
+	}
+	for _, kind := range []string{"person", "agent", "system"} {
+		if got := kindsOf(events("&actor=" + kind)); got[kind] != all[kind] || len(got) > 1 {
+			t.Fatalf("actor=%s returned %v of %v", kind, got, all)
+		}
+	}
+	if got := events("&actor=agent&kind=microapp"); len(got) != 1 || registry.Str(got[0].(map[string]any)["action"]) != "microapp.created" {
+		t.Fatalf("agent micro-app events %v", got)
+	}
+	oc.want("GET", base+"/audit-events?actor=robot", nil, 0, 400)
+	kinds, _ := oc.want("GET", base+"/audit-kinds", nil, 0, 200)["items"].([]any)
+	if fmt.Sprint(kinds) != "[access_grant app apps entity microapp space tenant user]" {
+		t.Fatalf("audit kinds %v", kinds)
+	}
+	c.as(joe).want("GET", base+"/audit-kinds", nil, 0, 403)
 }
