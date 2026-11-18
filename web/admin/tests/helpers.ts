@@ -56,8 +56,11 @@ export async function menu(page: Page) {
     name: "Open navigation",
     exact: true,
   });
-  if (await drawer.isVisible()) await drawer.click();
   const trigger = accountMenu(page);
+  // Open the drawer only when the account menu is hidden in it; checking
+  // the trigger too avoids a stale drawer button right after a resize.
+  if ((await drawer.isVisible()) && !(await trigger.isVisible()))
+    await drawer.click();
   if ((await trigger.getAttribute("aria-expanded")) !== "true")
     await trigger.click();
   await expect(page.getByRole("menu")).toBeVisible();
