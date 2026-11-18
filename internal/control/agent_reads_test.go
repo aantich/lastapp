@@ -10,6 +10,7 @@ import (
 	"github.com/aantich/lastapp/internal/agent"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 )
 
 // The audit trail and the global user list check authority through
@@ -51,7 +52,7 @@ func TestAgentAuditAndUserReadsNarrowed(t *testing.T) {
 		return errors.As(e, &ae) && ae.Status == 404
 	}
 	audits := func(ctx context.Context, a op.Actor) error {
-		_, e := s.authority.Audits(ctx, a, tenant, op.PageRequest{})
+		_, e := s.authority.Audits(ctx, a, tenant, op.PageRequest{}, roles.AuditFilter{})
 		return e
 	}
 	users := func(ctx context.Context, a op.Actor) error {

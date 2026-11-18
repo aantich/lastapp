@@ -16,6 +16,7 @@ import (
 	"github.com/aantich/lastapp/internal/membership"
 	"github.com/aantich/lastapp/internal/op"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/roles"
 	admin "github.com/aantich/lastapp/web/admin"
 )
 
@@ -133,6 +134,8 @@ func (s *Server) Handler() http.Handler {
 	s.api("PATCH /v1/tenants/{tenant}/teams/{id}/members/{user}", s.updateGroupMember)
 	s.api("GET /v1/tenants/{tenant}/audit-events", s.audits)
 	s.api("GET /admin/v1/audit-events", s.audits)
+	s.api("GET /v1/tenants/{tenant}/audit-kinds", s.auditKinds)
+	s.api("GET /admin/v1/audit-kinds", s.auditKinds)
 	assets, _ := fs.Sub(admin.Files, "dist")
 	files := http.FileServer(http.FS(assets))
 	s.mux.HandleFunc("GET /console/", func(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +279,12 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 }
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(r.URL.Query()))
+	q := r.URL.Query()
+	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(q), roles.AuditFilter{Actor: q.Get("actor"), Kind: q.Get("kind")})
+	return httpapi.Reply(w, 200, v, e)
+}
+
+func (s *Server) auditKinds(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+	v, e := s.authority.AuditKinds(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"))
 	return httpapi.Reply(w, 200, v, e)
 }

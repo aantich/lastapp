@@ -507,7 +507,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	platform := rawFields(t, c.as(operator), "/admin/v1/overview")
 	sameRaw(t, s.DB, platform["database_states"], "SELECT state,COUNT(*) AS count FROM database_resources GROUP BY state")
 	sameRaw(t, s.DB, platform["recent_databases"], "SELECT d.id,d.tenant_id,d.database_name,d.state,d.last_error_message,t.display_name AS tenant_name FROM database_resources d JOIN tenants t ON t.id=d.tenant_id ORDER BY d.created_at DESC LIMIT 6")
-	audits, e := s.authority.Audits(ctx, admin, tenant, op.PageRequest{Limit: 200})
+	audits, e := s.authority.Audits(ctx, admin, tenant, op.PageRequest{Limit: 200}, roles.AuditFilter{})
 	if e != nil {
 		t.Fatal(e)
 	}

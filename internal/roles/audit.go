@@ -76,9 +76,10 @@ func AuditChangeAs(ctx context.Context, q registry.Queryer, a op.Actor, tenant, 
 	return op.AuditAs(ctx, q, a, tenant, action, kind, record, registry.Row{"before": before, "after": after})
 }
 
-// AuditEvent is an audit trail entry with its actor's name.
+// AuditEvent is an audit trail entry with its actor's name and kind.
 type AuditEvent struct {
 	Action       string             `json:"action"`
+	ActorKind    string             `json:"actor_kind"`
 	ActorName    string             `json:"actor_name"`
 	CreatedAt    time.Time          `json:"created_at"`
 	Details      registry.JSONValue `json:"details_json"`
@@ -90,23 +91,78 @@ type AuditEvent struct {
 }
 
 func (v *AuditEvent) ScanFields() []any {
-	return []any{&v.Action, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
+	return []any{&v.Action, &v.ActorKind, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
 }
 
-// Audits pages a Tenant's audit trail (tenant set) or the whole platform's.
-func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, page op.PageRequest) (op.Page[AuditEvent], error) {
+// Who acted, the one classification of an audit event's actor (op.AuditAs):
+// an agent acting for a person carries its grant in the details, the
+// background worker has no user, and anything else is a person.
+const (
+	ActorPerson = "person"
+	ActorAgent  = "agent"
+	ActorSystem = "system"
+)
+
+const auditActorKind = "CASE WHEN JSON_VALUE(a.details_json,'$.agent_grant_id') IS NOT NULL THEN '" + ActorAgent + "' WHEN a.actor_user_id IS NULL THEN '" + ActorSystem + "' ELSE '" + ActorPerson + "' END"
+
+// AuditFilter narrows an audit trail to one actor kind and/or one resource
+// type; empty fields do not filter.
+type AuditFilter struct{ Actor, Kind string }
+
+// auditScope authorizes reading a Tenant's audit trail (tenant set) or the
+// whole platform's and returns the matching predicate.
+func (v *Authority) auditScope(ctx context.Context, actor op.Actor, tenant string) (string, []any, error) {
 	action := "audit.read"
 	if tenant == "" {
 		action = "platform.admin"
 	}
 	if e := v.Run.Authorize(ctx, actor, action, access.Resource{Tenant: tenant}); e != nil {
+		return "", nil, e
+	}
+	if tenant == "" {
+		return "1=1", nil, nil
+	}
+	return "a.tenant_id=?", []any{tenant}, nil
+}
+
+// Audits pages a Tenant's audit trail (tenant set) or the whole platform's.
+// The filter applies before search and paging.
+func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, page op.PageRequest, filter AuditFilter) (op.Page[AuditEvent], error) {
+	where, args, e := v.auditScope(ctx, actor, tenant)
+	if e != nil {
 		return op.Page[AuditEvent]{}, e
 	}
-	args := []any{}
-	where := "1=1"
-	if tenant != "" {
-		where = "a.tenant_id=?"
-		args = append(args, tenant)
+	switch filter.Actor {
+	case "":
+	case ActorPerson, ActorAgent, ActorSystem:
+		where += " AND " + auditActorKind + "=?"
+		args = append(args, filter.Actor)
+	default:
+		return op.Page[AuditEvent]{}, registry.Bad("Actor must be person, agent or system.")
 	}
-	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+	if filter.Kind != "" {
+		if len(filter.Kind) > 32 {
+			return op.Page[AuditEvent]{}, registry.Bad("Kind must be at most 32 bytes.")
+		}
+		where += " AND a.resource_type=?"
+		args = append(args, filter.Kind)
+	}
+	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,"+auditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+}
+
+// maxAuditKinds bounds the resource types an audit filter offers.
+const maxAuditKinds = 100
+
+// AuditKinds lists the resource types present in a Tenant's audit trail (or
+// the platform's), the choices of AuditFilter.Kind.
+func (v *Authority) AuditKinds(ctx context.Context, actor op.Actor, tenant string) (registry.Row, error) {
+	where, args, e := v.auditScope(ctx, actor, tenant)
+	if e != nil {
+		return nil, e
+	}
+	kinds, e := registry.ScanStrings(ctx, v.DB, "SELECT DISTINCT a.resource_type FROM audit_events a WHERE "+where+" ORDER BY a.resource_type LIMIT "+fmt.Sprint(maxAuditKinds), args...)
+	if kinds == nil {
+		kinds = []string{}
+	}
+	return registry.Row{"items": kinds}, e
 }
