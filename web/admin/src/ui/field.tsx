@@ -49,13 +49,14 @@ export function FormField({
       .join(" ") || undefined;
   return (
     <div className={cx("ui-field", className)}>
-      <label
-        className={cx("ui-field-label", hideLabel && "ui-sr-only")}
-        htmlFor={id}
-      >
-        {label}
-        {required && <b aria-hidden> *</b>}
-      </label>
+      {/* The required mark sits beside the label, not in it, so the label
+          text (and a test's getByLabel) is exactly the field's name. */}
+      <span className={cx("ui-field-label-row", hideLabel && "ui-sr-only")}>
+        <label className="ui-field-label" htmlFor={id}>
+          {label}
+        </label>
+        {required && <b aria-hidden>*</b>}
+      </span>
       {cloneElement(children, {
         id,
         "aria-describedby": describedBy,

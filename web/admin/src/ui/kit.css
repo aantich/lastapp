@@ -762,7 +762,13 @@ input.ui-radio-input:disabled {
   font-weight: 500;
   color: var(--ui-text);
 }
-.ui-field-label > b {
+.ui-field-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+}
+.ui-field-label-row > b {
   color: var(--ui-danger);
   font-weight: 400;
 }
