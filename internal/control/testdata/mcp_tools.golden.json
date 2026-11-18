@@ -1978,7 +1978,7 @@
       "read_only": true
     },
     {
-      "description": "Activate the exact draft expected_revision, including schema, business rules and ACLs. This is powerful authority and may change data access. Requires entities.publish and ordinary user publish authority. A queued response is not completion: poll publication with lastapp_get. Request keys prevent duplicate jobs; an already executing bounded DDL operation may finish after revocation.",
+      "description": "Activate the exact draft expected_revision, including schema, business rules and ACLs. This is powerful authority and may change data access. Requires entities.publish and ordinary user publish authority. A draft identical to the active version is rejected (conflict). A queued response is not completion: poll publication with lastapp_get. Request keys prevent duplicate jobs; an already executing bounded DDL operation may finish after revocation.",
       "input_schema": {
         "type": "object",
         "properties": {
