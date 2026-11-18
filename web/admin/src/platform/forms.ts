@@ -82,6 +82,7 @@ export function addToTenant(p: PlatformScreen, user: Item) {
   setModal({
     title: "Add to Tenant",
     submit: "Add to Tenant",
+    success: `${user.display_name} added to the Tenant.`,
     description: `Add ${user.display_name} as an ordinary Tenant member.`,
     initial: {},
     fields: [

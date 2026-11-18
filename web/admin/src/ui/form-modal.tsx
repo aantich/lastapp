@@ -6,6 +6,7 @@ import { NumberInput } from "./number-input";
 import { Dialog, DialogFooter } from "./dialog";
 import { Button } from "./button";
 import { Alert } from "./alert";
+import { toast } from "./toast-store";
 import { Checkbox } from "./checkbox";
 import { NewPasswordInput } from "./new-password-input";
 import { generatePassword, usePasswordPolicy } from "../console-config";
@@ -38,7 +39,19 @@ export type Modal = {
   initial: Item;
   save: (v: Item) => Promise<unknown>;
   submit?: string;
+  // The confirmation toast after a save; by default derived from the title
+  // ("Create App" → "App created", "Edit team" → "Team saved").
+  success?: string;
 };
+
+function savedMessage(title: string) {
+  const [verb, ...rest] = title.split(" ");
+  const subject = rest.join(" ");
+  const done = { Create: "created", Add: "added", Edit: "saved" }[verb];
+  return done && subject
+    ? `${subject[0].toUpperCase()}${subject.slice(1)} ${done}.`
+    : "Saved.";
+}
 export function FormModal({
   modal,
   close,
@@ -55,7 +68,10 @@ export function FormModal({
   const [error, setError] = useState("");
   const [visible, setVisible] = useState<string[]>([]);
   const { busy, run } = useAction(modal, {
-    onSuccess: done,
+    onSuccess: () => {
+      toast(modal.success || savedMessage(modal.title), { tone: "success" });
+      done();
+    },
     onError: setError,
   });
   function submit(e: React.FormEvent) {
