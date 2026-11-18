@@ -666,46 +666,63 @@ summary {
   pointer-events: none;
   color: var(--ui-muted);
 }
+/* Floating, portalled list popup (ListboxPopup places it: left, top, width
+   and max-height); the option list scrolls inside it. */
 .combobox-popup {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 60;
-  display: block;
+  position: fixed;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
   padding: 5px;
   background: var(--ui-surface);
+  color: var(--ui-text);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
-  box-shadow: 0 8px 24px #0002;
+  box-shadow: var(--ui-shadow-pop);
+  font: 400 13px/normal var(--ui-font);
+  text-align: left;
   max-height: 270px;
-  overflow: auto;
+  overflow: hidden;
 }
 .combobox-popup [role="listbox"] {
   display: grid;
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
 }
 .combobox-popup [role="option"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: left;
-  display: block;
   background: transparent;
   border: 0;
+  border-radius: 6px;
   padding: 9px;
   color: var(--ui-text);
   font: inherit;
   font-size: 13px;
+  cursor: pointer;
+}
+.combobox-popup [role="option"] > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.combobox-popup [role="option"] small {
+  margin: 0;
+  color: var(--ui-muted);
+  font-weight: 400;
+}
+.combobox-popup [role="option"] > svg {
+  flex-shrink: 0;
+  color: var(--ui-primary);
 }
 .combobox-popup [role="option"].focused,
 .combobox-popup [role="option"]:hover {
   background: var(--ui-hover);
-}
-.combobox-popup.above {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-.combobox-popup [role="option"] {
-  cursor: pointer;
 }
 .combobox-popup [role="option"][aria-selected="true"] {
   font-weight: 600;

@@ -19,7 +19,7 @@ import { ConsoleStory } from "../storybook/console-story";
 import { policy } from "../storybook/fixtures";
 
 // The console shell built from the kit: the ink sidebar (the Tenant
-// switcher as section label, SidebarNav with aria-current and rail tooltips,
+// switcher under the brand row, SidebarNav with aria-current and rail tooltips,
 // the account menu, the persisted collapse), the top bar with breadcrumbs and
 // search, the ⌘K command palette (Navigate and Account commands come from the
 // same nav and menu items), and PageHeader.
@@ -57,15 +57,16 @@ function Shell() {
       nav={nav}
       active={active}
       navigate={setActive}
-      section={
+      context={(rail) => (
         <ContextSwitcher
           kind="Tenant"
-          variant="section"
+          variant="sidebar"
+          rail={rail}
           value={tenant}
           options={tenants}
           onChange={setTenant}
         />
-      }
+      )}
       breadcrumbs={[
         { label: "Northstar", onClick: () => setActive("overview") },
         { label: nav.find((n) => n.id === active)?.label || "" },

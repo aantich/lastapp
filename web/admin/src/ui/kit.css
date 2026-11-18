@@ -1688,19 +1688,10 @@ textarea.ui-input {
   flex-shrink: 0;
   color: var(--ui-muted);
 }
-.ui-context-popup {
-  position: absolute;
-  z-index: 60;
-  top: calc(100% + 6px);
-  left: 0;
-  width: max(100%, 260px);
-  max-width: calc(100vw - 32px);
+/* The switcher's popup is the floating ListboxPopup with a search field. */
+.combobox-popup.ui-context-popup {
   padding: 6px;
-  border: 1px solid var(--ui-border);
   border-radius: 12px;
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  box-shadow: var(--ui-shadow-pop);
 }
 .ui-context-filter {
   padding: 4px 8px 8px;
@@ -3274,19 +3265,59 @@ button.ui-section-trigger[aria-expanded="true"],
 button.ui-section-trigger[aria-current="page"] {
   color: var(--ui-sidebar-active-text);
 }
-/* The Tenant switcher reads as a control: a hover/open surface around its
-   name and chevron. */
-.ui-section-context > button.ui-section-trigger {
-  margin: -4px 0;
-  padding-block: 4px;
-}
-.ui-section-context > button.ui-section-trigger:hover,
-.ui-section-context > button.ui-section-trigger[aria-expanded="true"] {
+/* The sidebar's Tenant switcher under the brand row: a bordered control with
+   the initials tile, caption, name and chevron (the tile alone on the rail). */
+.ui-switcher-trigger {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px 7px 7px;
+  border: 1px solid var(--ui-sidebar-field-border);
+  border-radius: var(--ui-radius);
   background: var(--ui-sidebar-field);
+  color: var(--ui-sidebar-active-text);
+  text-align: left;
 }
-.ui-section-context .ui-context-popup {
-  left: 0;
-  width: 260px;
+.ui-switcher-trigger:hover,
+.ui-switcher-trigger[aria-expanded="true"] {
+  border-color: var(--ui-sidebar-kbd-border);
+  background: var(--ui-sidebar-active);
+}
+.ui-switcher-tile {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--ui-sidebar-field-border);
+  color: var(--ui-sidebar-active-text);
+  font: 600 12px var(--ui-font-heading);
+  letter-spacing: 0.02em;
+}
+.ui-switcher-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.ui-switcher-copy small {
+  margin: 0;
+  color: var(--ui-sidebar-label);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 14px;
+}
+.ui-switcher-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 17px;
+}
+.ui-switcher-trigger > svg {
+  flex-shrink: 0;
+  color: var(--ui-sidebar-label);
 }
 .ui-nav-item {
   position: relative;
@@ -3435,6 +3466,27 @@ button.ui-section-trigger[aria-current="page"] {
 }
 .sidebar-collapsed .ui-sidebar-head .ui-tooltip-anchor {
   margin-left: 0;
+}
+.sidebar-collapsed .ui-switcher {
+  width: auto;
+}
+.sidebar-collapsed .ui-switcher-trigger {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 10px;
+}
+.sidebar-collapsed .ui-switcher-copy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.sidebar-collapsed .ui-switcher-trigger > svg {
+  display: none;
 }
 .sidebar-collapsed .ui-sidebar-toggle {
   width: 40px;

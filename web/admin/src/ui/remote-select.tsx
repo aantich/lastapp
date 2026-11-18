@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { text, type Item, type Page } from "../api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
@@ -172,6 +172,7 @@ export function RemoteListStatus({
   remote,
   count,
   reveal,
+  empty = "No matches",
 }: {
   remote: Pick<
     RemoteOptions,
@@ -179,12 +180,13 @@ export function RemoteListStatus({
   >;
   count: number;
   reveal?: (index: number) => void;
+  empty?: ReactNode;
 }) {
   const { busy, loadingMore, more, error, loadMore } = remote;
   return (
     <>
       {busy && <small>Searching…</small>}
-      {!busy && !count && !error && <small>No matches</small>}
+      {!busy && !count && !error && <small>{empty}</small>}
       {error && <small role="alert">{error}</small>}
       {more && (
         <button
