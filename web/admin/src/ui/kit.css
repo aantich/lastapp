@@ -1456,7 +1456,7 @@ textarea.ui-input {
 .ui-pick-item > .badge {
   flex-shrink: 0;
 }
-.ui-pick-item > span {
+.ui-pick-item > span:first-child {
   display: grid;
   gap: 2px;
   min-width: 0;
