@@ -22,7 +22,7 @@ import {
   DialogFooter,
   EmptyState,
   FactList,
-  Fieldset,
+  FieldGroup,
   FormField,
   IconButton,
   Inline,
@@ -221,7 +221,8 @@ function AgentGrantForm({
                 )}
             </Columns>
           )}
-          <Fieldset
+          <FieldGroup
+            framed
             legend="What may this agent do?"
             description="Presets only tick boxes; the agent gets exactly the checked permissions."
           >
@@ -259,9 +260,10 @@ function AgentGrantForm({
                 }
               />
             ))}
-          </Fieldset>
+          </FieldGroup>
           {provisioning && (
-            <Fieldset
+            <FieldGroup
+              framed
               legend="Provisioning limits"
               description="Only these targets may receive new databases. The count includes allocations made during Space creation."
             >
@@ -335,9 +337,10 @@ function AgentGrantForm({
                   }
                 />
               </FormField>
-            </Fieldset>
+            </FieldGroup>
           )}
-          <Fieldset
+          <FieldGroup
+            framed
             legend="When does access end?"
             description="You can revoke access at any time. Closing the browser or signing out does not revoke this connection."
           >
@@ -367,7 +370,7 @@ function AgentGrantForm({
                 }}
               />
             </FormField>
-          </Fieldset>
+          </FieldGroup>
           {error && <Alert>{error}</Alert>}
         </Stack>
       </Body>

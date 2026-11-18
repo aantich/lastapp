@@ -35,7 +35,6 @@ export { Toaster } from "./toast";
 export { toast, dismissToast, type ToastOptions } from "./toast-store";
 export { Checkbox, Switch, RadioGroup, type RadioOption } from "./checkbox";
 export { FormField, TextField, Textarea } from "./field";
-export { Fieldset } from "./fieldset";
 export { FieldGroup } from "./field-group";
 export {
   Stepper,
