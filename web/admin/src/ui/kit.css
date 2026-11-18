@@ -1996,3 +1996,24 @@ a.ui-link-button {
   gap: 18px;
   font-size: 13px;
 }
+
+/* Context label: the top bar's fixed working context (one Tenant) */
+.ui-context-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  padding: 0 4px;
+}
+.ui-context-label > small {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ui-context-label > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}

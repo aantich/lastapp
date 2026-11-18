@@ -61,6 +61,7 @@ export { Section, Lead } from "./section";
 
 // Composites
 export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
+export { AppShell, QuickSearch, AccountMenu, ContextLabel } from "./app-shell";
 export { useSidebarCollapse, useCommandPaletteShortcut } from "./hooks";
 export { ContextSwitcher, type ContextOption } from "./context-switcher";
 export { CommandPalette, type Command } from "./command-palette";
