@@ -85,7 +85,7 @@ func (s *Server) Routes(mux *http.ServeMux, console httpapi.Session) {
 	mux.HandleFunc("POST /oauth/token", s.Token)
 	mux.HandleFunc("POST /oauth/revoke", s.agentRevokeToken)
 	mux.HandleFunc("GET /v1/agent-access/config", console.Handle(func(w http.ResponseWriter, r *http.Request, p access.Principal) error {
-		httpapi.Send(w, 200, registry.Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": access.AgentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
+		httpapi.Send(w, 200, registry.Row{"mcp_url": s.mcpURL(), "permissions": agentPermissionCatalog(), "presets": agentPresets, "default_permissions": agentDefaultPermissions, "default_limits": access.AgentLimits{TargetIDs: []string{}, MaxDatabases: 1}, "default_days": agentGrantDays, "max_days": agentMaxGrantDays, "day_choices": agentGrantDayChoices, "max_connections": agentMaxConnections, "max_databases": agentMaxDatabases, "max_targets": agentMaxTargets, "access_token_seconds": int(agentAccessLifetime.Seconds()), "docs": agentGuides})
 		return nil
 	}))
 	mux.HandleFunc("GET /v1/agent-access", console.Handle(s.agentGrantList))
