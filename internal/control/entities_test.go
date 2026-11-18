@@ -45,6 +45,22 @@ func TestEntityRuntime(t *testing.T) {
 	}
 	created := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": d}, 0, 200)
 	eid := registry.Str(created["id"])
+	// The Space list flags a draft that differs from the active version
+	// (or has none), without loading each definition.
+	draftFlag := func() any {
+		t.Helper()
+		for _, v := range oc.want("GET", "/v1/spaces/"+space+"/entities", nil, 0, 200)["items"].([]any) {
+			if item := v.(map[string]any); item["id"] == eid {
+				return item["has_draft_changes"]
+			}
+		}
+		t.Fatal("entity missing from its Space list")
+		return nil
+	}
+	if draftFlag() != true {
+		t.Fatal("an unpublished entity has no draft flag")
+	}
+	c.want("GET", "/v1/spaces/"+space+"/entities", nil, 0, 403)
 	c.want("GET", "/v1/entities/"+eid, nil, 0, 403)
 	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
 	// A failed workspace read is not "no workspace": the job fails closed and
@@ -61,6 +77,9 @@ func TestEntityRuntime(t *testing.T) {
 	published := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
 	if published["active_version_id"] == nil {
 		t.Fatal(published["publications"])
+	}
+	if draftFlag() != false {
+		t.Fatal("a draft equal to its active version is flagged as changed")
 	}
 	appInfo := oc.want("GET", base+"/apps/"+app, nil, 0, 200)
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:8789", Inherit: true}, registry.Integer(appInfo["revision"]), 200)
@@ -296,7 +315,15 @@ func TestEntityRuntime(t *testing.T) {
 			t.Fatal(latest["publications"])
 		}
 	}
+	current := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
+	oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": d}, registry.Integer(current["revision"]), 200)
+	if draftFlag() != true {
+		t.Fatal("a saved draft that differs from the active version is not flagged")
+	}
 	publish()
+	if draftFlag() != false {
+		t.Fatal("the draft flag stayed after publishing the draft")
+	}
 	pid := entity.PermissionID(eid, "shared_read")
 	grant := registry.Row{"permission_id": pid, "recipient_kind": "user", "recipient_id": outsider}
 	request(bearer, "POST", "/entities/deal/records/"+record+"/shares", grant, 0, 200)

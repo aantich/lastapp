@@ -111,7 +111,7 @@ API key, while management `{entity}` is its registry UUID.
 | Endpoint group | Purpose |
 | --- | --- |
 | `GET /v1/entity-capabilities` | Authoritative types, operators, limits and templates |
-| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions |
+| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions; each listed item carries `has_draft_changes` (no active version, or the saved draft's definition hash differs from the active version's) |
 | `GET/PATCH /v1/entities/{entity}` | Inspect/replace a draft or change lifecycle |
 | `POST /v1/entities/{entity}/validate` and `/test` | Shared validator and synthetic evaluator |
 | `POST /v1/entities/{entity}/publications`; `GET .../publications/{version}` | Queue and inspect exact-version publication |

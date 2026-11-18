@@ -388,7 +388,19 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, entityPage["items"], "SELECT id,entity_key,label,state,revision,active_version_id,pending_version_id FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", reviewSpace, tenant)
+	// has_draft_changes is computed (draft hash against the active version's
+	// hash), so it is checked here and the stored columns are compared below.
+	var listed []map[string]any
+	if e = json.Unmarshal([]byte(mustJSON(t, entityPage["items"])), &listed); e != nil {
+		t.Fatal(e)
+	}
+	for _, item := range listed {
+		if item["has_draft_changes"] != (item["id"] == draft.ID) {
+			t.Fatal("entity draft flag", item)
+		}
+		delete(item, "has_draft_changes")
+	}
+	sameJSON(t, s.DB, listed, "SELECT id,entity_key,label,state,revision,active_version_id,pending_version_id FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", reviewSpace, tenant)
 	for _, key := range []string{entityID, draft.ID} {
 		detail, e := s.authoring.DetailOf(ctx, admin, key)
 		if e != nil {
