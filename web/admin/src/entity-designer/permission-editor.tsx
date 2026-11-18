@@ -1,16 +1,27 @@
 import { useState } from "react";
-import { RemoteSelect, Select } from "../ui";
+import {
+  Checkbox,
+  Columns,
+  FieldGroup,
+  FormField,
+  RemoteSelect,
+  Select,
+  TextField,
+} from "../ui";
 import { items, text, type EntityCatalog, type Item } from "../api-types";
 import { Expression, FieldChoices } from "./expression";
+import { EditorForm } from "./editor-dialog";
 import {
   inputValue,
   isExpression,
   keyOf,
   optionalText,
+  relationshipLabels,
   strings,
 } from "./shared";
 
-// Adds or edits one access rule: who, which operation, which fields and when.
+// Adds or edits one permission path: who, which operation, and the fields
+// and records it reaches. Fields and their record condition are one unit.
 export function PermissionEditor({
   value,
   definition,
@@ -28,86 +39,65 @@ export function PermissionEditor({
 }) {
   const [p, set] = useState({ ...value });
   const patch = (v: Item) => set({ ...p, ...v });
-  const fields = items(definition.fields),
-    roleIDs = strings(p.roles);
+  const fields = items(definition.fields);
+  const withFields = ["read", "create", "update"].includes(text(p.operation));
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(p);
-      }}
-    >
-      <label className="field">
-        <span>Name</span>
-        <input
-          autoFocus
-          required
-          value={inputValue(p.label)}
-          onChange={(e) =>
-            patch({
-              label: e.target.value,
-              ...(!value.key ? { key: keyOf(e.target.value) } : {}),
-            })
-          }
-        />
-      </label>
-      <label className="field">
-        <span>Who</span>
-        <Select
-          value={p.roles ? "roles" : optionalText(p.relationship)}
-          onChange={(who) =>
-            patch(
-              who === "roles"
-                ? { roles: [], relationship: undefined }
-                : { roles: undefined, relationship: who },
-            )
-          }
-          options={[
-            { value: "roles", label: "Space roles" },
-            ...catalog.relationships.map((t: string) => ({
-              value: t,
+    <EditorForm submitLabel="Save access rule" submit={() => save(p)}>
+      <TextField
+        label="Name"
+        required
+        data-autofocus
+        value={inputValue(p.label)}
+        onChange={(e) =>
+          patch({
+            label: e.target.value,
+            ...(!value.key ? { key: keyOf(e.target.value) } : {}),
+          })
+        }
+      />
+      <Columns min={220} gap="md">
+        <FormField label="Who">
+          <Select
+            value={p.roles ? "roles" : optionalText(p.relationship)}
+            onChange={(who) =>
+              patch(
+                who === "roles"
+                  ? { roles: [], relationship: undefined }
+                  : { roles: undefined, relationship: who },
+              )
+            }
+            options={[
+              { value: "roles", label: "Space roles" },
+              ...catalog.relationships.map((t: string) => ({
+                value: t,
+                label: relationshipLabels[t] || t,
+              })),
+            ]}
+          />
+        </FormField>
+        <FormField label="Can">
+          <Select
+            value={optionalText(p.operation)}
+            onChange={(operation) => patch({ operation })}
+            options={catalog.operations.map((op: string) => ({
+              value: op,
               label:
-                (
-                  {
-                    member: "All active Tenant members",
-                    owner: "Record owner",
-                    team_member: "Members of record's team",
-                    team_reviewer: "Reviewers of record's team",
-                    team_admin: "Admins of record's team",
-                    user: "Specific user",
-                    team: "Specific team",
-                  } as Record<string, string>
-                )[t] || t,
-            })),
-          ]}
-        />
-      </label>
+                op === "acl.manage" ? "Manage record access (advanced)" : op,
+            }))}
+          />
+        </FormField>
+      </Columns>
       {!!p.roles && (
-        <div className="field-choices">
-          {roles.map((role) => (
-            <label key={text(role.id)}>
-              <input
-                type="checkbox"
-                checked={roleIDs.includes(text(role.id))}
-                onChange={(e) =>
-                  patch({
-                    roles: e.target.checked
-                      ? [...roleIDs, role.id]
-                      : roleIDs.filter((v) => v !== role.id),
-                  })
-                }
-              />
-              {text(role.display_name)}
-            </label>
-          ))}
-          {!roles.length && (
-            <p>Create a business role in Space → Access → Manage roles.</p>
-          )}
-        </div>
+        <FieldChoices
+          legend="Which Space roles"
+          fields={roles.map((r) => ({ key: r.id, label: r.display_name }))}
+          value={strings(p.roles)}
+          onChange={(v) => patch({ roles: v })}
+          empty="Create a business role in Space → Access → Manage roles."
+        />
       )}
       {["user", "team"].includes(text(p.relationship)) && (
-        <label className="field">
-          <span>Recipient</span>
+        <FormField label="Recipient">
           <RemoteSelect
             initial={[]}
             path={
@@ -119,38 +109,34 @@ export function PermissionEditor({
             value={text(p.subject)}
             onChange={(v) => patch({ subject: v })}
           />
-        </label>
+        </FormField>
       )}
-      <label className="field">
-        <span>Can</span>
-        <Select
-          value={optionalText(p.operation)}
-          onChange={(operation) => patch({ operation })}
-          options={catalog.operations.map((op: string) => ({
-            value: op,
-            label: op === "acl.manage" ? "Manage record access (advanced)" : op,
-          }))}
-        />
-      </label>
-      {["read", "create", "update"].includes(text(p.operation)) && (
-        <>
-          <p>Which fields</p>
+      <FieldGroup
+        legend="Path"
+        description={
+          withFields
+            ? "The fields this rule reaches and the records they are on. New fields never join this list automatically."
+            : "The records this rule reaches."
+        }
+        framed
+      >
+        {withFields && (
           <FieldChoices
+            legend="Which fields"
             fields={fields.filter(
               (f) => p.operation === "read" || !f.calculation,
             )}
             value={strings(p.fields)}
             onChange={(v) => patch({ fields: v })}
+            empty="Add fields to this entity first."
           />
-        </>
-      )}
-      <label>
-        <input
-          type="checkbox"
+        )}
+        <Checkbox
+          label="Limit to records matching a condition"
           checked={!!p.when}
-          onChange={(e) =>
+          onChange={(on) =>
             patch({
-              when: e.target.checked
+              when: on
                 ? {
                     op: "eq",
                     args: [{ field: fields[0]?.key || "" }, { literal: "" }],
@@ -158,26 +144,23 @@ export function PermissionEditor({
                 : undefined,
             })
           }
-        />{" "}
-        Limit to records matching a condition
-      </label>
-      {isExpression(p.when) && (
-        <Expression
-          value={p.when}
-          onChange={(v) => patch({ when: v })}
-          fields={fields}
-          catalog={catalog}
         />
-      )}
-      {p.operation === "update" && (
-        <>
-          <label>
-            <input
-              type="checkbox"
+        {isExpression(p.when) && (
+          <Expression
+            value={p.when}
+            onChange={(v) => patch({ when: v })}
+            fields={fields}
+            catalog={catalog}
+          />
+        )}
+        {p.operation === "update" && (
+          <>
+            <Checkbox
+              label="Authorize a particular change"
               checked={!!p.change_when}
-              onChange={(e) =>
+              onChange={(on) =>
                 patch({
-                  change_when: e.target.checked
+                  change_when: on
                     ? {
                         op: "eq",
                         args: [
@@ -188,38 +171,36 @@ export function PermissionEditor({
                     : undefined,
                 })
               }
-            />{" "}
-            Authorize a particular change
-          </label>
-          {isExpression(p.change_when) && (
-            <Expression
-              value={p.change_when}
-              onChange={(v) => patch({ change_when: v })}
-              fields={fields}
-              catalog={catalog}
-              transition
             />
-          )}
-        </>
-      )}
+            {isExpression(p.change_when) && (
+              <Expression
+                value={p.change_when}
+                onChange={(v) => patch({ change_when: v })}
+                fields={fields}
+                catalog={catalog}
+                label="Change"
+                transition
+              />
+            )}
+          </>
+        )}
+      </FieldGroup>
       {p.operation === "acl.manage" && (
-        <>
-          <p>Permissions this user can share</p>
-          <FieldChoices
-            fields={items(definition.permissions)
-              .filter(
-                (v) =>
-                  Array.isArray(v.roles) &&
-                  v.roles.length > 0 &&
-                  !["create", "acl.manage"].includes(text(v.operation)),
-              )
-              .map((v) => ({ key: v.key, label: v.label }))}
-            value={strings(p.delegable)}
-            onChange={(v) => patch({ delegable: v })}
-          />
-        </>
+        <FieldChoices
+          legend="Permissions this user can share"
+          fields={items(definition.permissions)
+            .filter(
+              (v) =>
+                Array.isArray(v.roles) &&
+                v.roles.length > 0 &&
+                !["create", "acl.manage"].includes(text(v.operation)),
+            )
+            .map((v) => ({ key: v.key, label: v.label }))}
+          value={strings(p.delegable)}
+          onChange={(v) => patch({ delegable: v })}
+          empty="Only role-based read, update or delete rules can be shared."
+        />
       )}
-      <button className="primary">Save access rule</button>
-    </form>
+    </EditorForm>
   );
 }

@@ -2,7 +2,12 @@ import { useState } from "react";
 import { api } from "../api";
 import { useApiQuery } from "../query";
 import type { LaunchCode, LaunchInfo } from "../api-types";
-import { Alert } from "../ui";
+import { Alert, AuthLayout, Button, FactList, Inline, Stack } from "../ui";
+
+// The approval popup a browser App opens to connect (PKCE launch code): it
+// names the App, its origin and Space, and posts the one-time code back to
+// the opener's origin. It is a standalone card (AuthLayout) outside the
+// console shell.
 export function AppLaunch() {
   const [error, setError] = useState(""),
     [done, setDone] = useState(false);
@@ -16,54 +21,58 @@ export function AppLaunch() {
     info = launchQuery.data || null,
     shownError = error || launchQuery.error?.message || "";
   return (
-    <main className="password-welcome">
-      <section className="welcome-card">
-        <h1>{info ? "Connect " + info.name : "Open Lastapp connection"}</h1>
+    <AuthLayout
+      title={info ? "Connect " + info.name : "Open Lastapp connection"}
+      description="Authorize this App to use your current Space permissions within its approved access ceiling."
+    >
+      <Stack>
         {info && (
-          <p>
-            <strong>{info.origin}</strong>
-            <br />
-            Space: {info.space}
-          </p>
+          <FactList
+            facts={[
+              { label: "App origin", value: info.origin, mono: true },
+              { label: "Space", value: info.space },
+            ]}
+          />
         )}
-        <p>
-          Authorize this App to use your current Space permissions within its
-          approved access ceiling.
-        </p>
         {shownError && <Alert as="p">{shownError}</Alert>}
         {done ? (
-          <p>Connection sent to the App. You can close this window.</p>
+          <Alert tone="success">
+            Connection sent to the App. You can close this window.
+          </Alert>
         ) : (
-          <button
-            className="primary"
-            disabled={!info}
-            onClick={() => {
-              if (!window.opener) {
-                setError("Open this connection from your App.");
-                return;
-              }
-              api<LaunchCode>(
-                "/v1/apps/" + encodeURIComponent(app) + "/launch",
-                "POST",
-                {
-                  nonce,
-                  challenge,
-                },
-              )
-                .then((v) => {
-                  window.opener.postMessage(
-                    { type: "lastapp:launch", code: v.code, nonce: v.nonce },
-                    v.origin,
-                  );
-                  setDone(true);
-                })
-                .catch((e) => setError(e.message));
-            }}
-          >
-            Connect App
-          </button>
+          <Inline>
+            <Button
+              variant="primary"
+              disabled={!info}
+              onClick={() => {
+                if (!window.opener) {
+                  setError("Open this connection from your App.");
+                  return;
+                }
+                api<LaunchCode>(
+                  "/v1/apps/" + encodeURIComponent(app) + "/launch",
+                  "POST",
+                  { nonce, challenge },
+                )
+                  .then((v) => {
+                    window.opener.postMessage(
+                      {
+                        type: "lastapp:launch",
+                        code: v.code,
+                        nonce: v.nonce,
+                      },
+                      v.origin,
+                    );
+                    setDone(true);
+                  })
+                  .catch((e) => setError(e.message));
+              }}
+            >
+              Connect App
+            </Button>
+          </Inline>
         )}
-      </section>
-    </main>
+      </Stack>
+    </AuthLayout>
   );
 }

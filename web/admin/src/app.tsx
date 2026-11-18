@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle } from "lucide-react";
 import { api, resetSessionRequests, sessionExpiredEvent } from "./api";
 import { useAppearance } from "./appearance";
 import { LoginScreen, PasswordScreen } from "./login";
@@ -11,7 +10,7 @@ import { AppLaunch } from "./entity-designer/launch";
 import { AgentConsent } from "./agent-access";
 import { consoleURL, isConsolePath } from "./console-url";
 import { queryClient } from "./query";
-import { Alert } from "./ui";
+import { Alert, LoadingScreen } from "./ui";
 
 // The console's session gate: loads the signed-in account, then shows sign-in,
 // a required password change, the App launch or agent consent screen, or the
@@ -79,13 +78,7 @@ export function App() {
         else setError(e.message);
       });
   }
-  if (auth === "loading")
-    return (
-      <div className="boot">
-        <LoaderCircle className="spin" />
-        Opening Lastapp…
-      </div>
-    );
+  if (auth === "loading") return <LoadingScreen label="Opening Lastapp…" />;
   if (auth === "out")
     return (
       <>

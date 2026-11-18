@@ -1,7 +1,6 @@
 import { useLayoutEffect, type ReactNode } from "react";
 import type { Preview } from "@storybook/react-vite";
 import "../src/style.css";
-import "../src/agent-access.css";
 import { applyMode, modes, type Mode } from "../src/appearance";
 
 // The toolbar mode applies the same data-mode attribute as the console.

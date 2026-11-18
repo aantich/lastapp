@@ -14,7 +14,8 @@ export {
 export { StatusBadge, Badge } from "./status";
 export { statusTone, type Tone } from "./status-tone";
 export { cx, initials } from "./utils";
-export { Stack, Split, Inline } from "./layout";
+export { Stack, Split, Inline, Columns } from "./layout";
+export { StandalonePage } from "./standalone-page";
 export {
   Card,
   CardHeader,
@@ -34,6 +35,7 @@ export { Toaster } from "./toast";
 export { toast, dismissToast, type ToastOptions } from "./toast-store";
 export { Checkbox, Switch, RadioGroup, type RadioOption } from "./checkbox";
 export { FormField, TextField, Textarea } from "./field";
+export { FieldGroup } from "./field-group";
 export {
   Stepper,
   Progress,
@@ -45,6 +47,8 @@ export {
 export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
+export { LoadingScreen } from "./loading-screen";
+export { UploadButton } from "./upload-button";
 export {
   FactList,
   Disclosure,
@@ -54,20 +58,26 @@ export {
   type PickItem,
 } from "./content";
 export { SegmentedControl, type Segment } from "./segmented";
+export { AuthLayout } from "./auth-layout";
+export { Section, Lead } from "./section";
 
 // Composites
 export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
+export { AppShell, QuickSearch, AccountMenu, ContextLabel } from "./app-shell";
 export { useSidebarCollapse, useCommandPaletteShortcut } from "./hooks";
 export { ContextSwitcher, type ContextOption } from "./context-switcher";
 export { CommandPalette, type Command } from "./command-palette";
 export { Menu, type MenuItem } from "./menu";
 export { DataTable, type Column } from "./data-table";
+export { RecordList, type RecordRow } from "./record-list";
 export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
 
 // Form controls
 export { Select, ListboxPopup, type ListOption } from "./select";
 export { RemoteSelect } from "./remote-select";
 export { NumberInput } from "./number-input";
+export { DatePicker } from "./date-picker";
+export { isoDay, parseDay, addDays, daysBetween } from "./days";
 export { NewPasswordInput } from "./new-password-input";
 export { ConfirmDialog, ConfirmHost } from "./confirm-dialog";
 export { confirmAction, type ConfirmOptions } from "./confirm";

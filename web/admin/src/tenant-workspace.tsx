@@ -7,6 +7,8 @@ import { consoleURL, parseTenantURL, useConsoleURL } from "./console-url";
 import {
   Alert,
   Button,
+  Card,
+  ContextLabel,
   ContextSwitcher,
   EmptyState,
   ErrorBoundary,
@@ -389,37 +391,33 @@ export function TenantWorkspace({
       : route.page === "app" && detailReady
         ? text(app.space_name)
         : "";
-  const context = (
-    <>
-      {memberships.length > 1 || me.pagination?.has_more ? (
-        <ContextSwitcher
-          kind="Tenant"
-          path="/v1/my-tenants"
-          value={tenant}
-          current={tenantName}
-          options={options(memberships)}
-          onChange={selectTenant}
-        />
-      ) : (
-        <span className="company-name">
-          <small>Tenant</small>
-          <strong>{tenantName || "No Tenant access"}</strong>
-        </span>
-      )}
-      {tenant && can("space.read") && (
-        <span className="topbar-space">
-          <ContextSwitcher
-            kind="Space"
-            path={base + "/spaces"}
-            value={route.space || undefined}
-            current={spaceName}
-            placeholder="All Spaces"
-            options={[]}
-            onChange={(id) => go("space", { space: id })}
-          />
-        </span>
-      )}
-    </>
+  const context =
+    memberships.length > 1 || me.pagination?.has_more ? (
+      <ContextSwitcher
+        kind="Tenant"
+        path="/v1/my-tenants"
+        value={tenant}
+        current={tenantName}
+        options={options(memberships)}
+        onChange={selectTenant}
+      />
+    ) : (
+      <ContextLabel
+        className="company-name"
+        kind="Tenant"
+        value={tenantName || "No Tenant access"}
+      />
+    );
+  const spaceContext = tenant && can("space.read") && (
+    <ContextSwitcher
+      kind="Space"
+      path={base + "/spaces"}
+      value={route.space || undefined}
+      current={spaceName}
+      placeholder="All Spaces"
+      options={[]}
+      onChange={(id) => go("space", { space: id })}
+    />
   );
   return (
     <LiveRefresh value={live}>
@@ -437,6 +435,7 @@ export function TenantWorkspace({
         }
         navigate={go}
         context={context}
+        secondaryContext={spaceContext}
         breadcrumbs={crumbs}
         commands={commands()}
         actions={actions}
@@ -472,11 +471,11 @@ export function TenantWorkspace({
           {route.page === "account" ? (
             <AccountPage me={me} refreshMe={refreshMe} />
           ) : !tenant ? (
-            <section className="panel">
+            <Card>
               <EmptyState title="No Tenant yet">
                 Your administrator can add this account to a Tenant.
               </EmptyState>
-            </section>
+            </Card>
           ) : (
             <>
               {route.page === "home" && <HomePage t={t} />}

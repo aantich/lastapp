@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { Plus } from "lucide-react";
 import { apiKey, queryClient, useApiQuery } from "../query";
 import {
   items as itemsOf,
@@ -10,14 +10,35 @@ import {
   type Page,
 } from "../api-types";
 import { useAction } from "../use-action";
-import { confirmAction, Alert, Tabs } from "../ui";
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  FactList,
+  PickList,
+  Split,
+  Stack,
+  StatusBadge,
+  Stepper,
+  Tabs,
+  confirmAction,
+} from "../ui";
 import { beforeNavigateEvent, type BeforeNavigateEvent } from "../console-url";
 import { api } from "../api";
-import { definitionOf, discardChanges, type Designer } from "./shared";
+import {
+  definitionOf,
+  discardChanges,
+  entityState,
+  type Designer,
+} from "./shared";
 import { EditorDialog } from "./editor-dialog";
 import { EntityList } from "./entity-list";
-import { AccessTab, FieldsTab, RulesTab } from "./tabs";
+import { AccessTab, FieldsTab, HistoryTab, RulesTab } from "./tabs";
 import { ReviewDialog } from "./review";
+import { publishSteps } from "./pipeline";
 import { EntityTest } from "./entity-test";
 import { FieldEditor } from "./field-editor";
 import { PermissionEditor } from "./permission-editor";
@@ -217,13 +238,23 @@ export function EntityDesigner({
       : null;
   const shownError = error || readError?.message || "";
   if (!catalog)
-    return (
-      <p role={shownError ? "alert" : undefined}>
-        {shownError || "Loading entity designer…"}
-      </p>
+    return shownError ? (
+      <Alert>{shownError}</Alert>
+    ) : (
+      <Card>
+        <EmptyState compact>Loading entity designer…</EmptyState>
+      </Card>
     );
+  const latest = itemsOf(record?.publications)[0];
+  const closeEntity = async () => {
+    if (!dirty || (await discardChanges())) {
+      setDraft(null);
+      setRecord(null);
+      history.replaceState(null, "", location.pathname);
+    }
+  };
   return (
-    <section className="entity-designer">
+    <Stack>
       {shownError && <Alert>{shownError}</Alert>}
       {!draft || !d ? (
         <EntityList
@@ -239,142 +270,213 @@ export function EntityDesigner({
           }}
         />
       ) : (
-        <>
-          <header className="entity-heading">
-            <div className="entity-title">
-              <button
-                className="text-button"
-                onClick={async () => {
-                  if (!dirty || (await discardChanges())) {
-                    setDraft(null);
-                    setRecord(null);
-                    history.replaceState(null, "", location.pathname);
+        <Split
+          aside={
+            <Card>
+              <CardHeader title="Entities" />
+              <CardBody>
+                <PickList
+                  label="Entities"
+                  items={items.map((v) => ({
+                    id: text(v.id),
+                    title: text(v.label),
+                    meta: text(v.entity_key),
+                    badge: <StatusBadge state={entityState(v)} />,
+                  }))}
+                  value={text(record?.id)}
+                  onPick={(id) => {
+                    if (id !== record?.id) void open(String(id));
+                  }}
+                  disabled={busy}
+                  footer={
+                    <Button
+                      variant="ghost"
+                      icon={<Plus size={15} aria-hidden />}
+                      onClick={() => void closeEntity()}
+                    >
+                      New entity
+                    </Button>
                   }
-                }}
-              >
-                <ArrowLeft size={14} /> Entities
-              </button>
-              <div className="entity-title-copy">
-                <h2>{text(draft.label)}</h2>
-                <small>
-                  {dirty
+                />
+              </CardBody>
+            </Card>
+          }
+        >
+          <Stack>
+            <Card>
+              <CardHeader
+                title={text(draft.label)}
+                description={
+                  dirty
                     ? "Unsaved changes"
                     : record?.pending_version_id
                       ? "Publishing…"
                       : record?.active_version_id
                         ? "Published · draft saved"
-                        : "Draft saved"}
-                </small>
-              </div>
-            </div>
-            <div className="entity-heading-actions">
-              <button
-                className="secondary"
-                disabled={!dirty || busy}
-                onClick={() =>
-                  void run(async () => {
-                    await save();
-                  })
+                        : "Draft saved"
                 }
-              >
-                Save draft
-              </button>
-              <button
-                className="primary"
-                disabled={
-                  busy ||
-                  !!record?.pending_version_id ||
-                  record?.state === "archived"
+                actions={
+                  <>
+                    <Button
+                      disabled={!dirty || busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await save();
+                        })
+                      }
+                    >
+                      Save draft
+                    </Button>
+                    <Button
+                      variant="primary"
+                      disabled={
+                        busy ||
+                        !!record?.pending_version_id ||
+                        record?.state === "archived"
+                      }
+                      onClick={() => setReview(true)}
+                    >
+                      Review changes
+                    </Button>
+                  </>
                 }
-                onClick={() => setReview(true)}
-              >
-                Review changes
-              </button>
-            </div>
-          </header>
-          <Tabs
-            label="Entity designer"
-            className="entity-tabs"
-            items={["fields", "access", "rules", "test"].map((id) => ({
-              id,
-              label: id[0].toUpperCase() + id.slice(1),
-            }))}
-            value={tab}
-            onChange={setTab}
-          />
-          {tab === "fields" && <FieldsTab d={d} />}
-          {tab === "access" && <AccessTab d={d} />}
-          {tab === "rules" && <RulesTab d={d} />}
-          {tab === "test" && (
-            <EntityTest
-              draft={draft}
-              record={record!}
-              tenant={tenant}
-              space={space}
-              me={me}
-            />
-          )}
-          {review && <ReviewDialog d={d} />}
-          {itemsOf(record?.publications)[0]?.state === "failed" && (
-            <Alert>
-              Publishing failed:{" "}
-              {text(itemsOf(record?.publications)[0]?.error_message)} Review
-              changes and publish again.
-            </Alert>
-          )}
-          {editField && (
-            <EditorDialog
-              title={editField.key ? "Edit field" : "Add field"}
-              close={() => setEditField(null)}
+              />
+              <CardBody>
+                <FactList
+                  facts={[
+                    {
+                      label: "API key",
+                      value: text(draft.key),
+                      mono: true,
+                    },
+                    {
+                      label: "State",
+                      value: record ? (
+                        <StatusBadge state={entityState(record)} />
+                      ) : (
+                        "—"
+                      ),
+                    },
+                    {
+                      label: "Published version",
+                      value: record?.active_version_id
+                        ? text(record.active_version_id).slice(0, 8)
+                        : "Not published",
+                      mono: !!record?.active_version_id,
+                    },
+                    {
+                      label: "Draft",
+                      value: `${itemsOf(draft.fields).length} fields · ${itemsOf(draft.permissions).length} access rules · ${itemsOf(draft.rules).length} business rules`,
+                    },
+                  ]}
+                />
+              </CardBody>
+            </Card>
+            {latest &&
+              (record?.pending_version_id || latest.state === "failed") && (
+                <Card>
+                  <CardHeader
+                    level={3}
+                    title="Publication"
+                    actions={<StatusBadge state={latest.state} />}
+                  />
+                  <CardBody>
+                    <Stack gap="md">
+                      <Stepper
+                        label="Publication"
+                        steps={publishSteps({
+                          dirty: false,
+                          publication: latest,
+                        })}
+                      />
+                      {latest.state === "failed" && (
+                        <Alert>
+                          Publishing failed: {text(latest.error_message)} Review
+                          changes and publish again.
+                        </Alert>
+                      )}
+                    </Stack>
+                  </CardBody>
+                </Card>
+              )}
+            <Tabs
+              label="Entity designer"
+              items={["fields", "access", "rules", "test", "history"].map(
+                (id) => ({ id, label: id[0].toUpperCase() + id.slice(1) }),
+              )}
+              value={tab}
+              onChange={setTab}
             >
-              <FieldEditor
-                field={editField}
-                fields={itemsOf(draft.fields)}
-                catalog={catalog}
-                space={space}
-                published={itemsOf(
-                  definitionOf(record?.active_definition)?.fields,
-                ).some((f) => f.key === editField.key)}
-                save={(f) => {
-                  replace("fields", text(editField.key), f);
-                  setEditField(null);
-                }}
-              />
-            </EditorDialog>
-          )}
-          {editPermission && (
-            <EditorDialog
-              title="Access rule"
-              close={() => setEditPermission(null)}
-            >
-              <PermissionEditor
-                value={editPermission}
-                definition={draft}
-                roles={roles}
-                catalog={catalog}
-                tenant={tenant}
-                save={(v) => {
-                  replace("permissions", text(editPermission.key), v);
-                  setEditPermission(null);
-                }}
-              />
-            </EditorDialog>
-          )}
-          {editRule && (
-            <EditorDialog title="Business rule" close={() => setEditRule(null)}>
-              <RuleEditor
-                value={editRule}
-                fields={itemsOf(draft.fields)}
-                catalog={catalog}
-                save={(v) => {
-                  replace("rules", text(editRule.key), v);
-                  setEditRule(null);
-                }}
-              />
-            </EditorDialog>
-          )}
-        </>
+              {tab === "fields" && <FieldsTab d={d} />}
+              {tab === "access" && <AccessTab d={d} />}
+              {tab === "rules" && <RulesTab d={d} />}
+              {tab === "test" && (
+                <EntityTest
+                  draft={draft}
+                  record={record!}
+                  tenant={tenant}
+                  space={space}
+                  me={me}
+                />
+              )}
+              {tab === "history" && <HistoryTab d={d} />}
+            </Tabs>
+          </Stack>
+        </Split>
       )}
-    </section>
+      {d && review && <ReviewDialog d={d} />}
+      {d && editField && (
+        <EditorDialog
+          title={editField.key ? "Edit field" : "Add field"}
+          close={() => setEditField(null)}
+        >
+          <FieldEditor
+            field={editField}
+            fields={itemsOf(d.draft.fields)}
+            catalog={catalog}
+            space={space}
+            published={itemsOf(
+              definitionOf(record?.active_definition)?.fields,
+            ).some((f) => f.key === editField.key)}
+            save={(f) => {
+              replace("fields", text(editField.key), f);
+              setEditField(null);
+            }}
+          />
+        </EditorDialog>
+      )}
+      {d && editPermission && (
+        <EditorDialog
+          title="Access rule"
+          description="Who can do what, on which fields and which records."
+          close={() => setEditPermission(null)}
+        >
+          <PermissionEditor
+            value={editPermission}
+            definition={d.draft}
+            roles={roles}
+            catalog={catalog}
+            tenant={tenant}
+            save={(v) => {
+              replace("permissions", text(editPermission.key), v);
+              setEditPermission(null);
+            }}
+          />
+        </EditorDialog>
+      )}
+      {d && editRule && (
+        <EditorDialog title="Business rule" close={() => setEditRule(null)}>
+          <RuleEditor
+            value={editRule}
+            fields={itemsOf(d.draft.fields)}
+            catalog={catalog}
+            save={(v) => {
+              replace("rules", text(editRule.key), v);
+              setEditRule(null);
+            }}
+          />
+        </EditorDialog>
+      )}
+    </Stack>
   );
 }

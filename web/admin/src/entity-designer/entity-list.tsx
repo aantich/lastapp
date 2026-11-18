@@ -1,8 +1,24 @@
 import { useRef, useState } from "react";
+import { Database, Plus } from "lucide-react";
 import { api } from "../api";
-import { Select } from "../ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Columns,
+  DataTable,
+  EmptyState,
+  FormField,
+  Inline,
+  Select,
+  Stack,
+  StatusBadge,
+  TextField,
+} from "../ui";
 import { text, type EntityCatalog, type Item } from "../api-types";
-import { emptyDefinition, keyOf } from "./shared";
+import { emptyDefinition, entityState, keyOf } from "./shared";
 
 // The Space's entities and the form that creates one.
 export function EntityList({
@@ -26,95 +42,134 @@ export function EntityList({
     [template, setTemplate] = useState("");
   const creationID = useRef(crypto.randomUUID());
   return (
-    <>
-      <div className="entity-intro">
-        <h2>Business entities</h2>
-        <p>
-          Describe your data once. Every App in this Space shares its API,
-          access rules and validation.
-        </p>
-      </div>
-      <form
-        className="entity-create panel"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void run(async () => {
-            const v = await api<Item>(
-              "/v1/spaces/" + space + "/entities",
-              "POST",
-              {
-                id: creationID.current,
-                definition: template
-                  ? {
-                      ...structuredClone(
-                        catalog.templates.find((d: Item) => d.key === template),
-                      ),
-                      key: keyOf(name),
-                      label: name,
-                    }
-                  : emptyDefinition(name, catalog.format_version),
-              },
-            );
-            opened(v);
-            setName("");
-            creationID.current = crypto.randomUUID();
-            history.replaceState(
-              null,
-              "",
-              location.pathname + "?entity=" + encodeURIComponent(text(v.id)),
-            );
-          });
-        }}
-      >
-        <label className="field">
-          <span>Start from</span>
-          <Select
-            value={template}
-            onChange={setTemplate}
-            options={[
-              { value: "", label: "Blank entity" },
-              ...(catalog.templates || []).map((d: Item) => ({
-                value: text(d.key),
-                label: text(d.label),
-              })),
-            ]}
-          />
-        </label>
-        <label className="field">
-          <span>Entity name</span>
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="For example, Deal"
-          />
-        </label>
-        <button className="primary" disabled={busy || !name.trim()}>
-          Create entity
-        </button>
-      </form>
-      <div className="entity-list">
-        {items.map((v) => (
-          <button
-            key={text(v.id)}
-            disabled={busy}
-            className="panel entity-card"
-            onClick={() => open(text(v.id))}
+    <Stack>
+      <Card>
+        <CardHeader
+          title="Business entities"
+          description="Describe your data once. Every App in this Space shares its API, access rules and validation."
+        />
+        <CardBody>
+          {items.length ? (
+            <DataTable
+              caption="Business entities"
+              rows={items}
+              rowKey={(v) => text(v.id)}
+              columns={[
+                {
+                  key: "name",
+                  header: "Entity",
+                  render: (v) => (
+                    <Button
+                      variant="link"
+                      disabled={busy}
+                      onClick={() => open(text(v.id))}
+                    >
+                      {text(v.label)}
+                    </Button>
+                  ),
+                },
+                {
+                  key: "key",
+                  header: "API key",
+                  render: (v) => <Badge mono>{text(v.entity_key)}</Badge>,
+                },
+                {
+                  key: "state",
+                  header: "State",
+                  render: (v) => <StatusBadge state={entityState(v)} />,
+                },
+              ]}
+            />
+          ) : (
+            <EmptyState
+              compact
+              icon={<Database size={28} aria-hidden />}
+              title="No entities yet"
+            >
+              Start from a template or a blank entity below.
+            </EmptyState>
+          )}
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader
+          title="New entity"
+          level={3}
+          description="Templates start without access grants."
+        />
+        <CardBody>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const v = await api<Item>(
+                  "/v1/spaces/" + space + "/entities",
+                  "POST",
+                  {
+                    id: creationID.current,
+                    definition: template
+                      ? {
+                          ...structuredClone(
+                            catalog.templates.find(
+                              (d: Item) => d.key === template,
+                            ),
+                          ),
+                          key: keyOf(name),
+                          label: name,
+                        }
+                      : emptyDefinition(name, catalog.format_version),
+                  },
+                );
+                opened(v);
+                setName("");
+                creationID.current = crypto.randomUUID();
+                history.replaceState(
+                  null,
+                  "",
+                  location.pathname +
+                    "?entity=" +
+                    encodeURIComponent(text(v.id)),
+                );
+              });
+            }}
           >
-            <strong>{text(v.label)}</strong>
-            <span>
-              {v.pending_version_id
-                ? "Publishing"
-                : v.state === "archived"
-                  ? "Archived"
-                  : v.active_version_id
-                    ? "Published"
-                    : "Draft"}
-            </span>
-            <small>{text(v.entity_key)}</small>
-          </button>
-        ))}
-      </div>
-    </>
+            <Stack gap="md">
+              <Columns min={220} gap="md">
+                <FormField label="Start from">
+                  <Select
+                    value={template}
+                    onChange={setTemplate}
+                    options={[
+                      { value: "", label: "Blank entity" },
+                      ...(catalog.templates || []).map((d: Item) => ({
+                        value: text(d.key),
+                        label: text(d.label),
+                      })),
+                    ]}
+                  />
+                </FormField>
+                <TextField
+                  label="Entity name"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="For example, Deal"
+                />
+              </Columns>
+              <Inline>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  icon={<Plus size={15} aria-hidden />}
+                  disabled={busy || !name.trim()}
+                >
+                  Create entity
+                </Button>
+              </Inline>
+            </Stack>
+          </form>
+        </CardBody>
+      </Card>
+    </Stack>
   );
 }

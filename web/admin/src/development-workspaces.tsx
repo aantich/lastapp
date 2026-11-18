@@ -10,6 +10,7 @@ import {
   confirmAction,
   FormModal,
   IconButton,
+  Inline,
   InlineError,
   Stack,
   StatusBadge,
@@ -120,9 +121,9 @@ export function DevelopmentWorkspaces({
               <Stack gap="sm">
                 <strong>{text(r.display_name)}</strong>
                 {!!r.owner_agent_grant_id && (
-                  <span>
+                  <Inline>
                     <Badge tone="info">Agent workspace</Badge>
-                  </span>
+                  </Inline>
                 )}
                 {text(r.error_message) && (
                   <InlineError>{text(r.error_message)}</InlineError>

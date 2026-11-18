@@ -7,6 +7,8 @@ export type Column<Row> = {
   // Stable key; also the React key of the cell.
   key: string;
   header: ReactNode;
+  // The cell's label in the stacked phone layout; defaults to a text header.
+  label?: string;
   render: (row: Row) => ReactNode;
   // Numbers align right with tabular figures.
   numeric?: boolean;
@@ -16,7 +18,10 @@ export type Column<Row> = {
 // A table of records: the console's table markup (.table-wrap/table) with a
 // header row, optional row actions, loading skeleton rows and an empty
 // state. Data fetching, search and paging stay with the caller (Collection
-// adds the shared server search/paging on top).
+// adds the shared server search/paging on top). Below 640 px each row is a
+// stacked card of label/value pairs (the column header is the label), so a
+// phone never scrolls a wide table sideways; `stack={false}` keeps the
+// scrolling table for grids that only read as a grid.
 export function DataTable<Row>({
   columns,
   rows,
@@ -26,6 +31,7 @@ export function DataTable<Row>({
   loading,
   empty = "No records yet.",
   skeletonRows = 3,
+  stack = true,
 }: {
   columns: Column<Row>[];
   rows: Row[];
@@ -37,7 +43,10 @@ export function DataTable<Row>({
   loading?: boolean;
   empty?: ReactNode;
   skeletonRows?: number;
+  stack?: boolean;
 }) {
+  const label = (c: Column<Row>) =>
+    c.label ?? (typeof c.header === "string" ? c.header : undefined);
   return (
     <>
       <div
@@ -46,7 +55,10 @@ export function DataTable<Row>({
         aria-label={caption}
         tabIndex={0}
       >
-        <table className="ui-table" aria-busy={loading || undefined}>
+        <table
+          className={cx("ui-table", stack && "ui-table-stack")}
+          aria-busy={loading || undefined}
+        >
           <caption className="ui-sr-only">{caption}</caption>
           <thead>
             <tr>
@@ -71,7 +83,7 @@ export function DataTable<Row>({
               ? Array.from({ length: skeletonRows }, (_, i) => (
                   <tr key={i}>
                     {columns.map((c) => (
-                      <td key={c.key}>
+                      <td key={c.key} data-label={label(c)}>
                         <Skeleton width={i % 2 ? "60%" : "80%"} />
                       </td>
                     ))}
@@ -83,6 +95,7 @@ export function DataTable<Row>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
+                        data-label={label(c)}
                         className={cx(c.numeric && "ui-num", c.className)}
                       >
                         {c.render(row)}

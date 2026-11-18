@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Select } from "../ui";
+import { Checkbox, Columns, FormField, Select, TextField } from "../ui";
 import { text, type EntityCatalog, type Item } from "../api-types";
 import { Expression } from "./expression";
+import { EditorForm } from "./editor-dialog";
 import { inputValue, isExpression, keyOf, optionalText } from "./shared";
 
 // Adds or edits one validation or allowed-change rule.
@@ -18,17 +19,12 @@ export function RuleEditor({
 }) {
   const [r, set] = useState({ ...value });
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(r);
-      }}
-    >
-      <label className="field">
-        <span>Name</span>
-        <input
-          autoFocus
+    <EditorForm submitLabel="Save rule" submit={() => save(r)}>
+      <Columns min={220} gap="md">
+        <TextField
+          label="Name"
           required
+          data-autofocus
           value={text(r.name)}
           onChange={(e) =>
             set({
@@ -38,36 +34,32 @@ export function RuleEditor({
             })
           }
         />
-      </label>
-      <label className="field">
-        <span>Rule type</span>
-        <Select
-          value={optionalText(r.kind)}
-          onChange={(kind) => set({ ...r, kind })}
-          options={[
-            { value: "validation", label: "Validate resulting record" },
-            { value: "change", label: "Allowed change" },
-          ]}
-        />
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          checked={!!r.when}
-          onChange={(e) =>
-            set({
-              ...r,
-              when: e.target.checked
-                ? {
-                    op: "eq",
-                    args: [{ field: fields[0]?.key || "" }, { literal: "" }],
-                  }
-                : undefined,
-            })
-          }
-        />{" "}
-        Apply only when
-      </label>
+        <FormField label="Rule type">
+          <Select
+            value={optionalText(r.kind)}
+            onChange={(kind) => set({ ...r, kind })}
+            options={[
+              { value: "validation", label: "Validate resulting record" },
+              { value: "change", label: "Allowed change" },
+            ]}
+          />
+        </FormField>
+      </Columns>
+      <Checkbox
+        label="Apply only when"
+        checked={!!r.when}
+        onChange={(on) =>
+          set({
+            ...r,
+            when: on
+              ? {
+                  op: "eq",
+                  args: [{ field: fields[0]?.key || "" }, { literal: "" }],
+                }
+              : undefined,
+          })
+        }
+      />
       {isExpression(r.when) && (
         <Expression
           value={r.when}
@@ -90,29 +82,27 @@ export function RuleEditor({
           allowContext={false}
         />
       )}
-      <label className="field">
-        <span>Message shown to the user</span>
-        <input
+      <Columns min={220} gap="md">
+        <TextField
+          label="Message shown to the user"
           required
           value={inputValue(r.message)}
           onChange={(e) => set({ ...r, message: e.target.value })}
         />
-      </label>
-      <label className="field">
-        <span>Show error on field</span>
-        <Select
-          value={text(r.field)}
-          onChange={(field) => set({ ...r, field })}
-          options={[
-            { value: "", label: "Whole record" },
-            ...fields.map((f) => ({
-              value: text(f.key),
-              label: text(f.label),
-            })),
-          ]}
-        />
-      </label>
-      <button className="primary">Save rule</button>
-    </form>
+        <FormField label="Show error on field">
+          <Select
+            value={text(r.field)}
+            onChange={(field) => set({ ...r, field })}
+            options={[
+              { value: "", label: "Whole record" },
+              ...fields.map((f) => ({
+                value: text(f.key),
+                label: text(f.label),
+              })),
+            ]}
+          />
+        </FormField>
+      </Columns>
+    </EditorForm>
   );
 }

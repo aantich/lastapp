@@ -90,11 +90,7 @@ export function ActivityLog({
               meta: <Badge mono>{text(e.action)}</Badge>,
               detail: `${text(e.resource_type).replace(/_/g, " ")} · ${who.via}`,
               at: text(e.created_at),
-              when: (
-                <span title={new Date(text(e.created_at)).toLocaleString()}>
-                  {ago(e.created_at)}
-                </span>
-              ),
+              when: ago(e.created_at),
             };
           })}
         />

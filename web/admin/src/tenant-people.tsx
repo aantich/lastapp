@@ -1,13 +1,20 @@
 import { useBuiltinRoles } from "./console-config";
 import { useState, type ReactNode } from "react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { api } from "./api";
 import {
-  Collection,
-  FormModal,
-  type Modal,
-  confirmAction,
   Alert,
+  Avatar,
+  Button,
+  Card,
+  CardHeader,
   Checkbox,
+  Collection,
+  confirmAction,
+  EmptyState,
+  FormModal,
+  Inline,
+  type Modal,
 } from "./ui";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
@@ -48,10 +55,12 @@ export function TenantPeople({
   const name: [string, (r: Item) => ReactNode] = [
     "Person",
     (r) => (
-      <>
-        <strong>{text(r.display_name)}</strong>
-        <small>{text(r.email)}</small>
-      </>
+      <Inline gap="sm">
+        <Avatar name={text(r.display_name)} size={28} />
+        <span>
+          <strong>{text(r.display_name)}</strong> <small>{text(r.email)}</small>
+        </span>
+      </Inline>
     ),
   ];
   function addPerson() {
@@ -142,235 +151,270 @@ export function TenantPeople({
           }),
     );
   }
+  async function removeMember(r: Item) {
+    if (
+      await confirmAction({
+        title: "Remove from team?",
+        message:
+          "Remove " +
+          r.display_name +
+          " from this team and revoke their team roles?",
+        confirmLabel: "Remove from team",
+        danger: true,
+      })
+    )
+      void act(() =>
+        api(
+          path + "/members/" + r.user_id,
+          "DELETE",
+          undefined,
+          num(group.revision),
+        ),
+      );
+  }
   return (
     <>
       {shownError && <Alert>{shownError}</Alert>}
       {tab === "members" && canMembers ? (
-        <>
-          <div className="section-actions">
-            {manageMembers && (
-              <button className="primary" onClick={addPerson}>
-                Add person
-              </button>
-            )}
-          </div>
-          <Collection
-            key={tenant + "members"}
-            path={base + "/memberships"}
-            columns={[
-              name,
-              [
-                "Tenant role",
-                (r) => (
-                  <label className="role-check">
-                    <Checkbox
-                      aria-label={"Tenant administrator for " + r.display_name}
-                      checked={!!r.administrator_id}
-                      disabled={
-                        busy ||
-                        !caps["authorization.manage"]?.all ||
-                        (!r.administrator_id &&
-                          (r.state !== "active" ||
-                            r.user_state !== "active" ||
-                            !!r.platform_admin))
-                      }
-                      onChange={() => toggle(r, "tenant")}
-                    />
-                    Administrator
-                  </label>
-                ),
-              ],
-              ["Tenant access", (r) => status(r.state)],
-              ["Account", (r) => text(r.user_state)],
-            ]}
-            actions={
-              manageMembers
-                ? (r) => (
-                    <button
-                      className="text-button"
+        <Collection
+          key={tenant + "members"}
+          path={base + "/memberships"}
+          caption="Tenant members"
+          empty="No one is a member of this Tenant yet."
+          header={
+            <CardHeader
+              title="People"
+              description="Members of this Tenant. A Tenant administrator assigns Tenant and team roles and Space/App managers; the role grants no access to business records."
+              actions={
+                manageMembers && (
+                  <Button
+                    variant="primary"
+                    icon={<Plus size={15} aria-hidden />}
+                    onClick={addPerson}
+                  >
+                    Add person
+                  </Button>
+                )
+              }
+            />
+          }
+          columns={[
+            name,
+            [
+              "Tenant role",
+              (r) => (
+                <Checkbox
+                  label="Administrator"
+                  aria-label={"Tenant administrator for " + r.display_name}
+                  checked={!!r.administrator_id}
+                  disabled={
+                    busy ||
+                    !caps["authorization.manage"]?.all ||
+                    (!r.administrator_id &&
+                      (r.state !== "active" ||
+                        r.user_state !== "active" ||
+                        !!r.platform_admin))
+                  }
+                  onChange={() => toggle(r, "tenant")}
+                />
+              ),
+            ],
+            ["Tenant access", (r) => status(r.state)],
+            ["Account", (r) => status(r.user_state)],
+          ]}
+          actions={
+            manageMembers
+              ? (r) => (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      act(() =>
+                        api(
+                          base + "/memberships/" + r.user_id,
+                          "PATCH",
+                          {
+                            state: r.state === "active" ? "disabled" : "active",
+                          },
+                          num(r.revision),
+                        ),
+                      )
+                    }
+                  >
+                    {r.state === "active"
+                      ? "Disable Tenant access"
+                      : "Enable Tenant access"}
+                  </Button>
+                )
+              : undefined
+          }
+        />
+      ) : !team ? (
+        <Collection
+          path={base + "/teams"}
+          caption="Teams"
+          empty="No teams yet."
+          header={
+            <CardHeader
+              title="Teams"
+              description="Teams group Tenant members. A team can receive Space and App business roles; its own Administrator and Reviewer roles apply within the team only."
+              actions={
+                caps["team.manage"]?.all && (
+                  <Button
+                    variant="primary"
+                    icon={<Plus size={15} aria-hidden />}
+                    onClick={createTeam}
+                  >
+                    Create team
+                  </Button>
+                )
+              }
+            />
+          }
+          columns={[
+            ["Team", (r) => <strong>{text(r.display_name)}</strong>],
+            ["Status", (r) => status(r.state)],
+          ]}
+          actions={(r) => (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => selectTeam(text(r.id))}
+            >
+              Open team
+            </Button>
+          )}
+        />
+      ) : group.id === team ? (
+        <Collection
+          key={path}
+          path={path + "/members"}
+          caption={`${text(group.display_name)} members`}
+          empty="This team has no members yet."
+          header={
+            <CardHeader
+              title={
+                <>
+                  {text(group.display_name)} {status(group.state)}
+                </>
+              }
+              description="Team members and their fixed team roles. Removing someone from the team also removes their team roles."
+              actions={
+                <>
+                  <Button
+                    variant="ghost"
+                    icon={<ArrowLeft size={15} aria-hidden />}
+                    onClick={() => selectTeam("")}
+                  >
+                    All teams
+                  </Button>
+                  {manageTeam && (
+                    <>
+                      <Button onClick={editTeam}>Edit team</Button>
+                      <Button
+                        variant="primary"
+                        icon={<Plus size={15} aria-hidden />}
+                        disabled={group.state !== "active"}
+                        onClick={addTeamPerson}
+                      >
+                        Add team member
+                      </Button>
+                    </>
+                  )}
+                </>
+              }
+            />
+          }
+          columns={[
+            name,
+            [
+              "Team roles",
+              (r) => (
+                <Inline gap="md">
+                  {(["teamAdmin", "reviewer"] as const).map((kind) => {
+                    const held =
+                      !!r[
+                        kind === "teamAdmin"
+                          ? "administrator_id"
+                          : "reviewer_id"
+                      ];
+                    return (
+                      <Checkbox
+                        key={kind}
+                        label={
+                          kind === "teamAdmin" ? "Administrator" : "Reviewer"
+                        }
+                        aria-label={
+                          (kind === "teamAdmin"
+                            ? "Team administrator"
+                            : "Reviewer") +
+                          " for " +
+                          r.display_name
+                        }
+                        checked={held}
+                        disabled={
+                          busy ||
+                          !manageTeam ||
+                          (!held &&
+                            (group.state !== "active" ||
+                              r.state !== "active" ||
+                              r.user_state !== "active" ||
+                              r.tenant_state !== "active" ||
+                              !!r.platform_admin))
+                        }
+                        onChange={() => toggle(r, kind)}
+                      />
+                    );
+                  })}
+                </Inline>
+              ),
+            ],
+            ["Status", (r) => status(r.state)],
+          ]}
+          actions={
+            manageTeam
+              ? (r) => (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       disabled={busy}
                       onClick={() =>
                         act(() =>
                           api(
-                            base + "/memberships/" + r.user_id,
+                            path + "/members/" + r.user_id,
                             "PATCH",
                             {
                               state:
                                 r.state === "active" ? "disabled" : "active",
                             },
-                            num(r.revision),
+                            num(group.revision),
                           ),
                         )
                       }
                     >
                       {r.state === "active"
-                        ? "Disable Tenant access"
-                        : "Enable Tenant access"}
-                    </button>
-                  )
-                : undefined
-            }
-          />
-        </>
-      ) : !team ? (
-        <>
-          <div className="section-actions">
-            {caps["team.manage"]?.all && (
-              <button className="primary" onClick={createTeam}>
-                Create team
-              </button>
-            )}
-          </div>
-          <Collection
-            path={base + "/teams"}
-            columns={[
-              ["Team", (r) => <strong>{text(r.display_name)}</strong>],
-              ["Status", (r) => status(r.state)],
-            ]}
-            actions={(r) => (
-              <button
-                className="text-button"
-                onClick={() => selectTeam(text(r.id))}
-              >
-                Open team
-              </button>
-            )}
-          />
-        </>
-      ) : group.id === team ? (
-        <>
-          <div className="section-actions">
-            <button className="text-button" onClick={() => selectTeam("")}>
-              ← All teams
-            </button>
-            {manageTeam && (
-              <>
-                <button className="secondary" onClick={editTeam}>
-                  Edit team
-                </button>
-                <button
-                  className="primary"
-                  disabled={group.state !== "active"}
-                  onClick={addTeamPerson}
-                >
-                  Add team member
-                </button>
-              </>
-            )}
-          </div>
-          <h2 className="section-title">
-            {text(group.display_name)} {status(group.state)}
-          </h2>
-          <Collection
-            key={path}
-            path={path + "/members"}
-            columns={[
-              name,
-              [
-                "Roles",
-                (r) => (
-                  <span className="role-checks">
-                    {(["teamAdmin", "reviewer"] as const).map((kind) => (
-                      <label key={kind}>
-                        <Checkbox
-                          aria-label={
-                            (kind === "teamAdmin"
-                              ? "Team administrator"
-                              : "Reviewer") +
-                            " for " +
-                            r.display_name
-                          }
-                          checked={
-                            !!r[
-                              kind === "teamAdmin"
-                                ? "administrator_id"
-                                : "reviewer_id"
-                            ]
-                          }
-                          disabled={
-                            busy ||
-                            !manageTeam ||
-                            (!r[
-                              kind === "teamAdmin"
-                                ? "administrator_id"
-                                : "reviewer_id"
-                            ] &&
-                              (group.state !== "active" ||
-                                r.state !== "active" ||
-                                r.user_state !== "active" ||
-                                r.tenant_state !== "active" ||
-                                !!r.platform_admin))
-                          }
-                          onChange={() => toggle(r, kind)}
-                        />
-                        {kind === "teamAdmin" ? "Administrator" : "Reviewer"}
-                      </label>
-                    ))}
-                  </span>
-                ),
-              ],
-              ["Status", (r) => status(r.state)],
-            ]}
-            actions={
-              manageTeam
-                ? (r) => (
-                    <>
-                      <button
-                        className="text-button"
-                        disabled={busy}
-                        onClick={() =>
-                          act(() =>
-                            api(
-                              path + "/members/" + r.user_id,
-                              "PATCH",
-                              {
-                                state:
-                                  r.state === "active" ? "disabled" : "active",
-                              },
-                              num(group.revision),
-                            ),
-                          )
-                        }
-                      >
-                        {r.state === "active"
-                          ? "Disable team access"
-                          : "Enable team access"}
-                      </button>
-                      <button
-                        className="text-button danger"
-                        disabled={busy}
-                        onClick={async () => {
-                          if (
-                            await confirmAction({
-                              title: "Remove from team?",
-                              message:
-                                "Remove " +
-                                r.display_name +
-                                " from this team and revoke their team roles?",
-                              confirmLabel: "Remove from team",
-                              danger: true,
-                            })
-                          )
-                            act(() =>
-                              api(
-                                path + "/members/" + r.user_id,
-                                "DELETE",
-                                undefined,
-                                num(group.revision),
-                              ),
-                            );
-                        }}
-                      >
-                        Remove from team
-                      </button>
-                    </>
-                  )
-                : undefined
-            }
-          />
-        </>
+                        ? "Disable team access"
+                        : "Enable team access"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={busy}
+                      onClick={() => void removeMember(r)}
+                    >
+                      Remove from team
+                    </Button>
+                  </>
+                )
+              : undefined
+          }
+        />
       ) : (
-        <p>Loading team…</p>
+        <Card>
+          <EmptyState compact>Loading team…</EmptyState>
+        </Card>
       )}
       {modal && (
         <FormModal

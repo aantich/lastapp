@@ -232,7 +232,14 @@ and system color modes. New console UI follows these rules:
   (`.primary`, `.secondary`, `.danger`, `.icon`, `.badge`, `.error`,
   `.overlay`/`.modal`, `.tabs`, `.empty`, `.panel`, `.sidebar-collapsed`);
   everything new is `ui-`-prefixed. Native `<select>`, date and number inputs
-  stay forbidden; TextField offers no number/date type.
+  stay forbidden; TextField offers no number/date type (dates use
+  `DatePicker`). Since U4b every screen outside `src/ui` is kit-only: the only
+  `className` a screen passes is an e2e hook on a kit component (`.agent-*`,
+  `.workspace-tabs`, `.workspace-facts`, `.deployment-status`,
+  `.release-list`, `.development-banner`, `.login-form`, `.password-welcome`/
+  `.welcome-card`, `.profile-menu`, `.company-name`), and no screen has its
+  own stylesheet. `style.css` keeps only the base rules and the legacy class
+  names the kit renders (buttons, panels, fields, modal, tabs, shell).
 - **Inventory.**
   - Primitives: `Button`/`IconButton` (primary, secondary, ghost, danger, link;
     sm/md; loading; the icon button's label is required), `StatusBadge` with
@@ -254,8 +261,16 @@ and system color modes. New console UI follows these rules:
     term/definition pairs), `Disclosure` (details/summary), `CodeBlock`,
     `PickList` (a record list beside the open record; pressed toggle rows),
     `SegmentedControl` (a few views of one list; pressed toggle buttons) and
-    the layout parts `Stack`, `Inline` and `Split` (list | record, stacked
-    under 800 px).
+    the layout parts `Stack`, `Inline` (`align="end"` lines a labelled field
+    up with a button), `Split` (list | record, stacked under 800 px) and
+    `Columns` (wrapping equal columns with a minimum width, fixed `weights`
+    stacked under 800 px, or `tracks` that wrap below their minimums),
+    `Section`/`Lead` (a titled page section and its intro sentence),
+    `RecordList` (compact name · meta · time rows; the detail slot hides under
+    800 px), `FieldGroup` (a fieldset with a legend: `framed`, `nested`,
+    `disabled`, group actions) and `LoadingScreen` (the announced
+    whole-window wait). Fields take `hideLabel`; the required mark sits beside
+    the label, not in it.
   - Composites: `SidebarNav`/`SidebarFooter` and `useSidebarCollapse` (the
     68 px rail, remembered in the browser as `lastapp-sidebar`; ConsoleShell
     uses them), `ContextSwitcher` (Tenant/Space popover: filter combobox over a
@@ -263,14 +278,25 @@ and system color modes. New console UI follows these rules:
     `useRemoteOptions`, the same paging RemoteSelect uses), `CommandPalette`
     and `useCommandPaletteShortcut` (⌘K/Ctrl+K), `Menu` (WAI-ARIA menu button;
     the account menu), `DataTable` (Collection adds server search and paging on
-    top) and `RoleMatrix`.
+    top; below 640 px rows stack as label/value cards labelled by the column
+    header, `stack={false}` keeps a scrolling grid) and `RoleMatrix`;
+    `AppShell` with `QuickSearch`, `AccountMenu` and `ContextLabel` (the shell
+    frame: ink sidebar, rail, drawer, top bar; it keeps the legacy shell class
+    names as theme and e2e hooks), `AuthLayout` (sign-in, first-login password
+    and the App launch approval: one card centred outside the shell) and
+    `StandalonePage` (a centred column outside the shell: agent consent).
   - Form controls and services: Select, ListboxPopup/`useListbox`
-    (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput,
+    (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput (all three
+    carry `ui-input` and take FormField's id/description wiring),
+    `DatePicker` (a button opening a WAI-ARIA calendar dialog with min/max;
+    day helpers in `days.ts`), `UploadButton` (a folder/file picker as a kit
+    button),
     ConfirmDialog/ConfirmHost/`confirmAction`, FormModal, Collection (server
     search/paging; `header` slot, server filter `params` with their
     `filters` controls, a `render` feed instead of the table, and `poll`
     while rows are changing), ErrorBoundary, `useDialogFocus`.
-- **Shell.** `console-shell.tsx` composes the kit for both workspaces: the
+- **Shell.** `console-shell.tsx` wires the kit `AppShell` for both
+  workspaces (an optional `secondaryContext` slot holds the Space switcher): the
   ink sidebar (`SidebarNav`, `SidebarFooter`, collapse rail, drawer under
   800 px), the top bar (the workspace's context switchers, the ⌘K search
   button and the account `Menu`; both are named by their visible text plus
@@ -303,9 +329,16 @@ and system color modes. New console UI follows these rules:
   `roles.Audits`), filtered with `?actor=` and `?kind=` before search and
   paging; `GET …/audit-kinds` lists the kinds a trail holds. `actors.ts`
   names actors for Home and Activity.
-- **Not yet on the kit.** Entity designer panels, the access matrix, agent
-  access, people and the Platform screens still hand-write most buttons and
-  headings; U4b moves them.
+- **Entity, access, agent and platform screens.** The entity designer
+  (`entity-designer/`, no stylesheet: list beside the open entity, Fields /
+  Access / Rules / Test / History tabs, permission paths shown as who +
+  operation + fields + record condition, the publication `Stepper`), Space/App
+  Access and People/Teams, agent connections and the consent page
+  (`agent-access.tsx`; expiry is a `DatePicker` bounded by the agent config's
+  `max_days`, sent as whole `days`), the Platform pages, account, appearance
+  (a `Dialog`), sign-in/password and Tenant settings are kit-only.
+  Destructive removals (access assignment, agent revoke, Tenant administrator,
+  account disable) go through `confirmAction`.
 - **Stories.** Every kit component has stories
   (`src/ui/controls/*.stories.tsx`, grouped as Primitives, Composites and
   Controls) with realistic Northstar data;

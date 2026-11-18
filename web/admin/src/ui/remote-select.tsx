@@ -22,6 +22,10 @@ type RemoteSelectProps = {
   excludeInactive?: boolean;
   excludeControl?: boolean;
   excludePlatform?: boolean;
+  // Wiring from a surrounding FormField (its label, hint and error).
+  id?: string;
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
 };
 
 // A searchable, paged combobox over a list API. A different path is a
@@ -42,6 +46,9 @@ function PathSelect({
   excludeInactive = false,
   excludeControl = false,
   excludePlatform = false,
+  id,
+  "aria-describedby": describedBy,
+  "aria-invalid": invalid,
 }: RemoteSelectProps) {
   const root = useRef<HTMLSpanElement>(null),
     input = useRef<HTMLInputElement>(null);
@@ -102,8 +109,12 @@ function PathSelect({
       <span className="combobox-input">
         <input
           ref={input}
+          id={id}
+          className="ui-input"
           role="combobox"
           aria-label={label}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
           aria-expanded={open}
           aria-controls={list.id}
           aria-autocomplete="list"

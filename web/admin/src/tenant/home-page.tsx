@@ -4,14 +4,20 @@ import {
   AttentionCard,
   AttentionGrid,
   Avatar,
+  Badge,
   Button,
   Card,
   CardBody,
   CardHeader,
+  Columns,
   EmptyState,
+  Lead,
+  RecordList,
+  Section,
   Skeleton,
   StatCard,
   StatGrid,
+  Stack,
   StatusBadge,
   Timeline,
 } from "../ui";
@@ -157,14 +163,14 @@ export function HomePage({ t }: { t: TenantScreen }) {
 
   const name = me.display_name.split(" ")[0];
   return (
-    <div className="home">
-      <p className="home-greeting">
+    <Stack>
+      <Lead>
         {greeting()}, {name}.{" "}
         {loaded &&
           (attention.length
             ? `${attention.length} ${attention.length === 1 ? "thing needs" : "things need"} you in ${text(profile.display_name)}.`
             : `Nothing you can act on needs attention in ${text(profile.display_name)}.`)}
-      </p>
+      </Lead>
       <StatGrid>
         {can("space.read") && (
           <StatCard
@@ -193,12 +199,14 @@ export function HomePage({ t }: { t: TenantScreen }) {
           onClick={openAgents}
         />
       </StatGrid>
-      <div className="home-grid">
-        <div className="home-column">
-          <section aria-labelledby="home-attention">
-            <h2 id="home-attention" className="home-heading">
-              Needs attention
-            </h2>
+      <Columns
+        tracks={[
+          { grow: 8, min: 480 },
+          { grow: 5, min: 320 },
+        ]}
+      >
+        <Stack>
+          <Section title="Needs attention">
             {overview.spaces === 0 && all("space.manage") ? (
               <Card>
                 <EmptyState
@@ -230,7 +238,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
                 </EmptyState>
               </Card>
             )}
-          </section>
+          </Section>
           <Card>
             <CardHeader
               title="Apps"
@@ -241,37 +249,39 @@ export function HomePage({ t }: { t: TenantScreen }) {
                 </Button>
               }
             />
-            <CardBody className="home-list">
+            <CardBody>
               {recent.length ? (
-                <ul>
-                  {recent.map((a) => {
+                <RecordList
+                  label="Recent Apps"
+                  rows={recent.map((a) => {
                     const d = deploymentOf.get(text(a.id));
-                    return (
-                      <li key={text(a.id)}>
-                        <Avatar name={text(a.display_name)} size={34} />
-                        <span>
-                          <strong>{text(a.display_name)}</strong>
-                          <small>{text(a.space_name)}</small>
-                        </span>
-                        {isItem(d) && (
-                          <StatusBadge
-                            state={text(d.state)}
-                            label={`Deploy ${text(d.state)}`}
-                          />
-                        )}
-                        <StatusBadge state={text(a.state)} />
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          aria-label={`Open ${text(a.display_name)}`}
-                          onClick={() => go("app", { app: text(a.id) })}
-                        >
-                          Open
-                        </Button>
-                      </li>
-                    );
+                    return {
+                      id: text(a.id),
+                      leading: <Avatar name={text(a.display_name)} size={34} />,
+                      title: text(a.display_name),
+                      meta: text(a.space_name),
+                      detail: isItem(d) && (
+                        <StatusBadge
+                          state={text(d.state)}
+                          label={`Deploy ${text(d.state)}`}
+                        />
+                      ),
+                      trailing: (
+                        <>
+                          <StatusBadge state={text(a.state)} />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Open ${text(a.display_name)}`}
+                            onClick={() => go("app", { app: text(a.id) })}
+                          >
+                            Open
+                          </Button>
+                        </>
+                      ),
+                    };
                   })}
-                </ul>
+                />
               ) : (
                 <EmptyState compact title={loaded ? "No Apps yet" : "Loading…"}>
                   {loaded && "Apps you can open appear here."}
@@ -279,8 +289,8 @@ export function HomePage({ t }: { t: TenantScreen }) {
               )}
             </CardBody>
           </Card>
-        </div>
-        <div className="home-column">
+        </Stack>
+        <Stack>
           {can("audit.read") && (
             <Card>
               <CardHeader
@@ -308,7 +318,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
                           />
                         ),
                         title: actor.label,
-                        meta: <code>{text(e.action)}</code>,
+                        meta: <Badge mono>{text(e.action)}</Badge>,
                         detail: text(e.resource_type),
                         at: text(e.created_at),
                         when: ago(e.created_at),
@@ -335,26 +345,26 @@ export function HomePage({ t }: { t: TenantScreen }) {
                 </Button>
               }
             />
-            <CardBody className="home-list">
+            <CardBody>
               {grants.length ? (
-                <ul>
-                  {grants.slice(0, 5).map((g) => (
-                    <li key={g.id}>
+                <RecordList
+                  label="Connected agents"
+                  rows={grants.slice(0, 5).map((g) => ({
+                    id: g.id,
+                    leading: (
                       <Avatar name={g.client_name} kind="agent" size={34} />
-                      <span>
-                        <strong>{g.client_name}</strong>
-                        <small>
-                          for {g.owner_name} · {g.scope_name}
-                        </small>
-                      </span>
-                      <small className="home-when">
+                    ),
+                    title: g.client_name,
+                    meta: `for ${g.owner_name} · ${g.scope_name}`,
+                    trailing: (
+                      <small>
                         {g.last_used_at
                           ? `Used ${ago(g.last_used_at)}`
                           : "Not used yet"}
                       </small>
-                    </li>
-                  ))}
-                </ul>
+                    ),
+                  }))}
+                />
               ) : (
                 <EmptyState compact>
                   {grantsQuery.data
@@ -366,9 +376,9 @@ export function HomePage({ t }: { t: TenantScreen }) {
               )}
             </CardBody>
           </Card>
-        </div>
-      </div>
-    </div>
+        </Stack>
+      </Columns>
+    </Stack>
   );
 }
 

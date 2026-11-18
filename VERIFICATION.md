@@ -1,5 +1,69 @@
 # Lastapp verification
 
+## Entities, Access, Agents and Platform screens on the UI kit (U4b) — 18 November 2026
+
+- Every console screen outside `src/ui` is now kit-only: the entity designer
+  (list beside the open entity; Fields, Access, Rules, Test, History; permission
+  paths as who + operation + fields + record condition; the publication
+  pipeline), App data access, the App launch page, Space/App Access,
+  People/Teams, agent connections and consent, Platform Tenants/Users/
+  Settings and a Tenant's Overview/Administrators/Settings, account,
+  appearance, sign-in and first-login password, Tenant settings, and the
+  U4a remainder (Home, Releases, Development, the shell). A scan of the
+  screens finds no raw buttons, inputs, headings or layout markup and no
+  `className` other than e2e hooks on kit components. `entity.css` and
+  `agent-access.css` are deleted; dead `style.css` rules were removed
+  (2368 → 1213 lines). No Go change.
+- New kit parts, each with stories: `DatePicker` (+ `days.ts`), `Columns`,
+  `Section`/`Lead`, `RecordList`, `FieldGroup`, `UploadButton`,
+  `LoadingScreen`, `AppShell`/`QuickSearch`/`AccountMenu`/`ContextLabel`,
+  `AuthLayout`, `StandalonePage`; DataTable stacks rows as label/value cards
+  below 640 px; fields take `hideLabel` and keep the required mark beside the
+  label; RemoteSelect, NumberInput and NewPasswordInput carry `ui-input`.
+- New confirmations: removing a Space/App access assignment, revoking an
+  agent connection, removing a Tenant administrator, disabling an account.
+- Findings fixed during verification: the required asterisk inside `<label>`
+  made label lookups ("Email", "Entity name", "New password") fail (8 e2e
+  failures on the first full run); a skipped heading level in the designer;
+  `aria-required` on the date trigger button; two parallel fieldset parts
+  merged into `FieldGroup`; FormModal's Advanced used the native triangle;
+  form inputs and select triggers used a fainter border than kit inputs.
+
+Executed checks:
+
+- `npm run lint` (0 problems), `npm run typecheck`, `npm run build`, `npm run
+  build-storybook` (111 stories; output deleted), `make lint` (0 issues),
+  `git diff --check`, `python3 design/validate_schema.py --check`, `python3
+  scripts/verify_driver.py` **PASS**.
+- Static Storybook probe (every story at 1440×900 and 390×844, light and
+  dark, 444 runs, axe-core WCAG 2.0/2.1 A/AA + best-practice without the
+  story-frame landmark rules): **0 violations, no horizontal overflow, no
+  page errors**.
+- Temporary console probe on the e2e stack (not committed): 45 screens and
+  states (signed out, password welcome, all Platform pages, account,
+  appearance dialog, every Tenant page and tab, entity list, designer tabs
+  before/after publishing, field editor and review dialogs, Access "Manage
+  roles", team detail, App launch, agent consent and its open expiry picker,
+  Tenant agent access and account with a grant) at 1440, 1920 and 390 px in
+  light and dark: **270 states, 0 axe violations, no horizontal overflow, no
+  page errors**; content is 1196 px wide at 1440 and capped at 1480 px at
+  1920. Keyboard: designer tabs move with arrows, Enter opens the field
+  editor and Escape returns focus to "Add field"; "Manage roles" activates
+  with Enter; the expiry picker opens with Enter, arrows move days, Enter
+  chooses (2026-11-25 → 2026-12-03) and returns focus to the trigger, Escape
+  closes; a preset presses with Enter and ticks its permissions; Enter on
+  "Approve agent access" returns to the client callback. One probe run hit a
+  single transient first-screen wait on My account; the rerun passed.
+- `make e2e` with the stock timeouts: first run **27/35** (the label finding
+  above); after the fix the affected specs 17/17 and the full suite **35/35**
+  (2.6 min), again **35/35** (2.7 min) after the last styling fixes. No
+  config change; no assertion relaxed.
+- Spec changes: `agent-access.spec` answers the new revoke confirmation and
+  also checks the date trigger's height.
+- A text-only review of the e2e screenshots led to the Advanced and border
+  fixes; its other notes were full-page capture artifacts (sticky header and
+  fixed sidebar in `fullPage` shots) or test-fixture data.
+
 ## Delivery screens, Activity and their server contracts on the UI kit — 18 November 2026
 
 - Apps and Spaces lists, App/Space detail tabs (micro-apps, settings), Space →
