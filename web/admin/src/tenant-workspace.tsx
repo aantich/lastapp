@@ -503,7 +503,7 @@ export function TenantWorkspace({
         me={me}
         role={me.email}
         title={title}
-        header={route.page !== "home"}
+        header={route.page !== "home" || !tenant}
         nav={menu}
         active={
           route.page === "space" && route.tab === "entities"

@@ -71,7 +71,7 @@ export function AppShell({
     return () => m.removeEventListener("change", update);
   }, []);
   const rail = collapsed && !mobile;
-  const toggleLabel = rail ? "Expand menu" : "Collapse menu";
+  const toggleLabel = rail ? "Expand sidebar" : "Collapse sidebar";
   const toggle = mobile ? (
     <IconButton
       className="ui-sidebar-toggle"

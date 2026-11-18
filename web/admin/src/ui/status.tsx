@@ -25,12 +25,13 @@ export function StatusBadge({
       data-state={value || undefined}
     >
       <i aria-hidden />
-      {label ?? sentence(value.replace(/_/g, " "))}
+      {label ?? (
+        // The state word itself; its capital is presentation (CSS).
+        <span className="ui-badge-state">{value.replace(/_/g, " ")}</span>
+      )}
     </span>
   );
 }
-
-const sentence = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
 
 // A compact label: a tag ("read", "acl.manage"), a mono identifier or a
 // count. Not interactive.

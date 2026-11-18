@@ -246,6 +246,13 @@ code {
   color: var(--ui-muted);
   white-space: nowrap;
 }
+/* A state word reads in sentence case ("Not deployed"). */
+.badge > .ui-badge-state {
+  display: inline-block;
+}
+.badge > .ui-badge-state::first-letter {
+  text-transform: uppercase;
+}
 .toolbar {
   display: flex;
   justify-content: space-between;
