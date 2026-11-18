@@ -137,12 +137,13 @@ test("Access opens the Space's access, with every role holder and inherited App 
   ).toHaveAttribute("aria-current", "page");
 
   // Every holder counts, not just the first page of assignments.
+  const matrix = page.getByRole("table", { name: "Who may do what to Deal" });
   await expect(
-    page.getByRole("row").filter({ hasText: "Late reviewer" }),
+    matrix.getByRole("rowheader", { name: /^Late reviewer / }),
   ).toContainText("Late holder");
   await expect(
-    page.getByRole("row").filter({ hasText: "Busy reviewer" }),
-  ).toContainText("+49");
+    matrix.getByRole("rowheader", { name: /^Busy reviewer / }),
+  ).toContainText("Busy team 50, Busy team 49 +49");
   await expect(
     page.getByRole("list", { name: "Space role assignments" }),
   ).not.toContainText("Late holder");
