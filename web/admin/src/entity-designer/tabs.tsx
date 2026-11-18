@@ -57,18 +57,9 @@ const bound = (v: unknown) =>
 // What a field does beyond its type: its calculation, choices, default,
 // bounds, uniqueness and length, all from the field definition.
 function behaviour(f: Item, fields: Item[]) {
-  if (f.calculation) return <code>{describe(f.calculation, fields)}</code>;
+  if (f.calculation) return describe(f.calculation, fields);
   const values = strings(f.values);
-  if (values.length)
-    return (
-      <Inline gap="sm">
-        {values.map((v) => (
-          <Badge chip key={v}>
-            {choiceLabel(f, v)}
-          </Badge>
-        ))}
-      </Inline>
-    );
+  if (values.length) return values.map((v) => choiceLabel(f, v)).join(" · ");
   const min = bound(f.minimum),
     max = bound(f.maximum);
   const isCreator =

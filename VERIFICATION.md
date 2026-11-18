@@ -79,6 +79,34 @@ local MariaDB; `make lint` 0 issues; console lint and typecheck;
 `python3 design/validate_schema.py --check`; `python3
 scripts/verify_driver.py`. The full browser suite ran in CI.
 
+## Entity designer on the approved design — 18 November 2026
+
+- `has_draft_changes` on `GET /v1/spaces/{space}/entities`: the MariaDB
+  integration tests (`TestEntityRuntime`, `TestRegistry*`) assert it is true
+  before the first publication, false after it, true after a PATCH that
+  changes the definition and false again after republishing; the untyped-row
+  registry comparison checks it separately.
+- The Entities screen was measured against the prototype's `entities`
+  screen rendered statically in Chrome (same shell head), region by region,
+  at 1440×900 and 1920×1080, with a populated Space (Company, Contact, Deal;
+  two new draft fields). Header tile, title, meta, chip and tabs, the entity
+  list (212 px card, 35 px items, the selected item's 600 weight, background
+  and 3 px bar), grid header/row (43 px rows, 12px 16px padding, 14 px type)
+  and pipeline steps match within 1 px with identical type. Remaining
+  differences are content or composition: text-length widths (title/meta,
+  "Review & publish"), the Fields card's heading row with Add field and the
+  row-actions column (from the full comp; they move the grid 61 px down and
+  narrow the columns), the templates note under the list, and one-line step
+  notes (63 px steps instead of 79 px). The done-step green is the shared
+  `--ui-success` (#1a603d vs the mockup's #1f6b45).
+- axe (WCAG 2.1 AA + best practice): 0 violations on Fields, Access, Rules,
+  Test and History in light and dark mode at 1440 and on Fields/Access at
+  390; no horizontal overflow at 390 px (the field grid scrolls inside its
+  card). A text-only visual review found the composition close; its findings
+  (a list item without a dot centred, choices/calculations not in body text,
+  the list card not full width on a phone, a duplicate "Publications"
+  landmark) were fixed.
+
 ## Console shell and Tenant Home on the approved design — 18 November 2026
 
 - The shell (sidebar, top bar, centred content) and Home were measured

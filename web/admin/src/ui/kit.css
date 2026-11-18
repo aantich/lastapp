@@ -1283,6 +1283,12 @@ textarea.ui-input {
   max-width: 252px;
   padding: 10px;
 }
+/* Alone on its row on a phone, the list takes the full width. */
+@media (max-width: 600px) {
+  .ui-nav-list.panel {
+    max-width: none;
+  }
+}
 .ui-nav-list-label {
   padding: 6px 10px;
   color: var(--ui-muted);
@@ -1298,6 +1304,7 @@ textarea.ui-input {
   padding: 9px 10px;
   background: transparent;
   color: var(--ui-neutral);
+  justify-content: flex-start;
   font-size: 14px;
   font-weight: 400;
   text-align: left;
