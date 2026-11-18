@@ -1,5 +1,59 @@
 # Lastapp verification
 
+## Console shell and Tenant Home on the UI kit — 18 November 2026
+
+- The shell (sidebar, top bar, page header) is composed from kit parts. The
+  top bar holds the Tenant and Space ContextSwitchers (the Tenant switcher
+  searches and pages `/v1/my-tenants` through `useRemoteOptions`, shared with
+  RemoteSelect), a ⌘K/Ctrl+K CommandPalette fed from the same
+  `tenant/navigation.ts` definition as the sidebar and tabs plus cached Apps,
+  Spaces and entities, and the account menu on the new kit `Menu`. Tenant
+  users land on **Home**, composed only from existing authorized reads. The
+  workspace, Tenant, platform-settings and entity-designer tab strips are the
+  kit Tabs; FormModal confirms saves with a toast.
+- Findings fixed during verification: the quick-search and account triggers
+  were named by an `aria-label` that did not contain their visible text (axe
+  `label-content-name-mismatch`; they are now named by their visible text
+  plus visually hidden words); a long Tenant name in the single-membership top
+  bar pushed the account menu 11 px past a 390 px viewport (found by
+  `admin.spec`); the App-directory regression now opens Apps from Home, and
+  the expired-session regression waits for the recovery instead of checking
+  the sign-in screen once.
+
+Executed checks:
+
+- `npm run lint`, `npm run typecheck`, `npm run build`, `npm run build-storybook`
+  (81 stories, output deleted), `make lint` (0 issues), `git diff --check`,
+  `python3 design/validate_schema.py --check`, `python3
+  scripts/verify_driver.py` **PASS**. No Go code or golden file changed.
+- `make e2e` under a heavily loaded machine (load average 5–16; Time Machine
+  and other processes): with the stock 5 s expect timeout most specs timed out
+  waiting for the first screen after login, and an `origin/main` worktree
+  measured the same login times (8–14 s) and post-load script time, so the
+  timeouts are environmental. With a temporary, uncommitted config raising the
+  test/expect timeouts to 180 s/20 s and no retries: **32/35 passed**; the 3
+  failures are the findings above. After the fixes the full suite passed
+  **35/35** with the same config and no retries (36.4 min, load average
+  5.7–7.4). No assertion was relaxed in a committed spec.
+- Temporary console probe on the e2e stack (axe-core WCAG 2.0/2.1 A/AA and
+  best-practice, plus `scrollWidth <= innerWidth`) at 1440, 1920 and 390 px in
+  light and dark: Platform Tenants and Users, and Tenant Home, Apps, Spaces, a
+  Space's Entities, an App's Micro-apps, People, Activity and Settings — 60
+  page audits, **0 violations, no horizontal overflow**. Keyboard flows:
+  Ctrl+K opens the palette with the filter focused; typing an App name and
+  Enter opens that App; "spaces" + Enter navigates; the Space switcher opens
+  on ↓ with its filter focused, filters, and Enter switches Space with focus
+  back on its trigger; the Tenant switcher lists 2 Tenants and Escape returns
+  focus to it; the account menu opens on Enter with "My account" focused, ↓
+  moves to "Appearance", Escape returns focus to the trigger; → on the Space
+  tabs moves to the next tab; the collapsed sidebar (68 px rail) survives a
+  reload. The open palette, switcher, menu and rail are axe-clean too.
+- Static Storybook probe (every story at 1440×900 and 390×844, light and dark,
+  324 runs, axe-core WCAG 2.0/2.1 A/AA and best-practice): no horizontal
+  overflow, no page errors and no violations other than the page-level
+  `landmark-one-main`/`page-has-heading-one`/`region` rules that do not apply
+  to isolated stories.
+
 ## Console UI kit — 18 November 2026
 
 - `web/admin/src/ui` is the complete kit: the shared controls moved there

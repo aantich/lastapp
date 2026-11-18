@@ -253,17 +253,39 @@ and system color modes. New console UI follows these rules:
   - Composites: `SidebarNav`/`SidebarFooter` and `useSidebarCollapse` (the
     68 px rail, remembered in the browser as `lastapp-sidebar`; ConsoleShell
     uses them), `ContextSwitcher` (Tenant/Space popover: filter combobox over a
-    listbox), `CommandPalette` and `useCommandPaletteShortcut` (⌘K/Ctrl+K),
-    `DataTable` (Collection adds server search and paging on top) and
-    `RoleMatrix`.
+    listbox; with `path` it searches and pages a list API through
+    `useRemoteOptions`, the same paging RemoteSelect uses), `CommandPalette`
+    and `useCommandPaletteShortcut` (⌘K/Ctrl+K), `Menu` (WAI-ARIA menu button;
+    the account menu), `DataTable` (Collection adds server search and paging on
+    top) and `RoleMatrix`.
   - Form controls and services: Select, ListboxPopup/`useListbox`
     (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput,
     ConfirmDialog/ConfirmHost/`confirmAction`, FormModal, Collection,
     ErrorBoundary, `useDialogFocus`.
-- **Not yet on the kit.** Screens still hand-write page headings, tab strips
-  (their tests click tabs as buttons, so moving them to `Tabs` changes the
-  e2e selectors), most buttons and the Tenant switcher (a paged
-  RemoteSelect). The screen rewrites move these onto the kit.
+- **Shell.** `console-shell.tsx` composes the kit for both workspaces: the
+  ink sidebar (`SidebarNav`, `SidebarFooter`, collapse rail, drawer under
+  800 px), the top bar (the workspace's context switchers, the ⌘K search
+  button and the account `Menu`; both are named by their visible text plus
+  visually hidden words, e.g. "<name>, account menu", so the name contains
+  what is shown and survives the narrow layout hiding the text) and
+  `PageHeader`/`Breadcrumbs`. The Tenant
+  navigation is defined once in `tenant/navigation.ts` (`tenantNav`,
+  `tenantTabs`): the sidebar, the page `Tabs` (`.workspace-tabs`) and the
+  palette's Navigate/section commands all derive from it. The palette's App,
+  Space and entity jumps read only list rows already in the query cache
+  (`cachedRows` in `query.ts`); it fetches nothing. Console URLs may carry a
+  query string (`?entity=`), which `useConsoleURL` keeps in the route.
+- **Home.** `tenant/home-page.tsx` composes only existing authorized reads:
+  the Tenant overview (counts, recent Apps, databases pending or failed), each
+  recent App's `GET /v1/apps/{app}/deployment` where `release.manage` applies,
+  `GET /v1/agent-access` (Tenant grants for `authorization.manage`, otherwise
+  the user's own) and `audit-events?limit=8` (agent actors from the audit
+  `agent_grant_id`). A card without a backing read is omitted, not estimated.
+- **Feedback.** FormModal confirms a successful save with a success `toast`
+  (from `Modal.success` or derived from the title); errors stay in the form.
+- **Not yet on the kit.** Screen contents (entity designer panels,
+  release/deploy timelines, access matrix, agent access, people) still
+  hand-write most buttons and headings; the U4 screen rewrites move them.
 - **Stories.** Every kit component has stories
   (`src/ui/controls/*.stories.tsx`, grouped as Primitives, Composites and
   Controls) with realistic Northstar data;
