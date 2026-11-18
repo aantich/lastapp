@@ -81,11 +81,14 @@ type Error struct {
 	Unmapped bool
 }
 
-// Transient reports a MariaDB deadlock (1213) or lock wait timeout (1205):
-// the transaction was rolled back and the same work can simply be retried.
+// Transient reports a MariaDB deadlock (1213), lock wait timeout (1205) or
+// snapshot conflict (1020: a repeatable-read transaction locked or changed a
+// row another transaction committed after its snapshot, which
+// innodb_snapshot_isolation rejects): the same work can simply be retried in a
+// new transaction.
 func Transient(err error) bool {
 	var me *mariadb.MySQLError
-	return errors.As(err, &me) && (me.Number == 1205 || me.Number == 1213)
+	return errors.As(err, &me) && (me.Number == 1020 || me.Number == 1205 || me.Number == 1213)
 }
 
 func Classify(err error) Error {

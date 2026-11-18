@@ -52,7 +52,7 @@ export const Fields: Story = {
       <RecordHeader
         initial="O"
         title="Order"
-        meta="order · published 2 Mar 2026"
+        meta="order · published v3"
         chips={
           <Badge pill tone="info">
             Draft · 2 changes
@@ -125,7 +125,10 @@ export const Fields: Story = {
               ]}
             />
           </Panel>
-          <Panel title="Publish changes · live data keeps working while storage is prepared">
+          <Panel
+            title="Publish v4"
+            lead="Live data keeps working while storage is prepared."
+          >
             <Stepper
               label="Publication"
               steps={[

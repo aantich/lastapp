@@ -29,6 +29,7 @@ import { RowActions } from "./editor-dialog";
 import {
   choiceLabel,
   ruleRows,
+  versionLabel,
   definitionOf,
   describe,
   inputValue,
@@ -489,7 +490,7 @@ export function HistoryTab({ d }: { d: Designer }) {
               render: (p) => (
                 <Inline gap="sm">
                   <Badge mono title={text(p.id)}>
-                    {text(p.id).slice(0, 8)}
+                    {versionLabel(p.version_number)}
                   </Badge>
                   {p.id === d.record?.active_version_id && (
                     <Badge tone="success">Active</Badge>

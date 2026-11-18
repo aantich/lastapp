@@ -12,7 +12,7 @@ import {
   Stack,
   Stepper,
 } from "../ui";
-import type { Designer } from "./shared";
+import { versionLabel, type Designer } from "./shared";
 import { publishSteps } from "./pipeline";
 
 // Reviews the draft against the published definition, validates and
@@ -25,6 +25,7 @@ export function ReviewDialog({ d }: { d: Designer }) {
     current = JSON.stringify(draft),
     fresh = checked?.draft === current;
   const diagnostics = items(record?.diagnostics);
+  const nextVersion = versionLabel(record?.next_version_number);
   const validation = fresh
     ? checked?.ok
       ? "passed"
@@ -89,7 +90,7 @@ export function ReviewDialog({ d }: { d: Designer }) {
               })
             }
           >
-            Publish
+            {["Publish", nextVersion].filter(Boolean).join(" ")}
           </Button>
         </>
       }
@@ -98,7 +99,13 @@ export function ReviewDialog({ d }: { d: Designer }) {
         <Stack gap="md">
           <Stepper
             label="Publication"
-            steps={publishSteps({ dirty, validation })}
+            steps={publishSteps(
+              { dirty, validation },
+              {
+                active: versionLabel(record?.active_version_number),
+                next: nextVersion,
+              },
+            )}
           />
           <ReviewDiff
             before={

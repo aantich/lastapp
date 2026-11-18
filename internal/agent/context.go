@@ -102,6 +102,7 @@ func (s *Server) toolAgentDescribe(ctx context.Context, p access.Principal, raw 
 // its draft.
 type EntityRecord struct {
 	ActiveVersion  *string        `json:"active_version_id"`
+	ActiveNumber   *int64         `json:"active_version_number"`
 	Hash           *string        `json:"definition_hash"`
 	Description    string         `json:"description"`
 	Fields         []registry.Row `json:"draft_fields"`
@@ -116,7 +117,7 @@ type EntityRecord struct {
 }
 
 func (v *EntityRecord) ScanFields() []any {
-	return []any{&v.ActiveVersion, &v.Hash, &v.draft, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
+	return []any{&v.ActiveVersion, &v.ActiveNumber, &v.Hash, &v.draft, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
 }
 
 func (v EntityRecord) SearchText() string {
@@ -279,7 +280,7 @@ func (s *Server) agentList(ctx context.Context, p access.Principal, in ReadInput
 		if _, e = s.Authoring.AuthoringSpace(ctx, op.AgentActor(ctx, p), target.ID); e != nil {
 			return nil, e
 		}
-		values, e := registry.ScanAll[EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, target.ID, res.Tenant)
+		values, e := registry.ScanAll[EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.version_number,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, target.ID, res.Tenant)
 		if e != nil {
 			return nil, e
 		}

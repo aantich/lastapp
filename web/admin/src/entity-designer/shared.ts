@@ -82,6 +82,11 @@ export const entityState = (v: Item) =>
         ? "published"
         : "draft";
 
+// A version's number as "v8", or "" when there is none. The backend assigns
+// the numbers (version_number, active_/pending_/next_version_number).
+export const versionLabel = (v: unknown): string =>
+  typeof v === "number" && v > 0 ? "v" + v : "";
+
 // A definition value with its empty members dropped and keys sorted, so a
 // draft edited in the browser compares equal to the backend's encoding of
 // the same definition (which omits empty values).

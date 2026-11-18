@@ -403,7 +403,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 		}
 		delete(item, "has_draft_changes")
 	}
-	sameJSON(t, s.DB, listed, "SELECT id,entity_key,label,state,revision,active_version_id,pending_version_id FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", reviewSpace, tenant)
+	sameJSON(t, s.DB, listed, "SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,v.version_number AS active_version_number,e.pending_version_id FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id", reviewSpace, tenant)
 	for _, key := range []string{entityID, draft.ID} {
 		detail, e := s.authoring.DetailOf(ctx, admin, key)
 		if e != nil {
@@ -417,7 +417,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 				t.Fatal("empty publications", mustJSON(t, old))
 			}
 		} else {
-			sameJSON(t, s.DB, *detail.Publications, "SELECT id,state,error_message,definition_hash,base_version_id,created_at FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", key)
+			sameJSON(t, s.DB, *detail.Publications, "SELECT id,state,error_message,definition_hash,base_version_id,created_at,version_number FROM entity_versions WHERE entity_id=? ORDER BY version_number DESC LIMIT 20", key)
 		}
 		if detail.ActiveDefinition != nil {
 			stored, e := registry.QueryRows(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", *detail.ActiveVersion)
@@ -428,17 +428,18 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			sameJSON(t, s.DB, publication, "SELECT id,base_version_id,state,error_message,definition_hash,created_at,finished_at FROM entity_versions WHERE id=?", *detail.ActiveVersion)
+			sameJSON(t, s.DB, publication, "SELECT id,base_version_id,state,error_message,definition_hash,created_at,finished_at,version_number FROM entity_versions WHERE id=?", *detail.ActiveVersion)
 		}
 		detail.ActiveDefinition, detail.Diagnostics, detail.DraftContract, detail.Publications, detail.PublishedContract = nil, nil, nil, nil, nil
+		detail.ActiveNumber, detail.NextNumber, detail.PendingNumber = nil, nil, nil
 		sameJSON(t, s.DB, detail, "SELECT * FROM entity_definitions WHERE id=?", key)
 	}
 	// The agent inventory summarizes each draft as the untyped read did.
-	drafts, e := registry.ScanAll[agent.EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	drafts, e := registry.ScanAll[agent.EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.version_number,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	untyped, e := registry.QueryRows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	untyped, e := registry.QueryRows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,v.version_number AS active_version_number,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil || len(untyped) != len(drafts) {
 		t.Fatal("entity inventory", e)
 	}

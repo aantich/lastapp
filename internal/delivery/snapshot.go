@@ -163,7 +163,18 @@ func (s *Service) QueueDefinition(ctx context.Context, tx *sql.Tx, p access.Prin
 	b, _ := json.Marshal(d)
 	plan := data.Plan(v.ID, data.TableMarker(s.RegistryName, v.ID), d)
 	pb, _ := json.Marshal(plan)
-	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", version, v.TenantID, v.SpaceID, v.ID, v.ActiveVersion, b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
+	// The entity row lock serialises every capture of this entity, and the locking
+	// read sees the latest committed number, so concurrent publications get
+	// distinct increasing numbers.
+	var locked string
+	if e = tx.QueryRowContext(ctx, "SELECT id FROM entity_definitions WHERE id=? FOR UPDATE", v.ID).Scan(&locked); e != nil {
+		return e
+	}
+	var number int64
+	if e = tx.QueryRowContext(ctx, entities.NextVersionNumber+" FOR UPDATE", v.ID).Scan(&number); e != nil {
+		return e
+	}
+	if _, e = tx.ExecContext(ctx, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,version_number,base_version_id,definition_json,definition_hash,created_by,storage_plan_json,storage_plan_hash,agent_grant_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", version, v.TenantID, v.SpaceID, v.ID, number, v.ActiveVersion, b, entity.Hash(d), p.ID, pb, entity.Hash(plan), agentID(p)); e != nil {
 		return e
 	}
 	_, e = tx.ExecContext(ctx, "UPDATE entity_definitions SET pending_version_id=?,revision=revision+1 WHERE id=?", version, v.ID)

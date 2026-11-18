@@ -62,7 +62,9 @@ func TestEntityRuntime(t *testing.T) {
 	}
 	c.want("GET", "/v1/spaces/"+space+"/entities", nil, 0, 403)
 	c.want("GET", "/v1/entities/"+eid, nil, 0, 403)
-	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
+	if queued := oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202); registry.Integer(queued["version_number"]) != 1 {
+		t.Fatal("the first publication is not v1", queued)
+	}
 	// A failed workspace read is not "no workspace": the job fails closed and
 	// stays queued for a retry instead of skipping the owner's authority check.
 	if _, e := s.publisher.Job(ctx, failingWorkspaceRead{s.DB}); e == nil || isAPIStatus(e, 404) {
@@ -77,6 +79,9 @@ func TestEntityRuntime(t *testing.T) {
 	published := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
 	if published["active_version_id"] == nil {
 		t.Fatal(published["publications"])
+	}
+	if registry.Integer(published["active_version_number"]) != 1 || registry.Integer(published["next_version_number"]) != 2 || registry.Integer(published["publications"].([]any)[0].(map[string]any)["version_number"]) != 1 {
+		t.Fatal("version numbers", published["active_version_number"], published["next_version_number"], published["publications"])
 	}
 	if draftFlag() != false {
 		t.Fatal("a draft equal to its active version is flagged as changed")
@@ -375,6 +380,12 @@ func TestEntityRuntime(t *testing.T) {
 	latest = oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
 	if latest["active_version_id"] == nil || latest["publications"].([]any)[0].(map[string]any)["state"] != "failed" {
 		t.Fatal(latest["publications"])
+	}
+	// The failed version keeps its number; the next one skips past it and the
+	// active version keeps the number it had.
+	failedNumber := registry.Integer(latest["publications"].([]any)[0].(map[string]any)["version_number"])
+	if active := registry.Integer(latest["active_version_number"]); active < 1 || active >= failedNumber || registry.Integer(latest["next_version_number"]) != failedNumber+1 || latest["pending_version_number"] != nil {
+		t.Fatal("version numbers after a failed publication", latest["active_version_number"], latest["next_version_number"], latest["publications"])
 	}
 	request(bearer, "POST", "/entities/deal/query", registry.Row{"select": []string{"name"}}, 0, 200)
 	exec("DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(oc.session))

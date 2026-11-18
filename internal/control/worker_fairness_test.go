@@ -123,7 +123,7 @@ func TestWorkerTenantFairness(t *testing.T) {
 	f.exec(conn, "UPDATE database_resources SET state='pending' WHERE id=?", a.resource)
 	f.exec(conn, "UPDATE development_workspaces SET created_at=created_at-INTERVAL 1 HOUR WHERE id=?", a.workspace)
 	f.exec(conn, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,draft_json,pending_version_id) VALUES(?,?,?,?,?,?,?)", entityID, a.tenant, a.space, definition.Key, definition.Label, draft, version)
-	f.exec(conn, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,definition_json,definition_hash,created_by,state) VALUES(?,?,?,?,?,?,?,'queued')", version, a.tenant, a.space, entityID, draft, entity.Hash(definition), f.owner)
+	f.exec(conn, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,version_number,definition_json,definition_hash,created_by,state) VALUES(?,?,?,?,1,?,?,?,'queued')", version, a.tenant, a.space, entityID, draft, entity.Hash(definition), f.owner)
 	// Tenant B's workspace storage is ready; its deployment is newer.
 	f.exec(conn, "UPDATE database_resources SET state='ready' WHERE id=?", b.backing)
 	plan := func(entities []registry.Row, versions registry.Row) []byte {
