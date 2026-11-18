@@ -38,16 +38,25 @@ operator-configured clients. Registration supplies metadata only and grants no
 user access. Client metadata fetches reject private/local addresses, redirects
 and oversized responses; setup and token validation have bounded admission.
 
-On the consent page the expiry is a date picker bounded by tomorrow and
-`max_days` from that config (with 7/30/90-day quick choices where they fit); the
-grant still records whole `days`. Presets press when the checked permissions
-match them exactly.
+The consent page is one card: the agent's claimed name (not verified), its
+client ID and return address, the scope, the presets as cards with their
+`description`, the checked permission codes (single permissions under **Choose
+individual permissions**), the expiry and **Cancel** (deny) / **Approve
+connection**. A preset that names a permission the client did not request or the
+scope kind does not allow is disabled; presets press when the checked
+permissions match them exactly. The expiry offers the config's `day_choices` and
+a date picker bounded by tomorrow and `max_days`; the grant still records whole
+`days`. `max_connections` is the number of active, unexpired connections one
+person may hold; approving beyond it returns a conflict.
 
-Connections can be edited/revoked under **My account → Agent access**; each
-connection card shows the agent, its owner, scope, permissions, expiry and last
-mutation, and **Revoke access** asks for confirmation first. Tenant
-administrators can inspect/revoke their members' connections under **Agents**
-in the sidebar (Tenant settings → Agent access), but cannot expand someone else's delegation.
+Connections can be edited/revoked under **My account → Agent access** and on the
+**Agents** page (**Agent connections**); each card shows the agent's claimed
+name, its owner, scope, status (Expired once past expiry), the preset its
+permissions match (or Custom), the permission codes, database limits when it may
+provision, expiry and last use. **Revoke** asks for confirmation first. Tenant
+administrators see and can revoke every connection in the Tenant there (and in
+Tenant settings → Agent access), but cannot expand someone else's delegation;
+anyone else sees their own.
 Changes invalidate existing access-token revisions: refresh or reconnect, reload
 tools and reread resource revisions. Browser logout leaves approved agent access
 intact; grant expiry/revocation, password replacement, user disable and Tenant

@@ -265,7 +265,7 @@ test("platform can add a verified SSO identity as an ordinary member and access 
     .click();
   await expect(admin.getByRole("dialog")).toHaveCount(0);
   await expect(
-    admin.getByRole("row").filter({ hasText: outsider.display_name }),
+    admin.getByRole("listitem").filter({ hasText: outsider.display_name }),
   ).toContainText("SSO reviewer");
   expect(
     (await read(admin, base + "/memberships?q=" + outsider.id)).items[0]
@@ -326,9 +326,6 @@ test("access refresh preserves stale editors and App compute preferences survive
       display_name: "Original reviewer",
     });
   await admin.goto(`/console/tenants/${tenant}/spaces/${space}/access`);
-  await admin
-    .getByRole("button", { name: "Manage roles", exact: true })
-    .click();
   await expect(
     admin.getByRole("row").filter({ hasText: "Original reviewer" }),
   ).toBeVisible();
@@ -393,7 +390,7 @@ test("access refresh preserves stale editors and App compute preferences survive
     const scope = base + "/" + kind + "/" + id;
     await admin.goto(`/console/tenants/${tenant}/${kind}/${id}/access`);
     await expect(
-      admin.getByRole("row").filter({ hasText: owner.display_name }),
+      admin.getByRole("listitem").filter({ hasText: owner.display_name }),
     ).toBeVisible();
     const r = await create(admin, scope + "/roles", {
       id: crypto.randomUUID(),
@@ -407,7 +404,7 @@ test("access refresh preserves stale editors and App compute preferences survive
     });
     await admin.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(
-      admin.getByRole("row").filter({ hasText: outsider.display_name }),
+      admin.getByRole("listitem").filter({ hasText: outsider.display_name }),
     ).toContainText("Refreshed assignment");
   }
   expect(

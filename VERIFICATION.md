@@ -1,5 +1,40 @@
 # Lastapp verification
 
+## Access, Agents and agent consent on the approved design — 18 November 2026
+
+- Space Access, the Agents page and the consent page were measured against
+  the mockup's `access` and `agents` screens and its consent modal, region by
+  region (position, size, padding, radius, colors, font shorthand), at
+  1440×900 and 1920×1080, on a disposable stack seeded with real records (a
+  Space with two custom roles, an entity with published paths and a draft
+  change, an assignment, two consented connections and a pending consent).
+  Agent cards match except text-length widths and the danger token (Revoke is
+  `#7d150d`, the mockup `#9a1c12`; small button padding 7 px vs 6 px). Access
+  matrix and assignment rows match in size and type; the whole block sits
+  66 px lower under the Space tabs, and op columns start 35 px further left
+  because `acl.manage` (the real operation name) is wider than the mockup's
+  `acl` and the mockup's row button overflows its card by 32 px. The consent
+  card's title, labels, preset cards and expiry control match in size and
+  type; it is taller because it also shows the client ID, the unverified-name
+  warning, the scope pickers and the single permissions disclosure, and the
+  expiry choices are the served 1/7/30 days.
+- axe-core reports no violations in light and dark mode on Space Access, App
+  Access, Agents, My account and the consent page (the consent card's title is
+  now the page's `h1`), and none of them overflows horizontally at 390 px
+  (the matrix scrolls inside its own region).
+- A separate text-only visual review of the screenshots found Agents faithful
+  and Access/consent close; its findings on centred preset-card text and the
+  selected-card tint were fixed and remeasured.
+- `go test ./internal/agent` (preset descriptions, day choices within
+  1..`max_days` including the default) and the integration golden
+  (`config` shape with `day_choices`, `max_connections`, preset
+  `description`) pass against the local MariaDB; `make lint` is clean. The
+  targeted browser specs (agent access, review fixes, security, database
+  access) were run against the disposable stack; the full suite runs in CI.
+- Not verified: Space-wide assignments shown with App assignments in one list
+  (the Space list shows Space assignments only) and opening an entity directly
+  on its Access tab from a matrix cell (it opens the entity).
+
 ## Activity and the command palette on the approved design — 18 November 2026
 
 - Server: `GET …/audit-events` accepts `resource_id` (at most 36 bytes),

@@ -24,11 +24,14 @@ var agentPermissions = []registry.Row{
 var (
 	agentDefaultPermissions = []string{"read"}
 	agentPresets            = []registry.Row{
-		{"label": "Workspace author", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
-		{"label": "Inspect only", "permissions": []string{"read"}},
-		{"label": "App author", "permissions": []string{"read", "resources.write"}},
-		{"label": "Entity author", "permissions": []string{"read", "entities.draft", "entities.check"}},
+		{"label": "Workspace author", "description": "Build, test and release in a workspace", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
+		{"label": "Inspect only", "description": "Read configuration only", "permissions": []string{"read"}},
+		{"label": "App author", "description": "Spaces, Apps and micro-apps", "permissions": []string{"read", "resources.write"}},
+		{"label": "Entity author", "description": "Draft and check entities", "permissions": []string{"read", "entities.draft", "entities.check"}},
 	}
+	// The expiry choices the consent form offers; each lies within
+	// 1..agentMaxGrantDays and includes the default.
+	agentGrantDayChoices = []int{1, agentGrantDays, agentMaxGrantDays}
 )
 
 func agentPermissionKinds(code string) []string {

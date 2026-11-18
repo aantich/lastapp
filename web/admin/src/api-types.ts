@@ -228,11 +228,15 @@ export type AgentPermission = {
 export type AgentConfig = {
   mcp_url: string;
   permissions: AgentPermission[];
-  presets: { label: string; permissions: string[] }[];
+  presets: { label: string; description: string; permissions: string[] }[];
   default_permissions: string[];
   default_limits: AgentLimits;
   default_days: number;
   max_days: number;
+  // The expiry choices the consent form offers, within 1..max_days.
+  day_choices: number[];
+  // Active, unexpired connections one person may hold at a time.
+  max_connections: number;
   max_databases: number;
   max_targets: number;
   access_token_seconds: number;

@@ -80,9 +80,6 @@ test("existing database registration, shared access controls and Tenant-switch i
   const access = async (name: string) => {
     await admin.getByRole("tab", { name: "Access", exact: true }).click();
     await admin
-      .getByRole("button", { name: "Manage roles", exact: true })
-      .click();
-    await admin
       .getByRole("button", { name: "Create role", exact: true })
       .click();
     await admin.getByLabel("Name", { exact: true }).fill(name);
@@ -116,9 +113,6 @@ test("existing database registration, shared access controls and Tenant-switch i
   await access("App analyst");
   // Arbitrary role grants use a name picker even when the user only manages this App.
   // Tenant authors may choose users and teams, without entering internal IDs.
-  await admin
-    .getByRole("button", { name: "People and teams", exact: true })
-    .click();
   await admin.getByRole("button", { name: "Add access", exact: true }).click();
   await choose(admin, "Role", "App analyst");
   await expect(admin.getByLabel("Recipient", { exact: true })).toBeVisible();

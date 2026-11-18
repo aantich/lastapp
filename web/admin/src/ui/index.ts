@@ -79,6 +79,21 @@ export { Menu, type MenuItem } from "./menu";
 export { DataTable, type Column } from "./data-table";
 export { RecordList, type RecordRow } from "./record-list";
 export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
+export {
+  AccessMatrix,
+  AssignmentList,
+  type AccessCell,
+  type AccessMatrixRow,
+} from "./access-matrix";
+export {
+  ConnectionCard,
+  ConnectionGrid,
+  ChoiceCards,
+  FlowCard,
+  FlowSection,
+  FlowStack,
+  type Choice,
+} from "./connection-card";
 
 // Form controls
 export { Select, ListboxPopup, type ListOption } from "./select";

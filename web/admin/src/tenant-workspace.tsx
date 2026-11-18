@@ -51,6 +51,7 @@ import { ActivityLog } from "./activity-log";
 import { activityQuery, agentGrantsPath, auditActors } from "./actors";
 import { retryDeployment, useDeploymentStates } from "./deployment";
 import { ConnectAgentDialog } from "./connect-agent";
+import { AgentAccess } from "./agent-access";
 import {
   num,
   optText,
@@ -178,11 +179,6 @@ export function TenantWorkspace({
   function go(page: string, v: Partial<typeof route> = {}) {
     if (page === "account") {
       navigate(consoleURL.account);
-      return;
-    }
-    if (page === "agents") {
-      if (all("authorization.manage")) go("settings", { tab: "agents" });
-      else go("account");
       return;
     }
     if (page === "entities") {
@@ -332,7 +328,7 @@ export function TenantWorkspace({
               : []),
             { label: title },
           ]
-        : [{ label: title }]),
+        : [{ label: sectionLabel(route.page) || title }]),
   ];
   // The palette's commands beyond the sidebar sections: entities, Apps and
   // Spaces this session has already loaded, actions with a real operation
@@ -491,6 +487,11 @@ export function TenantWorkspace({
             Add micro-app
           </Button>
         )}
+      {route.page === "agents" && (
+        <Button variant="primary" onClick={() => setConnecting(true)}>
+          New connection
+        </Button>
+      )}
       {route.page === "settings" &&
         route.tab === "databases" &&
         all("database.manage") && (
@@ -555,12 +556,28 @@ export function TenantWorkspace({
         ),
       })),
   ]);
+  // A Space's Access tab is headed as the Space's access.
+  const spaceAccess =
+    route.page === "space" && route.tab === "access" && detailReady;
   return (
     <LiveRefresh value={live}>
       <ConsoleShell
         me={me}
         role={me.email}
-        title={title}
+        title={
+          route.page === "agents"
+            ? "Agent connections"
+            : spaceAccess
+              ? `Access · ${title}`
+              : title
+        }
+        description={
+          route.page === "agents"
+            ? "Agents act for a person, inside a grant. Same operations, same audit trail."
+            : spaceAccess
+              ? "Business roles live in the Space. Tenant administration grants no automatic record access."
+              : undefined
+        }
         // Home and Activity draw their own heading (Activity's filters sit
         // beside its title).
         header={!["home", "activity"].includes(route.page) || !tenant}
@@ -694,6 +711,16 @@ export function TenantWorkspace({
                   grants={agentGrantsPath(tenant, all("authorization.manage"))}
                   title={title}
                   actions={actions}
+                />
+              )}
+              {route.page === "agents" && (
+                // A Tenant security manager reviews every connection in
+                // the Tenant; anyone else their own.
+                <AgentAccess
+                  key={tenant}
+                  me={me}
+                  tenant={manager ? tenant : undefined}
+                  heading={false}
                 />
               )}
               {route.page === "settings" && <TenantSettings t={t} />}
