@@ -40,6 +40,7 @@ export function Badge({
   tone = "neutral",
   mono,
   count,
+  pill,
   className,
   title,
 }: {
@@ -47,6 +48,8 @@ export function Badge({
   tone?: Tone | "inverse";
   mono?: boolean;
   count?: boolean;
+  // The rounder, larger chip of cards (a preset, a permission, a scope).
+  pill?: boolean;
   className?: string;
   title?: string;
 }) {
@@ -57,6 +60,7 @@ export function Badge({
         tone !== "neutral" && "tone-" + tone,
         mono && "ui-mono",
         count && "ui-count",
+        pill && "ui-pill",
         className,
       )}
       title={title}

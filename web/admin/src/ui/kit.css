@@ -672,7 +672,7 @@ button.ui-stat:hover {
 .ui-page-header-copy > p {
   color: var(--ui-muted);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: normal;
   max-width: 680px;
 }
 .ui-page-header-meta {
@@ -1619,6 +1619,392 @@ textarea.ui-input {
 .ui-segmented > button[aria-pressed="true"] {
   background: var(--ui-surface);
   font-weight: 600;
+}
+
+/* Pill chips (cards: a preset, a permission, a scope, a role) */
+.ui-tag.ui-pill {
+  gap: 6px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  line-height: normal;
+}
+.ui-tag.ui-pill:not([class*="tone-"]) {
+  color: var(--ui-text);
+}
+.ui-tag.ui-pill.ui-mono {
+  font-weight: 500;
+}
+.ui-tag.ui-pill.tone-info {
+  color: var(--ui-primary-hover);
+}
+
+/* Access matrix (who may do what to one entity; read-only) */
+.ui-access-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.ui-access-head > h2,
+.ui-access-head > span {
+  line-height: normal;
+}
+.ui-access-head > span {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+/* Actions sit on the title line without making it taller. */
+.ui-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -8px 0 -8px auto;
+}
+.ui-access-card > .ui-access-head {
+  padding: 14px 16px;
+}
+.ui-access-card > .empty {
+  border-top: 1px solid var(--ui-divider);
+}
+.ui-access-matrix {
+  overflow-x: auto;
+}
+.ui-access-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: normal;
+}
+.ui-access-matrix thead {
+  border-bottom: 0;
+  background: none;
+}
+.ui-access-matrix tbody tr:hover {
+  background: none;
+}
+/* Operation columns are 80 px apart by 12 px, the row padded 16 px. */
+.ui-access-matrix th,
+.ui-access-matrix td {
+  box-sizing: border-box;
+  max-width: none;
+  padding: 14px 6px;
+  border-top: 1px solid var(--ui-divider);
+  border-bottom: 0;
+  color: var(--ui-text);
+  font-size: 14px;
+  text-align: center;
+  vertical-align: middle;
+}
+.ui-access-matrix thead th {
+  width: 92px;
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ui-access-matrix th:first-child {
+  min-width: 180px;
+  padding-left: 16px;
+  text-align: left;
+}
+.ui-access-matrix thead th:first-child {
+  width: auto;
+}
+.ui-access-matrix th:last-child,
+.ui-access-matrix td:last-child {
+  padding-right: 16px;
+}
+.ui-access-matrix thead th:last-child {
+  width: 102px;
+}
+.ui-access-matrix tbody th {
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+.ui-access-matrix tbody th > strong,
+.ui-access-matrix tbody th > span {
+  display: block;
+}
+.ui-access-matrix tbody th > strong {
+  font-weight: 700;
+}
+.ui-access-matrix tbody th > span {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.ui-access-matrix td > button,
+.ui-access-matrix td > span {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  vertical-align: middle;
+}
+.ui-access-matrix td > button {
+  cursor: pointer;
+}
+.ui-access-mark {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ui-button-border);
+  border-radius: 5px;
+  background: var(--ui-surface);
+  color: var(--ui-on-primary);
+}
+.ui-access-mark.is-on {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary);
+}
+.ui-access-mark.is-draft {
+  outline: 1.5px dashed var(--ui-warning);
+  outline-offset: 2px;
+}
+.ui-access-matrix td > button:hover .ui-access-mark {
+  border-color: var(--ui-button-border-hover);
+}
+.ui-access-matrix td > button:hover .ui-access-mark.is-on {
+  border-color: var(--ui-primary-hover);
+  background: var(--ui-primary-hover);
+}
+
+/* Role assignments as lines */
+.panel.ui-assignments-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+}
+.ui-assignments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-assignments > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  line-height: normal;
+}
+.ui-assignments > li > strong {
+  min-width: 0;
+  margin-right: auto;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+/* A row action does not make the line taller. */
+.ui-assignments > li > button {
+  margin-block: -6px;
+}
+.ui-assignment-arrow {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+/* Agent connection cards */
+.ui-connection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 14px;
+}
+.panel.ui-connection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+.ui-connection.is-inactive {
+  opacity: 0.6;
+}
+.ui-connection-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ui-connection-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--ui-inverse);
+  color: var(--ui-on-inverse);
+  font: 600 14px var(--ui-font-heading);
+}
+.ui-connection-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: normal;
+}
+.ui-connection-name > strong {
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.ui-connection-name > span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ui-connection-head > .badge {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.ui-connection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ui-connection-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-connection-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Choice cards (named starting points) */
+.ui-choice-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.ui-choice-cards > button {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border: 1.5px solid var(--ui-border);
+  border-radius: 12px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-choice-cards > button:hover:not(:disabled) {
+  border-color: var(--ui-button-border-hover);
+}
+.ui-choice-cards > button[aria-pressed="true"] {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+}
+.ui-choice-cards > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ui-choice-cards strong {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: normal;
+}
+.ui-choice-cards span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: normal;
+}
+
+/* Flow card (one focused task, such as an agent consent) */
+.ui-flow-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+/* 680 px of content inside 24 px padding, placed 8vh from the top as a
+   dialog would be (the standalone page already pads 48 px). */
+.panel.ui-flow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 730px;
+  margin-top: max(0px, calc(8vh - 48px));
+  padding: 24px;
+  overflow: visible;
+}
+.ui-flow-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ui-flow-card-head > h2 {
+  margin: 0;
+  font: 600 22px var(--ui-font-heading);
+}
+.ui-flow-card-head > :not(h2) {
+  margin-left: auto;
+}
+.ui-flow-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ui-flow-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: normal;
+}
+.ui-flow-card .ui-segmented,
+.ui-flow-stack .ui-segmented {
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  background: var(--ui-divider);
+}
+.ui-flow-card .ui-segmented > button,
+.ui-flow-stack .ui-segmented > button {
+  padding: 7px 14px;
+  line-height: normal;
+  border-radius: 7px;
+  color: var(--ui-text);
+  font-weight: 400;
+}
+.ui-flow-card .ui-segmented > button[aria-pressed="true"],
+.ui-flow-stack .ui-segmented > button[aria-pressed="true"] {
+  font-weight: 600;
+}
+.ui-flow-card > p,
+.ui-flow-stack > p {
+  margin: 0;
+  line-height: normal;
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.ui-flow-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* Fact list (labelled values of one record) */

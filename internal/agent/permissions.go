@@ -24,10 +24,10 @@ var agentPermissions = []registry.Row{
 var (
 	agentDefaultPermissions = []string{"read"}
 	agentPresets            = []registry.Row{
-		{"label": "Workspace author", "description": "Own development copy: build, test, release and publish there", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
-		{"label": "Inspect only", "description": "Read configuration, change nothing", "permissions": []string{"read"}},
-		{"label": "App author", "description": "Create and edit Spaces, Apps and micro-apps", "permissions": []string{"read", "resources.write"}},
-		{"label": "Entity author", "description": "Draft and check entities; never publish", "permissions": []string{"read", "entities.draft", "entities.check"}},
+		{"label": "Workspace author", "description": "Build, test and release in a workspace", "permissions": []string{"read", "workspaces.write", "workspaces.test", "releases.write", "resources.write", "entities.draft", "entities.check", "entities.publish", "access.manage", "lifecycle.manage"}},
+		{"label": "Inspect only", "description": "Read configuration only", "permissions": []string{"read"}},
+		{"label": "App author", "description": "Spaces, Apps and micro-apps", "permissions": []string{"read", "resources.write"}},
+		{"label": "Entity author", "description": "Draft and check entities", "permissions": []string{"read", "entities.draft", "entities.check"}},
 	}
 	// The expiry choices the consent form offers; each lies within
 	// 1..agentMaxGrantDays and includes the default.
