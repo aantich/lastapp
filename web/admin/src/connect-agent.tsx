@@ -25,7 +25,7 @@ export function McpConnection({ config }: { config: AgentConfig }) {
   return (
     <Stack gap="sm">
       <Inline gap="md">
-        <strong>Connect from Codex or Claude</strong>
+        <strong>Connect from your MCP client</strong>
         <Button
           size="sm"
           icon={<Copy size={14} aria-hidden />}
@@ -66,7 +66,7 @@ export function ConnectAgentDialog({
   return (
     <Dialog
       title="Connect an agent"
-      description={`Let Claude, Codex or another MCP client work in ${tenantName || "this Tenant"} with access you approve.`}
+      description={`Let an MCP client work in ${tenantName || "this Tenant"} with access you approve.`}
       onClose={close}
       footer={
         <>

@@ -379,6 +379,7 @@ button.ui-stat:hover {
   gap: 14px;
 }
 .ui-app-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -392,6 +393,28 @@ button.ui-stat:hover {
 }
 .ui-app-card:hover {
   border-color: var(--ui-button-border-hover);
+}
+.ui-app-card:has(.ui-app-card-open:focus-visible) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+.ui-app-card-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-app-card-open:focus-visible {
+  outline: none;
+}
+.ui-app-card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
 }
 .ui-app-card-head {
   display: flex;
@@ -432,10 +455,15 @@ button.ui-stat:hover {
   min-width: 0;
 }
 .ui-app-card-name strong {
+  display: flex;
+  min-width: 0;
+  font-size: 15px;
+}
+.ui-app-card-name strong > button {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
 }
 .ui-app-card-name span {
   color: var(--ui-muted);

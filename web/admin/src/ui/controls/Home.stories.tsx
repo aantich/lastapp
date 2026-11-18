@@ -15,7 +15,8 @@ import { Section } from "../section";
 import { StatusBadge } from "../status";
 
 // The Tenant Home (tenant/home-page.tsx) from kit parts: the greeting with
-// its stats, what needs a person, the Apps and the latest activity.
+// its stats, what needs a person, the Apps and the latest activity. The
+// content is neutral sample data; the real page derives every value.
 const meta = { title: "Patterns/Home" } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -23,20 +24,20 @@ type Story = StoryObj<typeof meta>;
 const activity: ActivityItem[] = [
   {
     id: "1",
-    actor: { name: "Claude", kind: "agent" },
-    text: "Claude started workspace crm-pricing-exp",
-    meta: "for Maya · 8 minutes ago",
+    actor: { name: "Agent", kind: "agent" },
+    text: "An agent started workspace sales-exp",
+    meta: "for Alex Kim · 8 minutes ago",
   },
   {
     id: "2",
     actor: { name: "System worker", kind: "system" },
-    text: "Deploy of Forecasting r14 failed",
+    text: "Deploy of Planning 1.1.0 failed",
     meta: "Worker · 12 minutes ago",
   },
   {
     id: "3",
-    actor: { name: "Joe Park", kind: "person" },
-    text: "Joe Park deployed Deal review r23",
+    actor: { name: "Sam Lee", kind: "person" },
+    text: "Sam Lee deployed Orders 2.0.0",
     meta: "Console · 2 hours ago",
   },
 ];
@@ -45,18 +46,18 @@ function Home({ attention }: { attention: boolean }) {
   return (
     <div className="ui-home">
       <PageIntro
-        eyebrow="Tuesday, 17 November"
-        title="Good morning, Maya"
+        eyebrow="Monday, 2 March"
+        title="Good morning, Alex"
         summary={
           attention
-            ? "2 things need you. Everything else in Northstar is healthy."
-            : "Nothing needs you right now. Everything in Northstar is healthy."
+            ? "2 things need you. Everything else in Example Co is healthy."
+            : "Nothing needs you right now. Everything in Example Co is healthy."
         }
         aside={
           <StatGrid>
-            <StatCard label="Entities" value="14" />
-            <StatCard label="Apps live" value="5" />
-            <StatCard label="Agents active" value="2" />
+            <StatCard label="Entities" value="6" />
+            <StatCard label="Apps live" value="2" />
+            <StatCard label="Agents active" value="1" />
           </StatGrid>
         }
       />
@@ -66,8 +67,8 @@ function Home({ attention }: { attention: boolean }) {
             <AttentionCard
               state="failed"
               stateLabel="Deploy failed"
-              meta="Forecasting · 12 minutes ago"
-              title="r14 did not go live"
+              meta="Planning · 12 minutes ago"
+              title="1.1.0 did not go live"
               actions={
                 <>
                   <Button size="sm" variant="primary">
@@ -77,13 +78,13 @@ function Home({ attention }: { attention: boolean }) {
                 </>
               }
             >
-              Storage gate conflict while publishing deal v9. Production still
-              serves r13.
+              The storage check rejected the release. Production still serves
+              1.0.0.
             </AttentionCard>
             <AttentionCard
               state="deploying"
-              meta="Deal review · r24"
-              title="Deploying r24"
+              meta="Orders · 2.1.0"
+              title="Deploying 2.1.0"
               extra={
                 <Progress
                   value={2}
@@ -92,7 +93,7 @@ function Home({ attention }: { attention: boolean }) {
                 />
               }
             >
-              Production serves r23 until the switch.
+              Production serves 2.0.0 until the switch.
             </AttentionCard>
           </AttentionGrid>
         ) : (
@@ -110,21 +111,21 @@ function Home({ attention }: { attention: boolean }) {
         >
           <div className="ui-app-grid">
             <AppCard
-              id="deal-review"
-              name="Deal review"
-              subtitle="CRM · 4 micro-apps"
+              id="orders"
+              name="Orders"
+              subtitle="Sales · 3 micro-apps"
               status={<StatusBadge state="active" label="Live" />}
-              address="deal-review.northstar.example"
-              footer="Production r23 · deployed 2 hours ago by Joe Park"
+              address="orders.example.test"
+              footer="Production 2.0.0 · deployed 2 hours ago by Sam Lee"
               onOpen={() => {}}
             />
             <AppCard
-              id="forecasting"
-              name="Forecasting"
-              subtitle="CRM · 2 micro-apps"
-              status={<StatusBadge state="failed" label="r14 failed" />}
-              address="forecasting.northstar.example"
-              footer="Production r13 · deployed yesterday by Maya Chen"
+              id="planning"
+              name="Planning"
+              subtitle="Sales · 1 micro-app"
+              status={<StatusBadge state="failed" label="1.1.0 failed" />}
+              address="planning.example.test"
+              footer="Production 1.0.0 · deployed yesterday by Alex Kim"
               onOpen={() => {}}
             />
           </div>

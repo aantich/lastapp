@@ -46,7 +46,8 @@ export function ConsoleShell({
   signOut,
 }: {
   me: Me;
-  // The signed-in person's role under their name ("Tenant admin").
+  // What the account menu shows under the person's name (the workspace
+  // passes a real field: the email, or the platform role).
   role?: ReactNode;
   title: ReactNode;
   description?: ReactNode;

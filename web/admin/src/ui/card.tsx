@@ -160,27 +160,30 @@ export function AppCard({
   footer?: ReactNode;
   onOpen: () => void;
 }) {
-  const named = useId(),
-    described = useId();
+  const described = useId();
   let hash = 0;
   for (const c of id) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
   const tone = tileTones[hash % tileTones.length];
-  // Named by the App's visible name (label in name); the rest of the card
-  // describes it.
+  // The App's name is the button (its name is exactly what it shows); the
+  // button's ::after stretches over the card so the whole card opens it,
+  // and the rest of the card describes it.
   return (
-    <button
-      type="button"
-      className="panel ui-app-card"
-      onClick={onOpen}
-      aria-labelledby={named}
-      aria-describedby={described}
-    >
+    <article className="panel ui-app-card">
       <span className="ui-app-card-head">
         <span className={cx("ui-app-tile", "tone-" + tone)} aria-hidden>
           {initials(name)}
         </span>
         <span className="ui-app-card-name">
-          <strong id={named}>{name}</strong>
+          <strong>
+            <button
+              type="button"
+              className="ui-app-card-open"
+              onClick={onOpen}
+              aria-describedby={described}
+            >
+              {name}
+            </button>
+          </strong>
           {subtitle && <span>{subtitle}</span>}
         </span>
         {status}
@@ -189,6 +192,6 @@ export function AppCard({
         {address && <span className="ui-app-card-address">{address}</span>}
         {footer && <span className="ui-app-card-footer">{footer}</span>}
       </span>
-    </button>
+    </article>
   );
 }

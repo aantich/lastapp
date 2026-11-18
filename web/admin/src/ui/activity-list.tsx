@@ -7,9 +7,9 @@ export type ActivityItem = {
   // Who acted: an agent shows "AI" on ink, the system worker a gear, a
   // person their initials.
   actor: { name: string; kind: AvatarKind };
-  // One sentence ("Claude started workspace crm-pricing-exp").
+  // One sentence built from the event ("<actor> <did> <resource>").
   text: ReactNode;
-  // Who it was for or through, and when ("for Maya · CRM · 8 min ago").
+  // Who it was for or through, and when ("for <person> · <ago>").
   meta?: ReactNode;
   // ISO time for <time>.
   at?: string;

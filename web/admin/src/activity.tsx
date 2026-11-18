@@ -13,7 +13,7 @@ import type { ActivityItem } from "./ui";
 
 type Details = Record<string, unknown>;
 type Name = (id: unknown, noun: string) => ReactNode;
-// `active` follows the actor ("Joe deployed …"); `passive` is a whole
+// `active` follows the actor ("<actor> deployed …"); `passive` is a whole
 // sentence for the system worker ("Deploy of … failed").
 type Phrase = (
   d: Details,
@@ -219,7 +219,13 @@ export function describeEvents(
       : {};
     const phrase = phrases[text(e.action)]?.(details, n, e) ||
       family(e, n) || {
-        active: text(e.action).replace(/[._]/g, " "),
+        // An action without a sentence: its words and the real resource.
+        active: (
+          <>
+            {text(e.action).replace(/[._]/g, " ")}{" "}
+            {n(e.resource_id, text(e.resource_type).replace(/_/g, " "))}
+          </>
+        ),
       };
     const sentence =
       who.kind === "system" && phrase.passive ? (
