@@ -14,11 +14,9 @@ import {
   StatGrid,
   StatusBadge,
   Timeline,
-  type AvatarKind,
 } from "../ui";
 import {
   isItem,
-  optText,
   text,
   type AgentGrant,
   type Item,
@@ -26,27 +24,11 @@ import {
 } from "../api-types";
 import { useApiQueries, useApiQuery } from "../query";
 import { useDeploymentStates } from "../deployment";
+import { actorOf, agentGrantsPath, ago } from "../actors";
 import { createSpace } from "./forms";
 import type { TenantScreen } from "./screen";
 
 const day = 24 * 60 * 60 * 1000;
-
-// "12 min ago", "3 h ago", "yesterday" — or "in 2 days" for a future time.
-const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-function ago(at: unknown) {
-  const ms = new Date(text(at)).getTime();
-  if (!ms) return "";
-  const s = (ms - Date.now()) / 1000;
-  const [value, unit]: [number, Intl.RelativeTimeFormatUnit] =
-    Math.abs(s) < 60
-      ? [s, "second"]
-      : Math.abs(s) < 3600
-        ? [s / 60, "minute"]
-        : Math.abs(s) < 86400
-          ? [s / 3600, "hour"]
-          : [s / 86400, "day"];
-  return relative.format(Math.round(value), unit);
-}
 
 // The Tenant's Home: what needs a person now, the Apps, agents and recent
 // activity. Every number and row comes from an existing management read
@@ -72,9 +54,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
   // else sees their own grants, narrowed here to this Tenant.
   const manager = all("authorization.manage");
   const grantsQuery = useApiQuery<Page<AgentGrant>>(
-    manager
-      ? `/v1/agent-access?limit=50&tenant_id=${encodeURIComponent(tenant)}`
-      : "/v1/agent-access?limit=50",
+    agentGrantsPath(tenant, manager),
   );
   // Measured against the time the grants were read, so a render is pure.
   const now = grantsQuery.dataUpdatedAt;
@@ -399,25 +379,4 @@ function greeting() {
     : hour < 18
       ? "Good afternoon"
       : "Good evening";
-}
-
-// Who did it: an agent acting for a person (the audit details carry the agent
-// grant, internal/op.AuditAs), the background worker, or a person.
-function actorOf(
-  e: Item,
-  grants: AgentGrant[],
-): { name: string; kind: AvatarKind; label: string } {
-  const details = isItem(e.details_json) ? e.details_json : {};
-  const grant = optText(details.agent_grant_id);
-  const person = text(e.actor_name);
-  if (grant) {
-    const client =
-      grants.find((g) => g.id === grant)?.client_name ||
-      text(details.agent_client_id) ||
-      "Agent";
-    return { name: client, kind: "agent", label: `${client} for ${person}` };
-  }
-  if (person === "System worker")
-    return { name: person, kind: "system", label: person };
-  return { name: person, kind: "person", label: person };
 }
