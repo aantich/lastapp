@@ -1,5 +1,39 @@
 # Lastapp verification
 
+## Workspace preparation steps, Home attention and deployment retry — 19 November 2026
+
+- `TestDevelopmentWorkspaceReleaseFlow` (MariaDB) checks that a new workspace
+  starts at `storage`, that the list shows `publishing` after the first worker
+  pass, and that the step is cleared once the workspace is ready. For both
+  injected failures (activation conflict, corrupt build) it removes the fault
+  and then checks the retry rules. A stale revision gets 412. A production
+  Space change after the failure gets 409. Of two concurrent retries, exactly
+  one gets 202 and the other 412. The same deployment then becomes active with
+  `attempts` 2 and `retried_by` set. `release.deployment_retried` and
+  `release.deployed` are audited under the retrying person. Retrying a
+  deployment that is no longer failed gets 409.
+  `TestWorkspaceStepsMatchSchema` keeps `WorkspaceSteps` equal to the
+  `preparation_step` CHECK constraint.
+- Goldens were regenerated for intended contract changes: the
+  `lastapp_release` retry schema; retry stale/not-failed shapes, including over
+  MCP without `production.deploy`; `attempts`/`retried_by`;
+  `preparation_step`/`agent_client_name`; and
+  `development_policy.workspace_steps`. `design/control_plane.sql` was
+  regenerated for migration 00014.
+- Local runs: the full Go suite passed, except `TestMariaDBControlPlane`. That
+  test uses the shared development registry, which was not migrated to 00014
+  (the dev stack was deliberately left untouched). `make lint` reported 0
+  issues. Browser specs passed: the deployment recovery spec (now also covers
+  the Retry dialog and its If-Match) and the new Home/Development progress and
+  unpublished-entity spec.
+- axe (wcag2a/aa, wcag21a/aa, best-practice) on Home, Space → Development and
+  the App Retry dialog, in light and dark at 1440 and 390 px: 0 violations in
+  all 12 states and no horizontal overflow. A text-only visual review against
+  the mockup found the Development list's Preparing badge stretched across its
+  column (fixed). Its remaining findings are pre-existing shared-kit details:
+  database card title wrapping, the failed card border, attention-card
+  spacing, and the field-less confirmation dialog.
+
 ## Apps list and App detail on the approved design — 18 November 2026
 
 - The Apps list and the App page (Releases tab of a live App) were measured
