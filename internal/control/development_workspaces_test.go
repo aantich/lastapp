@@ -14,6 +14,7 @@ import (
 	mariadb "github.com/aantich/go-mariadb"
 
 	"github.com/aantich/lastapp/internal/artifact"
+	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/delivery"
@@ -370,9 +371,21 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		}
 	}
 	c.as(joe).want("GET", "/v1/apps/"+app+"/deployment", nil, 0, 403)
+	// The App list carries the same latest deployment, its hosted origin and
+	// active release; an App reader without release.manage sees no deployment.
+	listed := listedApp(t, oc, base, app)
+	latest, _ := listed["latest_deployment"].(map[string]any)
+	if registry.Str(listed["hosted_origin"]) != s.delivery.HostedOrigin(app) || latest == nil || latest["id"] != job["id"] || latest["state"] != deployed["state"] || latest["failed_state"] != deployed["failed_state"] || latest["release_name"] != deployed["release_name"] {
+		t.Fatal("App list did not carry the latest deployment", listed, deployed)
+	}
+	oc.want("POST", base+"/apps/"+app+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": authz.AppManagerRole}, 0, 201)
+	if reader := listedApp(t, c.as(joe), base, app); reader["latest_deployment"] != nil || reader["hosted_origin"] != listed["hosted_origin"] {
+		t.Fatal("App list exposed a deployment without release.manage", reader)
+	}
 	if failure != "" {
-		if deployed["state"] != "failed" {
-			t.Fatal(deployed)
+		// The status names the step the deployment had reached.
+		if deployed["state"] != "failed" || deployed["failed_state"] != "publishing" || listed["active_release_id"] != nil {
+			t.Fatal(deployed, listed)
 		}
 		var pending int
 		if e = s.DB.QueryRow("SELECT COUNT(*) FROM entity_definitions WHERE space_id=? AND pending_version_id IS NOT NULL", space).Scan(&pending); e != nil || pending != 0 {
@@ -383,8 +396,15 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 		}
 		return
 	}
-	if deployed["state"] != "active" {
-		t.Fatal(deployed)
+	if deployed["state"] != "active" || deployed["failed_state"] != nil || listed["active_release_id"] != rel["id"] {
+		t.Fatal(deployed, listed)
+	}
+	// Each release names the person who captured it; a person's own
+	// workspace has no agent client.
+	releases := oc.want("GET", "/v1/apps/"+app+"/releases", nil, 0, 200)
+	items, _ := releases["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["created_by_name"] == "" || items[0].(map[string]any)["agent_client_name"] != nil {
+		t.Fatal("release list did not name its author", releases)
 	}
 	captured := oc.want("GET", "/v1/releases/"+registry.Str(rel["id"]), nil, 0, 200)
 	rebased := oc.want("GET", "/v1/workspaces/"+wid, nil, 0, 200)
@@ -421,4 +441,17 @@ func testDevelopmentWorkspaceReleaseFlow(t *testing.T, failure string) {
 	if status, _ := requestData("http://localhost:5391", devToken, "POST", "/entities/company/query", registry.Row{}); status != 401 {
 		t.Fatal("archived workspace token survived", status)
 	}
+}
+
+// listedApp finds app in the Tenant's App list as c sees it.
+func listedApp(t *testing.T, c testClient, base, app string) map[string]any {
+	t.Helper()
+	page := c.want("GET", base+"/apps?limit=100", nil, 0, 200)
+	for _, v := range page["items"].([]any) {
+		if row := v.(map[string]any); row["id"] == app {
+			return row
+		}
+	}
+	t.Fatal("App is not listed", app, page)
+	return nil
 }

@@ -81,10 +81,13 @@ GET /v1/tenants/{tenant}/apps -> 200
   $ object
   .items array
   .items[] object
+  .items[].active_release_id null
   .items[].compute_mode string
   .items[].created_at string
   .items[].display_name string
+  .items[].hosted_origin string
   .items[].id string
+  .items[].latest_deployment null
   .items[].microapp_count number
   .items[].revision number
   .items[].slug string
@@ -115,10 +118,13 @@ GET /v1/tenants/{tenant}/apps?space_id -> 200
   $ object
   .items array
   .items[] object
+  .items[].active_release_id null
   .items[].compute_mode string
   .items[].created_at string
   .items[].display_name string
+  .items[].hosted_origin string
   .items[].id string
+  .items[].latest_deployment null
   .items[].microapp_count number
   .items[].revision number
   .items[].slug string
@@ -506,10 +512,13 @@ mcp lastapp_list app -> 200
   .data.complete bool
   .data.items array
   .data.items[] object
+  .data.items[].active_release_id null
   .data.items[].compute_mode string
   .data.items[].created_at string
   .data.items[].display_name string
+  .data.items[].hosted_origin string
   .data.items[].id string
+  .data.items[].latest_deployment null
   .data.items[].microapp_count number
   .data.items[].revision number
   .data.items[].slug string
