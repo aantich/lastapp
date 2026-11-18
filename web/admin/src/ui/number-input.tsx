@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import { Minus, Plus } from "lucide-react";
+import { cx } from "./utils";
 // A text field for numbers: no native stepper, numeric keyboard on mobile,
 // ArrowUp/ArrowDown step, out-of-range values clamp on blur and block submit.
 export function NumberInput({
@@ -65,6 +66,7 @@ export function NumberInput({
     <input
       {...rest}
       ref={input}
+      className={cx("ui-input", rest.className)}
       type="text"
       inputMode={decimal ? "decimal" : "numeric"}
       autoComplete="off"
