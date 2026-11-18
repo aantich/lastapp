@@ -434,7 +434,7 @@ export function AppReleases({
                 ? "The previous release stays selected in production."
                 : live
                   ? `${deployed ? text(deployed.display_name) : "This release"} is live.`
-                  : "Production keeps serving the previous release until this one is active."
+                  : "Production keeps serving the previous release until this one goes live."
           }
           actions={
             deployment && (
