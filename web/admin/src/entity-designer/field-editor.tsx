@@ -1,7 +1,18 @@
 import { useState } from "react";
-import { RemoteSelect, Select, NumberInput, Alert } from "../ui";
+import {
+  Checkbox,
+  Columns,
+  Disclosure,
+  FormField,
+  NumberInput,
+  RemoteSelect,
+  Select,
+  Stack,
+  TextField,
+} from "../ui";
 import { isItem, text, type EntityCatalog, type Item } from "../api-types";
 import { Expression } from "./expression";
+import { EditorForm } from "./editor-dialog";
 import {
   choiceLabel,
   fieldLabel,
@@ -33,10 +44,15 @@ export function FieldEditor({
     [choice, setChoice] = useState<string>(strings(field.values).join(", "));
   const patch = (v: Item) => set({ ...f, ...v });
   const expression = f.calculation || f.default;
+  const choices = choice
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
+    <EditorForm
+      submitLabel="Save field"
+      error={error}
+      submit={() => {
         if (fields.some((x) => x.key === f.key && x.key !== field.key)) {
           setError(
             "Another field already uses this key. Choose a different key.",
@@ -44,11 +60,7 @@ export function FieldEditor({
           return;
         }
         const value = { ...f };
-        if (value.type === "choice")
-          value.values = choice
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean);
+        if (value.type === "choice") value.values = choices;
         if (value.type === "choice" && isItem(value.value_labels)) {
           const values = strings(value.values);
           value.value_labels = Object.fromEntries(
@@ -60,12 +72,11 @@ export function FieldEditor({
         save(value);
       }}
     >
-      {error && <Alert as="p">{error}</Alert>}
-      <label className="field">
-        <span>Name</span>
-        <input
-          autoFocus
+      <Columns min={220} gap="md">
+        <TextField
+          label="Name"
           required
+          data-autofocus
           value={inputValue(f.label)}
           onChange={(e) =>
             patch({
@@ -74,36 +85,34 @@ export function FieldEditor({
             })
           }
         />
-      </label>
-      <label className="field">
-        <span>Type</span>
-        <Select
-          value={optionalText(f.type)}
-          disabled={published}
-          onChange={(type) =>
-            set({
-              ...catalog.field_defaults[type],
-              key: f.key,
-              label: f.label,
-            })
-          }
-          options={catalog.types.map((type: string) => ({
-            value: type,
-            label: fieldLabel(type),
-          }))}
-        />
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          checked={!!f.required}
-          onChange={(e) => patch({ required: e.target.checked })}
-        />
-        Required
-      </label>
+        <FormField
+          label="Type"
+          hint={published ? "A published field keeps its type." : undefined}
+        >
+          <Select
+            value={optionalText(f.type)}
+            disabled={published}
+            onChange={(type) =>
+              set({
+                ...catalog.field_defaults[type],
+                key: f.key,
+                label: f.label,
+              })
+            }
+            options={catalog.types.map((type: string) => ({
+              value: type,
+              label: fieldLabel(type),
+            }))}
+          />
+        </FormField>
+      </Columns>
+      <Checkbox
+        label="Required"
+        checked={!!f.required}
+        onChange={(required) => patch({ required })}
+      />
       {f.type === "text" && (
-        <label className="field">
-          <span>Maximum length</span>
+        <FormField label="Maximum length" required>
           <NumberInput
             required
             max={catalog.field_constraints.max_text_length}
@@ -111,44 +120,38 @@ export function FieldEditor({
             value={inputValue(f.max_length)}
             onChange={(n) => patch({ max_length: Number(n) })}
           />
-        </label>
+        </FormField>
       )}
       {f.type === "decimal" && (
-        <div className="entity-toolbar">
+        <Columns min={160} gap="md">
           {["precision", "scale"].map((key) => (
-            <label className="field" key={key}>
-              <span>{fieldLabel(key)}</span>
+            <FormField label={fieldLabel(key)} required key={key}>
               <NumberInput
                 required
                 value={inputValue(f[key])}
                 onChange={(n) => patch({ [key]: Number(n) })}
               />
-            </label>
+            </FormField>
           ))}
-        </div>
+        </Columns>
       )}
       {f.type === "choice" && (
-        <label className="field">
-          <span>Choices, separated by commas</span>
-          <input
-            required
-            value={choice}
-            onChange={(e) => setChoice(e.target.value)}
-          />
-        </label>
+        <TextField
+          label="Choices, separated by commas"
+          required
+          value={choice}
+          onChange={(e) => setChoice(e.target.value)}
+        />
       )}
-      {f.type === "choice" && (
-        <details>
-          <summary>Choice display labels</summary>
-          <p className="muted">Keep keys stable; change their labels here.</p>
-          {choice
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean)
-            .map((key) => (
-              <label className="field" key={key}>
-                <span>{key}</span>
-                <input
+      {f.type === "choice" && choices.length > 0 && (
+        <Disclosure summary="Choice display labels">
+          <Stack gap="md">
+            <p>Keep keys stable; change their labels here.</p>
+            <Columns min={200} gap="md">
+              {choices.map((key) => (
+                <TextField
+                  key={key}
+                  label={key}
                   value={choiceLabel(f, key)}
                   onChange={(e) =>
                     patch({
@@ -159,13 +162,13 @@ export function FieldEditor({
                     })
                   }
                 />
-              </label>
-            ))}
-        </details>
+              ))}
+            </Columns>
+          </Stack>
+        </Disclosure>
       )}
       {f.type === "reference" && (
-        <label className="field">
-          <span>Related entity</span>
+        <FormField label="Related entity">
           <RemoteSelect
             path={"/v1/spaces/" + space + "/entities"}
             label="Related entity"
@@ -174,104 +177,111 @@ export function FieldEditor({
             labelKey="label"
             onChange={(value) => patch({ target: value })}
           />
-        </label>
+        </FormField>
       )}
       {["integer", "decimal"].includes(text(f.type)) && (
-        <div className="entity-toolbar">
+        <Columns min={160} gap="md">
           {["minimum", "maximum"].map((key) => (
-            <label className="field" key={key}>
-              <span>{fieldLabel(key)}</span>
-              <input
-                value={inputValue(f[key]) ?? ""}
-                onChange={(e) =>
-                  patch({
-                    [key]:
-                      e.target.value === ""
-                        ? undefined
-                        : f.type === "integer"
-                          ? Number(e.target.value)
-                          : e.target.value,
-                  })
-                }
-              />
-            </label>
-          ))}
-        </div>
-      )}
-      <details>
-        <summary>Defaults, calculation and query options</summary>
-        <label className="field">
-          <span>Value source</span>
-          <Select
-            value={
-              f.calculation ? "calculation" : f.default ? "default" : "input"
-            }
-            onChange={(source) =>
-              patch({
-                default: source === "default" ? { literal: "" } : undefined,
-                calculation:
-                  source === "calculation"
-                    ? { field: fields[0]?.key || "" }
-                    : undefined,
-              })
-            }
-            options={[
-              { value: "input", label: "User input" },
-              { value: "default", label: "Default when omitted" },
-              { value: "calculation", label: "Calculated" },
-            ]}
-          />
-        </label>
-        {isExpression(expression) && (
-          <Expression
-            value={expression}
-            onChange={(value) =>
-              patch(f.calculation ? { calculation: value } : { default: value })
-            }
-            fields={fields}
-            catalog={catalog}
-            label={f.calculation ? "Formula" : "Default"}
-            formula={!!f.calculation}
-            defaultOnly={!!f.default}
-            contextType={f.default ? optionalText(f.type) : undefined}
-            allowContext={!f.calculation}
-          />
-        )}
-        {["filterable", "sortable"].map((key) => (
-          <label key={key}>
-            <input
-              type="checkbox"
-              checked={!!f[key]}
-              onChange={(e) => patch({ [key]: e.target.checked })}
+            <TextField
+              key={key}
+              label={fieldLabel(key)}
+              inputMode={f.type === "integer" ? "numeric" : "decimal"}
+              value={inputValue(f[key]) ?? ""}
+              onChange={(e) =>
+                patch({
+                  [key]:
+                    e.target.value === ""
+                      ? undefined
+                      : f.type === "integer"
+                        ? Number(e.target.value)
+                        : e.target.value,
+                })
+              }
             />
-            {key === "filterable" ? "Allow filtering" : "Allow sorting"}
-          </label>
-        ))}
-        <label className="field">
-          <span>Uniqueness</span>
-          <Select
-            value={text(f.unique)}
-            onChange={(unique) => patch({ unique })}
-            options={[
-              { value: "", label: "None" },
-              { value: "entity", label: "Across this entity" },
-              { value: "owner", label: "Per owner" },
-              { value: "team", label: "Per team" },
-            ]}
-          />
-        </label>
-        <label className="field">
-          <span>Stable key</span>
-          <input
-            required
-            pattern="[a-z][a-z0-9_]*"
-            value={inputValue(f.key)}
-            disabled={!!field.key}
-            onChange={(e) => patch({ key: e.target.value })}
-          />
-        </label>
-      </details>
-      <button className="primary">Save field</button>
-    </form>
+          ))}
+        </Columns>
+      )}
+      <Disclosure summary="Defaults, calculation and query options">
+        <Stack gap="md">
+          <FormField label="Value source">
+            <Select
+              value={
+                f.calculation ? "calculation" : f.default ? "default" : "input"
+              }
+              onChange={(source) =>
+                patch({
+                  default: source === "default" ? { literal: "" } : undefined,
+                  calculation:
+                    source === "calculation"
+                      ? { field: fields[0]?.key || "" }
+                      : undefined,
+                })
+              }
+              options={[
+                { value: "input", label: "User input" },
+                { value: "default", label: "Default when omitted" },
+                { value: "calculation", label: "Calculated" },
+              ]}
+            />
+          </FormField>
+          {isExpression(expression) && (
+            <Expression
+              value={expression}
+              onChange={(value) =>
+                patch(
+                  f.calculation ? { calculation: value } : { default: value },
+                )
+              }
+              fields={fields}
+              catalog={catalog}
+              label={f.calculation ? "Formula" : "Default"}
+              formula={!!f.calculation}
+              defaultOnly={!!f.default}
+              contextType={f.default ? optionalText(f.type) : undefined}
+              allowContext={!f.calculation}
+            />
+          )}
+          <Columns min={160} gap="sm">
+            {["filterable", "sortable"].map((key) => (
+              <Checkbox
+                key={key}
+                label={
+                  key === "filterable" ? "Allow filtering" : "Allow sorting"
+                }
+                checked={!!f[key]}
+                onChange={(on) => patch({ [key]: on })}
+              />
+            ))}
+          </Columns>
+          <Columns min={220} gap="md">
+            <FormField label="Uniqueness">
+              <Select
+                value={text(f.unique)}
+                onChange={(unique) => patch({ unique })}
+                options={[
+                  { value: "", label: "None" },
+                  { value: "entity", label: "Across this entity" },
+                  { value: "owner", label: "Per owner" },
+                  { value: "team", label: "Per team" },
+                ]}
+              />
+            </FormField>
+            <TextField
+              label="Stable key"
+              hint={
+                field.key
+                  ? "Apps and stored data use this key; it cannot change."
+                  : undefined
+              }
+              required
+              pattern="[a-z][a-z0-9_]*"
+              value={inputValue(f.key)}
+              disabled={!!field.key}
+              onChange={(e) => patch({ key: e.target.value })}
+            />
+          </Columns>
+        </Stack>
+      </Disclosure>
+    </EditorForm>
   );
 }
