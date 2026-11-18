@@ -115,9 +115,9 @@ test("only platform admins create global credentials; Tenant admins add existing
       capture(route);
     } else return route.continue();
   });
-  // Home and Apps have no Refresh action; Agents carries it, and the
+  // Home and Apps have no Refresh action; Activity carries it, and the
   // overview stays live on every Tenant screen.
-  await nav(member, "Agents");
+  await nav(member, "Activity");
   await member.getByRole("button", { name: "Refresh", exact: true }).click();
   const held = await pending;
   await menu(member);

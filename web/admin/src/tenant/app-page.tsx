@@ -1,4 +1,4 @@
-import { ArrowUpRight, Pencil } from "lucide-react";
+import { ArrowUpRight, Pencil, RefreshCw } from "lucide-react";
 import { AppReleases } from "../app-releases";
 import { AppDataAccess } from "../entity-designer/app-access";
 import {
@@ -13,6 +13,7 @@ import {
   CardRow,
   Disclosure,
   FactList,
+  IconButton,
   Inline,
   LinkButton,
   PageStack,
@@ -66,6 +67,13 @@ export function AppPage({ t }: { t: TenantScreen }) {
         status={status.badge}
         actions={
           <>
+            {/* The shell's page header is hidden here, so its Refresh moves in. */}
+            <IconButton
+              label="Refresh"
+              icon={<RefreshCw size={16} aria-hidden />}
+              tooltip="bottom"
+              onClick={() => void refreshQueries()}
+            />
             {tab === "microapps" && scoped("microapp.manage") && (
               <Button onClick={() => createMicro(t)}>Add micro-app</Button>
             )}
