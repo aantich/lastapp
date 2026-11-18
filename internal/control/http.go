@@ -280,7 +280,7 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	q := r.URL.Query()
-	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(q), roles.AuditFilter{Actor: q.Get("actor"), Kind: q.Get("kind")})
+	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(q), roles.AuditFilter{Actor: q.Get("actor"), Kind: q.Get("kind"), Resource: q.Get("resource_id")})
 	return httpapi.Reply(w, 200, v, e)
 }
 
