@@ -42,9 +42,9 @@ When the Node on PATH fails, the script falls back to `$HOME/.nvm/versions/node/
 make stop                  # stop these local services; preserve data
 make test                  # Go unit tests and compilation; DB tests skip by default
 make lint                  # Go and console linters/type check; make fmt formats Go
-make mcp-test              # MCP/agent regressions against the local MariaDB
+make mcp-test              # MCP/agent regressions on a disposable test MariaDB (Docker)
 make client                # build the data SDK and the example App's client.js
-make integration           # actual MariaDB backend tests (run make dev first), then make e2e
+make integration           # all Go tests on a disposable test MariaDB, then make e2e; dev data untouched
 make e2e                   # Chrome tests on a disposable MariaDB/API; dev data untouched
 cd web/admin && npm run storybook  # local UI library at http://127.0.0.1:6006
 ```
@@ -137,4 +137,4 @@ The theme is a set of semantic `--ui-*` CSS variables in
 Browse the tokens and shared controls in the local Storybook; see the UI
 library section of [DEVELOPMENT.md](DEVELOPMENT.md#console-ui-library).
 
-Security fixes and operating boundaries are recorded in [the remediation report](review/security-2026-11-12/FIXES.md). Run `make integration` for the API/security/browser suites; `make e2e` alone runs the browser suite on its own throwaway database. The local Vite UI on port 5173 is an explicit development-only origin; login returns there, and writes use the proxy. Production accepts only its configured admin origin and requires verified TLS for TCP registry connections.
+Security fixes and operating boundaries are recorded in [the remediation report](review/security-2026-11-12/FIXES.md). Run `make integration` for the API/security/browser suites; every suite runs on its own throwaway database, never the development data, and `make e2e` alone runs just the browser suite. The local Vite UI on port 5173 is an explicit development-only origin; login returns there, and writes use the proxy. Production accepts only its configured admin origin and requires verified TLS for TCP registry connections.

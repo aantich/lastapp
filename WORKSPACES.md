@@ -237,7 +237,7 @@ tools do. `internal/delivery` does not import `net/http`.
 
 `go test ./internal/delivery` runs database-free tests of snapshot remapping,
 contract hashes, pinned versions and hosted origins, and (with
-`LASTAPP_TEST_CONFIG`) disposable-registry tests of deployment candidates, the
+the disposable test database of `scripts/testdb.py`) disposable-registry tests of deployment candidates, the
 production App quota and capture readiness. The HTTP/MCP flows below are
 black-box tests in `internal/control`.
 

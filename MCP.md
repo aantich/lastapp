@@ -235,7 +235,7 @@ agent guides. Shared domain operations
 `internal/delivery`), mutation receipts and workers enforce the actual
 operations.
 
-Run `make mcp-test` against the existing local development MariaDB for the
+Run `make mcp-test` (on a disposable test MariaDB, never the development data) for the
 `TestAgent*` protocol, OAuth, delegation, isolation, replay, response-limit and
 agent worker-audit regressions. It does not run the general security suite. Run
 `make integration` for the full backend, security and console browser suite. See

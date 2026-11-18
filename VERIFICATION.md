@@ -1,5 +1,29 @@
 # Lastapp verification
 
+## Tests on a disposable test database only — 19 November 2026
+
+Earlier entries that mention `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` on
+`.local/config.json` ran on the development MariaDB; that is no longer possible.
+
+- `python3 scripts/testdb.py -race -count=1 ./...` (the `make integration`
+  backend half) on a fresh `mariadb-test` container (port 33319, tmpfs,
+  per-run secrets in a temp dir): every package **PASS**, control 278.5 s,
+  no skipped tests. Container and temp dir are removed afterwards.
+- The first run found tests that had depended on the dev server: the
+  registered business-database fixture (`businessDatabaseFixture`) targeted
+  127.0.0.1:33317, and `TestMariaDBControlPlane` relied on the dev API's
+  worker to provision. Both now use the test server (target address from the
+  registry DSN; the test runs its own worker). Metadata-only targets use 3306.
+- Guard: with `LASTAPP_TEST_CONFIG` pointing at the dev `.local/config.json`,
+  the database tests fail immediately with "registry port 127.0.0.1:33317 is
+  the development MariaDB". `TestGuardRefusesDevelopmentData` covers the
+  port, the `lastapp_foundation` name, socket DSNs and non-development config.
+- Dev registry, read-only `SELECT` before and after both full runs:
+  `lastapp_foundation.tenants` 12 (latest 2026-11-18 22:50), `audit_events`
+  385, 46 schemas, 43 MariaDB accounts. No change.
+- `make lint` clean. Browser e2e (now sharing `scripts/testdb.py`) was run
+  in CI.
+
 ## Entity designer review fixes — 19 November 2026
 
 - Backend (MariaDB, `TestEntityRuntime`): after v1 is published, publishing
