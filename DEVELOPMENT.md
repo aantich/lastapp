@@ -278,7 +278,13 @@ and system color modes. New console UI follows these rules:
     button look, for navigation), `FactList` (a record's labelled values;
     term/definition pairs), `Disclosure` (details/summary), `CodeBlock`,
     `PickList` (a record list beside the open record; pressed toggle rows),
-    `SegmentedControl` (a few views of one list; pressed toggle buttons) and
+    `SegmentedControl` (a few views of one list; pressed toggle buttons),
+    `ChoiceCards` (named starting points as pressed cards with a line under
+    each), `AccessMatrix` (read-only rows × operations card; a cell opens
+    where it is edited), `AssignmentList` (role → holder · scope lines),
+    `ConnectionCard`/`ConnectionGrid` (a delegated connection), `FlowCard`/
+    `FlowSection`/`FlowStack` (one focused task such as a consent), the `pill`
+    Badge and
     the layout parts `Stack`, `Inline` (`align="end"` lines a labelled field
     up with a button), `Split` (list | record, stacked under 800 px) and
     `Columns` (wrapping equal columns with a minimum width, fixed `weights`
@@ -393,9 +399,13 @@ and system color modes. New console UI follows these rules:
   (`entity-designer/`, no stylesheet: list beside the open entity, Fields /
   Access / Rules / Test / History tabs, permission paths shown as who +
   operation + fields + record condition, the publication `Stepper`), Space/App
-  Access and People/Teams, agent connections and the consent page
-  (`agent-access.tsx`; expiry is a `DatePicker` bounded by the agent config's
-  `max_days`, sent as whole `days`), the Platform pages, account, appearance
+  Access (`access-control.tsx`: `AccessMatrix`, read-only, derived from the
+  entity's published and draft permission paths; `AssignmentList`; the Roles
+  collection) and People/Teams, the Agents page and agent connections
+  (`ConnectionCard`; preset read as an exact match of the grant's permissions)
+  and the consent page (`agent-access.tsx`, a `FlowCard`; preset `ChoiceCards`
+  with the config's descriptions, the config's `day_choices` and a
+  `DatePicker` bounded by `max_days`, sent as whole `days`), the Platform pages, account, appearance
   (a `Dialog`), sign-in/password and Tenant settings are kit-only.
   Destructive removals (access assignment, agent revoke, Tenant administrator,
   account disable) go through `confirmAction`.
