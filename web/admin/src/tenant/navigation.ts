@@ -1,10 +1,10 @@
 import {
-  AppWindow,
-  FolderOpen,
+  Activity,
+  Bot,
   House,
-  ScrollText,
-  Settings,
-  Users,
+  LayoutGrid,
+  Shield,
+  AlignLeft,
 } from "lucide-react";
 import type { NavItem, TabItem } from "../ui";
 import type { Item } from "../api-types";
@@ -19,38 +19,52 @@ export type Capabilities = {
   scoped: (action: string, spaceID?: string, appID?: string) => boolean;
 };
 
+// Entities open the current (or first) Space's Entities tab, Access the
+// Tenant's members and teams (page "people"), Agents the Tenant's agent
+// access for a security manager and otherwise the person's own. Spaces are
+// listed under the sidebar's Spaces heading; Settings is in the account menu.
 const sections: (NavItem & { visible?: (c: Capabilities) => boolean })[] = [
   { id: "home", label: "Home", icon: House },
-  { id: "apps", label: "Apps", icon: AppWindow },
+  { id: "apps", label: "Apps", icon: LayoutGrid },
   {
-    id: "spaces",
-    label: "Spaces",
-    icon: FolderOpen,
-    visible: (c) => c.can("space.read"),
+    id: "entities",
+    label: "Entities",
+    icon: AlignLeft,
+    visible: (c) => c.can("space.read") && c.can("entity.manage"),
   },
   {
     id: "people",
-    label: "People",
-    icon: Users,
+    label: "Access",
+    icon: Shield,
     visible: (c) => c.all("membership.read") || c.can("team.manage"),
   },
+  { id: "agents", label: "Agents", icon: Bot },
   {
     id: "activity",
     label: "Activity",
-    icon: ScrollText,
+    icon: Activity,
     visible: (c) => c.can("audit.read"),
   },
-  { id: "settings", label: "Settings", icon: Settings },
 ];
 
-// The sections this account may open, in sidebar order.
-export const tenantNav = (c: Capabilities): NavItem[] =>
+// Pages reached from elsewhere than the sidebar sections, by their title.
+const otherPages: Record<string, string> = {
+  spaces: "Spaces",
+  settings: "Settings",
+};
+
+// The sections this account may open, in sidebar order; `badges` adds a
+// count to a section (Agents).
+export const tenantNav = (
+  c: Capabilities,
+  badges: Record<string, number | undefined> = {},
+): NavItem[] =>
   sections
     .filter((s) => !s.visible || s.visible(c))
-    .map(({ id, label, icon }) => ({ id, label, icon }));
+    .map(({ id, label, icon }) => ({ id, label, icon, badge: badges[id] }));
 
 export const sectionLabel = (id: string) =>
-  sections.find((s) => s.id === id)?.label;
+  sections.find((s) => s.id === id)?.label || otherPages[id];
 
 // A page's tabs: a Space or App (`space` is the open Space, for the
 // development-workspace check), People or Settings.

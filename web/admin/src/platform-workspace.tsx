@@ -12,6 +12,7 @@ import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
 import {
   Alert,
   Button,
+  ContextLabel,
   ErrorBoundary,
   FormModal,
   IconButton,
@@ -129,7 +130,8 @@ export function PlatformWorkspace({
   return (
     <ConsoleShell
       me={me}
-      kind="Platform"
+      role="Platform operator"
+      section={<ContextLabel value="Platform" />}
       title={title}
       nav={nav}
       active={page === "account" ? "" : page}
@@ -140,10 +142,14 @@ export function PlatformWorkspace({
       breadcrumbs={
         tenant
           ? [
+              { label: "Platform", onClick: () => go("tenants") },
               { label: "Tenants", onClick: () => go("tenants") },
               { label: title },
             ]
-          : undefined
+          : [
+              { label: "Platform", onClick: () => go("tenants") },
+              { label: title },
+            ]
       }
       actions={
         <>

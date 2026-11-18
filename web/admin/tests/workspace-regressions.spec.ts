@@ -7,6 +7,7 @@ import {
   logout,
   menu,
   nav,
+  homeHeading,
 } from "./helpers";
 
 test("only platform admins create global credentials; Tenant admins add existing accounts", async ({
@@ -60,7 +61,7 @@ test("only platform admins create global credentials; Tenant admins add existing
     (await post(page, base + "/memberships", { account: malicious })).status,
   ).toBe(403);
   expect((await post(page, "/admin/v1/users", malicious)).status).toBe(403);
-  await page.getByRole("button", { name: "People", exact: true }).click();
+  await nav(page, "Access");
   await page.getByRole("button", { name: "Add person", exact: true }).click();
   await expect(dialog).toContainText("Ask a platform administrator");
   await expect(
@@ -99,9 +100,7 @@ test("only platform admins create global credentials; Tenant admins add existing
   await member
     .getByRole("button", { name: "Save password", exact: true })
     .click();
-  await expect(
-    member.getByRole("heading", { name: "Home", exact: true }),
-  ).toBeVisible();
+  await expect(homeHeading(member)).toBeVisible();
   await expect(member.locator(".company-name")).toContainText(
     "Trusted accounts",
   );
@@ -116,6 +115,9 @@ test("only platform admins create global credentials; Tenant admins add existing
       capture(route);
     } else return route.continue();
   });
+  // Home has no page header; Apps carries the Refresh action, and the
+  // overview stays live on every Tenant screen.
+  await nav(member, "Apps");
   await member.getByRole("button", { name: "Refresh", exact: true }).click();
   const held = await pending;
   await menu(member);
@@ -211,9 +213,7 @@ test("App-only managers can page, search and open all their Apps", async ({
   await logout(page);
   await login(page, "outsider");
   await selectTenant(page, tenant);
-  await expect(
-    page.getByRole("heading", { name: "Home", exact: true, level: 1 }),
-  ).toBeVisible();
+  await expect(homeHeading(page)).toBeVisible();
   expect(
     (await (await page.request.get(base + "/spaces")).json()).items,
   ).toHaveLength(0);
@@ -282,17 +282,13 @@ test("expired sessions return to login and signing out an expired session succee
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
-  ).toHaveCount(0);
+  await expect(homeHeading(page)).toHaveCount(0);
   // Complete another login directly from the recovered UI, without a reload.
   await page.getByRole("link", { name: "Continue with SSO" }).click();
   await page.locator(`input[name=subject][value="tenant-admin"]`).check();
   await page.getByLabel("Password", { exact: true }).fill("lastapp-local");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
-  ).toBeVisible();
+  await expect(homeHeading(page)).toBeVisible();
   await nav(page, "Apps");
   // Finish the initial collection load and open the menu before expiring the
   // session. Otherwise a delayed GET can correctly return to login before the
@@ -312,8 +308,6 @@ test("expired sessions return to login and signing out an expired session succee
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
-  ).toHaveCount(0);
+  await expect(homeHeading(page)).toHaveCount(0);
   expect(errors).toEqual([]);
 });

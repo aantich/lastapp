@@ -31,10 +31,12 @@ type ReleaseCreateInput struct {
 // Deployment is a production deployment's status and the URL it serves.
 type Deployment struct {
 	CreatedAt  time.Time  `json:"created_at"`
+	DeployedBy string     `json:"deployed_by"`
 	Error      *string    `json:"error_message"`
 	FinishedAt *time.Time `json:"finished_at"`
 	ID         string     `json:"id"`
 	ReleaseID  string     `json:"release_id"`
+	Release    string     `json:"release_name"`
 	Revision   int64      `json:"revision"`
 	SpaceID    string     `json:"space_id"`
 	State      string     `json:"state"`
@@ -43,10 +45,15 @@ type Deployment struct {
 	URL        string     `json:"url"`
 }
 
-const deploymentStatusColumns = "d.created_at,d.error_message,d.finished_at,d.id,d.release_id,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+// The status names who started the deployment (the person; an agent acts for
+// one) and the release's name, so a status needs no further reads to display.
+const (
+	deploymentStatusColumns = "d.created_at,u.display_name AS deployed_by,d.error_message,d.finished_at,d.id,d.release_id,rel.display_name AS release_name,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+	deploymentStatusFrom    = " FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id JOIN users u ON u.id=d.created_by"
+)
 
 func (v *Deployment) ScanFields() []any {
-	return []any{&v.CreatedAt, &v.Error, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
+	return []any{&v.CreatedAt, &v.DeployedBy, &v.Error, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Release, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
 }
 
 // Release is a captured App release with its workspace ownership and
@@ -404,7 +411,7 @@ func (s *Service) DeployRelease(ctx context.Context, actor op.Actor, release str
 
 func (s *Service) Deployment(ctx context.Context, actor op.Actor, deployment string) (Deployment, error) {
 	p := actor.Principal
-	v, e := registry.ScanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
+	v, e := registry.ScanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+deploymentStatusFrom+" WHERE d.id=?", deployment)
 	if e != nil {
 		return v, e
 	}
@@ -435,8 +442,7 @@ func (s *Service) AppDeployment(ctx context.Context, actor op.Actor, app string)
 	if production != "" {
 		space = production
 	}
-	vs, e := registry.ScanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+`
- FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id
+	vs, e := registry.ScanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+deploymentStatusFrom+`
  WHERE d.tenant_id=? AND d.space_id=? AND (d.state IN ('queued','preparing','publishing') OR d.target_app_id=? OR rel.app_id=?)
  ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a.TenantID, space, a.ID, a.ID)
 	if e != nil {

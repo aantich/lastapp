@@ -17,6 +17,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -129,6 +130,62 @@ func (l *Leader) lead(ctx context.Context) error {
 	end()
 	steps.Wait()
 	return e
+}
+
+// settlePasses bounds Settle's drain: a queue still busy after this many
+// passes is not converging.
+const settlePasses = 1000
+
+// Settle leads one term in the calling goroutine for a foreground command
+// (the development seed) instead of Run. It calls fn with drain, which runs
+// every step once per pass, in step order, until a whole pass does no work.
+// The steps and starters are the ones Run uses, so the queues keep one leader.
+// led is false, and fn is not called, when another process leads: its worker
+// owns the queues.
+func (l *Leader) Settle(ctx context.Context, fn func(drain func() error) error) (led bool, err error) {
+	conn, e := l.DB.Conn(ctx)
+	if e != nil {
+		return false, e
+	}
+	defer conn.Close()
+	var acquired int
+	if e = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", l.Lock).Scan(&acquired); e != nil {
+		return false, e
+	}
+	if acquired != 1 {
+		return false, nil
+	}
+	defer data.ReleasePinnedLock(conn, l.Lock)
+	l.term.Lock()
+	defer l.term.Unlock()
+	for _, step := range l.Steps {
+		if s, ok := step.(Starter); ok {
+			if e = s.Start(ctx, conn); e != nil {
+				return true, e
+			}
+		}
+	}
+	drain := func() error {
+		for range settlePasses {
+			busy := false
+			for _, step := range l.Steps {
+				did, e := step.Run(ctx, l.DB)
+				switch {
+				case e == nil:
+					busy = busy || did
+				case op.Transient(e):
+					busy = true
+				default:
+					return fmt.Errorf("worker step %s: %w", step.Name(), e)
+				}
+			}
+			if !busy {
+				return nil
+			}
+		}
+		return errors.New("worker queues did not settle")
+	}
+	return true, fn(drain)
 }
 
 // hold returns when ctx ends or when conn no longer holds the lock (including

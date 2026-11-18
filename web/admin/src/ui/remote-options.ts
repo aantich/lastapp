@@ -71,10 +71,13 @@ export function useRemoteOptions<T extends ListOption>({
       setSearch("");
     },
     options,
-    busy: typing || results.isPending || results.isFetchingNextPage,
+    // Searching (a new query); a next page keeps the list and its button.
+    busy: typing || results.isPending,
+    loadingMore: results.isFetchingNextPage,
     more: !typing && results.hasNextPage,
     error: results.error?.message || "",
-    loadMore: () => void results.fetchNextPage(),
+    // Resolves once the next page is in `options`.
+    loadMore: () => results.fetchNextPage().then(() => undefined),
   };
 }
 

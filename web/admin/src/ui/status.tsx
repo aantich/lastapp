@@ -25,7 +25,10 @@ export function StatusBadge({
       data-state={value || undefined}
     >
       <i aria-hidden />
-      {label ?? value.replace(/_/g, " ")}
+      {label ?? (
+        // The state word itself; its capital is presentation (CSS).
+        <span className="ui-badge-state">{value.replace(/_/g, " ")}</span>
+      )}
     </span>
   );
 }

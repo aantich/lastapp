@@ -3,11 +3,11 @@ import {
   login,
   logout,
   menu,
-  nav,
   fixtureTenant,
   selectTenant,
   post,
   pick,
+  openSpaces,
 } from "./helpers";
 
 // Console data layer: cached reads poll without overlap and pause behind open
@@ -59,7 +59,7 @@ test("tenant polling never overlaps and pauses while a form is open", async ({
   expect(started.length).toBeLessThanOrEqual(3);
   expect(overlapped).toBe(false);
 
-  await page.locator("nav").getByRole("button", { name: "Spaces" }).click();
+  await openSpaces(page);
   await page.getByRole("button", { name: "Create Space", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   const before = started.length;
@@ -209,7 +209,7 @@ test("a page that throws while rendering shows the fallback inside a working she
   await expect(fallback(page)).toBeVisible();
   await expect(fallback(page)).toContainText("Cannot read properties of null");
   // The shell around the failed page still works.
-  await nav(page, "Spaces");
+  await openSpaces(page);
   await expect(
     page.getByRole("heading", { name: "Spaces", exact: true, level: 1 }),
   ).toBeVisible();

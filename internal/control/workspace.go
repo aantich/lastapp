@@ -37,13 +37,14 @@ func (v *tenantProfile) ScanFields() []any {
 type recentApp struct {
 	Name      string `json:"display_name"`
 	ID        string `json:"id"`
+	Microapps int    `json:"microapps"`
 	SpaceID   string `json:"space_id"`
 	SpaceName string `json:"space_name"`
 	State     string `json:"state"`
 }
 
 func (v *recentApp) ScanFields() []any {
-	return []any{&v.Name, &v.ID, &v.SpaceID, &v.SpaceName, &v.State}
+	return []any{&v.Name, &v.ID, &v.Microapps, &v.SpaceID, &v.SpaceName, &v.State}
 }
 
 // databaseAttention is a database that is not yet ready or has failed.
@@ -78,6 +79,10 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p access
 		{"spaces", "space.read", "FROM spaces sp WHERE sp.tenant_id=? AND sp.state<>'archived' AND sp.workspace_id IS NULL", "sp.id", ""},
 		{"apps", "app.read", "FROM apps a WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)", "a.space_id", "a.id"},
 		{"microapps", "microapp.read", "FROM microapp_installations m JOIN apps a ON a.id=m.app_id WHERE m.tenant_id=? AND m.state<>'archived'", "a.space_id", "m.app_id"},
+		// Production Apps serving a release: a deployment to them became active.
+		{"live_apps", "app.read", "FROM apps a WHERE a.tenant_id=? AND a.state<>'archived' AND EXISTS(SELECT 1 FROM release_deployments d WHERE d.target_app_id=a.id AND d.state='active') AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL)", "a.space_id", "a.id"},
+		// Published entities of production Spaces, as their authors see them.
+		{"entities", "entity.manage", "FROM entity_definitions en JOIN spaces sp ON sp.id=en.space_id WHERE en.tenant_id=? AND en.state='active' AND en.active_version_id IS NOT NULL AND sp.workspace_id IS NULL AND sp.state<>'archived'", "sp.id", ""},
 	} {
 		filter, args := access.ScopeSQL(caps[spec.action], spec.space, spec.app)
 		args = append([]any{t}, args...)
@@ -89,7 +94,7 @@ func (s *Server) tenantOverview(w http.ResponseWriter, r *http.Request, p access
 	}
 	filter, args := access.ScopeSQL(caps["app.read"], "a.space_id", "a.id")
 	args = append([]any{t}, args...)
-	recent, e := registry.ScanAll[recentApp](r.Context(), s.DB, "SELECT a.display_name,a.id,a.space_id,sp.display_name AS space_name,a.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
+	recent, e := registry.ScanAll[recentApp](r.Context(), s.DB, "SELECT a.display_name,a.id,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapps,a.space_id,sp.display_name AS space_name,a.state FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) AND "+filter+" ORDER BY a.created_at DESC,a.id LIMIT 6", args...)
 	if e != nil {
 		return e
 	}

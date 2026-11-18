@@ -22,10 +22,12 @@ GET /v1/apps/{app}/deployment finished -> 200
   $ object
   .deployment object
   .deployment.created_at string
+  .deployment.deployed_by string
   .deployment.error_message null
   .deployment.finished_at string
   .deployment.id string
   .deployment.release_id string
+  .deployment.release_name string
   .deployment.revision number
   .deployment.space_id string
   .deployment.state string
@@ -46,10 +48,12 @@ GET /v1/apps/{app}/deployment queued -> 200
   $ object
   .deployment object
   .deployment.created_at string
+  .deployment.deployed_by string
   .deployment.error_message null
   .deployment.finished_at null
   .deployment.id string
   .deployment.release_id string
+  .deployment.release_name string
   .deployment.revision number
   .deployment.space_id string
   .deployment.state string
@@ -104,10 +108,12 @@ GET /v1/apps/{app}/starter.zip -> 200
 GET /v1/deployments/{deployment} finished -> 200
   $ object
   .created_at string
+  .deployed_by string
   .error_message null
   .finished_at string
   .id string
   .release_id string
+  .release_name string
   .revision number
   .space_id string
   .state string
@@ -124,10 +130,12 @@ GET /v1/deployments/{deployment} other user -> 403
 GET /v1/deployments/{deployment} queued -> 200
   $ object
   .created_at string
+  .deployed_by string
   .error_message null
   .finished_at null
   .id string
   .release_id string
+  .release_name string
   .revision number
   .space_id string
   .state string
@@ -499,10 +507,12 @@ mcp lastapp_get app_deployment -> 200
   .data object
   .data.deployment object
   .data.deployment.created_at string
+  .data.deployment.deployed_by string
   .data.deployment.error_message null
   .data.deployment.finished_at null
   .data.deployment.id string
   .data.deployment.release_id string
+  .data.deployment.release_name string
   .data.deployment.revision number
   .data.deployment.space_id string
   .data.deployment.state string
@@ -522,10 +532,12 @@ mcp lastapp_get deployment queued -> 200
   $ object
   .data object
   .data.created_at string
+  .data.deployed_by string
   .data.error_message null
   .data.finished_at null
   .data.id string
   .data.release_id string
+  .data.release_name string
   .data.revision number
   .data.space_id string
   .data.state string

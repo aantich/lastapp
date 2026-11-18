@@ -20,7 +20,19 @@
   --ui-muted: #5c5f66;
   --ui-faint: #6b6e75;
   --ui-border: #e6e4df;
+  /* Hairlines inside a card (a card footer's rule) */
+  --ui-divider: #efede8;
   --ui-overlay: rgb(14 15 18 / 42%);
+
+  /* Actions: the primary button is ink; secondary buttons have a warm rule */
+  --ui-action: #111113;
+  --ui-action-hover: #2a2c31;
+  --ui-on-action: #ffffff;
+  --ui-button-border: #dad7d0;
+  --ui-button-border-hover: #b9b5ac;
+  /* The brand tile ("L") in the sidebar, Signal blue in both modes */
+  --ui-brand: #2f5bea;
+  --ui-on-brand: #ffffff;
 
   /* Ink sidebar (dark in both modes) */
   --ui-sidebar: #0e0f12;
@@ -31,6 +43,16 @@
   --ui-sidebar-active-text: #ffffff;
   --ui-sidebar-border: #23252b;
   --ui-sidebar-surface: #16181c;
+  /* Ink fields (search, toggle), section labels and the account avatar */
+  --ui-sidebar-field: #1b1d23;
+  --ui-sidebar-field-border: #2a2d35;
+  --ui-sidebar-field-text: #c9cbd1;
+  --ui-sidebar-kbd-border: #2f323b;
+  --ui-sidebar-label: #9da1ab;
+  --ui-sidebar-rule: #23262e;
+  /* Status dots on the ink sidebar (both modes) */
+  --ui-sidebar-dot-success: #3fb27f;
+  --ui-sidebar-dot-warning: #e3a23b;
 
   /* Signal blue */
   --ui-primary: #2f5bea;
@@ -78,9 +100,9 @@
   --ui-radius: 9px;
   --ui-radius-card: 14px;
   --ui-card-border: solid;
-  --ui-shadow: 0 1px 2px rgb(17 17 19 / 4%);
+  --ui-shadow: none;
   --ui-button-shadow: 0 1px 2px rgb(17 17 19 / 6%);
-  --ui-sidebar-width: 244px;
+  --ui-sidebar-width: 240px;
   --ui-sidebar-rail: 68px;
   --ui-shadow-pop: 0 12px 32px rgb(17 17 19 / 18%);
 }
@@ -95,7 +117,14 @@
   --ui-muted: #a3a6ae;
   --ui-faint: #8e929b;
   --ui-border: #2f3137;
+  --ui-divider: #26282d;
   --ui-overlay: rgb(0 0 0 / 60%);
+
+  --ui-action: #ededef;
+  --ui-action-hover: #ffffff;
+  --ui-on-action: #111113;
+  --ui-button-border: #3a3d44;
+  --ui-button-border-hover: #55585f;
 
   --ui-sidebar: #0e0f12;
   --ui-sidebar-hover: #1b1d23;

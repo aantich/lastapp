@@ -81,7 +81,11 @@ export type TenantOverview = {
   spaces?: number;
   apps?: number;
   microapps?: number;
+  // Production Apps a deployment made live; published entities.
+  live_apps?: number;
+  entities?: number;
   databases?: number;
+  // The newest production Apps, each with its micro-app count (microapps).
   recent_apps?: Item[];
   attention?: Item[];
 };
@@ -169,13 +173,16 @@ export type Build = {
   entrypoint: string;
 };
 
-// internal/control/releases.go: Deployment.
+// internal/delivery/releases.go: Deployment. deployed_by is the person who
+// started it (an agent acts for them); release_name the release's name.
 export type Deployment = {
   id: string;
   state: string;
   error_message: string | null;
   url: string;
   release_id: string;
+  release_name: string;
+  deployed_by: string;
   revision: number;
   created_at: string;
   finished_at: string | null;

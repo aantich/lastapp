@@ -1,16 +1,14 @@
 import { useState } from "react";
 import {
-  Avatar,
-  Badge,
+  ActivityList,
   CardHeader,
   Collection,
   SegmentedControl,
   Select,
-  Timeline,
 } from "./ui";
-import { text, type AgentGrant, type Page } from "./api-types";
+import type { AgentGrant, Page } from "./api-types";
 import { useApiQuery } from "./query";
-import { actorOf, ago } from "./actors";
+import { describeEvents } from "./activity";
 
 // The actor filter's choices, the server's actor kinds (AuditFilter.Actor).
 const actors = [
@@ -79,20 +77,10 @@ export function ActivityLog({
           : "No activity yet."
       }
       render={(rows) => (
-        <Timeline
+        <ActivityList
           label="Activity"
-          events={rows.map((e) => {
-            const who = actorOf(e, named);
-            return {
-              id: text(e.id),
-              marker: <Avatar name={who.name} kind={who.kind} size={28} />,
-              title: who.label,
-              meta: <Badge mono>{text(e.action)}</Badge>,
-              detail: `${text(e.resource_type).replace(/_/g, " ")} · ${who.via}`,
-              at: text(e.created_at),
-              when: ago(e.created_at),
-            };
-          })}
+          variant="rows"
+          items={describeEvents(rows, named)}
         />
       )}
     />

@@ -3,7 +3,7 @@ import {
   login,
   fixtureTenant,
   selectTenant,
-  nav,
+  tenantSettings,
   pick,
   rootSQL,
   accountHost,
@@ -29,7 +29,7 @@ test("database actions guard double clicks and confirm through ConfirmDialog", a
     admin = await context.newPage();
   await login(admin, "tenant-admin");
   await selectTenant(admin, tenant);
-  await nav(admin, "Settings");
+  await tenantSettings(admin);
   await admin.getByRole("tab", { name: "Databases", exact: true }).click();
   await admin
     .getByRole("button", { name: "Add database", exact: true })

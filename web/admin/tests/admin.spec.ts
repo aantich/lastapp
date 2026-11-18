@@ -7,7 +7,9 @@ import {
   post,
   fixtureTenant,
   selectTenant,
+  openSpaces,
   pick,
+  homeHeading,
 } from "./helpers";
 
 test("Tenant creation and one-step administrator management lead to a complete Tenant workspace", async ({
@@ -119,9 +121,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
   await admin
     .getByRole("button", { name: "Save password", exact: true })
     .click();
-  await expect(
-    admin.getByRole("heading", { name: "Home", level: 1, exact: true }),
-  ).toBeVisible();
+  await expect(homeHeading(admin)).toBeVisible();
   await admin
     .getByRole("button", { name: "Create Space", exact: true })
     .click();
@@ -132,7 +132,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
     .getByRole("button", { name: "Create Space", exact: true })
     .click();
   await expect(admin.getByRole("dialog")).toHaveCount(0);
-  await nav(admin, "Spaces");
+  await openSpaces(admin);
   await admin
     .getByRole("row")
     .filter({ hasText: "Sales" })
@@ -180,7 +180,7 @@ test("Tenant creation and one-step administrator management lead to a complete T
     path: "../../artifacts/simple-app.png",
     fullPage: true,
   });
-  await nav(admin, "Spaces");
+  await openSpaces(admin);
   await admin
     .getByRole("row")
     .filter({ hasText: "Sales" })
@@ -221,7 +221,7 @@ test("People combines Tenant administration and team membership/roles, retaining
   expect(
     (await post(page, base + "/memberships", { user_id: outsider.id })).status,
   ).toBe(201);
-  await nav(page, "People");
+  await nav(page, "Access");
   await page
     .getByRole("row")
     .filter({ hasText: "Outside user" })
