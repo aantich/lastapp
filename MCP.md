@@ -144,7 +144,10 @@ Its simulation uses the shared evaluator and current relationships, but does not
 check live uniqueness, referenced-record existence/readability or real shares.
 Publishing is powerful: it can change schema, rules and access. Poll
 `lastapp_get resource=publication` using both the entity ID and returned job ID;
-a queued result is not completion. Inspect the published App contract before
+a queued result is not completion. The publish result and publication status
+carry the version's per-entity `version_number` (v1, v2, …; a failed version
+keeps its number), and entity inventories and App contracts carry the active
+version's number. Inspect the published App contract before
 generating client code.
 
 Space/App custom roles describe business relationships. Fixed Tenant/team roles

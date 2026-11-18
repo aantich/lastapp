@@ -49,7 +49,7 @@ func agentPublishedFixture(t *testing.T, s *Server, p access.Principal, tenant, 
 	if _, e := s.DB.Exec("INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,draft_json) VALUES(?,?,?,?,?,?)", eid, tenant, space, d.Key, d.Label, b); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.DB.Exec("INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,definition_json,definition_hash,created_by,state) VALUES(?,?,?,?,?,?,?,'published')", vid, tenant, space, eid, b, entity.Hash(d), p.ID); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,version_number,definition_json,definition_hash,created_by,state) VALUES(?,?,?,?,1,?,?,?,'published')", vid, tenant, space, eid, b, entity.Hash(d), p.ID); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := s.DB.Exec("UPDATE entity_definitions SET active_version_id=? WHERE id=?", vid, eid); e != nil {

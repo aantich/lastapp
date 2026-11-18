@@ -26,6 +26,14 @@ import (
 // reads. The test owns the database and drops it on cleanup.
 func registryFixture(t *testing.T) *sql.Conn {
 	t.Helper()
+	conn, _ := registryAt(t, 0)
+	return conn
+}
+
+// registryAt is registryFixture migrated up to version (0: all), with the
+// database handle for further migrations or concurrent transactions.
+func registryAt(t *testing.T, version int64) (*sql.Conn, *sql.DB) {
+	t.Helper()
 	file := os.Getenv("LASTAPP_TEST_CONFIG")
 	if file == "" {
 		t.Skip("set LASTAPP_TEST_CONFIG for the installed local MariaDB")
@@ -74,7 +82,12 @@ func registryFixture(t *testing.T) *sql.Conn {
 		t.Fatal(e)
 	}
 	ctx := context.Background()
-	if e = goose.UpContext(ctx, db, filepath.Join("..", "control", "migrations")); e != nil {
+	if version == 0 {
+		e = goose.UpContext(ctx, db, migrationsDir)
+	} else {
+		e = goose.UpToContext(ctx, db, migrationsDir, version)
+	}
+	if e != nil {
 		t.Fatal(e)
 	}
 	conn, e := db.Conn(ctx)
@@ -85,8 +98,10 @@ func registryFixture(t *testing.T) *sql.Conn {
 	if _, e = conn.ExecContext(ctx, "SET SESSION foreign_key_checks=0"); e != nil {
 		t.Fatal(e)
 	}
-	return conn
+	return conn, db
 }
+
+var migrationsDir = filepath.Join("..", "control", "migrations")
 
 func exec(t *testing.T, q registry.Queryer, query string, args ...any) {
 	t.Helper()
@@ -179,7 +194,7 @@ func TestEnsureSnapshotReady(t *testing.T) {
 		if pending {
 			pendingVersion = registry.NewID()
 		}
-		exec(t, q, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,definition_json,definition_hash,created_by,state) VALUES(?,?,?,?,?,?,?,'published')", version, registry.NewID(), space, id, draft, activeHash, registry.NewID())
+		exec(t, q, "INSERT INTO entity_versions(id,tenant_id,space_id,entity_id,version_number,definition_json,definition_hash,created_by,state) VALUES(?,?,?,?,1,?,?,?,'published')", version, registry.NewID(), space, id, draft, activeHash, registry.NewID())
 		exec(t, q, "INSERT INTO entity_definitions(id,tenant_id,space_id,entity_key,label,draft_json,active_version_id,pending_version_id) VALUES(?,?,?,?,?,?,?,?)", id, registry.NewID(), space, d.Key, d.Label, draft, version, pendingVersion)
 		return space
 	}
