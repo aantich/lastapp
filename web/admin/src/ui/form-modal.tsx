@@ -8,6 +8,7 @@ import { Button } from "./button";
 import { Alert } from "./alert";
 import { toast } from "./toast-store";
 import { Checkbox } from "./checkbox";
+import { Disclosure } from "./content";
 import { NewPasswordInput } from "./new-password-input";
 import { generatePassword, usePasswordPolicy } from "../console-config";
 import { useAction } from "../use-action";
@@ -306,10 +307,13 @@ export function FormModal({
             });
             return advanced ? (
               fields.length > 0 && (
-                <details className="advanced-fields wide" key="advanced">
-                  <summary>Advanced</summary>
+                <Disclosure
+                  summary="Advanced"
+                  className="advanced-fields wide"
+                  key="advanced"
+                >
                   <div className="fields">{content}</div>
-                </details>
+                </Disclosure>
               )
             ) : (
               <span className="basic-fields" key="basic">
