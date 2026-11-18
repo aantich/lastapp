@@ -152,7 +152,11 @@ function PathSelect({
           value={value}
           choose={choose}
         >
-          <RemoteListStatus remote={remote} count={options.length} />
+          <RemoteListStatus
+            remote={remote}
+            count={options.length}
+            reveal={setActive}
+          />
         </ListboxPopup>
       )}
     </span>
@@ -160,15 +164,23 @@ function PathSelect({
 }
 
 // The paged list's status line under its options: searching, no matches, a
-// request error, and the "Load more" button for the next page.
+// request error, and the "Load more" button for the next page. Pressing the
+// button leaves focus in the list's combobox (so the keyboard and Escape keep
+// working and the popup stays open); once the page arrives, `reveal` makes
+// its first option the active one, which scrolls it into view.
 export function RemoteListStatus({
   remote,
   count,
+  reveal,
 }: {
-  remote: Pick<RemoteOptions, "busy" | "more" | "error" | "loadMore">;
+  remote: Pick<
+    RemoteOptions,
+    "busy" | "loadingMore" | "more" | "error" | "loadMore"
+  >;
   count: number;
+  reveal?: (index: number) => void;
 }) {
-  const { busy, more, error, loadMore } = remote;
+  const { busy, loadingMore, more, error, loadMore } = remote;
   return (
     <>
       {busy && <small>Searching…</small>}
@@ -178,10 +190,13 @@ export function RemoteListStatus({
         <button
           type="button"
           className="text-button"
-          disabled={busy}
-          onClick={loadMore}
+          aria-busy={loadingMore || undefined}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (!loadingMore) void loadMore().then(() => reveal?.(count));
+          }}
         >
-          Load more
+          {loadingMore ? "Loading…" : "Load more"}
         </button>
       )}
     </>
