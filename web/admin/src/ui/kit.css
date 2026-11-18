@@ -1984,3 +1984,15 @@ a.ui-link-button {
     display: none;
   }
 }
+
+/* Loading screen: the whole-window wait before the console draws */
+.ui-loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+.ui-loading-screen > .ui-spinner {
+  gap: 18px;
+  font-size: 13px;
+}

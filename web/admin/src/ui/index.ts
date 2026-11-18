@@ -45,6 +45,8 @@ export {
 export { Avatar, type AvatarKind } from "./avatar";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
+export { LoadingScreen } from "./loading-screen";
+export { UploadButton } from "./upload-button";
 export {
   FactList,
   Disclosure,
