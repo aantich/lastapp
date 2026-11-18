@@ -1,5 +1,49 @@
 # Lastapp verification
 
+## Activity and the command palette on the approved design — 18 November 2026
+
+- Server: `GET …/audit-events` accepts `resource_id` (at most 36 bytes),
+  applied with `actor` and `kind` before search and paging under the same
+  `audit.read` check. `TestAuditAttributionGolden` asserts that the filter
+  returns exactly the App's events and no other, survives `limit=1`, rejects
+  a 37-byte ID with 400 and still gives a member without `audit.read` 403.
+  The golden output is unchanged.
+- Fidelity: the mockup's Activity screen and ⌘K palette were rendered from
+  the prototype source and measured against the real screens on a private
+  disposable stack (the mockup's six events routed into the API response for
+  geometry only) at 1440×900 and 1920×1080. Heading, actor filter, card,
+  rows, avatar marks, palette dialog, input row, Esc button, list, rows,
+  glyph tiles and kind labels are within 2 px with identical leaf type. The
+  only difference: the mockup's rows are 32 px wider than their card
+  (content-box padding), so its via/when columns sit 24–33 px further right
+  and its time column is clipped; the real rows fit the card. Before the
+  fix the heading wrapped (a full-width Select) and the palette was centred
+  vertically (the generic overlay rule won); both corrected.
+- Real data (a fresh Tenant with a Space, an App and three renames): the
+  renames read as one line ending "3 changes", which opens the App's trail
+  (`resource_id=` sent) and "Show all activity" returns; Enter on **Agents**
+  sends `actor=agent`. The palette lists "Go to …" from the navigation,
+  "Open …" for loaded Apps and Spaces, Connect a new agent (opens the
+  dialog) and the three "Activity · … only" filters; typing "agents only"
+  and Enter opens `…/activity?actor=agent` with Agents pressed; the Esc
+  button closes it; an unmatched query shows "Nothing matches.".
+- axe-core (WCAG 2.0/2.1 A/AA + best practice) on Activity and on the open
+  palette at 1440 and 390 px, light and dark: 0 violations, no horizontal
+  overflow. A separate visual review of the screenshots found no
+  high-severity difference; the shell's 1–3 px sidebar offsets belong to the
+  shell, the kind Select (a real filter the mockup lacks) keeps the kit
+  Select look.
+- Content audit: no mockup content was copied. Omitted for lack of a
+  backing operation or read: "Publish {entity}" (needs the entity draft
+  flag, G3), "Role matrix for {entity}" and "Test {entity} as {user}" (no
+  designer deep link to those tabs), the agent's preset where its grant is
+  unreadable or matches no preset.
+
+Executed checks: `go test ./...`; `TestAuditAttributionGolden` against the
+local MariaDB; `make lint` 0 issues; console lint and typecheck;
+`python3 design/validate_schema.py --check`; `python3
+scripts/verify_driver.py`. The full browser suite ran in CI.
+
 ## Console shell and Tenant Home on the approved design — 18 November 2026
 
 - The shell (sidebar, top bar, centred content) and Home were measured

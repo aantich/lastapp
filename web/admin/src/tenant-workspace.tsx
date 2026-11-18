@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import {
+  Activity as ActivityIcon,
   AppWindow,
+  Bot,
   Database,
   FolderOpen,
   GitBranch,
   Plus,
   RefreshCw,
+  RotateCcw,
   Settings,
 } from "lucide-react";
 import { api } from "./api";
@@ -35,6 +38,7 @@ import { useAction } from "./use-action";
 import { TenantPeople } from "./tenant-people";
 import { readPreference, savePreference } from "./preferences";
 import {
+  cachedData,
   cachedRows,
   LiveRefresh,
   refreshQueries,
@@ -44,13 +48,15 @@ import {
 import { useRouteState, useScreenError } from "./route-state";
 import { AccountPage } from "./account-page";
 import { ActivityLog } from "./activity-log";
-import { agentGrantsPath } from "./actors";
+import { activityQuery, agentGrantsPath, auditActors } from "./actors";
+import { retryDeployment, useDeploymentStates } from "./deployment";
 import { ConnectAgentDialog } from "./connect-agent";
 import {
   num,
   optText,
   text,
   type AgentGrant,
+  type Deployment,
   type Item,
   type Me,
   type Page,
@@ -96,6 +102,7 @@ export function TenantWorkspace({
     base = "/v1/tenants/" + tenant;
   const [modal, setModal] = useRouteState<Modal | null>(url, null);
   const [connecting, setConnecting] = useState(false);
+  const deploymentStates = useDeploymentStates();
   // Everything this workspace shows refreshes every 5 s while no form is open.
   // refetchInterval never overlaps requests and pauses in a hidden tab.
   const live = tenant && !modal ? 5000 : false;
@@ -327,9 +334,11 @@ export function TenantWorkspace({
           ]
         : [{ label: title }]),
   ];
-  // The palette's jumps beyond the sidebar sections: this page's tabs, the
-  // other sections' tabs, and Apps, Spaces and entities this session has
-  // already loaded (nothing is fetched for the palette).
+  // The palette's commands beyond the sidebar sections: entities, Apps and
+  // Spaces this session has already loaded, actions with a real operation
+  // (retrying a failed deployment Home has shown, connecting an agent), the
+  // Activity filters, this page's tabs and the other sections' tabs. Nothing
+  // is fetched for the palette.
   const commands = (): Command[] => {
     const subject = route.page === "space" || route.page === "app" ? title : "";
     const tabCommands = (page: string, label: string, group: string) =>
@@ -348,34 +357,21 @@ export function TenantWorkspace({
     const entities = cachedRows((p) =>
       /^\/v1\/spaces\/[^/]+\/entities$/.test(p),
     );
+    const failed = cachedData<{ deployment: Deployment | null }>((p) =>
+      /^\/v1\/apps\/[^/]+\/deployment$/.test(p),
+    ).flatMap(([path, data]) => {
+      const a = apps.get(path.split("/")[3]),
+        d = data?.deployment;
+      return a &&
+        d?.state === deploymentStates.failed &&
+        scoped("release.manage", text(a.space_id), text(a.id))
+        ? [{ a, d }]
+        : [];
+    });
     return [
-      ...(subject && detailReady
-        ? tabCommands(route.page, subject, "This page")
-        : []),
-      ...["people", "settings"]
-        .filter((page) => menu.some((m) => m.id === page))
-        .flatMap((page) =>
-          tabCommands(page, sectionLabel(page) || page, "Sections"),
-        ),
-      ...[...apps.values()].map((a) => ({
-        id: "app:" + text(a.id),
-        label: text(a.display_name),
-        group: "Apps",
-        keywords: text(a.space_name),
-        hint: text(a.space_name),
-        icon: <AppWindow size={16} />,
-        run: () => openApp(a),
-      })),
-      ...cachedRows((p) => p === base + "/spaces").map((sp) => ({
-        id: "space:" + text(sp.id),
-        label: text(sp.display_name),
-        group: "Spaces",
-        icon: <FolderOpen size={16} />,
-        run: () => openSpace(sp),
-      })),
       ...entities.map((e) => ({
         id: "entity:" + text(e.id),
-        label: text(e.label),
+        label: `Open ${text(e.label)} entity`,
         group: "Entities",
         keywords: text(e.entity_key),
         hint: text(e.entity_key),
@@ -387,8 +383,70 @@ export function TenantWorkspace({
               encodeURIComponent(text(e.id)),
           ),
       })),
+      ...[...apps.values()].map((a) => ({
+        id: "app:" + text(a.id),
+        label: `Open ${text(a.display_name)}`,
+        group: "Apps",
+        keywords: text(a.space_name),
+        hint: text(a.space_name),
+        icon: <AppWindow size={16} />,
+        run: () => openApp(a),
+      })),
+      ...cachedRows((p) => p === base + "/spaces").map((sp) => ({
+        id: "space:" + text(sp.id),
+        label: `Open ${text(sp.display_name)}`,
+        group: "Spaces",
+        icon: <FolderOpen size={16} />,
+        run: () => openSpace(sp),
+      })),
+      ...failed.map(({ a, d }) => ({
+        id: "retry:" + d.id,
+        label: `Retry ${text(a.display_name)} deploy`,
+        group: "Action",
+        keywords: d.release_name,
+        icon: <RotateCcw size={16} />,
+        run: () => retryDeployment(tenant, d, setModal, setError),
+      })),
+      {
+        id: "action:connect-agent",
+        label: "Connect a new agent",
+        group: "Action",
+        icon: <Bot size={16} />,
+        run: () => setConnecting(true),
+      },
+      ...(menu.some((m) => m.id === "activity")
+        ? auditActors
+            .filter((a) => a.value)
+            .map((a) => ({
+              id: "activity:" + a.value,
+              label: `Activity · ${a.label.toLowerCase()} only`,
+              group: "Activity",
+              icon: <ActivityIcon size={16} />,
+              run: () =>
+                navigate(
+                  consoleURL.tenant(tenant, "activity") +
+                    activityQuery(a.value),
+                ),
+            }))
+        : []),
+      ...(subject && detailReady
+        ? tabCommands(route.page, subject, "This page")
+        : []),
+      ...["people", "settings"]
+        .filter((page) => menu.some((m) => m.id === page))
+        .flatMap((page) =>
+          tabCommands(page, sectionLabel(page) || page, "Sections"),
+        ),
     ];
   };
+  const paletteCommands = commands();
+  // Words that find real commands: an entity's key, "deploy" when a retry is
+  // offered, "agent".
+  const paletteExamples = [
+    paletteCommands.find((c) => c.group === "Entities")?.keywords,
+    paletteCommands.some((c) => c.id.startsWith("retry:")) && "deploy",
+    "agent",
+  ].filter((w): w is string => !!w);
   const canCreateApp =
     all("app.manage") || (caps["app.manage"]?.spaces || []).length > 0;
   const actions = (
@@ -503,7 +561,9 @@ export function TenantWorkspace({
         me={me}
         role={me.email}
         title={title}
-        header={route.page !== "home" || !tenant}
+        // Home and Activity draw their own heading (Activity's filters sit
+        // beside its title).
+        header={!["home", "activity"].includes(route.page) || !tenant}
         nav={menu}
         active={
           route.page === "space" && route.tab === "entities"
@@ -548,7 +608,8 @@ export function TenantWorkspace({
             : undefined
         }
         breadcrumbs={crumbs}
-        commands={commands()}
+        commands={paletteCommands}
+        paletteExamples={paletteExamples}
         actions={actions}
         topActions={
           <Button variant="primary" onClick={() => setConnecting(true)}>
@@ -631,6 +692,8 @@ export function TenantWorkspace({
                 <ActivityLog
                   path={base + "/audit-events"}
                   grants={agentGrantsPath(tenant, all("authorization.manage"))}
+                  title={title}
+                  actions={actions}
                 />
               )}
               {route.page === "settings" && <TenantSettings t={t} />}

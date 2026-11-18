@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { refreshQueries } from "./query";
 import { useConsoleConfig } from "./console-config";
 import { num, type Deployment, type Item, type Release } from "./api-types";
 import type { Modal, Step } from "./ui";
@@ -43,6 +44,21 @@ export function deploymentSteps(steps: string[], state: string): Step[] {
     state:
       i < at || (live && i === at) ? "done" : i === at ? "active" : "pending",
   }));
+}
+
+// Retrying a failed deployment (Home, the command palette): read its release,
+// then confirm a new deployment of it; on success every read refreshes.
+export function retryDeployment(
+  tenant: string,
+  deployment: Deployment,
+  setModal: (modal: Modal) => void,
+  setError: (message: string) => void,
+) {
+  void api<Release>("/v1/releases/" + deployment.release_id).then(
+    (release) =>
+      setModal(deployModal(tenant, release, true, () => refreshQueries())),
+    (e: Error) => setError(e.message),
+  );
 }
 
 // The confirmation that deploys a release to production: a new deployment of

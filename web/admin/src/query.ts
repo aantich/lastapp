@@ -69,6 +69,19 @@ export function useApiQueries<T>(paths: string[]) {
   });
 }
 
+// Single reads already in the cache whose path `match` accepts, with that
+// path (e.g. the App deployments Home has shown). Nothing is fetched.
+export function cachedData<T>(match: (path: string) => boolean) {
+  const found: [string, T][] = [];
+  for (const [key, data] of queryClient.getQueriesData<T>({
+    queryKey: ["api"],
+  })) {
+    const path = String(key[1] || "");
+    if (data !== undefined && match(path)) found.push([path, data]);
+  }
+  return found;
+}
+
 // Rows of list reads already in the cache (Collection pages, RemoteSelect and
 // ContextSwitcher searches) whose path, without its query string, `match`
 // accepts, de-duplicated by id. Nothing is fetched: the command palette offers

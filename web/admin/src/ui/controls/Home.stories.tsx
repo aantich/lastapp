@@ -150,3 +150,21 @@ export const AllClearState: Story = {
   name: "All clear",
   render: () => <Home attention={false} />,
 };
+
+// The Activity page's rows: mark, sentence, via and when as columns
+// (stacked under 720 px).
+export const ActivityRows: Story = {
+  name: "Activity rows",
+  render: () => (
+    <div className="panel">
+      <ActivityList
+        label="Activity"
+        variant="rows"
+        items={activity.map((a) => {
+          const [via, when] = String(a.meta).split(" · ");
+          return { ...a, via, when };
+        })}
+      />
+    </div>
+  ),
+};

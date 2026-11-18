@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { isItem, optText, text, type AgentGrant, type Item } from "./api-types";
 import { cachedRows } from "./query";
-import { actorOf, ago } from "./actors";
+import { actorOf, ago, type AgentPreset } from "./actors";
 import type { ActivityItem } from "./ui";
 
 // The one place audit actions (internal/op.AuditAs callers) become sentences,
@@ -195,12 +195,35 @@ function knownNames(extra: Item[]) {
   return names;
 }
 
-// One audit event as an activity item. `known` adds rows the caller holds
-// outside list reads (the overview's recent Apps).
+// The same actor doing the same thing to the same resource: consecutive
+// events with this key read as one line.
+const runKey = (e: Item) =>
+  e.resource_id
+    ? [
+        e.actor_kind,
+        e.actor_name,
+        isItem(e.details_json) ? text(e.details_json.agent_grant_id) : "",
+        e.action,
+        e.resource_id,
+      ].join("\n")
+    : "";
+
+// Audit events as activity items. `known` adds rows the caller holds outside
+// list reads (the overview's recent Apps); `presets` names an agent's grant
+// by its preset. With `changes`, consecutive events of one actor, action and
+// resource become one line that ends with `changes(resource_id, count)` (the
+// Activity page links it to that resource's trail, `?resource_id=`).
 export function describeEvents(
   events: Item[],
   grants: AgentGrant[] = [],
   known: Item[] = [],
+  {
+    presets = [],
+    changes,
+  }: {
+    presets?: AgentPreset[];
+    changes?: (resource: string, count: number) => ReactNode;
+  } = {},
 ): ActivityItem[] {
   const names = knownNames(known);
   for (const e of events)
@@ -210,8 +233,15 @@ export function describeEvents(
     const name = names.get(text(id));
     return name ?? noun;
   };
-  return events.map((e) => {
-    const who = actorOf(e, grants);
+  const runs: [Item, number][] = [];
+  for (const e of events) {
+    const last = runs[runs.length - 1];
+    if (changes && last && runKey(e) && runKey(e) === runKey(last[0]))
+      last[1]++;
+    else runs.push([e, 1]);
+  }
+  return runs.map(([e, count]) => {
+    const who = actorOf(e, grants, presets);
     const details = isItem(e.details_json)
       ? isItem(e.details_json.details) && e.details_json.agent_grant_id
         ? e.details_json.details
@@ -235,12 +265,21 @@ export function describeEvents(
           {who.name} {phrase.active}
         </>
       );
-    const via = who.kind === "agent" ? `for ${text(e.actor_name)}` : who.via;
+    const when = ago(e.created_at);
     return {
       id: text(e.id),
       actor: { name: who.name, kind: who.kind },
-      text: sentence,
-      meta: `${via} · ${ago(e.created_at)}`,
+      text:
+        count > 1 && changes ? (
+          <>
+            {sentence} · {changes(text(e.resource_id), count)}
+          </>
+        ) : (
+          sentence
+        ),
+      meta: `${who.via} · ${when}`,
+      via: who.via,
+      when,
       at: text(e.created_at),
     };
   });

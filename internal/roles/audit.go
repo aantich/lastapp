@@ -125,9 +125,10 @@ const (
 // AuditActorKind is the SQL expression of an audit row's (alias a) actor kind.
 const AuditActorKind = "CASE WHEN JSON_VALUE(a.details_json,'$.agent_grant_id') IS NOT NULL THEN '" + ActorAgent + "' WHEN a.actor_user_id IS NULL THEN '" + ActorSystem + "' ELSE '" + ActorPerson + "' END"
 
-// AuditFilter narrows an audit trail to one actor kind and/or one resource
-// type; empty fields do not filter.
-type AuditFilter struct{ Actor, Kind string }
+// AuditFilter narrows an audit trail to one actor kind, one resource type
+// and/or one resource (its ID, so a screen can show every change to one
+// object); empty fields do not filter.
+type AuditFilter struct{ Actor, Kind, Resource string }
 
 // auditScope authorizes reading a Tenant's audit trail (tenant set) or the
 // whole platform's and returns the matching predicate.
@@ -166,6 +167,13 @@ func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, p
 		}
 		where += " AND a.resource_type=?"
 		args = append(args, filter.Kind)
+	}
+	if filter.Resource != "" {
+		if len(filter.Resource) > 36 {
+			return op.Page[AuditEvent]{}, registry.Bad("Resource ID must be at most 36 bytes.")
+		}
+		where += " AND a.resource_id=?"
+		args = append(args, filter.Resource)
 	}
 	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,"+AuditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,"+AuditResourceName+" AS resource_name,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 }
