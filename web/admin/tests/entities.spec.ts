@@ -128,7 +128,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Publish", exact: true })
+    .getByRole("button", { name: "Publish v1", exact: true })
     .click();
   await expect
     .poll(
@@ -139,7 +139,17 @@ test("entity designer creates, tests and publishes a real shared backend", async
       { timeout: 30000 },
     )
     .toBe("published");
-  await expect(page.getByText(/^deal · published /)).toBeVisible();
+  await expect(
+    page.getByText("deal · published v1", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("tablist", { name: "Entity sections" })
+    .getByRole("tab", { name: "History", exact: true })
+    .click();
+  const history = page.getByRole("table", { name: "Publication history" });
+  await expect(history.getByText("v1", { exact: true })).toBeVisible();
+  await expect(history.getByText("Active", { exact: true })).toBeVisible();
+  await capture("entity-history-desktop.png", false);
   // The Space list flags no unpublished changes once the draft is live.
   await expect(
     page

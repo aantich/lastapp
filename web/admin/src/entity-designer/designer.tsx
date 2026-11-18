@@ -36,6 +36,7 @@ import {
   discardChanges,
   draftChanges,
   ruleRows,
+  versionLabel,
   type Designer,
 } from "./shared";
 import { EditorDialog } from "./editor-dialog";
@@ -140,7 +141,10 @@ export function EntityDesigner({
             ...current,
             publications: v.publications,
             pending_version_id: v.pending_version_id,
+            pending_version_number: v.pending_version_number,
             active_version_id: v.active_version_id,
+            active_version_number: v.active_version_number,
+            next_version_number: v.next_version_number,
             active_definition: v.active_definition,
           }
         : v,
@@ -350,22 +354,16 @@ export function EntityDesigner({
     );
   const publications = itemsOf(record.publications),
     latest = publications[0],
-    active = publications.find((p) => p.id === record.active_version_id),
     changes = draftChanges(draft, record.active_definition),
     pending = !!record.pending_version_id,
     archived = record.state === "archived";
   const label = text(draft.label) || text(record.label);
-  const publishedOn = active
-    ? new Date(text(active.created_at)).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : "";
+  const activeVersion = versionLabel(record.active_version_number),
+    nextVersion = versionLabel(record.next_version_number);
   const meta = [
     text(draft.key),
     record.active_version_id
-      ? "published" + (publishedOn ? " " + publishedOn : "")
+      ? ["published", activeVersion].filter(Boolean).join(" ")
       : "not published",
   ].join(" · ");
   // The latest publication still describes this draft when its hash is the
@@ -387,6 +385,7 @@ export function EntityDesigner({
           validation: dirty ? "" : diagnostics.length ? "failed" : "passed",
           changes,
         },
+    { active: activeVersion, next: nextVersion },
   );
   const rulesCount = ruleRows(d).length;
   return (
@@ -460,9 +459,16 @@ export function EntityDesigner({
               {showPipeline && (
                 <Panel
                   title={
-                    (pending ? "Publishing" : "Publish changes") +
-                    " · live data keeps working while storage is prepared"
+                    pending
+                      ? [
+                          "Publishing",
+                          versionLabel(record.pending_version_number),
+                        ]
+                          .filter(Boolean)
+                          .join(" ")
+                      : ["Publish", nextVersion].filter(Boolean).join(" ")
                   }
+                  lead="Live data keeps working while storage is prepared."
                 >
                   <Stepper label="Publication" steps={steps} />
                   {failed && (

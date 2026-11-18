@@ -3,21 +3,25 @@ import type { Step } from "../ui";
 
 // The publish pipeline, driven by real state: the saved draft, the last
 // validation of this exact draft, and the latest publication's state
-// (queued → publishing → prepared/published, or failed).
-export function publishSteps({
-  dirty,
-  validation,
-  publication,
-  changes,
-}: {
-  dirty: boolean;
-  // The draft's changes to the active version (null: nothing published).
-  changes?: number | null;
-  // While reviewing: "passed", "failed" or "" (not yet run for this draft).
-  validation?: "passed" | "failed" | "";
-  // After publishing: the latest publication record.
-  publication?: Item;
-}): Step[] {
+// (queued → publishing → prepared/published, or failed). Versions are the
+// active and next version labels ("v8", "v9"), when known.
+export function publishSteps(
+  {
+    dirty,
+    validation,
+    publication,
+    changes,
+  }: {
+    dirty: boolean;
+    // The draft's changes to the active version (null: nothing published).
+    changes?: number | null;
+    // While reviewing: "passed", "failed" or "" (not yet run for this draft).
+    validation?: "passed" | "failed" | "";
+    // After publishing: the latest publication record.
+    publication?: Item;
+  },
+  versions: { active?: string; next?: string } = {},
+): Step[] {
   const state = text(publication?.state);
   const queued = !!publication;
   const step = (
@@ -66,12 +70,21 @@ export function publishSteps({
               "prepare",
               "Prepare storage",
               "pending",
-              "Live data unaffected",
+              versions.active
+                ? "Keep " + versions.active + " live"
+                : "Live data unaffected",
             ),
     state === "published"
       ? step("publish", "Published", "done", "Apps use this version")
       : state === "prepared"
         ? step("publish", "Published", "active", "Waits for deployment")
-        : step("publish", "Published", "pending", "Apps switch over"),
+        : step(
+            "publish",
+            "Published",
+            "pending",
+            versions.next
+              ? "Apps switch to " + versions.next
+              : "Apps switch over",
+          ),
   ];
 }
