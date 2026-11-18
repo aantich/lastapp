@@ -1763,10 +1763,6 @@ td {
     padding: 8px;
     border: 0;
   }
-  .quick-search span,
-  .quick-search kbd {
-    display: none;
-  }
   .topbar-profile {
     padding-left: 8px;
     margin-left: 3px;
@@ -2360,8 +2356,18 @@ summary {
 }
 @media (max-width: 800px) {
   .topbar-space,
-  .profile-name {
+  .quick-search > .quick-search-key {
     display: none;
+  }
+  /* Kept in the accessible names, hidden on narrow screens. */
+  .quick-search > .quick-search-label,
+  .profile-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
   .topbar-context .ui-context {
     width: min(200px, 46vw);

@@ -11,7 +11,8 @@ import { Menu } from "../menu";
 import { Avatar } from "../avatar";
 
 // menu.tsx: a WAI-ARIA menu button (↓/↑, Home/End, Escape returns focus to
-// the trigger). The account menu's name contains its visible text.
+// the trigger). The account menu is named by its visible text plus hidden
+// words ("Ava Chen, account menu"), so the name contains what is shown.
 function Account() {
   const [last, setLast] = useState("nothing yet");
   return (
@@ -19,11 +20,11 @@ function Account() {
       <p className="text-muted">Last action: {last}</p>
       <Menu
         className="profile-menu"
-        label="Ava Chen, account menu"
         trigger={
           <>
             <Avatar name="Ava Chen" size={28} />
             <span>Ava Chen</span>
+            <span className="ui-sr-only">, account menu</span>
             <ChevronDown size={14} aria-hidden />
           </>
         }

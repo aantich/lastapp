@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ContextSwitcher, type ContextOption } from "../context-switcher";
 import { spaces } from "../storybook/fixtures";
 import { mockApi } from "../storybook/mock-api";
+import { ConsoleStory } from "../storybook/console-story";
+import { policy } from "../storybook/fixtures";
 import { text } from "../../api-types";
 
 // context-switcher.tsx: the Tenant/Space popover (filter combobox over a
@@ -36,17 +38,29 @@ function Demo({ ink, paged }: { ink?: boolean; paged?: boolean }) {
       onChange={setSpace}
     />
   );
-  return ink ? (
-    <div
-      className="sidebar"
-      style={{ position: "static", height: 420, padding: 16 }}
-    >
-      {switcher}
-    </div>
-  ) : (
-    <div className="max-w-xs" style={{ minHeight: 420 }}>
-      {switcher}
-    </div>
+  // ConsoleStory supplies the query cache the paged list reads through.
+  return (
+    <ConsoleStory passwordPolicy={policy(12, 128)}>
+      {ink ? (
+        <div
+          className="sidebar"
+          // Static, so the drawer rules of narrow screens do not hide it.
+          style={{
+            position: "static",
+            height: 420,
+            padding: 16,
+            transform: "none",
+            visibility: "visible",
+          }}
+        >
+          {switcher}
+        </div>
+      ) : (
+        <div className="max-w-xs" style={{ minHeight: 420 }}>
+          {switcher}
+        </div>
+      )}
+    </ConsoleStory>
   );
 }
 

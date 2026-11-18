@@ -21,8 +21,9 @@ export type MenuItem = {
 // Space runs one, Escape closes and returns focus to the trigger, Tab or a
 // press outside closes. Focus is back on the trigger before an item runs, so
 // a dialog the item opens returns focus there. The trigger's accessible name
-// is its visible content; `label` adds to it and must contain that visible
-// text (WCAG 2.5.3 label in name).
+// is its content: add hidden words with .ui-sr-only rather than a `label`
+// that repeats the visible text (WCAG 2.5.3 label in name). `label` is for
+// an icon-only trigger.
 export function Menu({
   trigger,
   label,

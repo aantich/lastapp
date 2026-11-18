@@ -204,23 +204,22 @@ export function ConsoleShell({
             <button
               type="button"
               className="quick-search"
-              aria-label="Search or jump to…"
               aria-keyshortcuts="Meta+K Control+K"
               onClick={() => setPalette(true)}
             >
               <Search size={16} aria-hidden />
-              <span>Search or jump to…</span>
-              <span aria-hidden>
+              <span className="quick-search-label">Search or jump to…</span>
+              <span className="quick-search-key" aria-hidden>
                 <Kbd>{shortcut}</Kbd>
               </span>
             </button>
             <Menu
               className="profile-menu"
-              label={`${me.display_name}, account menu`}
               trigger={
                 <>
                   <Avatar name={me.display_name} size={30} />
                   <span className="profile-name">{me.display_name}</span>
+                  <span className="ui-sr-only">, account menu</span>
                   <ChevronDown size={14} aria-hidden />
                 </>
               }
