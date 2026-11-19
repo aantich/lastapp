@@ -42,13 +42,7 @@ func (s *Server) SeedDevelopment(ctx context.Context, provisionerPassword string
 	if e != nil {
 		return e
 	}
-	host, port := "127.0.0.1", 33317
-	if cfg, err := mariadb.ParseDSN(s.Config.RegistryDSN); err == nil && cfg.Net == "tcp" {
-		if h, p, err := net.SplitHostPort(cfg.Addr); err == nil {
-			host = h
-			port, _ = strconv.Atoi(p)
-		}
-	}
+	host, port := registryAddress(s.Config.RegistryDSN)
 	_, e = s.DB.ExecContext(ctx, "INSERT INTO database_targets (id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES (?,?,?,?,'disabled',1,?) ON DUPLICATE KEY UPDATE provisioning_credentials_enc=VALUES(provisioning_credentials_enc)", target, "Local MariaDB", host, port, enc)
 	if e != nil {
 		return e
@@ -141,4 +135,18 @@ func (s *Server) seedFoundationDemo(ctx context.Context) error {
 		}
 		return op.Audit(ctx, tx, tenant, operator, "development.seeded", "tenant", tenant, registry.NewID(), registry.Row{"space_id": space, "app_ids": []string{app, second}, "team_ids": []string{marketing, engineering}})
 	})
+}
+
+// registryAddress is the TCP host and port of a registry DSN, so a development
+// target follows the server the registry is on (127.0.0.1:33317, the
+// development MariaDB of scripts/dev.py, for a socket DSN).
+func registryAddress(dsn string) (string, int) {
+	host, port := "127.0.0.1", 33317
+	if cfg, err := mariadb.ParseDSN(dsn); err == nil && cfg.Net == "tcp" {
+		if h, p, err := net.SplitHostPort(cfg.Addr); err == nil {
+			host = h
+			port, _ = strconv.Atoi(p)
+		}
+	}
+	return host, port
 }

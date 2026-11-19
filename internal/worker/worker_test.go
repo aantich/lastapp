@@ -3,9 +3,7 @@ package worker
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -13,28 +11,16 @@ import (
 
 	mariadb "github.com/aantich/go-mariadb"
 
-	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
-// lockFixture opens the local MariaDB named by LASTAPP_TEST_CONFIG and returns
+// lockFixture opens the disposable test server (internal/testdb) and returns
 // a pool plus a lock name no other test uses. The leader touches no tables, so
 // no registry schema is needed.
 func lockFixture(t *testing.T) (*sql.DB, string) {
 	t.Helper()
-	file := os.Getenv("LASTAPP_TEST_CONFIG")
-	if file == "" {
-		t.Skip("set LASTAPP_TEST_CONFIG for the installed local MariaDB")
-	}
-	b, e := os.ReadFile(file)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var c config.Config
-	if e = json.Unmarshal(b, &c); e != nil {
-		t.Fatal(e)
-	}
-	cfg, e := mariadb.ParseDSN(c.RegistryDSN)
+	cfg, e := mariadb.ParseDSN(testdb.Load(t, testdb.ConfigEnv).Config.RegistryDSN)
 	if e != nil {
 		t.Fatal("invalid registry DSN")
 	}

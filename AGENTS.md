@@ -42,7 +42,7 @@
 ## Before delivering a change
 
 - Inspect branch/status, read the relevant guide and locate the authoritative code before editing. Update affected UI and docs as part of a policy/API change.
-- Run checks appropriate to the change; use the existing local MariaDB for integration tests. Plain `go test ./...` can skip database tests. See DEVELOPMENT.md for commands and prerequisites.
+- Run checks appropriate to the change. Every test runs against a disposable test database (`make integration`, `make mcp-test`, `make e2e`, `scripts/testdb.py`) and never reads or writes the development data (`lastapp_foundation` and its Space databases on 127.0.0.1:33317, `.local/`); `internal/testdb` refuses that server. Plain `go test ./...` skips database tests. See DEVELOPMENT.md for commands and prerequisites.
 - Run `make lint`; fix findings instead of adding suppressions.
 - Golden files change only for an intended contract change; regenerate them as DEVELOPMENT.md describes and review the diff.
 - `main` accepts changes only through a pull request with a green `test` check, merged via the merge queue (it tests each change on top of the current `main`).

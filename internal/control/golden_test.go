@@ -6,9 +6,9 @@ package control
 // plus normalised audit attribution (audit_attribution). A refactor must leave
 // every file byte-identical. Regenerate deliberately with
 //
-//	go test ./internal/control -run Golden -update-golden
+//	python3 scripts/testdb.py ./internal/control -run Golden -update-golden
 //
-// (all but the tool schema golden need LASTAPP_TEST_CONFIG) and review the diff.
+// (the disposable test database; only the tool schema golden runs without it) and review the diff.
 
 import (
 	"bytes"
@@ -358,7 +358,7 @@ func TestResponseShapeGolden(t *testing.T) {
 
 	// Spaces, Apps and micro-apps on a metadata-only registered database.
 	target, resource := registry.NewID(), registry.NewID()
-	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Golden target','127.0.0.2',33317,'disabled')", target); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Golden target','127.0.0.2',3306,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'golden_metadata_only','registered','shared','ready',X'00')", resource, tenant, target); e != nil {

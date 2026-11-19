@@ -510,8 +510,8 @@ deployments/starters and the MCP workspace/release tools (`delivery_shapes`),
 OAuth including cookie names/attributes (`session_shapes`), and normalised
 `audit_events` attribution for human, agent and worker steps (`audit_attribution`).
 Refactors must leave them unchanged. Regenerate them only for an intended contract
-change with `go test ./internal/control -run Golden -update-golden` (all but the
-tool schema golden need `LASTAPP_TEST_CONFIG`) and review the diff.
+change with `python3 scripts/testdb.py ./internal/control -run Golden -update-golden`
+(all but the tool schema golden need the test database) and review the diff.
 
 Important management groups are Tenant/Space/App/micro-app inventory, scoped
 `roles`, `role-assignments`, `recipients`, memberships/teams, database resources,
@@ -539,12 +539,13 @@ If Go is run directly in a restricted environment, set
 rather than replacing the global toolchain.
 
 ```sh
-make test                       # unit/build checks; DB tests may skip
+make test                       # unit/build checks; DB tests skip
 make lint                       # golangci-lint v2.15.0 + console npm run lint/typecheck
 make fmt                        # gofumpt/gci via golangci-lint fmt
 GOCACHE="$PWD/.local/go-cache" go vet ./...
-make mcp-test                   # TestAgent* only (agent + control): MCP/OAuth/agent security + agent worker
-make integration                # full backend race/security + browser suite
+make mcp-test                   # TestAgent* only (agent + control) on the test DB: MCP/OAuth/agent security + agent worker
+make integration                # every Go package with -race on the test DB, then make e2e
+python3 scripts/testdb.py ARGS  # any `go test ARGS` on a fresh test DB, e.g. ./internal/delivery -run Quota
 make e2e                        # browser suite only, on a disposable stack
 make client                     # SDK + example client.js; needs web/admin npm ci
 (cd web/admin && npm run build-storybook)  # local Storybook build; not in CI
@@ -557,16 +558,16 @@ CI (`.github/workflows/checks.yml`, job `test`) runs the same lint, type, schema
 driver, race-test and browser checks, plus `govulncheck`.
 
 Integration/database tests over HTTP/MCP, `TestNoHTTPLoopback` and the goldens
-live in `internal/control`, so `make integration` and `make mcp-test` target that
-package. `internal/publisher` has its own storage tests and a disposable
-business-database fixture (they skip without `LASTAPP_TEST_CONFIG`; run them with
-`go test ./internal/publisher`). `internal/dataapi` has database-free unit tests
+live in `internal/control`; `make mcp-test` targets its `TestAgent*` tests.
+`internal/publisher` has its own storage tests and a disposable
+business-database fixture (run them with
+`python3 scripts/testdb.py ./internal/publisher`). `internal/dataapi` has database-free unit tests
 for its SQL builders, gates, definition cache and Tenant fairness
 (`go test ./internal/dataapi`); its HTTP behaviour is covered black-box by the
 `/data/v1` tests and `data_shapes` golden in `internal/control`.
 `internal/delivery` has database-free tests (snapshot remapping, contract
-hashes, deployment plans, pinned versions, hosted origins) and, with
-`LASTAPP_TEST_CONFIG`, a disposable registry fixture built from the migrations
+hashes, deployment plans, pinned versions, hosted origins) and, on the test
+database, a disposable registry fixture built from the migrations
 for deployment candidate entities, the production App quota and capture
 readiness (`go test ./internal/delivery`); the workspace/release/deployment
 flows and the `delivery_shapes` golden stay black-box in `internal/control`.
@@ -586,7 +587,7 @@ run black-box (and through `Server.Tools`) in `internal/control`, with the
 `mcp_tools`, `response_shapes`, `session_shapes`, `delivery_shapes` and
 `audit_attribution` goldens.
 `internal/worker` tests the leader with fake steps on a lock-only fixture
-(`LASTAPP_TEST_CONFIG`, no schema): starters once per term on the lock
+(test database, no schema): starters once per term on the lock
 connection before any step, steps on connections of their own, standing by while
 another session holds the lock, `Settle` draining until idle or deferring to
 another leader, the per-step idle pause, transient retries,
@@ -599,20 +600,43 @@ workspace do not block another Tenant's; `TestWorkerWorkspacesIndependent`: a
 waiting workspace does not block a newer one of the same Tenant. `internal/databases` has database-free tests for the stored provisioning
 error mapping and generated names; provisioning itself, queue fairness and
 leadership-loss recovery run black-box in `internal/control`.
-The agreed direction is that each layer gets its own tests and its own fixtures;
-do not add a shared test-environment package.
+The agreed direction is that each layer gets its own tests and its own fixtures.
+The one shared test package is `internal/testdb`: it only locates the test
+database and refuses everything else; it holds no fixtures.
 
-`make mcp-test` and the backend half of `make integration` require the existing
-local development config/server. `make mcp-test` runs only the `TestAgent*` tests
-of `internal/agent` and `internal/control` with race detection; the general security suite (`LASTAPP_SECURITY_CONFIG`)
-runs under `make integration`, whose browser half is `make e2e` (below). `make client`
+**Tests never use the development data.** No test reads or writes the
+development registry `lastapp_foundation`, its Space databases or the dev
+MariaDB on 127.0.0.1:33317, and no test reads `.local/` secrets. Every
+database-backed Go test (all packages) runs on a disposable server:
+`scripts/testdb.py` (used by `make integration`, `make mcp-test`, CI,
+`design/validate_schema.py` and the security probe runner) removes any old
+`mariadb-test` container, starts a fresh one from `docker-compose.yaml`
+(profile `test`, same image as development, tmpfs, no volume, port 13319),
+creates the marker database `lastapp_disposable_test`, writes per-run
+passwords, encryption key and configs into a new temporary directory
+(`scripts/ci_config.py`), prepares the `lastapp_control` registry and its
+least-privilege runtime/provisioner accounts with `TestPrepareFixture`, runs
+`go test` with `LASTAPP_TEST_CONFIG` naming that config, then removes the
+container and the directory. Arguments go to `go test`. Fixtures still create
+and drop their own throwaway registries and Space databases there;
+`TestMariaDBControlPlane` uses the prepared registry because it checks the
+runtime account's grants. `testdb.Load` is the only way tests read that
+configuration: it skips without `LASTAPP_TEST_CONFIG` (so plain `go test ./...`
+is database-free and is not integration evidence) and fails a test whose DSNs
+use port 33317, the `lastapp_foundation` registry or a socket, or whose server
+lacks the marker database. Docker is required. Only that container is removed;
+never `docker compose down`, which would also own the development volume.
+
+`make mcp-test` runs only the `TestAgent*` tests of `internal/agent` and
+`internal/control` with race detection; `make integration` runs every Go
+package with race detection (including the security suite), then its browser
+half `make e2e` (below). `make client`
 compiles with the console's TypeScript, so run `make web` (or `make dev`) once first;
 `make e2e` runs `make client` automatically through the `pretest:e2e` hook. Database fixtures use disposable registries; worker tests clean
-their owned generated resources. Do not point them at production. Plain Go tests
-without explicit fixture config are not integration evidence. The browser suite never touches the development stack or its data: `make e2e`
+their owned generated resources. Do not point them at production. The browser suite never touches the development stack or its data either: `make e2e`
 (`scripts/e2e.py`, also used by CI) starts a fresh MariaDB from
-the `mariadb-e2e` service of `docker-compose.yaml` (profile `e2e`, tmpfs, port 33318; only that container is removed, never the development volume),
-prepares it the way CI does (`scripts/ci_config.py` + `TestPrepareFixture`),
+the `mariadb-e2e` service of `docker-compose.yaml` (profile `test`, tmpfs, port 13318)
+through the same `scripts/testdb.py` preparation,
 builds the current source and runs a separate API on 8797, development issuer on
 8798 and Vite on 5183, then stops them and removes the container. Its disposable
 config, secrets, binaries, artifacts and logs are in `.local/e2e/` (recreated each
@@ -625,8 +649,8 @@ For registry changes, add a forward Goose migration (the startup schema check
 derives its required version from the newest embedded migration), then regenerate
 the SQL document with `python3 design/validate_schema.py --write`. `--check` compares the document
 with the migrations without database access. Without a flag the validator does the same
-comparison and then runs `TestAuthorizationFoundation` on a disposable registry on
-the existing local server (`LASTAPP_TEST_CONFIG`, default `.local/config.json`). It does not test
+comparison and then runs `TestAuthorizationFoundation` on the disposable test
+database (`scripts/testdb.py`). It does not test
 every later feature; use the relevant entity/MCP/security suites too. Never edit
 the generated SQL independently of migrations.
 

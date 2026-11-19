@@ -2,27 +2,20 @@ package control
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/pressly/goose/v3"
+
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
 // Used only against an explicitly supplied, disposable local CI server. Secrets
 // are read/written in private fixture files, never echoed into command arguments.
 func TestPrepareFixture(t *testing.T) {
-	file := os.Getenv("LASTAPP_PREPARE_FIXTURE_CONFIG")
-	if file == "" {
-		t.Skip("explicit disposable fixture configuration required")
-	}
-	cfg, e := LoadConfig(file)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if !cfg.Development || cfg.RuntimeAccountHost != "%" {
+	files := testdb.Load(t, "LASTAPP_PREPARE_FIXTURE_CONFIG")
+	cfg := files.Config
+	if cfg.RuntimeAccountHost != "%" {
 		t.Fatal("expected disposable loopback CI configuration")
 	}
 	s, e := Open(cfg)
@@ -34,18 +27,7 @@ func TestPrepareFixture(t *testing.T) {
 	if e = Migrate(ctx, s.DB); e != nil {
 		t.Fatal(e)
 	}
-	var state struct {
-		Registry    string `json:"registry_password"`
-		Provisioner string `json:"provisioner_password"`
-		Legacy      string `json:"legacy_password"`
-	}
-	b, e := os.ReadFile(filepath.Join(filepath.Dir(file), "state.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = json.Unmarshal(b, &state); e != nil {
-		t.Fatal(e)
-	}
+	state := files.State
 	// Random token() fixture passwords contain only URL-safe characters.
 	for _, v := range []struct{ name, password string }{{"lastapp_control", state.Registry}, {"lastapp_provisioner", state.Provisioner}} {
 		if !generatedPassword(v.password) {

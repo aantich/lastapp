@@ -30,7 +30,7 @@ func agentSecurityFixture(t *testing.T) (*Server, testClient, access.Principal, 
 	c.want("POST", "/admin/v1/tenants", registry.Row{"id": tenant, "slug": "review-" + tenant, "display_name": "MCP review fixture", "plan_id": "10000000-0000-4000-8000-000000000001", "initial_admin_user_id": owner}, 0, 201)
 	allowed, denied := registry.NewID(), registry.NewID()
 	for i, target := range []string{allowed, denied} {
-		if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Review target',?,33317,'disabled',1,X'00')", target, fmt.Sprintf("127.0.0.%d", i+2)); e != nil {
+		if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Review target',?,3306,'disabled',1,X'00')", target, fmt.Sprintf("127.0.0.%d", i+2)); e != nil {
 			t.Fatal(e)
 		}
 	}

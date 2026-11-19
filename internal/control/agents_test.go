@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -25,6 +23,7 @@ import (
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
 type agentRoundTripper struct{ token string }
@@ -44,7 +43,7 @@ func TestAgentManagementMCP(t *testing.T) {
 	base := "/v1/tenants/" + tenant
 	oc.want("POST", base+"/memberships", registry.Row{"user_id": joe}, 0, 201)
 	target, db := registry.NewID(), registry.NewID()
-	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Agent fixture','127.0.0.2',33317,'disabled')", target); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Agent fixture','127.0.0.2',3306,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
 	enc, e := s.sealer.Seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
@@ -295,21 +294,13 @@ func TestAgentManagementMCP(t *testing.T) {
 	}
 	// Complete a managed database + entity publication through MCP, using only
 	// owned disposable resources and the installed MariaDB (no version matrix).
-	var state struct {
-		Provisioner string `json:"provisioner_password"`
-	}
-	b, e := os.ReadFile(filepath.Join(filepath.Dir(os.Getenv("LASTAPP_TEST_CONFIG")), "state.json"))
+	files := testdb.Load(t, testdb.ConfigEnv)
+	host, port := registryAddress(files.Admin.RegistryDSN)
+	provisioner, e := s.sealer.Seal("target", "20000000-0000-4000-8000-000000000001", "", databases.Credentials{Username: "lastapp_provisioner", Password: files.State.Provisioner})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = json.Unmarshal(b, &state); e != nil {
-		t.Fatal(e)
-	}
-	provisioner, e := s.sealer.Seal("target", "20000000-0000-4000-8000-000000000001", "", databases.Credentials{Username: "lastapp_provisioner", Password: state.Provisioner})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES ('20000000-0000-4000-8000-000000000001','Managed fixture','127.0.0.1',33317,'disabled',1,?)", provisioner); e != nil {
+	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES ('20000000-0000-4000-8000-000000000001','Managed fixture',?,?,'disabled',1,?)", host, port, provisioner); e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() {

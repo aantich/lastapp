@@ -2,8 +2,6 @@ package control
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,27 +10,15 @@ import (
 	"github.com/aantich/lastapp/internal/authz"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
 // The fixture owns only its new registry. Business resources below are metadata
 // for authorization tests; provisioning correctness has its separate live suite.
 func foundationFixture(t *testing.T) (*Server, testClient, string, string, string) {
 	t.Helper()
-	file := os.Getenv("LASTAPP_TEST_CONFIG")
-	if file == "" {
-		t.Skip("set LASTAPP_TEST_CONFIG for the installed local MariaDB")
-	}
-	cfg, e := LoadConfig(file)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if !cfg.Development {
-		t.Fatal("local development configuration required")
-	}
-	adminCfg, e := LoadConfig(filepath.Join(filepath.Dir(file), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
+	files := testdb.Load(t, testdb.ConfigEnv)
+	cfg, adminCfg := files.Config, files.Admin
 	admin, e := Open(adminCfg)
 	if e != nil {
 		t.Fatal(e)
@@ -88,7 +74,7 @@ func TestAuthorizationFoundation(t *testing.T) {
 	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": joe}, 0, 201)
 	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": operator}, 0, 201)
 	target, db := registry.NewID(), registry.NewID()
-	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Fixture','127.0.0.1',33317,'disabled')", target); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Fixture','127.0.0.1',3306,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
 	enc, e := s.sealer.Seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})

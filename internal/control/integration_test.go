@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +15,7 @@ import (
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/httpapi"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
 type testClient struct {
@@ -86,22 +85,20 @@ func (c testClient) waitDB(tenant, record, state string) registry.Row {
 }
 
 func TestMariaDBControlPlane(t *testing.T) {
-	configPath := os.Getenv("LASTAPP_TEST_CONFIG")
-	if configPath == "" {
-		t.Skip("set LASTAPP_TEST_CONFIG to a running local development config")
-	}
-	cfg, e := LoadConfig(configPath)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if !cfg.Development {
-		t.Fatal("integration tests require local development")
-	}
+	// The prepared registry of the disposable test server (TestPrepareFixture):
+	// its runtime account has the production grants checked below.
+	files := testdb.Load(t, testdb.ConfigEnv)
+	cfg := files.Config
 	s, e := Open(cfg)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer s.DB.Close()
+	// No API serves this disposable registry, so the test runs its worker.
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	workerDone := make(chan struct{})
+	go func() { defer close(workerDone); s.RunWorker(workerCtx) }()
+	defer func() { stopWorker(); <-workerDone }()
 	if _, e = s.DB.Exec("UPDATE audit_events SET action=action WHERE 1=0"); e == nil {
 		t.Fatal("runtime account can modify audit history")
 	}
@@ -222,21 +219,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	ownerClient.want("POST", rolePath, registry.Row{"id": registry.NewID(), "code": "bad-escalation", "display_name": "Invalid", "permissions": []string{"platform.admin"}}, 0, 400)
 	t.Log("scope filtering, stale revision, role isolation and group revocation passed")
 	// Existing registration validates grants and does not modify business tables.
-	var state struct {
-		Legacy string `json:"legacy_password"`
-	}
-	b, e := os.ReadFile(filepath.Join(filepath.Dir(configPath), "state.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = json.Unmarshal(b, &state); e != nil {
-		t.Fatal(e)
-	}
-	adminConfig, e := LoadConfig(filepath.Join(filepath.Dir(configPath), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	adminServer, e := Open(adminConfig)
+	adminServer, e := Open(files.Admin)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -251,18 +234,18 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if _, e = adminServer.DB.Exec("INSERT INTO `" + fixtureDB + "`.contacts VALUES (1,'Existing customer')"); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = adminServer.DB.Exec("CREATE USER '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY '" + state.Legacy + "'"); e != nil {
+	if _, e = adminServer.DB.Exec("CREATE USER '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "' IDENTIFIED BY '" + files.State.Legacy + "'"); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = adminServer.DB.Exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `" + strings.ReplaceAll(fixtureDB, "_", `\_`) + "`.* TO '" + fixtureDB + "'@'" + cfg.RuntimeAccountHost + "'"); e != nil {
 		t.Fatal(e)
 	}
 	registered := registry.NewID()
-	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": registered, "target_id": target, "management_mode": "registered", "layout": "dedicated", "database_name": fixtureDB, "credentials": registry.Row{"username": fixtureDB, "password": state.Legacy}}, 0, 202)
+	ownerClient.want("POST", base+"/database-resources", registry.Row{"id": registered, "target_id": target, "management_mode": "registered", "layout": "dedicated", "database_name": fixtureDB, "credentials": registry.Row{"username": fixtureDB, "password": files.State.Legacy}}, 0, 202)
 	c.waitDB(tenant, registered, "ready")
 	audit := c.want("GET", base+"/audit-events", nil, 0, 200)
 	encoded, _ := json.Marshal(audit)
-	if bytes.Contains(encoded, []byte(state.Legacy)) || bytes.Contains(encoded, []byte("credentials")) {
+	if bytes.Contains(encoded, []byte(files.State.Legacy)) || bytes.Contains(encoded, []byte("credentials")) {
 		t.Fatal("audit leaked credential payload")
 	}
 	var runtime databases.Credentials
@@ -291,7 +274,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if registry.Str(failed["last_error_code"]) != "authentication_failed" {
 		t.Fatalf("unexpected credential failure: %v", failed)
 	}
-	ownerClient.want("PATCH", base+"/database-resources/"+registered, registry.Row{"credentials": registry.Row{"username": fixtureDB, "password": state.Legacy}}, registry.Integer(failed["revision"]), 202)
+	ownerClient.want("PATCH", base+"/database-resources/"+registered, registry.Row{"credentials": registry.Row{"username": fixtureDB, "password": files.State.Legacy}}, registry.Integer(failed["revision"]), 202)
 	c.waitDB(tenant, registered, "ready")
 	// Unknown database ownership is never adopted, even if its name is generated.
 	collision := registry.NewID()
@@ -372,7 +355,7 @@ func TestMariaDBControlPlane(t *testing.T) {
 	if s.sealer.Unseal("database", registered, starter, enc, &runtime) == nil {
 		t.Fatal("credential moved across Tenants")
 	}
-	if strings.Contains(registry.Str(c.want("GET", base+"/database-resources", nil, 0, 200)), state.Legacy) {
+	if strings.Contains(registry.Str(c.want("GET", base+"/database-resources", nil, 0, 200)), files.State.Legacy) {
 		t.Fatal("API leaked credentials")
 	}
 }
