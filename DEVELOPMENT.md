@@ -212,6 +212,11 @@ including exact decimals, nulls, permission paths and old/new update checks.
 The console has one visual theme, **Signal** ("Ink & Signal"), in light, dark
 and system color modes. New console UI follows these rules:
 
+- **Mockups are the visual spec.** The approved mockups are in
+  `design/mockups/` (`Prototype.dc.html` for the whole console,
+  `Main.dc.html` for the shell and Home, `Entity.dc.html` for the entity
+  designer); open them in a browser and compare each changed screen region by
+  region at desktop and mobile widths.
 - **Real content only.** A design mockup defines layout and visual style
   (spacing, type, components, composition), never content. Names, counts,
   statuses, tags, environment labels, hostnames, greetings, release numbers,
