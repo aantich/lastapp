@@ -2,20 +2,8 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { cx } from "./utils";
 import { addDays, addMonths, daysBetween, isoDay, parseDay } from "./days";
-
-const weekdays = Array.from(
-  { length: 7 },
-  (_, i) =>
-    // 2024-01-01 is a Monday; weeks start on Monday.
-    new Date(2024, 0, 1 + i),
-);
-const longDate = (d: Date) =>
-  d.toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+import { longDate } from "./long-date";
+import { CalendarGrid } from "./calendar-grid";
 
 // A date field: a button showing the chosen day that opens a calendar dialog
 // (WAI-ARIA date picker dialog: arrows move a day/week, PageUp/PageDown a
@@ -110,12 +98,6 @@ export function DatePicker({
     }
   }
 
-  // Six Monday-first weeks covering the focused month.
-  const first = new Date(focus.getFullYear(), focus.getMonth(), 1),
-    start = addDays(first, -((first.getDay() + 6) % 7));
-  const weeks = Array.from({ length: 6 }, (_, w) =>
-    Array.from({ length: 7 }, (_, d) => addDays(start, w * 7 + d)),
-  );
   const month = focus.toLocaleDateString(undefined, {
     month: "long",
     year: "numeric",
@@ -189,62 +171,16 @@ export function DatePicker({
               <ChevronRight size={16} aria-hidden />
             </button>
           </div>
-          <table
-            className="ui-date-grid"
-            role="grid"
-            ref={grid}
-            aria-labelledby={titleId}
+          <CalendarGrid
+            focus={focus}
+            value={value}
+            titleId={titleId}
+            gridRef={grid}
+            allowed={allowed}
+            choose={choose}
+            setFocus={setFocus}
             onKeyDown={key}
-          >
-            <thead>
-              <tr>
-                {weekdays.map((d) => (
-                  <th
-                    key={d.getDay()}
-                    scope="col"
-                    abbr={d.toLocaleDateString(undefined, { weekday: "long" })}
-                  >
-                    {d.toLocaleDateString(undefined, { weekday: "short" })}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {weeks.map((week) => (
-                <tr key={isoDay(week[0])}>
-                  {week.map((d) => {
-                    const day = isoDay(d),
-                      inMonth = d.getMonth() === focus.getMonth(),
-                      ok = allowed(d);
-                    return (
-                      <td key={day} aria-selected={day === value}>
-                        <button
-                          type="button"
-                          data-day={day}
-                          tabIndex={day === isoDay(focus) ? 0 : -1}
-                          aria-label={longDate(d)}
-                          aria-current={
-                            day === isoDay(new Date()) ? "date" : undefined
-                          }
-                          aria-disabled={!ok || undefined}
-                          className={cx(!inMonth && "ui-date-outside")}
-                          onClick={() => (ok ? choose(d) : setFocus(d))}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              choose(d);
-                            }
-                          }}
-                        >
-                          {d.getDate()}
-                        </button>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          />
         </div>
       )}
     </span>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ExternalLink, Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { api } from "./api";
 import {
   Alert,
@@ -21,8 +21,11 @@ import {
 } from "./ui";
 import { num, text, type Item } from "./api-types";
 import { useAction } from "./use-action";
-import { refreshQueries, useApiQuery } from "./query";
+import { refreshQueries } from "./query";
 import { useWorkspaceProgress } from "./workspaces";
+import { createWorkspaceModal } from "./development-workspace-form";
+
+export { DevelopmentBanner } from "./development-banner";
 
 // A Space's Development tab: the signed-in author's isolated workspaces (an
 // agent's own workspaces included). Each copies the published Space
@@ -85,28 +88,7 @@ export function DevelopmentWorkspaces({
                 <Button
                   variant="primary"
                   icon={<Plus size={16} aria-hidden />}
-                  onClick={() =>
-                    setModal({
-                      title: "Create development workspace",
-                      description:
-                        "Copies the published Space configuration into a new, isolated database. Records, role assignments and approved App origins are excluded.",
-                      success: "Workspace created; preparing its database",
-                      fields: [
-                        {
-                          key: "display_name",
-                          label: "Workspace name",
-                          required: true,
-                        },
-                      ],
-                      initial: { display_name: "My workspace" },
-                      submit: "Create workspace",
-                      save: (v) =>
-                        api(`/v1/spaces/${space}/workspaces`, "POST", {
-                          id: crypto.randomUUID(),
-                          display_name: v.display_name,
-                        }),
-                    })
-                  }
+                  onClick={() => setModal(createWorkspaceModal(space))}
                 >
                   Create workspace
                 </Button>
@@ -200,39 +182,5 @@ export function DevelopmentWorkspaces({
         />
       )}
     </Stack>
-  );
-}
-
-// Marks every screen of a workspace's backing Space or App as development.
-export function DevelopmentBanner({
-  workspace,
-  openSpace,
-}: {
-  workspace: string;
-  openSpace: (id: string) => void;
-}) {
-  // The banner is decoration: without workspace details it still marks the
-  // screen as development, so a failed read shows no error.
-  const { data: info } = useApiQuery<Item>("/v1/workspaces/" + workspace);
-  return (
-    <Alert
-      tone="info"
-      live={false}
-      className="development-banner"
-      title={`Development workspace${info ? ` · ${text(info.display_name)}` : ""}`}
-      actions={
-        info && (
-          <Button
-            size="sm"
-            icon={<ExternalLink size={14} aria-hidden />}
-            onClick={() => openSpace(text(info.production_space_id))}
-          >
-            Production Space
-          </Button>
-        )
-      }
-    >
-      Changes and test records are isolated from production.
-    </Alert>
   );
 }

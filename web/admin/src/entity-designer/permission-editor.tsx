@@ -1,19 +1,11 @@
 import { useState } from "react";
-import {
-  Checkbox,
-  Columns,
-  FieldGroup,
-  FormField,
-  RemoteSelect,
-  Select,
-  TextField,
-} from "../ui";
+import { Columns, FormField, RemoteSelect, Select, TextField } from "../ui";
 import { items, text, type EntityCatalog, type Item } from "../api-types";
-import { Expression, FieldChoices } from "./expression";
 import { EditorForm } from "./editor-dialog";
+import { FieldChoices } from "./field-choices";
+import { PermissionPath } from "./permission-path";
 import {
   inputValue,
-  isExpression,
   keyOf,
   optionalText,
   relationshipLabels,
@@ -40,7 +32,6 @@ export function PermissionEditor({
   const [p, set] = useState({ ...value });
   const patch = (v: Item) => set({ ...p, ...v });
   const fields = items(definition.fields);
-  const withFields = ["read", "create", "update"].includes(text(p.operation));
   return (
     <EditorForm submitLabel="Save access rule" submit={() => save(p)}>
       <TextField
@@ -111,80 +102,7 @@ export function PermissionEditor({
           />
         </FormField>
       )}
-      <FieldGroup
-        legend="Path"
-        description={
-          withFields
-            ? "The fields this rule reaches and the records they are on. New fields never join this list automatically."
-            : "The records this rule reaches."
-        }
-        framed
-      >
-        {withFields && (
-          <FieldChoices
-            legend="Which fields"
-            fields={fields.filter(
-              (f) => p.operation === "read" || !f.calculation,
-            )}
-            value={strings(p.fields)}
-            onChange={(v) => patch({ fields: v })}
-            empty="Add fields to this entity first."
-          />
-        )}
-        <Checkbox
-          label="Limit to records matching a condition"
-          checked={!!p.when}
-          onChange={(on) =>
-            patch({
-              when: on
-                ? {
-                    op: "eq",
-                    args: [{ field: fields[0]?.key || "" }, { literal: "" }],
-                  }
-                : undefined,
-            })
-          }
-        />
-        {isExpression(p.when) && (
-          <Expression
-            value={p.when}
-            onChange={(v) => patch({ when: v })}
-            fields={fields}
-            catalog={catalog}
-          />
-        )}
-        {p.operation === "update" && (
-          <>
-            <Checkbox
-              label="Authorize a particular change"
-              checked={!!p.change_when}
-              onChange={(on) =>
-                patch({
-                  change_when: on
-                    ? {
-                        op: "eq",
-                        args: [
-                          { field: "old." + (fields[0]?.key || "") },
-                          { literal: "" },
-                        ],
-                      }
-                    : undefined,
-                })
-              }
-            />
-            {isExpression(p.change_when) && (
-              <Expression
-                value={p.change_when}
-                onChange={(v) => patch({ change_when: v })}
-                fields={fields}
-                catalog={catalog}
-                label="Change"
-                transition
-              />
-            )}
-          </>
-        )}
-      </FieldGroup>
+      <PermissionPath p={p} patch={patch} fields={fields} catalog={catalog} />
       {p.operation === "acl.manage" && (
         <FieldChoices
           legend="Permissions this user can share"

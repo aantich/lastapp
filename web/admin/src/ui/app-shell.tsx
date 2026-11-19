@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Menu as MenuIcon, Search, X } from "lucide-react";
-import { Avatar } from "./avatar";
+import { Menu as MenuIcon, X } from "lucide-react";
 import { IconButton } from "./button";
-import { Menu, type MenuItem } from "./menu";
 import { Tooltip } from "./tooltip";
 import { useSidebarCollapse } from "./hooks";
 import { useDialogFocus } from "./use-dialog-focus";
+import { SearchField } from "./search-field";
 import { cx } from "./utils";
+export { SearchField } from "./search-field";
+export { AccountMenu } from "./account-menu";
 
 const narrow = "(max-width:800px)";
 
@@ -163,87 +164,6 @@ export function AppShell({
       </main>
       {overlays}
     </div>
-  );
-}
-
-const shortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
-
-// A search field that opens the command palette and shows the platform's
-// shortcut (⌘K or Ctrl K): wide in the top bar, on ink in the sidebar, an
-// icon on the collapsed rail. The label stays in the accessible name when a
-// narrow screen hides it.
-export function SearchField({
-  label,
-  onOpen,
-  variant = "topbar",
-  rail,
-}: {
-  label: string;
-  onOpen: () => void;
-  variant?: "topbar" | "sidebar";
-  rail?: boolean;
-}) {
-  const button = (
-    <button
-      type="button"
-      className={cx("ui-search-field", variant === "sidebar" && "ui-on-ink")}
-      aria-keyshortcuts="Meta+K Control+K"
-      aria-label={rail ? label.replace("…", "") + ` (${shortcut})` : undefined}
-      onClick={onOpen}
-    >
-      <Search
-        size={variant === "sidebar" ? (rail ? 18 : 15) : 16}
-        aria-hidden
-      />
-      <span className="ui-search-label">{label}</span>
-      <kbd className="ui-search-key" aria-hidden>
-        {shortcut}
-      </kbd>
-    </button>
-  );
-  return rail ? (
-    <Tooltip content={label.replace("…", "")} side="right" labelOnly>
-      {button}
-    </Tooltip>
-  ) : (
-    button
-  );
-}
-
-// The signed-in person at the bottom of the sidebar, opening the account
-// menu upward: avatar, name and role (the avatar alone on the rail). The
-// name stays in the accessible name on the rail.
-export function AccountMenu({
-  name,
-  detail,
-  items,
-  rail,
-  className,
-}: {
-  name: string;
-  detail?: ReactNode;
-  items: MenuItem[];
-  rail?: boolean;
-  className?: string;
-}) {
-  return (
-    <Menu
-      className={cx("ui-account", className)}
-      triggerClassName="ui-account-trigger"
-      placement="above"
-      align="start"
-      trigger={
-        <>
-          <Avatar name={name} size={32} className="ui-account-avatar" />
-          <span className={cx("ui-account-copy", rail && "ui-sr-only")}>
-            <strong>{name}</strong>
-            {detail && <small>{detail}</small>}
-          </span>
-          <span className="ui-sr-only">, account menu</span>
-        </>
-      }
-      items={items}
-    />
   );
 }
 
