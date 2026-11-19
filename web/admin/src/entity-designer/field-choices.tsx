@@ -22,7 +22,7 @@ export function FieldChoices({
   return (
     <FieldGroup legend={legend} description={description}>
       {fields.length ? (
-        <Columns min={160} gap="sm">
+        <Columns min="xs" gap="sm">
           {fields.map((f) => {
             const key = text(f.key);
             return (

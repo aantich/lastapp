@@ -141,8 +141,8 @@ export function EntityDesigner({
               <Columns
                 gap="md"
                 tracks={[
-                  { grow: 3, min: 600 },
-                  { grow: 2, min: 280 },
+                  { grow: 3, min: "3xl" },
+                  { grow: 2, min: "lg" },
                 ]}
               >
                 <FieldsTab d={d} />

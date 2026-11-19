@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import type { Listbox, ListOption } from "./listbox";
 import { place, portalHost } from "./popup-placement";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 // The floating popup of every console list control (Select, RemoteSelect,
 // ContextSwitcher): portalled out of the control so it never changes the
@@ -104,7 +105,9 @@ export function ListboxPopup<
                     {o.label}
                     {o.description && <small>{o.description}</small>}
                   </span>
-                  {value === o.value && <Check size={15} aria-hidden />}
+                  {value === o.value && (
+                    <Icon icon={Check} size="md" aria-hidden />
+                  )}
                 </span>
               ))}
             </span>

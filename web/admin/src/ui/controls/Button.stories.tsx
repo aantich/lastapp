@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button, IconButton, LinkButton } from "../button";
+import { Icon } from "../icon";
 
 // button.tsx: Button (primary/secondary/ghost/danger/link, sm/md, loading)
 // and IconButton, whose label is required and is its accessible name.
@@ -26,14 +27,23 @@ export const Playground: Story = {};
 export const Variants: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-3">
-      <Button variant="primary" icon={<Rocket size={16} aria-hidden />}>
+      <Button
+        variant="primary"
+        icon={<Icon icon={Rocket} size="lg" aria-hidden />}
+      >
         Deploy r15
       </Button>
-      <Button variant="secondary" icon={<Plus size={16} aria-hidden />}>
+      <Button
+        variant="secondary"
+        icon={<Icon icon={Plus} size="lg" aria-hidden />}
+      >
         Add field
       </Button>
       <Button variant="ghost">Cancel</Button>
-      <Button variant="danger" icon={<Trash2 size={16} aria-hidden />}>
+      <Button
+        variant="danger"
+        icon={<Icon icon={Trash2} size="lg" aria-hidden />}
+      >
         Retire release
       </Button>
       <Button variant="link">View history</Button>
@@ -48,10 +58,10 @@ export const Sizes: Story = {
         Publish
       </Button>
       <Button variant="primary">Publish</Button>
-      <Button size="sm" icon={<Pencil size={13} aria-hidden />}>
+      <Button size="sm" icon={<Icon icon={Pencil} size="xs" aria-hidden />}>
         Edit
       </Button>
-      <Button icon={<Pencil size={15} aria-hidden />}>Edit</Button>
+      <Button icon={<Icon icon={Pencil} size="md" aria-hidden />}>Edit</Button>
     </div>
   ),
 };
@@ -72,7 +82,7 @@ export const States: Story = {
         <Button
           variant="primary"
           disabled
-          icon={<Check size={16} aria-hidden />}
+          icon={<Icon icon={Check} size="lg" aria-hidden />}
         >
           Save changes
         </Button>
@@ -93,32 +103,36 @@ export const IconButtons: Story = {
     <div className="flex flex-wrap items-center gap-3">
       <IconButton
         label="Refresh deployments"
-        icon={<RefreshCw size={16} aria-hidden />}
+        icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
         tooltip
       />
       <IconButton
         label="Edit Deal"
-        icon={<Pencil size={16} aria-hidden />}
+        icon={<Icon icon={Pencil} size="lg" aria-hidden />}
         bordered
         tooltip
       />
       <IconButton
         label="Remove Lena Novak"
         tone="danger"
-        icon={<Trash2 size={16} aria-hidden />}
+        icon={<Icon icon={Trash2} size="lg" aria-hidden />}
         tooltip="bottom"
       />
       <IconButton
         label="Refreshing"
         loading
-        icon={<RefreshCw size={16} aria-hidden />}
+        icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
       />
       <IconButton
         label="Edit (locked)"
         disabled
-        icon={<Pencil size={16} aria-hidden />}
+        icon={<Icon icon={Pencil} size="lg" aria-hidden />}
       />
-      <IconButton label="Add" size="sm" icon={<Plus size={14} aria-hidden />} />
+      <IconButton
+        label="Add"
+        size="sm"
+        icon={<Icon icon={Plus} size="sm" aria-hidden />}
+      />
     </div>
   ),
 };
@@ -132,11 +146,14 @@ export const LinkButtons: Story = {
         href="https://forecasting.northstar.example/"
         external
         variant="primary"
-        trailingIcon={<ExternalLink size={14} aria-hidden />}
+        trailingIcon={<Icon icon={ExternalLink} size="sm" aria-hidden />}
       >
         Open production App
       </LinkButton>
-      <LinkButton href="#starter" icon={<Download size={16} aria-hidden />}>
+      <LinkButton
+        href="#starter"
+        icon={<Icon icon={Download} size="lg" aria-hidden />}
+      >
         Get starter
       </LinkButton>
       <LinkButton href="#docs" variant="link">

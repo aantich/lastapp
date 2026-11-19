@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { Button, EmptyState, Panel } from "../ui";
+import { Button, EmptyState, Panel, Icon } from "../ui";
 import { items } from "../api-types";
 import { PathCards, UnreachedFields } from "./path-cards";
 import { type Designer } from "./shared";
@@ -35,7 +35,7 @@ export function AccessTab({ d }: { d: Designer }) {
       actions={
         <Button
           size="sm"
-          icon={<Plus size={15} aria-hidden />}
+          icon={<Icon icon={Plus} size="md" aria-hidden />}
           onClick={() =>
             setEditPermission({
               key: "",

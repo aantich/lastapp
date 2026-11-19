@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Tone } from "./status-tone";
 import { Tooltip } from "./tooltip";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 export type NavItem = {
   id: string;
@@ -34,7 +35,7 @@ export function SidebarNav({
     <div className="ui-sidebar-group">
       {section && !collapsed && section}
       <nav aria-label={label} className="nav-group">
-        {items.map(({ id, label: name, icon: Icon, badge }) => {
+        {items.map(({ id, label: name, icon: Glyph, badge }) => {
           const button = (
             <button
               key={id}
@@ -44,7 +45,7 @@ export function SidebarNav({
               aria-label={collapsed ? name : undefined}
               onClick={() => onSelect(id)}
             >
-              <Icon size={18} strokeWidth={1.8} aria-hidden />
+              <Icon icon={Glyph} size="xl" stroke="light" aria-hidden />
               <span className="ui-nav-label">{name}</span>
               {badge !== undefined && !collapsed && (
                 <span className="ui-nav-badge">{badge}</span>
@@ -74,18 +75,23 @@ export type SidebarLink = {
 };
 
 // A titled list of places in the sidebar (the Tenant's Spaces): a status
-// square, the name and a mono tag. Hidden on the collapsed rail. `title` may
-// be a button that opens the full list.
+// square, the name and a mono tag. Hidden on the collapsed rail. With
+// `onTitle` the title is a button that opens the full list (`titleCurrent`
+// while that list is the page shown).
 export function SidebarLinks({
   label,
   title,
+  onTitle,
+  titleCurrent,
   items,
   active,
   onSelect,
   collapsed,
 }: {
   label: string;
-  title: ReactNode;
+  title: string;
+  onTitle?: () => void;
+  titleCurrent?: boolean;
   items: SidebarLink[];
   active?: string;
   onSelect: (id: string) => void;
@@ -94,7 +100,18 @@ export function SidebarLinks({
   if (collapsed) return null;
   return (
     <div className="ui-sidebar-group">
-      {title}
+      {onTitle ? (
+        <button
+          type="button"
+          className="ui-nav-section ui-section-trigger"
+          aria-current={titleCurrent ? "page" : undefined}
+          onClick={onTitle}
+        >
+          {title}
+        </button>
+      ) : (
+        <span className="ui-nav-section">{title}</span>
+      )}
       <nav aria-label={label} className="nav-group">
         {items.map((item) => (
           <button

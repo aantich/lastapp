@@ -1,17 +1,17 @@
 import { Database, Plus } from "lucide-react";
-import { Button, Card, EmptyState } from "../ui";
+import { Button, Card, EmptyState, Icon } from "../ui";
 
 // The designer's empty state when the Space has no entities yet.
 export function NoEntities({ create }: { create: () => void }) {
   return (
     <Card>
       <EmptyState
-        icon={<Database size={28} aria-hidden />}
+        icon={<Icon icon={Database} size="6xl" aria-hidden />}
         title="No entities yet"
         actions={
           <Button
             variant="primary"
-            icon={<Plus size={15} aria-hidden />}
+            icon={<Icon icon={Plus} size="md" aria-hidden />}
             onClick={create}
           >
             New entity

@@ -7,6 +7,7 @@ import {
   Disclosure,
   FactList,
   StatusBadge,
+  Icon,
 } from "../ui";
 import { text } from "../api-types";
 import { computeField, editFields, type TenantScreen } from "./screen";
@@ -23,7 +24,7 @@ export function AppSettings({ t }: { t: TenantScreen }) {
             <StatusBadge state={app.state} />
             {scoped("app.manage") && (
               <Button
-                icon={<Pencil size={14} aria-hidden />}
+                icon={<Icon icon={Pencil} size="sm" aria-hidden />}
                 onClick={() =>
                   edit(app, base + "/apps/" + app.id, "Edit App", [
                     ...editFields,

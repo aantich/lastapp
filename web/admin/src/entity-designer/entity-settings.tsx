@@ -38,7 +38,7 @@ export function EntitySettings({ d }: { d: Designer }) {
           meta="Name, ownership, default fields and sharing"
         >
           <Stack gap="md">
-            <Columns min={200} gap="md">
+            <Columns min="sm" gap="md">
               <TextField
                 label="Name"
                 value={inputValue(draft.label)}

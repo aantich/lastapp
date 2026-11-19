@@ -14,6 +14,7 @@ import { Button, LinkButton } from "../button";
 import { Stepper } from "../stepper";
 import { Tabs } from "../tabs";
 import { Inline } from "../layout";
+import { Icon } from "../icon";
 
 // row-table.tsx: a card of fixed-track grid rows (the Apps list, an App's
 // releases and micro-apps). app-header.tsx: the App page's header, titled
@@ -33,7 +34,7 @@ export const AppsList: Story = {
   render: () => (
     <RowTable
       label="Apps"
-      columns="minmax(180px, 2fr) 120px 140px minmax(200px, 2fr)"
+      columns="minmax(var(--ui-col-name), 2fr) var(--ui-col-label) var(--ui-col-status) minmax(var(--ui-measure-sm), 2fr)"
       headers={["App", "Space", "Status", "Hostname"]}
       rows={apps.map(([name, space, tone, label, host]) => ({
         id: name,
@@ -76,7 +77,7 @@ export const AppPage: Story = {
           <LinkButton
             href="#"
             variant="primary"
-            trailingIcon={<ExternalLink size={14} aria-hidden />}
+            trailingIcon={<Icon icon={ExternalLink} size="sm" aria-hidden />}
           >
             Launch app
           </LinkButton>
@@ -104,7 +105,7 @@ export const AppPage: Story = {
       >
         <Stepper
           label="Deployment progress"
-          min={160}
+          min="xs"
           steps={[
             {
               id: "q",
@@ -127,7 +128,7 @@ export const AppPage: Story = {
         label="Releases"
         title="Releases"
         note="Immutable build + micro-app pins + Space snapshot"
-        columns="minmax(200px, 2fr) 150px auto"
+        columns="minmax(var(--ui-measure-sm), 2fr) var(--ui-col-time) auto"
         rows={[
           ["Build 8", "5 minutes ago · Ava Chen", "Failed", "danger"],
           [

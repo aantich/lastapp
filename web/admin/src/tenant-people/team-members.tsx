@@ -1,6 +1,6 @@
 import { ArrowLeft, Plus } from "lucide-react";
 import { api } from "../api";
-import { Button, CardHeader, Checkbox, Collection, Inline } from "../ui";
+import { Button, CardHeader, Checkbox, Collection, Inline, Icon } from "../ui";
 import { status } from "../console-forms";
 import { num, text, type Item } from "../api-types";
 import { personColumn } from "./person-column";
@@ -47,7 +47,7 @@ export function TeamMembers({
             <>
               <Button
                 variant="ghost"
-                icon={<ArrowLeft size={15} aria-hidden />}
+                icon={<Icon icon={ArrowLeft} size="md" aria-hidden />}
                 onClick={() => selectTeam("")}
               >
                 All teams
@@ -57,7 +57,7 @@ export function TeamMembers({
                   <Button onClick={editTeam}>Edit team</Button>
                   <Button
                     variant="primary"
-                    icon={<Plus size={15} aria-hidden />}
+                    icon={<Icon icon={Plus} size="md" aria-hidden />}
                     disabled={group.state !== "active"}
                     onClick={addTeamPerson}
                   >

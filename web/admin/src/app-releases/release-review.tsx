@@ -9,6 +9,7 @@ import {
   Disclosure,
   FactList,
   Stack,
+  Icon,
 } from "../ui";
 import { keyOf, text, type Release } from "../api-types";
 import { when } from "./release-dates";
@@ -38,7 +39,7 @@ export function ReleaseReview({
             {preview && (
               <Button
                 disabled={busy}
-                icon={<ExternalLink size={14} aria-hidden />}
+                icon={<Icon icon={ExternalLink} size="sm" aria-hidden />}
                 onClick={preview}
               >
                 Open preview
@@ -47,7 +48,7 @@ export function ReleaseReview({
             <Button
               variant="primary"
               disabled={busy}
-              icon={<Rocket size={16} aria-hidden />}
+              icon={<Icon icon={Rocket} size="lg" aria-hidden />}
               onClick={deploy}
             >
               Deploy to production

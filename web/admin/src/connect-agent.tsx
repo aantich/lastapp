@@ -9,6 +9,7 @@ import {
   Inline,
   Skeleton,
   Stack,
+  Icon,
 } from "./ui";
 import { useApiQuery } from "./query";
 import type { AgentConfig } from "./api-types";
@@ -28,7 +29,7 @@ export function McpConnection({ config }: { config: AgentConfig }) {
         <strong>Connect from your MCP client</strong>
         <Button
           size="sm"
-          icon={<Copy size={14} aria-hidden />}
+          icon={<Icon icon={Copy} size="sm" aria-hidden />}
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(config.mcp_url);

@@ -1,6 +1,6 @@
 import { ExternalLink, RotateCcw } from "lucide-react";
 import { deploymentSteps } from "../deployment";
-import { Alert, Button, LinkButton, Stepper, TitledCard } from "../ui";
+import { Alert, Button, LinkButton, Stepper, TitledCard, Icon } from "../ui";
 import type { Deployment } from "../api-types";
 import { time } from "./release-dates";
 
@@ -49,7 +49,7 @@ export function DeploymentCard({
           <Button
             size="sm"
             variant="primary"
-            icon={<RotateCcw size={14} aria-hidden />}
+            icon={<Icon icon={RotateCcw} size="sm" aria-hidden />}
             disabled={busy}
             onClick={() => retry(deployment)}
           >
@@ -62,7 +62,7 @@ export function DeploymentCard({
               href={deployment.url}
               external
               size="sm"
-              trailingIcon={<ExternalLink size={14} aria-hidden />}
+              trailingIcon={<Icon icon={ExternalLink} size="sm" aria-hidden />}
             >
               Open production App
             </LinkButton>
@@ -72,7 +72,7 @@ export function DeploymentCard({
     >
       {deployment &&
         (steps.length ? (
-          <Stepper label="Deployment progress" steps={steps} min={160} />
+          <Stepper label="Deployment progress" steps={steps} min="xs" />
         ) : (
           failed && (
             <Alert as="p" live={false} title="Deployment failed">

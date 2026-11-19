@@ -10,6 +10,7 @@ import { usePasswordPolicy } from "../console-config";
 import { useAction } from "../use-action";
 import type { Item } from "../api-types";
 import type { Modal } from "./form-modal-types";
+import { Icon } from "./icon";
 export type { Field, Modal } from "./form-modal-types";
 
 function savedMessage(title: string) {
@@ -101,7 +102,7 @@ export function FormModal({
             type="submit"
             variant="primary"
             loading={busy}
-            icon={<Check size={16} aria-hidden />}
+            icon={<Icon icon={Check} size="lg" aria-hidden />}
           >
             {busy ? "Saving…" : modal.submit || "Save changes"}
           </Button>

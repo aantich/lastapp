@@ -11,6 +11,7 @@ import {
   Stepper,
   UploadButton,
   type Step,
+  Icon,
 } from "../ui";
 import type { Build, Deployment, ReleaseItem } from "../api-types";
 
@@ -81,14 +82,14 @@ export function ShipCard({
           <>
             <IconButton
               label="Refresh releases"
-              icon={<RefreshCw size={16} aria-hidden />}
+              icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
               tooltip="bottom"
               disabled={busy}
               onClick={() => void refreshQueries()}
             />
             <LinkButton
               href={`/v1/apps/${app}/starter.zip`}
-              icon={<Download size={16} aria-hidden />}
+              icon={<Icon icon={Download} size="lg" aria-hidden />}
             >
               Get starter
             </LinkButton>
@@ -96,7 +97,7 @@ export function ShipCard({
               directory
               variant="primary"
               loading={busy}
-              icon={<Upload size={16} aria-hidden />}
+              icon={<Icon icon={Upload} size="lg" aria-hidden />}
               onFiles={upload}
             >
               {busy ? "Working…" : "Upload build folder"}

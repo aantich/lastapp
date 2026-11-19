@@ -7,6 +7,7 @@ import { RemoteListStatus } from "./remote-select";
 import { ListboxPopup } from "./select";
 import { Tooltip } from "./tooltip";
 import { cx, initials } from "./utils";
+import { Icon } from "./icon";
 
 export type ContextOption = ListOption & { description?: ReactNode };
 
@@ -135,7 +136,7 @@ export function ContextSwitcher({
         <small>{kind}</small> <strong>{name}</strong>
         {sidebar && <span className="ui-sr-only">, switch</span>}
       </span>
-      <ChevronsUpDown size={sidebar ? 15 : 16} aria-hidden />
+      <Icon icon={ChevronsUpDown} size={sidebar ? "md" : "lg"} aria-hidden />
     </button>
   );
   return (
@@ -168,7 +169,7 @@ export function ContextSwitcher({
           className="ui-context-popup"
           header={
             <label className="ui-palette-input ui-context-filter">
-              <Search size={15} aria-hidden />
+              <Icon icon={Search} size="md" aria-hidden />
               <input
                 autoFocus
                 role="combobox"

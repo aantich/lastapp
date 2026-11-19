@@ -2,6 +2,7 @@ import lightCss from "../../theme/light.css?raw";
 import darkCss from "../../theme/dark.css?raw";
 import scaleCss from "../../theme/scale.css?raw";
 import sidebarCss from "../../theme/sidebar.css?raw";
+import sizesCss from "../../theme/sizes.css?raw";
 
 // Foundations stories read the token declarations from the stylesheets
 // themselves (src/theme), so the catalogue cannot drift from them.
@@ -22,6 +23,7 @@ export const sidebarScope = block(sidebarCss, ".sidebar");
 // the named component sizes.
 export const layout = {
   ...block(scaleCss, ":root"),
+  ...block(sizesCss, ":root"),
 };
 
 export const isColor = (value: string) => /^(#|rgb)/.test(value);

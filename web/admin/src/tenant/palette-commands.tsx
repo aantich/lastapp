@@ -14,6 +14,7 @@ import { retryDeployment } from "../deployment";
 import { text, type Deployment, type Item } from "../api-types";
 import type { TenantScreen } from "./screen";
 import { peopleVisible, sectionLabel, tenantTabs } from "./navigation";
+import { Icon } from "../ui";
 
 // The palette's commands beyond the sidebar sections: entities, Apps and
 // Spaces this session has already loaded, actions with a real operation
@@ -73,7 +74,7 @@ export function tenantCommands(
       group: "Entities",
       keywords: text(e.entity_key),
       hint: text(e.entity_key),
-      icon: <Database size={16} />,
+      icon: <Icon icon={Database} size="lg" />,
       run: () => t.openEntity(text(e.space_id), text(e.id)),
     })),
     ...[...apps.values()].map((a) => ({
@@ -82,14 +83,14 @@ export function tenantCommands(
       group: "Apps",
       keywords: text(a.space_name),
       hint: text(a.space_name),
-      icon: <AppWindow size={16} />,
+      icon: <Icon icon={AppWindow} size="lg" />,
       run: () => t.openApp(a),
     })),
     ...cachedRows((p) => p === base + "/spaces").map((sp) => ({
       id: "space:" + text(sp.id),
       label: `Open ${text(sp.display_name)}`,
       group: "Spaces",
-      icon: <FolderOpen size={16} />,
+      icon: <Icon icon={FolderOpen} size="lg" />,
       run: () => t.openSpace(sp),
     })),
     ...failed.map(({ a, d }) => ({
@@ -97,14 +98,14 @@ export function tenantCommands(
       label: `Retry ${text(a.display_name)} deploy`,
       group: "Action",
       keywords: d.release_name,
-      icon: <RotateCcw size={16} />,
+      icon: <Icon icon={RotateCcw} size="lg" />,
       run: () => retryDeployment(d, t.setModal),
     })),
     {
       id: "action:connect-agent",
       label: "Connect a new agent",
       group: "Action",
-      icon: <Bot size={16} />,
+      icon: <Icon icon={Bot} size="lg" />,
       run: connect,
     },
     ...(menu.some((m) => m.id === "activity")
@@ -114,7 +115,7 @@ export function tenantCommands(
             id: "activity:" + a.value,
             label: `Activity · ${a.label.toLowerCase()} only`,
             group: "Activity",
-            icon: <ActivityIcon size={16} />,
+            icon: <Icon icon={ActivityIcon} size="lg" />,
             run: () =>
               navigate(
                 consoleURL.tenant(tenant, "activity") + activityQuery(a.value),

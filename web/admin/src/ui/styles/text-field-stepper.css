@@ -64,7 +64,7 @@ textarea.ui-input {
   display: grid;
   grid-template-columns: repeat(
     auto-fit,
-    minmax(min(var(--ui-step-min, calc(var(--ui-space) * 37.5)), 100%), 1fr)
+    minmax(min(var(--ui-step-min, var(--ui-measure-2xs)), 100%), 1fr)
   );
   gap: calc(var(--ui-space) * 2.5);
   margin: 0;

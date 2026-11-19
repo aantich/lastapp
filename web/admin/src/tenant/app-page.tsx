@@ -7,6 +7,7 @@ import {
   LinkButton,
   PageStack,
   Tabs,
+  Icon,
 } from "../ui";
 import { AccessControl } from "../access-control";
 import { refreshQueries } from "../query";
@@ -49,7 +50,7 @@ export function AppPage({ t }: { t: TenantScreen }) {
             {/* The shell's page header is hidden here, so its Refresh moves in. */}
             <IconButton
               label="Refresh"
-              icon={<RefreshCw size={16} aria-hidden />}
+              icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
               tooltip="bottom"
               onClick={() => void refreshQueries()}
             />
@@ -74,7 +75,9 @@ export function AppPage({ t }: { t: TenantScreen }) {
                 href={origin + "/"}
                 external
                 variant="primary"
-                trailingIcon={<ArrowUpRight size={16} aria-hidden />}
+                trailingIcon={
+                  <Icon icon={ArrowUpRight} size="lg" aria-hidden />
+                }
               >
                 Launch app
               </LinkButton>

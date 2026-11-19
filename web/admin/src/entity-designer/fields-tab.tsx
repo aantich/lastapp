@@ -1,5 +1,13 @@
 import { Plus } from "lucide-react";
-import { Badge, Button, EmptyState, GridTable, Inline, Panel } from "../ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  GridTable,
+  Inline,
+  Panel,
+  Icon,
+} from "../ui";
 import { isItem, items, num, text, type Item } from "../api-types";
 import { RowActions } from "./editor-dialog";
 import {
@@ -61,7 +69,7 @@ export function FieldsTab({ d }: { d: Designer }) {
       actions={
         <Button
           size="sm"
-          icon={<Plus size={15} aria-hidden />}
+          icon={<Icon icon={Plus} size="md" aria-hidden />}
           onClick={() =>
             setEditField({
               key: "",
@@ -79,20 +87,32 @@ export function FieldsTab({ d }: { d: Designer }) {
         <GridTable
           label="Fields"
           columns={[
-            { key: "field", header: "Field", track: "minmax(150px,1.4fr)" },
-            { key: "type", header: "Type", track: "minmax(120px,1fr)" },
-            { key: "required", header: "Required", track: "90px" },
+            {
+              key: "field",
+              header: "Field",
+              track: "minmax(var(--ui-measure-2xs),1.4fr)",
+            },
+            {
+              key: "type",
+              header: "Type",
+              track: "minmax(var(--ui-col-label),1fr)",
+            },
+            {
+              key: "required",
+              header: "Required",
+              track: "var(--ui-col-flag)",
+            },
             {
               key: "behaviour",
               header: "Behaviour",
-              track: "minmax(160px,2fr)",
+              track: "minmax(var(--ui-measure-xs),2fr)",
               muted: true,
             },
             {
               key: "actions",
               header: "Actions",
               hideHeader: true,
-              track: "76px",
+              track: "var(--ui-col-actions)",
             },
           ]}
           rows={fields.map((f) => {

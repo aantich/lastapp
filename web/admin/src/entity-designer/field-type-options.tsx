@@ -43,7 +43,7 @@ export function FieldTypeOptions({
         </FormField>
       )}
       {f.type === "decimal" && (
-        <Columns min={160} gap="md">
+        <Columns min="xs" gap="md">
           {["precision", "scale"].map((key) => (
             <FormField label={fieldLabel(key)} required key={key}>
               <NumberInput
@@ -67,7 +67,7 @@ export function FieldTypeOptions({
         <Disclosure summary="Choice display labels">
           <Stack gap="md">
             <p>Keep keys stable; change their labels here.</p>
-            <Columns min={200} gap="md">
+            <Columns min="sm" gap="md">
               {choices.map((key) => (
                 <TextField
                   key={key}
@@ -100,7 +100,7 @@ export function FieldTypeOptions({
         </FormField>
       )}
       {["integer", "decimal"].includes(text(f.type)) && (
-        <Columns min={160} gap="md">
+        <Columns min="xs" gap="md">
           {["minimum", "maximum"].map((key) => (
             <TextField
               key={key}

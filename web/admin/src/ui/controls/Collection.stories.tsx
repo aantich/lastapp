@@ -92,7 +92,7 @@ export const FilteredFeed: Story = {
               events={rows.map((r) => ({
                 id: text(r.id),
                 marker: (
-                  <Avatar name={text(r.display_name)} kind="system" size={28} />
+                  <Avatar name={text(r.display_name)} kind="system" size="sm" />
                 ),
                 title: text(r.display_name),
                 meta: <StatusBadge state={r.state} />,

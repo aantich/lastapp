@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { Badge, Button, CardHeader, Collection } from "../ui";
+import { Badge, Button, CardHeader, Collection, Icon } from "../ui";
 import { status } from "../console-forms";
 import { text, type Item } from "../api-types";
 
@@ -20,7 +20,7 @@ export function ScopeRoles({
   const createRole = canManage && (
     <Button
       size="sm"
-      icon={<Plus size={14} aria-hidden />}
+      icon={<Icon icon={Plus} size="sm" aria-hidden />}
       onClick={() => roleForm()}
     >
       Create role

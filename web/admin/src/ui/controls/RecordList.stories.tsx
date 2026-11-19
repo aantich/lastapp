@@ -45,7 +45,7 @@ export const RecentApps: Story = {
           label="Recent Apps"
           rows={apps.map(([name, space, deploy, state]) => ({
             id: name,
-            leading: <Avatar name={name} size={34} />,
+            leading: <Avatar name={name} size="lg" />,
             title: name,
             meta: space,
             detail: deploy && (
@@ -78,7 +78,7 @@ export const ConnectedAgents: Story = {
             ["Release bot", "Mateo Alvarez", "Field Service", "Not used yet"],
           ].map(([client, owner, scope, used]) => ({
             id: client,
-            leading: <Avatar name={client} kind="agent" size={34} />,
+            leading: <Avatar name={client} kind="agent" size="lg" />,
             title: client,
             meta: `for ${owner} · ${scope}`,
             trailing: <small>{used}</small>,

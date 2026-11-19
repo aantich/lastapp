@@ -8,6 +8,7 @@ import {
   Inline,
   NumberInput,
   RemoteSelect,
+  Icon,
 } from "../ui";
 import type { AgentConfig } from "../api-types";
 import type { GrantValuesProps } from "./grant-values";
@@ -68,7 +69,7 @@ export function GrantDatabaseLimits({
           <IconButton
             size="sm"
             label={`Remove target ${id}`}
-            icon={<X size={14} aria-hidden />}
+            icon={<Icon icon={X} size="sm" aria-hidden />}
             onClick={() =>
               setValues({
                 ...values,

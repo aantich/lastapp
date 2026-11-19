@@ -27,7 +27,7 @@ export function AccountMenu({
       align="start"
       trigger={
         <>
-          <Avatar name={name} size={32} className="ui-account-avatar" />
+          <Avatar name={name} size="md" className="ui-account-avatar" />
           <span className={cx("ui-account-copy", rail && "ui-sr-only")}>
             <strong>{name}</strong>
             {detail && <small>{detail}</small>}

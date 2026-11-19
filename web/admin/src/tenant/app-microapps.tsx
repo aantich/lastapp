@@ -15,7 +15,7 @@ export function MicroApps({ t }: { t: TenantScreen }) {
     <RowTable
       label={`${text(app.display_name)} micro-apps`}
       columns={
-        "40px minmax(180px, 2fr) minmax(160px, 2fr) 100px" +
+        "var(--ui-col-order) minmax(var(--ui-col-name), 2fr) minmax(var(--ui-measure-xs), 2fr) var(--ui-col-state)" +
         (manage ? " auto" : "")
       }
       empty={

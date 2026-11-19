@@ -4,6 +4,7 @@ import { cx } from "./utils";
 import { addDays, addMonths, daysBetween, isoDay, parseDay } from "./days";
 import { longDate } from "./long-date";
 import { CalendarGrid } from "./calendar-grid";
+import { Icon } from "./icon";
 
 // A date field: a button showing the chosen day that opens a calendar dialog
 // (WAI-ARIA date picker dialog: arrows move a day/week, PageUp/PageDown a
@@ -131,7 +132,7 @@ export function DatePicker({
         <span className={cx(!selected && "ui-date-placeholder")}>
           {selected ? longDate(selected) : placeholder}
         </span>
-        <CalendarDays size={15} aria-hidden />
+        <Icon icon={CalendarDays} size="md" aria-hidden />
       </button>
       {open && (
         <div
@@ -156,7 +157,7 @@ export function DatePicker({
               disabled={!prevAllowed}
               onClick={() => setFocus(clamp(prev))}
             >
-              <ChevronLeft size={16} aria-hidden />
+              <Icon icon={ChevronLeft} size="lg" aria-hidden />
             </button>
             <span className="ui-date-title" id={titleId} aria-live="polite">
               {month}
@@ -168,7 +169,7 @@ export function DatePicker({
               disabled={!nextAllowed}
               onClick={() => setFocus(clamp(next))}
             >
-              <ChevronRight size={16} aria-hidden />
+              <Icon icon={ChevronRight} size="lg" aria-hidden />
             </button>
           </div>
           <CalendarGrid

@@ -54,7 +54,7 @@ export function Expression({
     onChange({ ...value, args: args.map((a, j) => (j === i ? v : a)) });
   return (
     <FieldGroup legend={label} nested={depth > 0}>
-      <Columns min={160} gap="sm">
+      <Columns min="xs" gap="sm">
         <Select
           aria-label={label + " value type"}
           value={mode}

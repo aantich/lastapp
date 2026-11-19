@@ -13,6 +13,7 @@ import {
   Inline,
   Skeleton,
   Stack,
+  Icon,
 } from "./ui";
 import { useAction } from "./use-action";
 import { agentConfigPath, McpConnection } from "./connect-agent";
@@ -93,7 +94,7 @@ export function AgentAccess({
             }
             actions={
               <Button
-                icon={<RefreshCw size={15} aria-hidden />}
+                icon={<Icon icon={RefreshCw} size="md" aria-hidden />}
                 disabled={configQuery.isFetching || listQuery.isFetching}
                 onClick={load}
               >
@@ -121,7 +122,7 @@ export function AgentAccess({
       ) : loadFailed ? null : items.length === 0 ? (
         <Card>
           <EmptyState
-            icon={<Bot size={28} aria-hidden />}
+            icon={<Icon icon={Bot} size="6xl" aria-hidden />}
             title="No agent connections yet"
           >
             Add the MCP endpoint to your agent client to begin.

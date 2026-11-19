@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useListbox, type ListOption } from "./listbox";
 import { ListboxPopup } from "./listbox-popup";
+import { Icon } from "./icon";
 export type { ListOption } from "./listbox";
 export { ListboxPopup } from "./listbox-popup";
 
@@ -136,7 +137,7 @@ export function Select({
         >
           {selected?.label ?? placeholder}
         </span>
-        <ChevronDown size={15} aria-hidden="true" />
+        <Icon icon={ChevronDown} size="md" aria-hidden="true" />
       </button>
       {(required || name) && (
         // Carries the value for constraint validation and form data; the

@@ -9,6 +9,7 @@ import {
   Inline,
   Select,
   Stack,
+  Icon,
 } from "../ui";
 import { Expression } from "./expression";
 import { FieldChoices } from "./field-choices";
@@ -127,7 +128,7 @@ export function PermissionGates({
       <Inline>
         <Button
           size="sm"
-          icon={<Plus size={14} aria-hidden />}
+          icon={<Icon icon={Plus} size="sm" aria-hidden />}
           onClick={() =>
             edit({
               ...access,

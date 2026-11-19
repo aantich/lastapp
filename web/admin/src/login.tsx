@@ -2,7 +2,15 @@ import { useState } from "react";
 import { Layers3, ArrowUpRight } from "lucide-react";
 import { api } from "./api";
 import { useConsoleConfig } from "./console-config";
-import { Alert, AuthLayout, Button, LinkButton, Stack, TextField } from "./ui";
+import {
+  Alert,
+  AuthLayout,
+  Button,
+  LinkButton,
+  Stack,
+  TextField,
+  Icon,
+} from "./ui";
 import { errorMessage } from "./use-action";
 
 export { PasswordScreen } from "./password-screen";
@@ -15,7 +23,7 @@ export function LoginScreen({ done }: { done: () => Promise<void> }) {
   const { config } = useConsoleConfig();
   return (
     <AuthLayout
-      mark={<Layers3 size={24} />}
+      mark={<Icon icon={Layers3} size="5xl" />}
       eyebrow="Lastapp"
       title="Welcome to your workspace."
       description="Sign in to build and manage your company's Apps."
@@ -27,7 +35,7 @@ export function LoginScreen({ done }: { done: () => Promise<void> }) {
                 "/auth/login?return_origin=" +
                 encodeURIComponent(location.origin)
               }
-              trailingIcon={<ArrowUpRight size={16} aria-hidden />}
+              trailingIcon={<Icon icon={ArrowUpRight} size="lg" aria-hidden />}
               onClick={() => {
                 try {
                   sessionStorage.setItem(

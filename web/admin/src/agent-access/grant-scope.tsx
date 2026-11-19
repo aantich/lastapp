@@ -20,7 +20,7 @@ export function GrantScope({
         : "teams";
   return (
     <FlowSection label="Where may it work?">
-      <Columns min={200} gap="md">
+      <Columns min="sm" gap="md">
         {!me.platform_admin && (
           <FormField label="Tenant" required>
             <RemoteSelect

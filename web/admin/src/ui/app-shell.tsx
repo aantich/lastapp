@@ -6,6 +6,7 @@ import { useSidebarCollapse } from "./hooks";
 import { useDialogFocus } from "./use-dialog-focus";
 import { SearchField } from "./search-field";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 export { SearchField } from "./search-field";
 export { AccountMenu } from "./account-menu";
 
@@ -21,8 +22,7 @@ const narrow = () =>
 function PanelMark({ open }: { open: boolean }) {
   return (
     <svg
-      width="16"
-      height="16"
+      className="ui-icon-lg"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -87,7 +87,7 @@ export function AppShell({
     <IconButton
       className="ui-sidebar-toggle"
       label="Close navigation"
-      icon={<X size={16} aria-hidden />}
+      icon={<Icon icon={X} size="lg" aria-hidden />}
       onClick={close}
     />
   ) : (
@@ -155,7 +155,7 @@ export function AppShell({
               className="menu-toggle"
               label="Open navigation"
               aria-expanded={open}
-              icon={<MenuIcon size={20} aria-hidden />}
+              icon={<Icon icon={MenuIcon} size="3xl" aria-hidden />}
               onClick={() => setOpen(true)}
             />
           )}

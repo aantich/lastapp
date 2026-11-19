@@ -27,6 +27,7 @@ import {
   routeDetail,
   shellHeading,
 } from "./tenant/workspace-route";
+import { poll } from "./polling";
 
 // The Tenant console: resolves the Tenant and route, loads what every page
 // shares (overview, capabilities and the open Space or App) and composes the
@@ -54,9 +55,8 @@ export function TenantWorkspace({
   const [modal, setModal] = useRouteState<Modal | null>(url, null);
   const [connecting, setConnecting] = useState(false);
   const deploymentStates = useDeploymentStates();
-  // Everything this workspace shows refreshes every 5 s while no form is open.
-  // refetchInterval never overlaps requests and pauses in a hidden tab.
-  const live = tenant && !modal ? 5000 : false;
+  // Everything this workspace shows refreshes while no form is open.
+  const live = tenant && !modal ? poll.tenant : false;
   const queries = useTenantQueries(tenant, base, parsed, live);
   const { capsQuery, canSpaces, manager, activeAgents } = queries;
   const { t, error, dismiss, done } = useTenantScreen({

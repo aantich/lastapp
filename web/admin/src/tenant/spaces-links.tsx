@@ -24,19 +24,12 @@ export function SpacesLinks({
     <SidebarLinks
       label="Spaces"
       collapsed={rail}
-      title={
-        <button
-          type="button"
-          className="ui-nav-section ui-section-trigger"
-          aria-current={current ? "page" : undefined}
-          onClick={() => {
-            go("spaces");
-            close();
-          }}
-        >
-          Spaces
-        </button>
-      }
+      title="Spaces"
+      titleCurrent={current}
+      onTitle={() => {
+        go("spaces");
+        close();
+      }}
       items={items}
       active={active}
       onSelect={(id) => {

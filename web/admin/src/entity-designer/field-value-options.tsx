@@ -65,7 +65,7 @@ export function FieldValueOptions({
             allowContext={!f.calculation}
           />
         )}
-        <Columns min={160} gap="sm">
+        <Columns min="xs" gap="sm">
           {["filterable", "sortable"].map((key) => (
             <Checkbox
               key={key}
@@ -75,7 +75,7 @@ export function FieldValueOptions({
             />
           ))}
         </Columns>
-        <Columns min={220} gap="md">
+        <Columns min="md" gap="md">
           <FormField label="Uniqueness">
             <Select
               value={text(f.unique)}

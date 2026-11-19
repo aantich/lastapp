@@ -7,7 +7,7 @@ export const personColumn: [string, (r: Item) => ReactNode] = [
   "Person",
   (r) => (
     <Inline gap="sm">
-      <Avatar name={text(r.display_name)} size={28} />
+      <Avatar name={text(r.display_name)} size="sm" />
       <span>
         <strong>{text(r.display_name)}</strong> <small>{text(r.email)}</small>
       </span>

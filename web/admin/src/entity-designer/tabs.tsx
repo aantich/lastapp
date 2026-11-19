@@ -8,6 +8,7 @@ import {
   Inline,
   Panel,
   StatusBadge,
+  Icon,
 } from "../ui";
 import { items, text } from "../api-types";
 import { RowActions } from "./editor-dialog";
@@ -30,7 +31,7 @@ export function RulesTab({ d }: { d: Designer }) {
       actions={
         <Button
           size="sm"
-          icon={<Plus size={15} aria-hidden />}
+          icon={<Icon icon={Plus} size="md" aria-hidden />}
           onClick={() =>
             setEditRule({
               key: "",

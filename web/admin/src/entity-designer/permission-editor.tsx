@@ -46,7 +46,7 @@ export function PermissionEditor({
           })
         }
       />
-      <Columns min={220} gap="md">
+      <Columns min="md" gap="md">
         <FormField label="Who">
           <Select
             value={p.roles ? "roles" : optionalText(p.relationship)}

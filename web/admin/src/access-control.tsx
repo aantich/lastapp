@@ -11,6 +11,7 @@ import {
   Skeleton,
   Stack,
   type Modal,
+  Icon,
 } from "./ui";
 import { useAction } from "./use-action";
 import { useApiQuery } from "./query";
@@ -108,7 +109,7 @@ export function AccessControl({
             <Button
               size="sm"
               variant="primary"
-              icon={<Plus size={14} aria-hidden />}
+              icon={<Icon icon={Plus} size="sm" aria-hidden />}
               onClick={assign}
             >
               Add access

@@ -2,6 +2,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import { useApiQuery } from "../query";
 import type { Item } from "../api-types";
 import { definitionOf } from "./shared";
+import { poll } from "../polling";
 
 export function usePublicationPoll(
   record: Item | null,
@@ -17,7 +18,9 @@ export function usePublicationPoll(
       record?.pending_version_id ? "/v1/entities/" + record.id : null,
       {
         refetchInterval: (q) =>
-          q.state.data && !q.state.data.pending_version_id ? false : 1500,
+          q.state.data && !q.state.data.pending_version_id
+            ? false
+            : poll.pending,
       },
     ),
     [polled, setPolled] = useState(0);

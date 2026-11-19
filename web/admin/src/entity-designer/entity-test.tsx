@@ -69,7 +69,7 @@ export function EntityTest({
       >
         <Stack gap="md">
           {error && <Alert as="p">{error}</Alert>}
-          <Columns min={200} gap="md">
+          <Columns min="sm" gap="md">
             <FormField label="Test as user">
               <RemoteSelect
                 initial={[]}

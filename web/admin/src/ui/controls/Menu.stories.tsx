@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Menu } from "../menu";
 import { Avatar } from "../avatar";
+import { Icon } from "../icon";
 
 // menu.tsx: a WAI-ARIA menu button (↓/↑, Home/End, Escape returns focus to
 // the trigger). The account menu is named by its visible text plus hidden
@@ -22,29 +23,29 @@ function Account() {
         className="profile-menu"
         trigger={
           <>
-            <Avatar name="Ava Chen" size={28} />
+            <Avatar name="Ava Chen" size="sm" />
             <span>Ava Chen</span>
             <span className="ui-sr-only">, account menu</span>
-            <ChevronDown size={14} aria-hidden />
+            <Icon icon={ChevronDown} size="sm" aria-hidden />
           </>
         }
         items={[
           {
             id: "account",
             label: "My account",
-            icon: <UserRound size={16} aria-hidden />,
+            icon: <Icon icon={UserRound} size="lg" aria-hidden />,
             onSelect: () => setLast("My account"),
           },
           {
             id: "appearance",
             label: "Appearance",
-            icon: <Palette size={16} aria-hidden />,
+            icon: <Icon icon={Palette} size="lg" aria-hidden />,
             onSelect: () => setLast("Appearance"),
           },
           {
             id: "signout",
             label: "Sign out",
-            icon: <LogOut size={16} aria-hidden />,
+            icon: <Icon icon={LogOut} size="lg" aria-hidden />,
             onSelect: () => setLast("Sign out"),
           },
         ]}
@@ -60,7 +61,7 @@ function RowActions() {
       <Menu
         align="start"
         label="Deal review actions"
-        trigger={<MoreHorizontal size={18} aria-hidden />}
+        trigger={<Icon icon={MoreHorizontal} size="xl" aria-hidden />}
         items={[
           { id: "open", label: "Open App", onSelect: () => setLast("Open") },
           {

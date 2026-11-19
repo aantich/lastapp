@@ -2,6 +2,7 @@ import { Settings, Users } from "lucide-react";
 import type { MenuItem } from "../ui";
 import type { TenantScreen } from "./screen";
 import { peopleVisible, type Capabilities } from "./navigation";
+import { Icon } from "../ui";
 
 // The Tenant's entries in the account menu: its members and teams (when
 // this account may see them) and its settings.
@@ -14,7 +15,7 @@ export const tenantAccountItems = (
         {
           id: "people",
           label: "Members and teams",
-          icon: <Users size={16} aria-hidden />,
+          icon: <Icon icon={Users} size="lg" aria-hidden />,
           onSelect: () => go("people"),
         },
       ]
@@ -22,7 +23,7 @@ export const tenantAccountItems = (
   {
     id: "settings",
     label: "Tenant settings",
-    icon: <Settings size={16} aria-hidden />,
+    icon: <Icon icon={Settings} size="lg" aria-hidden />,
     onSelect: () => go("settings"),
   },
 ];

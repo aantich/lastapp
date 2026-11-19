@@ -18,12 +18,14 @@ import {
   statusTone,
   toast,
   type Modal,
+  Icon,
 } from "./ui";
 import { num, text, type Item } from "./api-types";
 import { useAction } from "./use-action";
 import { refreshQueries } from "./query";
 import { useWorkspaceProgress } from "./workspaces";
 import { createWorkspaceModal } from "./development-workspace-form";
+import { poll } from "./polling";
 
 export { DevelopmentBanner } from "./development-banner";
 
@@ -81,13 +83,13 @@ export function DevelopmentWorkspaces({
               <>
                 <IconButton
                   label="Refresh workspaces"
-                  icon={<RefreshCw size={16} aria-hidden />}
+                  icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
                   tooltip="bottom"
                   onClick={() => void refreshQueries()}
                 />
                 <Button
                   variant="primary"
-                  icon={<Plus size={16} aria-hidden />}
+                  icon={<Icon icon={Plus} size="lg" aria-hidden />}
                   onClick={() => setModal(createWorkspaceModal(space))}
                 >
                   Create workspace
@@ -97,7 +99,9 @@ export function DevelopmentWorkspaces({
           />
         }
         poll={(rows) =>
-          rows.some((r) => statusTone(r.state) === "warning") ? 2000 : false
+          rows.some((r) => statusTone(r.state) === "warning")
+            ? poll.workspaces
+            : false
         }
         columns={[
           [

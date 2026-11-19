@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Bot, Plus } from "lucide-react";
 import { Button } from "../button";
 import { EmptyState } from "../empty-state";
+import { Icon } from "../icon";
 
 const meta = { title: "Primitives/EmptyState" } satisfies Meta;
 export default meta;
@@ -13,7 +14,10 @@ export const WithAction: Story = {
       <EmptyState
         title="No Apps in Field Service yet"
         actions={
-          <Button variant="primary" icon={<Plus size={16} aria-hidden />}>
+          <Button
+            variant="primary"
+            icon={<Icon icon={Plus} size="lg" aria-hidden />}
+          >
             Create App
           </Button>
         }
@@ -29,7 +33,7 @@ export const Compact: Story = {
     <div className="panel">
       <EmptyState
         compact
-        icon={<Bot size={28} aria-hidden />}
+        icon={<Icon icon={Bot} size="6xl" aria-hidden />}
         title="No agent access"
       >
         Connect an agent from its MCP client to see it here.

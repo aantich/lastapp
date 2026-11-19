@@ -9,6 +9,7 @@ import {
   withParams,
   type RemoteOptions,
 } from "./remote-options";
+import { Icon } from "./icon";
 
 type RemoteSelectProps = {
   path: string;
@@ -142,7 +143,7 @@ function PathSelect({
           }}
           onKeyDown={list.onKeyDown}
         />
-        <ChevronDown size={15} />
+        <Icon icon={ChevronDown} size="md" />
       </span>
       {open && (
         <ListboxPopup

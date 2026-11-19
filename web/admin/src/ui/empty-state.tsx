@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { FolderOpen } from "lucide-react";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 // What a list or page shows when it has nothing yet: an icon, a short title,
 // one sentence on what to do and, optionally, the action that does it.
 export function EmptyState({
-  icon = <FolderOpen size={28} aria-hidden />,
+  icon = <Icon icon={FolderOpen} size="6xl" aria-hidden />,
   title,
   children,
   actions,

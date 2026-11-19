@@ -67,15 +67,20 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: var(--ui-avatar-size, calc(var(--ui-space) * 8));
-  height: var(--ui-avatar-size, calc(var(--ui-space) * 8));
+  width: var(--ui-avatar-size, var(--ui-avatar-md));
+  height: var(--ui-avatar-size, var(--ui-avatar-md));
   border-radius: 50%;
   background: var(--ui-info-soft);
   color: var(--ui-info);
-  font: 600 calc(var(--ui-avatar-size, calc(var(--ui-space) * 8)) * 0.38) / 1
+  font: 600 calc(var(--ui-avatar-size, var(--ui-avatar-md)) * 0.38) / 1
     var(--ui-font);
   letter-spacing: var(--ui-tracking-wide);
   user-select: none;
+}
+/* The agent and system marks are half the avatar */
+.ui-avatar > svg {
+  width: calc(var(--ui-avatar-size, var(--ui-avatar-md)) * 0.5);
+  height: calc(var(--ui-avatar-size, var(--ui-avatar-md)) * 0.5);
 }
 .ui-avatar.ui-agent {
   border-radius: 28%;

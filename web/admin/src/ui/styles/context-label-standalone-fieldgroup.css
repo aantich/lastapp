@@ -31,7 +31,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: calc(var(--ui-space) * 5);
   width: 100%;
-  max-width: var(--ui-standalone-width, calc(var(--ui-space) * 190));
+  max-width: var(--ui-standalone-width, var(--ui-page-width));
   margin: 0 auto;
   min-width: 0;
 }

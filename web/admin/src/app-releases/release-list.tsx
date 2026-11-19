@@ -107,7 +107,7 @@ export function ReleaseList({
       label="Releases"
       title="Releases"
       note="Immutable build + micro-app pins + Space snapshot"
-      columns="minmax(200px, 2fr) 150px auto"
+      columns="minmax(var(--ui-measure-sm), 2fr) var(--ui-col-time) auto"
       rows={rows}
       empty={loaded ? "No releases yet." : "Loading…"}
       footer={

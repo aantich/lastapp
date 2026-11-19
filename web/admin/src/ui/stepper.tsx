@@ -1,6 +1,8 @@
 import { useId, type CSSProperties, type ReactNode } from "react";
 import { Check, CircleDot, Circle, X } from "lucide-react";
 import { cx } from "./utils";
+import { measure, type Measure } from "./measure";
+import { Icon } from "./icon";
 
 export type StepState = "done" | "active" | "pending" | "failed";
 export type Step = {
@@ -29,15 +31,15 @@ export function Stepper({
 }: {
   steps: Step[];
   label: string;
-  // The narrowest a step gets before the row wraps (default 150 px).
-  min?: number;
+  // The narrowest a step gets before the row wraps (default "2xs").
+  min?: Measure;
 }) {
   return (
     <ol
       className="ui-stepper"
       aria-label={label}
       style={
-        min ? ({ "--ui-step-min": min + "px" } as CSSProperties) : undefined
+        min ? ({ "--ui-step-min": measure(min) } as CSSProperties) : undefined
       }
     >
       {steps.map((step) => {
@@ -50,7 +52,7 @@ export function Stepper({
             aria-current={step.state === "active" ? "step" : undefined}
           >
             <span className="ui-step-label">
-              <Mark size={14} aria-hidden strokeWidth={2.4} />
+              <Icon icon={Mark} size="sm" aria-hidden stroke="bold" />
               {step.label}
               <span className="ui-sr-only">, {spoken[step.state]}</span>
             </span>

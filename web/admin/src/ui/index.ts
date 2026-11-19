@@ -47,7 +47,9 @@ export {
   type StepState,
   type TimelineEvent,
 } from "./stepper";
-export { Avatar, type AvatarKind } from "./avatar";
+export { Avatar, type AvatarKind, type AvatarSize } from "./avatar";
+export { Icon, type IconSize, type IconStroke } from "./icon";
+export type { Measure } from "./measure";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
 export { LoadingScreen } from "./loading-screen";

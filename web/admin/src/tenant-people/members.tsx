@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import { api } from "../api";
-import { Button, CardHeader, Checkbox, Collection } from "../ui";
+import { Button, CardHeader, Checkbox, Collection, Icon } from "../ui";
 import { status } from "../console-forms";
 import { num, type Item, type TenantCapabilities } from "../api-types";
 import { personColumn } from "./person-column";
@@ -37,7 +37,7 @@ export function TenantMembers({
             manageMembers && (
               <Button
                 variant="primary"
-                icon={<Plus size={15} aria-hidden />}
+                icon={<Icon icon={Plus} size="md" aria-hidden />}
                 onClick={addPerson}
               >
                 Add person

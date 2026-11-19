@@ -27,7 +27,7 @@ export function ValueInputs({
   onChange: (v: Item) => void;
 }) {
   return (
-    <Columns min={220} gap="md">
+    <Columns min="md" gap="md">
       {fields
         .filter((f) => !f.calculation)
         .map((f) => {

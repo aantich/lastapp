@@ -1,0 +1,63 @@
+/*
+ * Named component sizes. Kit components take these names as props (Icon
+ * `size`, Avatar `size`, Columns `min`, ...) and read the tokens, so screens
+ * never pass a pixel value; table tracks name a --ui-col-* token.
+ */
+:root {
+  /* Icons (the kit Icon component, Spinner) */
+  --ui-icon-2xs: 12px;
+  --ui-icon-xs: 13px;
+  --ui-icon-sm: 14px;
+  --ui-icon-md: 15px;
+  --ui-icon-lg: 16px;
+  --ui-icon-xl: 18px;
+  --ui-icon-2xl: 19px;
+  --ui-icon-3xl: 20px;
+  --ui-icon-4xl: 22px;
+  --ui-icon-5xl: 24px;
+  --ui-icon-6xl: 28px;
+  /* Icon stroke weights other than Lucide's default 2 */
+  --ui-icon-stroke-light: 1.8;
+  --ui-icon-stroke-bold: 2.4;
+  --ui-icon-stroke-heavy: 3;
+
+  /* Avatars */
+  --ui-avatar-xs: 24px;
+  --ui-avatar-sm: 28px;
+  --ui-avatar-md: 32px;
+  --ui-avatar-lg: 34px;
+  --ui-avatar-xl: 40px;
+
+  /* Loading placeholders: a short value (a count) and a tall block */
+  --ui-skeleton-value: 24px;
+  --ui-skeleton-line: 12px;
+  --ui-skeleton-block: 60px;
+
+  /*
+   * Measures: the narrowest a card column, a weighted track or a pipeline
+   * step gets before its row wraps or stacks.
+   */
+  --ui-measure-3xs: 110px;
+  --ui-measure-2xs: 150px;
+  --ui-measure-xs: 160px;
+  --ui-measure-sm: 200px;
+  --ui-measure-md: 220px;
+  --ui-measure-lg: 280px;
+  --ui-measure-xl: 320px;
+  --ui-measure-2xl: 480px;
+  --ui-measure-3xl: 600px;
+
+  /* Table column tracks by what the column holds */
+  --ui-col-order: 40px;
+  --ui-col-actions: 76px;
+  --ui-col-flag: 90px;
+  --ui-col-state: 100px;
+  --ui-col-label: 120px;
+  --ui-col-status: 140px;
+  --ui-col-time: 150px;
+  --ui-col-name: 180px;
+
+  /* A standalone page's column (an OAuth consent, a one-off decision) */
+  --ui-page-width: 760px;
+  --ui-page-width-narrow: 730px;
+}

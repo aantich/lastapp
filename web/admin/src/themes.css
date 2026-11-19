@@ -8,5 +8,6 @@
 @import "./theme/light.css";
 @import "./theme/dark.css";
 @import "./theme/scale.css";
+@import "./theme/sizes.css";
 @import "./theme/sidebar.css";
 @import "./theme/tailwind.css";

@@ -36,7 +36,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
   const attention = homeAttention(t, reads);
 
   const count = (value: number | undefined) =>
-    loaded && value !== undefined ? value : <Skeleton width={24} />;
+    loaded && value !== undefined ? value : <Skeleton width="value" />;
   return (
     <div className="ui-home">
       <PageIntro
@@ -64,7 +64,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
             />
             <StatCard
               label="Agents active"
-              value={grantsQuery.data ? grants.length : <Skeleton width={24} />}
+              value={grantsQuery.data ? grants.length : <Skeleton width="value" />}
               onClick={() => go("agents")}
             />
           </StatGrid>

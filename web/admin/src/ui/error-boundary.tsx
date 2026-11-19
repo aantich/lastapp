@@ -3,6 +3,7 @@ import { TriangleAlert } from "lucide-react";
 import { errorMessage } from "../use-action";
 import { queryClient } from "../query";
 import { retryLazyLoads } from "../retryable-lazy";
+import { Icon } from "./icon";
 
 // Keeps a page's render failure (or a lazily loaded screen that failed to
 // download) inside the console shell, so navigation and sign-out still work.
@@ -19,7 +20,7 @@ export class ErrorBoundary extends Component<
     if (this.state.error === null) return this.props.children;
     return (
       <section className="panel empty" role="alert">
-        <TriangleAlert size={28} />
+        <Icon icon={TriangleAlert} size="6xl" />
         <h3>This page could not be shown</h3>
         <p>{errorMessage(this.state.error)}</p>
         <p>Try again, or reload the console if the problem continues.</p>

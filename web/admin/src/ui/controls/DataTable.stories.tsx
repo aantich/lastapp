@@ -5,6 +5,7 @@ import { StatusBadge } from "../status";
 import { IconButton } from "../button";
 import { spaces } from "../storybook/fixtures";
 import { text, type Item } from "../../api-types";
+import { Icon } from "../icon";
 
 // data-table.tsx: the console table; Collection adds server search/paging.
 const columns: Column<Item>[] = [
@@ -40,7 +41,7 @@ function Demo({ loading, empty }: { loading?: boolean; empty?: boolean }) {
         actions={(r) => (
           <IconButton
             label={`Edit ${text(r.display_name)}`}
-            icon={<Pencil size={15} aria-hidden />}
+            icon={<Icon icon={Pencil} size="md" aria-hidden />}
           />
         )}
       />

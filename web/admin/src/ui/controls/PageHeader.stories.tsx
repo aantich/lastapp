@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Plus, Rocket } from "lucide-react";
 import { Button } from "../button";
 import { Breadcrumbs, PageHeader } from "../page-header";
+import { Icon } from "../icon";
 
 // page-header.tsx: the page's h1 block and the Tenant → Space → App trail.
 const meta = { title: "Primitives/PageHeader" } satisfies Meta;
@@ -26,7 +27,10 @@ export const Full: Story = {
       actions={
         <>
           <Button>Settings</Button>
-          <Button variant="primary" icon={<Rocket size={16} aria-hidden />}>
+          <Button
+            variant="primary"
+            icon={<Icon icon={Rocket} size="lg" aria-hidden />}
+          >
             Deploy
           </Button>
         </>
@@ -40,7 +44,10 @@ export const Minimal: Story = {
     <PageHeader
       title="Spaces"
       actions={
-        <Button variant="primary" icon={<Plus size={16} aria-hidden />}>
+        <Button
+          variant="primary"
+          icon={<Icon icon={Plus} size="lg" aria-hidden />}
+        >
           Create Space
         </Button>
       }

@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import { Alert, Button } from "./ui";
+import { Alert, Button, Icon } from "./ui";
 import { text, type Item } from "./api-types";
 import { useApiQuery } from "./query";
 
@@ -24,7 +24,7 @@ export function DevelopmentBanner({
         info && (
           <Button
             size="sm"
-            icon={<ExternalLink size={14} aria-hidden />}
+            icon={<Icon icon={ExternalLink} size="sm" aria-hidden />}
             onClick={() => openSpace(text(info.production_space_id))}
           >
             Production Space

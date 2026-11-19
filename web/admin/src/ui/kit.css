@@ -5,6 +5,7 @@
  * .danger, .icon, .badge, .error, .overlay, .modal, .tabs, .empty, .panel);
  * everything new is prefixed `ui-`.
  */
+@import "./styles/icon.css";
 @import "./styles/basics.css";
 @import "./styles/marks.css";
 @import "./styles/card.css";

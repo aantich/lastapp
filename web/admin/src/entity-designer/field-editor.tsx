@@ -54,7 +54,7 @@ export function FieldEditor({
         save(value);
       }}
     >
-      <Columns min={220} gap="md">
+      <Columns min="md" gap="md">
         <TextField
           label="Name"
           required

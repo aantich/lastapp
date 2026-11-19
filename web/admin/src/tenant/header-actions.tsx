@@ -1,5 +1,5 @@
 import { Plus, RefreshCw, Users } from "lucide-react";
-import { Button, IconButton } from "../ui";
+import { Button, IconButton, Icon } from "../ui";
 import type { TenantScreen } from "./screen";
 import { addDatabase, createApp, createSpace } from "./forms";
 import { peopleVisible } from "./navigation";
@@ -25,7 +25,7 @@ export function TenantActions({
       {route.page !== "apps" && (
         <IconButton
           label="Refresh"
-          icon={<RefreshCw size={16} aria-hidden />}
+          icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
           tooltip="bottom"
           onClick={refresh}
         />
@@ -36,7 +36,7 @@ export function TenantActions({
       {route.page === "spaces" && all("space.manage") && (
         <Button
           variant="primary"
-          icon={<Plus size={16} aria-hidden />}
+          icon={<Icon icon={Plus} size="lg" aria-hidden />}
           onClick={() => void createSpace(t)}
         >
           Create Space
@@ -48,7 +48,7 @@ export function TenantActions({
         detailReady && (
           <Button
             variant="primary"
-            icon={<Plus size={16} aria-hidden />}
+            icon={<Icon icon={Plus} size="lg" aria-hidden />}
             onClick={() => createApp(t)}
           >
             Create App
@@ -56,7 +56,7 @@ export function TenantActions({
         )}
       {route.page === "space" && route.tab === "access" && peopleVisible(t) && (
         <Button
-          icon={<Users size={16} aria-hidden />}
+          icon={<Icon icon={Users} size="lg" aria-hidden />}
           onClick={() => go("people")}
         >
           Members and teams

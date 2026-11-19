@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { Tooltip } from "./tooltip";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 const shortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
 
@@ -27,8 +28,9 @@ export function SearchField({
       aria-label={rail ? label.replace("…", "") + ` (${shortcut})` : undefined}
       onClick={onOpen}
     >
-      <Search
-        size={variant === "sidebar" ? (rail ? 18 : 15) : 16}
+      <Icon
+        icon={Search}
+        size={variant === "sidebar" ? (rail ? "xl" : "md") : "lg"}
         aria-hidden
       />
       <span className="ui-search-label">{label}</span>

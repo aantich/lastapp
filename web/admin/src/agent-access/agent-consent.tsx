@@ -47,7 +47,7 @@ export function AgentConsent({ me }: { me: Me }) {
     });
   }
   return (
-    <StandalonePage width={730}>
+    <StandalonePage width="narrow">
       {error && <Alert>{error}</Alert>}
       {info && config ? (
         <AgentGrantForm

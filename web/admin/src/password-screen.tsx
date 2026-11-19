@@ -14,6 +14,7 @@ import {
   NewPasswordInput,
   Stack,
   TextField,
+  Icon,
 } from "./ui";
 import { errorMessage } from "./use-action";
 
@@ -119,14 +120,14 @@ export function PasswordScreen({
     <AuthLayout
       className="password-welcome"
       cardClassName="welcome-card"
-      mark={<Layers3 size={24} />}
+      mark={<Icon icon={Layers3} size="5xl" />}
       title="Set your own password"
       description="Replace your initial password before opening your workspace."
       footer={
         signOut && (
           <Button
             variant="link"
-            icon={<LogOut size={16} aria-hidden />}
+            icon={<Icon icon={LogOut} size="lg" aria-hidden />}
             onClick={signOut}
           >
             Sign out

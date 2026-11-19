@@ -52,7 +52,7 @@ export const SplitView: Story = {
 
 export const ColumnsGrid: Story = {
   render: () => (
-    <Columns min={240}>
+    <Columns min="md">
       {["Customers", "Invoices", "Shipments", "Products"].map((name) => (
         <Card key={name}>
           <CardHeader title={name} level={3} />
@@ -84,8 +84,8 @@ export const ColumnsTracks: Story = {
   render: () => (
     <Columns
       tracks={[
-        { grow: 8, min: 480 },
-        { grow: 5, min: 320 },
+        { grow: 8, min: "2xl" },
+        { grow: 5, min: "xl" },
       ]}
     >
       <Card>

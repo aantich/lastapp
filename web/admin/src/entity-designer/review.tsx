@@ -108,7 +108,7 @@ export function ReviewDialog({ d }: { d: Designer }) {
         <Stack gap="md">
           <Stepper
             label="Publication"
-            min={110}
+            min="3xs"
             steps={publishSteps(
               { dirty, validation, changes },
               {

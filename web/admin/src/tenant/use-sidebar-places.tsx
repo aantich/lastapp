@@ -1,6 +1,6 @@
 import { GitBranch } from "lucide-react";
 import { workspacesPath } from "../workspaces";
-import { statusTone } from "../ui";
+import { statusTone, Icon } from "../ui";
 import { useApiQueries } from "../query";
 import { text, type Item, type Page } from "../api-types";
 import type { TenantScreen } from "./screen";
@@ -38,7 +38,7 @@ export function useSidebarPlaces(
         tone: statusTone(text(w.state)),
         tag: (
           <>
-            <GitBranch size={12} aria-hidden />
+            <Icon icon={GitBranch} size="2xs" aria-hidden />
             workspace
           </>
         ),

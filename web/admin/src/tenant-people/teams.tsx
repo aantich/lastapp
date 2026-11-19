@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { Button, CardHeader, Collection } from "../ui";
+import { Button, CardHeader, Collection, Icon } from "../ui";
 import { status } from "../console-forms";
 import { text } from "../api-types";
 
@@ -28,7 +28,7 @@ export function TeamList({
             manageTeams && (
               <Button
                 variant="primary"
-                icon={<Plus size={15} aria-hidden />}
+                icon={<Icon icon={Plus} size="md" aria-hidden />}
                 onClick={createTeam}
               >
                 Create team
