@@ -21,7 +21,7 @@ import {
 } from "../ui";
 import { isItem, items, text, type Item } from "../api-types";
 import { strings } from "./shared";
-import { ValueInputs } from "./expression";
+import { ValueInputs } from "./value-inputs";
 
 // Runs the backend evaluator against the draft with synthetic values.
 export function EntityTest({

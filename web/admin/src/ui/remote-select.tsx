@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { text, type Item, type Page } from "../api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
 import { useApiQuery } from "../query";
-import { ListboxPopup } from "./select";
+import { ListboxPopup } from "./listbox-popup";
 import {
   useRemoteOptions,
   withParams,

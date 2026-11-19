@@ -12,7 +12,8 @@ import {
 import { ConsoleShell } from "../../console-shell";
 import type { Me } from "../../api-types";
 import { ContextSwitcher } from "../context-switcher";
-import { AccountMenu, ContextLabel } from "../app-shell";
+import { ContextLabel } from "../app-shell";
+import { AccountMenu } from "../account-menu";
 import { SidebarLinks, SidebarNav } from "../sidebar";
 import { Button } from "../button";
 import { ConsoleStory } from "../storybook/console-story";

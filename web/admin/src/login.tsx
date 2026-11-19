@@ -13,8 +13,6 @@ import {
 } from "./ui";
 import { errorMessage } from "./use-action";
 
-export { PasswordScreen } from "./password-screen";
-
 export function LoginScreen({ done }: { done: () => Promise<void> }) {
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState("");

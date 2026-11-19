@@ -15,10 +15,6 @@ import { RowActions } from "./editor-dialog";
 import { versionLabel, type Designer } from "./shared";
 import { ruleRows } from "./rule-rows";
 
-export { FieldsTab } from "./fields-tab";
-export { EntitySettings } from "./entity-settings";
-export { AccessTab, PathsSummary } from "./access-tab";
-
 // The Rules tab: defaults, calculations, validation and allowed changes.
 export function RulesTab({ d }: { d: Designer }) {
   const { draft, setEditRule } = d;

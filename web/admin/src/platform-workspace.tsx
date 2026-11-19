@@ -25,13 +25,9 @@ import { refreshQueries, useApiQuery } from "./query";
 import { useRouteState, useScreenError } from "./route-state";
 import { text, type Me, type Page, type TenantOverview } from "./api-types";
 import type { PlatformScreen } from "./platform/screen";
-import {
-  addAdmin,
-  createTenant,
-  createUser,
-  planForm,
-  serverForm,
-} from "./platform/forms";
+import { addAdmin, createTenant, createUser } from "./platform/forms";
+import { planForm } from "./platform/plan-form";
+import { serverForm } from "./platform/server-form";
 import { PlatformPages } from "./platform/workspace-pages";
 
 // The Platform console: resolves the route, loads plans and the open Tenant's

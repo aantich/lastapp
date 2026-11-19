@@ -22,8 +22,6 @@ import type { AgentConfig, AgentGrant, Me, Page } from "./api-types";
 import { AgentGrantDialog } from "./agent-access/grant-dialog";
 import { AgentConnection } from "./agent-access/agent-connection";
 
-export { AgentConsent } from "./agent-access/agent-consent";
-
 // Agent connections: a Tenant's (for a Tenant security manager, `tenant`)
 // or the person's own. With `heading` the list sits under an "Agent access"
 // card with the MCP URL (account and Tenant settings); the Agents page

@@ -5,9 +5,6 @@ import { useBuiltinRoles } from "../console-config";
 import { addToTenant } from "./forms";
 import { columnsName, columnsStatus, type PlatformScreen } from "./screen";
 
-export { PlatformSettings } from "./settings-page";
-export { PlatformTenant } from "./tenant-page";
-
 // Every Tenant on the platform.
 export function TenantsPage({ p }: { p: PlatformScreen }) {
   const { go } = p;

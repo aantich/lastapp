@@ -4,7 +4,6 @@ import { useListbox, type ListOption } from "./listbox";
 import { ListboxPopup } from "./listbox-popup";
 import { Icon } from "./icon";
 export type { ListOption } from "./listbox";
-export { ListboxPopup } from "./listbox-popup";
 
 // Text of the <span> that opens the enclosing <label>, the console's labelling
 // convention; used only to name the popup list.

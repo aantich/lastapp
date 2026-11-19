@@ -4,7 +4,7 @@ import { text, type Item } from "../api-types";
 import { useListbox, type ListOption } from "./listbox";
 import { useRemoteOptions } from "./remote-options";
 import { RemoteListStatus } from "./remote-select";
-import { ListboxPopup } from "./select";
+import { ListboxPopup } from "./listbox-popup";
 import { Tooltip } from "./tooltip";
 import { cx, initials } from "./utils";
 import { Icon } from "./icon";

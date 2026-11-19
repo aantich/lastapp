@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Card, EmptyState, ErrorBoundary, Tabs } from "../ui";
 import { text, type Item } from "../api-types";
-import { DevelopmentBanner } from "../development-workspaces";
+import { DevelopmentBanner } from "../development-banner";
 import { TenantPeople } from "../tenant-people";
 import { AccountPage } from "../account-page";
 import { ActivityLog } from "../activity-log";

@@ -7,8 +7,6 @@ import { useDialogFocus } from "./use-dialog-focus";
 import { SearchField } from "./search-field";
 import { cx } from "./utils";
 import { Icon } from "./icon";
-export { SearchField } from "./search-field";
-export { AccountMenu } from "./account-menu";
 
 // The phone layout starts at the --ui-breakpoint-narrow token; the shell's
 // @media rules repeat it because custom properties cannot be used there.

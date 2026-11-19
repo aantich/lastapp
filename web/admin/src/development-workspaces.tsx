@@ -27,8 +27,6 @@ import { useWorkspaceProgress } from "./workspaces";
 import { createWorkspaceModal } from "./development-workspace-form";
 import { poll } from "./polling";
 
-export { DevelopmentBanner } from "./development-banner";
-
 // A Space's Development tab: the signed-in author's isolated workspaces (an
 // agent's own workspaces included). Each copies the published Space
 // configuration into its own database; the list refreshes itself while one

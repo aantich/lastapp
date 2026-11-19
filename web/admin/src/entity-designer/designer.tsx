@@ -10,14 +10,10 @@ import {
   Tabs,
 } from "../ui";
 import { NewEntityDialog } from "./entity-list";
-import {
-  AccessTab,
-  EntitySettings,
-  FieldsTab,
-  HistoryTab,
-  PathsSummary,
-  RulesTab,
-} from "./tabs";
+import { HistoryTab, RulesTab } from "./tabs";
+import { AccessTab, PathsSummary } from "./access-tab";
+import { EntitySettings } from "./entity-settings";
+import { FieldsTab } from "./fields-tab";
 import { ReviewDialog } from "./review";
 import { EntityTest } from "./entity-test";
 import { ruleRows } from "./rule-rows";

@@ -9,9 +9,6 @@ import {
 } from "../console-forms";
 import type { PlatformScreen } from "./screen";
 
-export { planForm } from "./plan-form";
-export { serverForm } from "./server-form";
-
 // The Platform console's forms. Each opens a FormModal through the workspace.
 export function addAdmin(p: PlatformScreen) {
   const { tenant, setModal } = p;

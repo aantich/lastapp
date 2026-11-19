@@ -5,8 +5,6 @@ import { LiteralInput } from "./literal-input";
 // One expression shape for the SDK and the console (packages/client).
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
 // FieldChoices and ValueInputs keep this module path for their importers.
-export { FieldChoices } from "./field-choices";
-export { ValueInputs } from "./value-inputs";
 export function Expression({
   value,
   onChange,

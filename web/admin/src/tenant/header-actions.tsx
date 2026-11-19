@@ -1,7 +1,8 @@
 import { Plus, RefreshCw, Users } from "lucide-react";
 import { Button, IconButton, Icon } from "../ui";
 import type { TenantScreen } from "./screen";
-import { addDatabase, createApp, createSpace } from "./forms";
+import { createApp, createSpace } from "./forms";
+import { addDatabase } from "./database-form";
 import { peopleVisible } from "./navigation";
 
 // The current page's header actions: refresh, and the create/connect action

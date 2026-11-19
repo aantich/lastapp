@@ -6,15 +6,14 @@ import {
   DesignerBody,
   DesignerNote,
   DesignerPage,
-  GridTable,
-  NavList,
-  NavListNote,
   Panel,
   PathCard,
   RecordHeader,
   ResultTile,
   ResultTiles,
 } from "../designer-parts";
+import { GridTable } from "../grid-table";
+import { NavList, NavListNote } from "../nav-list";
 import { Stepper } from "../stepper";
 import { Badge } from "../status";
 import { Tabs } from "../tabs";

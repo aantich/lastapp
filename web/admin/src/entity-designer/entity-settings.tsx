@@ -14,7 +14,7 @@ import {
   confirmAction,
 } from "../ui";
 import { items, num, text, type Item } from "../api-types";
-import { FieldChoices } from "./expression";
+import { FieldChoices } from "./field-choices";
 import { inputValue, strings, type Designer } from "./shared";
 
 const fieldOptions = (fields: Item[], type: string) => [

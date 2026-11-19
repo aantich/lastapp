@@ -1,5 +1,5 @@
 import { AgentAccess } from "./agent-access";
-import { PasswordScreen } from "./login";
+import { PasswordScreen } from "./password-screen";
 import { Card, CardBody, CardHeader, Columns, FactList, Stack } from "./ui";
 import type { Me } from "./api-types";
 

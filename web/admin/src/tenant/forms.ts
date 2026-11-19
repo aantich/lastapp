@@ -4,8 +4,6 @@ import { nameFields } from "../console-forms";
 import { errorMessage } from "../use-action";
 import { computeField, options, type TenantScreen } from "./screen";
 
-export { addDatabase } from "./database-form";
-
 // The Tenant workspace's create forms. Each opens a FormModal through the
 // workspace; lookups that seed a form load first.
 // setModal is bound to the route it was read on, so a lookup that finishes

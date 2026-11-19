@@ -11,7 +11,8 @@ import {
   UserRound,
   GitBranch,
 } from "lucide-react";
-import { AccountMenu, AppShell } from "../app-shell";
+import { AppShell } from "../app-shell";
+import { AccountMenu } from "../account-menu";
 import { ContextSwitcher } from "../context-switcher";
 import { SidebarLinks, SidebarNav } from "../sidebar";
 import { Breadcrumbs, PageHeader } from "../page-header";

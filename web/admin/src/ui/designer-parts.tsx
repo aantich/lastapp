@@ -1,7 +1,5 @@
 import { useId, type ReactNode } from "react";
 import { cx } from "./utils";
-export { NavList, NavListNote, type NavListItem } from "./nav-list";
-export { GridTable, type GridColumn, type GridRow } from "./grid-table";
 
 // Layout parts of a record designer (the entity designer): the record's
 // header, the list of records beside it, a definition grid, titled panels,

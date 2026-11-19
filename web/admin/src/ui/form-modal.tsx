@@ -11,7 +11,6 @@ import { useAction } from "../use-action";
 import type { Item } from "../api-types";
 import type { Modal } from "./form-modal-types";
 import { Icon } from "./icon";
-export type { Field, Modal } from "./form-modal-types";
 
 function savedMessage(title: string) {
   const [verb, ...rest] = title.split(" ");

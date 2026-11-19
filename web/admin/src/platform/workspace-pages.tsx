@@ -1,12 +1,9 @@
 import { AccountPage } from "../account-page";
 import { ActivityLog } from "../activity-log";
 import type { PlatformScreen } from "./screen";
-import {
-  PlatformSettings,
-  PlatformTenant,
-  TenantsPage,
-  UsersPage,
-} from "./pages";
+import { TenantsPage, UsersPage } from "./pages";
+import { PlatformSettings } from "./settings-page";
+import { PlatformTenant } from "./tenant-page";
 
 // The page the Platform route names: the open Tenant, a top-level list,
 // the audit log, settings or the operator's own account.
