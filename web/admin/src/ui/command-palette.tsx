@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { useListbox } from "./listbox";
 import { useDialogFocus } from "./use-dialog-focus";
+import { Icon } from "./icon";
 
 export type Command = {
   id: string;
@@ -71,7 +72,7 @@ export function CommandPalette({
         tabIndex={-1}
       >
         <div className="ui-palette-input">
-          <Search size={18} aria-hidden />
+          <Icon icon={Search} size="xl" aria-hidden />
           <input
             data-autofocus
             role="combobox"

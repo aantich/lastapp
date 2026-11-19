@@ -1,0 +1,198 @@
+/* Agent connection cards */
+.ui-connection-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--ui-space) * 80, 100%), 1fr)
+  );
+  gap: calc(var(--ui-space) * 3.5);
+}
+.panel.ui-connection {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 3);
+  padding: calc(var(--ui-space) * 4.5);
+}
+.ui-connection.is-inactive {
+  opacity: 0.6;
+}
+.ui-connection-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 3);
+  min-width: 0;
+}
+.ui-connection-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: calc(var(--ui-space) * 10);
+  height: calc(var(--ui-space) * 10);
+  border-radius: var(--ui-radius-xl);
+  background: var(--ui-inverse);
+  color: var(--ui-on-inverse);
+  font: 600 var(--ui-text-md) var(--ui-font-heading);
+}
+.ui-connection-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: normal;
+}
+.ui-connection-name > strong {
+  font-size: var(--ui-text-xl);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.ui-connection-name > span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+  overflow-wrap: anywhere;
+}
+.ui-connection-head > .badge {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.ui-connection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 1.5);
+}
+.ui-connection-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-connection-actions {
+  display: flex;
+  gap: calc(var(--ui-space) * 2);
+  margin-left: auto;
+}
+
+/* Choice cards (named starting points) */
+.ui-choice-cards {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(calc(var(--ui-space) * 37.5), 1fr)
+  );
+  gap: calc(var(--ui-space) * 2.5);
+}
+.ui-choice-cards > button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 1);
+  padding: calc(var(--ui-space) * 3.5);
+  border: var(--ui-line-strong) solid var(--ui-border);
+  border-radius: var(--ui-radius-2xl);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-choice-cards > button:hover:not(:disabled) {
+  border-color: var(--ui-button-border-hover);
+}
+/* A faint tint: the border carries the selection. */
+.ui-choice-cards > button[aria-pressed="true"] {
+  border-color: var(--ui-primary);
+  background: color-mix(in srgb, var(--ui-primary) 5%, var(--ui-surface));
+}
+.ui-choice-cards > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ui-choice-cards strong {
+  font-size: var(--ui-text-md);
+  font-weight: 700;
+  line-height: normal;
+}
+.ui-choice-cards span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+  line-height: normal;
+}
+
+/* Flow card (one focused task, such as an agent consent) */
+.ui-flow-stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 4.5);
+}
+/* 680 px of content inside 24 px padding, placed 8vh from the top as a
+   dialog would be (the standalone page already pads 48 px). */
+.panel.ui-flow-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 4.5);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--ui-space) * 182.5);
+  margin-top: max(0px, calc(8vh - var(--ui-space) * 12));
+  padding: calc(var(--ui-space) * 6);
+  overflow: visible;
+}
+/* As tall as a small button, so a title line with or without one matches. */
+.ui-flow-card-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 3);
+  min-height: calc(var(--ui-space) * 8);
+}
+.ui-flow-card-head > .ui-flow-title {
+  margin: 0;
+  font: 600 var(--ui-text-3xl) var(--ui-font-heading);
+  letter-spacing: normal;
+}
+.ui-flow-card-head > :not(.ui-flow-title) {
+  margin-left: auto;
+}
+.ui-flow-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 2);
+  min-width: 0;
+}
+.ui-flow-label {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  line-height: normal;
+}
+.ui-flow-card .ui-segmented,
+.ui-flow-stack .ui-segmented {
+  align-self: flex-start;
+  gap: calc(var(--ui-space) * 1);
+  padding: calc(var(--ui-space) * 1);
+  background: var(--ui-divider);
+}
+.ui-flow-card .ui-segmented > button,
+.ui-flow-stack .ui-segmented > button {
+  padding: calc(var(--ui-space) * 1.75) calc(var(--ui-space) * 3.5);
+  line-height: normal;
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text);
+  font-weight: 400;
+}
+.ui-flow-card .ui-segmented > button[aria-pressed="true"],
+.ui-flow-stack .ui-segmented > button[aria-pressed="true"] {
+  font-weight: 600;
+}
+.ui-flow-card > p,
+.ui-flow-stack > p {
+  margin: 0;
+  line-height: normal;
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-flow-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: calc(var(--ui-space) * 2);
+}

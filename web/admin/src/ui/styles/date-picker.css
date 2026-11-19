@@ -1,0 +1,143 @@
+/* Date picker: a trigger button and a calendar dialog (no native date input) */
+.ui-date {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.ui-date-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--ui-space) * 2.5);
+  width: 100%;
+  min-height: var(--ui-control-height);
+  padding: calc(var(--ui-space) * 2) calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid var(--ui-control-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--ui-text-base);
+  text-align: left;
+  cursor: pointer;
+}
+.ui-date-trigger > svg {
+  flex: none;
+  color: var(--ui-muted);
+}
+.ui-date-trigger:focus-visible {
+  outline: var(--ui-line-thick) solid var(--ui-focus);
+  outline-offset: calc(var(--ui-space) * 0.25);
+  border-color: var(--ui-primary);
+}
+.ui-date-trigger[aria-invalid="true"] {
+  border-color: var(--ui-danger);
+}
+.ui-date-trigger:disabled {
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  cursor: not-allowed;
+}
+.ui-date-placeholder {
+  color: var(--ui-faint);
+}
+.ui-date-popup {
+  position: absolute;
+  top: calc(100% + var(--ui-space) * 1);
+  left: 0;
+  z-index: var(--ui-z-popover);
+  width: calc(var(--ui-space) * 72);
+  max-width: calc(100vw - var(--ui-space) * 8);
+  padding: calc(var(--ui-space) * 2.5);
+  background: var(--ui-surface);
+  border: var(--ui-line) solid var(--ui-border);
+  border-radius: var(--ui-radius-card);
+  box-shadow: var(--ui-shadow-pop);
+}
+.ui-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--ui-space) * 2);
+  margin-bottom: calc(var(--ui-space) * 1.5);
+}
+.ui-date-title {
+  font-family: var(--ui-font-heading);
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-text);
+}
+.ui-date-nav,
+.ui-date-grid button {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  cursor: pointer;
+}
+.ui-date-nav {
+  width: calc(var(--ui-space) * 8);
+  height: calc(var(--ui-space) * 8);
+}
+.ui-date-nav:hover:not(:disabled),
+.ui-date-grid button:hover:not([aria-disabled]) {
+  background: var(--ui-hover);
+}
+.ui-date-nav:disabled {
+  color: var(--ui-faint);
+  cursor: not-allowed;
+}
+.ui-date-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.ui-date-grid thead {
+  background: none;
+  border: 0;
+}
+.ui-date-grid th {
+  padding: calc(var(--ui-space) * 1) 0;
+  text-align: center;
+  color: var(--ui-muted);
+  font-size: var(--ui-text-2xs);
+}
+.ui-date-grid td {
+  padding: calc(var(--ui-space) * 0.25);
+  border: 0;
+  max-width: none;
+  text-align: center;
+}
+.ui-date-grid tbody tr:hover {
+  background: none;
+}
+.ui-date-grid button {
+  width: 100%;
+  height: calc(var(--ui-space) * 8.5);
+  font-size: var(--ui-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.ui-date-grid button.ui-date-outside {
+  color: var(--ui-muted);
+}
+.ui-date-grid button[aria-current="date"] {
+  box-shadow: inset 0 0 0 var(--ui-line) var(--ui-control-border);
+  font-weight: 600;
+}
+.ui-date-grid td[aria-selected="true"] button {
+  background: var(--ui-primary);
+  color: var(--ui-on-primary);
+}
+.ui-date-grid button[aria-disabled="true"] {
+  color: var(--ui-faint);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+.ui-date-grid button:focus-visible,
+.ui-date-nav:focus-visible {
+  outline: var(--ui-line-thick) solid var(--ui-focus);
+  outline-offset: calc(var(--ui-space) * 0.25);
+}

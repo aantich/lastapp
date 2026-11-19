@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
 import { api } from "../api";
 import { apiKey, queryClient, useApiQuery } from "../query";
 import { useAction } from "../use-action";
@@ -8,7 +7,6 @@ import {
   isItem,
   items,
   num,
-  text,
   type EntityCatalog,
   type Item,
 } from "../api-types";
@@ -22,14 +20,11 @@ import {
   Checkbox,
   EmptyState,
   FieldGroup,
-  FormField,
-  Inline,
-  Select,
   Stack,
   TextField,
 } from "../ui";
-import { FieldChoices, Expression } from "./expression";
-import { inputValue, isExpression, optionalText, strings } from "./shared";
+import { PermissionGates } from "./permission-gates";
+import { inputValue } from "./shared";
 // An App's data access under App → Settings: the Space-approved origin and
 // ceiling (inherit everything, or explicit permission gates), and the App's
 // own narrowing. Gates only pick from the Space's permission paths and their
@@ -96,117 +91,6 @@ export function AppDataAccess({
       ? items(entity.permissions).map((p) => ({ ...p, id: p.id, entity }))
       : [];
   });
-  function gates(key: "ceiling" | "restrictions") {
-    const keys = gateKeys[key],
-      list = items(access![key]);
-    const change = (i: number, v: Item) =>
-      edit({ ...access, [key]: list.map((x, j) => (i === j ? v : x)) });
-    return (
-      <Stack gap="md">
-        {list.map((g, i) => {
-          const p = permissions.find((p) => p.id === g.permission);
-          const fields = items(p?.entity.fields);
-          return (
-            <FieldGroup
-              key={keys.keys[i]}
-              legend={"Permission gate " + (i + 1)}
-              framed
-              actions={
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => {
-                    keys.remove(i);
-                    edit({
-                      ...access,
-                      [key]: list.filter((_, j) => j !== i),
-                    });
-                  }}
-                >
-                  Remove gate
-                </Button>
-              }
-            >
-              <FormField label="Base Space permission">
-                <Select
-                  value={optionalText(g.permission)}
-                  onChange={(permission) =>
-                    change(i, { permission, fields: [] })
-                  }
-                  options={[
-                    { value: "", label: "Choose permission" },
-                    ...permissions.map((p) => ({
-                      value: text(p.id),
-                      label: `${p.entity.label} · ${p.label} (${p.operation})`,
-                    })),
-                  ]}
-                />
-              </FormField>
-              {p && (
-                <FieldChoices
-                  legend="Fields"
-                  description="Only fields the Space permission already reaches."
-                  fields={fields.filter(
-                    (f) => Array.isArray(p.fields) && p.fields.includes(f.key),
-                  )}
-                  value={strings(g.fields)}
-                  onChange={(v) => change(i, { ...g, fields: v })}
-                  empty="This permission reaches the record, not fields."
-                />
-              )}
-              <Checkbox
-                label="Limit matching records"
-                checked={!!g.when}
-                onChange={(on) =>
-                  change(i, {
-                    ...g,
-                    when: on
-                      ? {
-                          op: "is_not_null",
-                          args: [{ field: fields[0]?.key || "" }],
-                        }
-                      : undefined,
-                  })
-                }
-              />
-              {isExpression(g.when) && p && catalog && (
-                <Expression
-                  fields={fields}
-                  catalog={catalog}
-                  value={g.when}
-                  onChange={(v) => change(i, { ...g, when: v })}
-                />
-              )}
-              <FieldChoices
-                legend="Optional App roles"
-                fields={roles.map((r) => ({
-                  key: r.id,
-                  label: r.display_name,
-                }))}
-                value={strings(g.roles)}
-                onChange={(v) => change(i, { ...g, roles: v })}
-                empty="This App has no roles yet."
-              />
-            </FieldGroup>
-          );
-        })}
-        <Inline>
-          <Button
-            size="sm"
-            icon={<Plus size={14} aria-hidden />}
-            onClick={() =>
-              edit({
-                ...access,
-                [key]: [...list, { permission: "", fields: [] }],
-              })
-            }
-          >
-            Add permission gate
-          </Button>
-        </Inline>
-      </Stack>
-    );
-  }
   return (
     <Card>
       <form
@@ -249,7 +133,17 @@ export function AppDataAccess({
                 checked={!!access.inherit}
                 onChange={(inherit) => edit({ ...access, inherit })}
               />
-              {!access.inherit && gates("ceiling")}
+              {!access.inherit && (
+                <PermissionGates
+                  access={access}
+                  edit={edit}
+                  name="ceiling"
+                  keys={gateKeys.ceiling}
+                  permissions={permissions}
+                  roles={roles}
+                  catalog={catalog}
+                />
+              )}
             </FieldGroup>
             <FieldGroup
               legend="App narrowing"
@@ -260,7 +154,17 @@ export function AppDataAccess({
                 checked={!!access.restricted}
                 onChange={(restricted) => edit({ ...access, restricted })}
               />
-              {!!access.restricted && gates("restrictions")}
+              {!!access.restricted && (
+                <PermissionGates
+                  access={access}
+                  edit={edit}
+                  name="restrictions"
+                  keys={gateKeys.restrictions}
+                  permissions={permissions}
+                  roles={roles}
+                  catalog={catalog}
+                />
+              )}
             </FieldGroup>
           </Stack>
         </CardBody>

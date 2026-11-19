@@ -1,0 +1,41 @@
+import { SidebarLinks, type SidebarLink } from "../ui";
+import type { TenantScreen } from "./screen";
+
+// The sidebar's Spaces group: its heading opens the Spaces list, a row its
+// Space. `active` is the highlighted Space; the shell's `close` runs after
+// either choice.
+export function SpacesLinks({
+  rail,
+  close,
+  items,
+  current,
+  active,
+  go,
+}: {
+  rail: boolean;
+  close: () => void;
+  items: SidebarLink[];
+  // The Spaces list is the page shown.
+  current: boolean;
+  active: string | undefined;
+  go: TenantScreen["go"];
+}) {
+  return (
+    <SidebarLinks
+      label="Spaces"
+      collapsed={rail}
+      title="Spaces"
+      titleCurrent={current}
+      onTitle={() => {
+        go("spaces");
+        close();
+      }}
+      items={items}
+      active={active}
+      onSelect={(id) => {
+        go("space", { space: id });
+        close();
+      }}
+    />
+  );
+}

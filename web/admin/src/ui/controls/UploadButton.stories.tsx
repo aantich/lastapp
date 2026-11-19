@@ -4,6 +4,7 @@ import { Upload } from "lucide-react";
 import { UploadButton } from "../upload-button";
 import { LoadingScreen } from "../loading-screen";
 import { Inline, Stack } from "../layout";
+import { Icon } from "../icon";
 
 // upload-button.tsx: a Button that opens the file chooser (a build folder
 // for Dispatch Board's next release) over a hidden native input.
@@ -20,7 +21,7 @@ function Folder() {
         <UploadButton
           directory
           variant="primary"
-          icon={<Upload size={16} aria-hidden />}
+          icon={<Icon icon={Upload} size="lg" aria-hidden />}
           onFiles={(files) =>
             setChosen(
               `${files.length} files from ${files[0].webkitRelativePath.split("/")[0]}`,

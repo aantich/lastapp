@@ -1,0 +1,29 @@
+/* `inline` resolves the runtime variable on the element using the utility. */
+@theme inline {
+  --font-sans: var(--ui-font);
+  --font-heading: var(--ui-font-heading);
+  --font-mono: var(--ui-font-mono);
+  --color-canvas: var(--ui-canvas);
+  --color-surface: var(--ui-surface);
+  --color-subtle: var(--ui-subtle);
+  --color-ink: var(--ui-text);
+  --color-muted: var(--ui-muted);
+  --color-line: var(--ui-border);
+  --color-primary: var(--ui-primary);
+  --color-primary-soft: var(--ui-primary-soft);
+  --color-on-primary: var(--ui-on-primary);
+  --color-success: var(--ui-success);
+  --color-success-soft: var(--ui-success-soft);
+  --color-danger: var(--ui-danger);
+  --color-danger-soft: var(--ui-danger-soft);
+  --color-warning: var(--ui-warning);
+  --color-warning-soft: var(--ui-warning-soft);
+  --color-info: var(--ui-info);
+  --color-info-soft: var(--ui-info-soft);
+  --color-neutral: var(--ui-neutral);
+  --color-neutral-soft: var(--ui-neutral-soft);
+  --radius-panel: var(--ui-radius-card);
+  --shadow-panel: var(--ui-shadow);
+}
+
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));

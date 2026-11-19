@@ -11,7 +11,8 @@ import {
   UserRound,
   GitBranch,
 } from "lucide-react";
-import { AccountMenu, AppShell } from "../app-shell";
+import { AppShell } from "../app-shell";
+import { AccountMenu } from "../account-menu";
 import { ContextSwitcher } from "../context-switcher";
 import { SidebarLinks, SidebarNav } from "../sidebar";
 import { Breadcrumbs, PageHeader } from "../page-header";
@@ -19,6 +20,7 @@ import { Button } from "../button";
 import { Card, CardBody, CardHeader } from "../card";
 import { policy } from "../storybook/fixtures";
 import { ConsoleStory } from "../storybook/console-story";
+import { Icon } from "../icon";
 
 // app-shell.tsx: the console frame (AppShell) as in the approved mockup: the
 // 240 px ink sidebar (brand tile and collapse toggle, the Tenant switcher
@@ -81,7 +83,7 @@ function Frame({ switcher }: { switcher: boolean }) {
           <SidebarLinks
             label="Spaces"
             collapsed={rail}
-            title={<span className="ui-nav-section">Spaces</span>}
+            title="Spaces"
             items={[
               { id: "crm", label: "CRM", tone: "success" },
               {
@@ -90,7 +92,7 @@ function Frame({ switcher }: { switcher: boolean }) {
                 tone: "success",
                 tag: (
                   <>
-                    <GitBranch size={12} aria-hidden />
+                    <Icon icon={GitBranch} size="2xs" aria-hidden />
                     workspace
                   </>
                 ),
@@ -107,13 +109,13 @@ function Frame({ switcher }: { switcher: boolean }) {
               {
                 id: "account",
                 label: "My account",
-                icon: <UserRound size={16} aria-hidden />,
+                icon: <Icon icon={UserRound} size="lg" aria-hidden />,
                 onSelect: () => {},
               },
               {
                 id: "signout",
                 label: "Sign out",
-                icon: <LogOut size={16} aria-hidden />,
+                icon: <Icon icon={LogOut} size="lg" aria-hidden />,
                 onSelect: () => {},
               },
             ]}

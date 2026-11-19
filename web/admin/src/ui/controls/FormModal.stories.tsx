@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { FormModal, type Modal } from "../form-modal";
+import { FormModal } from "../form-modal";
+import { type Modal } from "../form-modal-types";
 import { people, policy } from "../storybook/fixtures";
 import { mockApi } from "../storybook/mock-api";
 import { ConsoleStory } from "../storybook/console-story";

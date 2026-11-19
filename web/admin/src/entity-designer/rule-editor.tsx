@@ -20,7 +20,7 @@ export function RuleEditor({
   const [r, set] = useState({ ...value });
   return (
     <EditorForm submitLabel="Save rule" submit={() => save(r)}>
-      <Columns min={220} gap="md">
+      <Columns min="md" gap="md">
         <TextField
           label="Name"
           required
@@ -82,7 +82,7 @@ export function RuleEditor({
           allowContext={false}
         />
       )}
-      <Columns min={220} gap="md">
+      <Columns min="md" gap="md">
         <TextField
           label="Message shown to the user"
           required

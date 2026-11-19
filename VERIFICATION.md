@@ -1,5 +1,26 @@
 # Lastapp verification
 
+## Console UI code rules: tokens only, kit only, 200-line files — 19 November 2026
+
+- `npm run lint` (ESLint plus `scripts/check-css.mjs`) and `npm run
+  typecheck` clean on `web/admin`; `go test ./...` passes (database tests
+  skipped as usual). A probe screen with `w-[13px]`, a hex color, a raw
+  `<button>`/`<input>`, a `style` prop, `<Plus size={16} />` and a `"12px"`
+  string drew one error each; a probe stylesheet with a named color, a hex
+  border, an `rgb()` shadow, a `0.2s` transition and `z-index: 5` drew six.
+- Built stylesheet compared with `main`'s (`vite build --minify false`, the
+  new scale tokens substituted, `4px * n` products evaluated): 957 rules on
+  both sides; the only differences are equivalent spellings (flex
+  shorthands such as `1 1 420px` / `420px`, nested `calc()`, animation
+  shorthand order, `var(--ui-shadow-modal)` for the same shadow).
+- Every `.ts`/`.tsx` (stories excepted) and `.css` file under `src` is at
+  most 200 lines without blanks and comments; the largest before were
+  `agent-access.tsx` 807, `tenant-workspace.tsx` 770 and `ui/kit.css` 3926
+  (raw). Splits are moves; hook order, query keys, markup and class names
+  are unchanged.
+- Local Storybook build succeeds (`npm run build-storybook`). Browser e2e
+  was not run locally; it ran in CI on the pushed branch.
+
 ## Tests on a disposable test database only — 19 November 2026
 
 Earlier entries that mention `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` on

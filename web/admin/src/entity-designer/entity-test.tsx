@@ -21,7 +21,7 @@ import {
 } from "../ui";
 import { isItem, items, text, type Item } from "../api-types";
 import { strings } from "./shared";
-import { ValueInputs } from "./expression";
+import { ValueInputs } from "./value-inputs";
 
 // Runs the backend evaluator against the draft with synthetic values.
 export function EntityTest({
@@ -69,7 +69,7 @@ export function EntityTest({
       >
         <Stack gap="md">
           {error && <Alert as="p">{error}</Alert>}
-          <Columns min={200} gap="md">
+          <Columns min="sm" gap="md">
             <FormField label="Test as user">
               <RemoteSelect
                 initial={[]}

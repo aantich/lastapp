@@ -11,6 +11,7 @@ import {
   type Release,
 } from "./api-types";
 import type { Modal, Step } from "./ui";
+import { poll } from "./polling";
 
 // A production deployment's progress, derived from the states the server
 // publishes (GET /v1/config → development_policy.deployment_states, in worker
@@ -46,10 +47,13 @@ export function useAppDeployment(app: string, enabled: boolean) {
               count: failures.current.count + 1,
             };
           if ([401, 403, 404].includes((error as Failure).status)) return false;
-          return Math.min(1500 * 2 ** failures.current.count, 10000);
+          return Math.min(
+            poll.pending * 2 ** failures.current.count,
+            poll.maxBackoff,
+          );
         }
         failures.current = { at: 0, count: 0 };
-        return states.running(data?.deployment?.state) ? 1500 : false;
+        return states.running(data?.deployment?.state) ? poll.pending : false;
       },
     },
   );

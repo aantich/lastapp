@@ -1,0 +1,66 @@
+/* Signal colors and elevation in dark mode (overrides light.css). */
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --ui-canvas: #141518;
+  --ui-surface: #1b1c20;
+  --ui-subtle: #202126;
+  --ui-hover: #25272c;
+  --ui-text: #ededef;
+  --ui-muted: #a3a6ae;
+  --ui-faint: #8e929b;
+  --ui-border: #2f3137;
+  --ui-divider: #26282d;
+  --ui-overlay: rgb(0 0 0 / 60%);
+
+  --ui-action: #ededef;
+  --ui-action-hover: #ffffff;
+  --ui-on-action: #111113;
+  --ui-button-border: #3a3d44;
+  --ui-button-border-hover: #55585f;
+
+  --ui-sidebar: #0e0f12;
+  --ui-sidebar-hover: #1b1d23;
+  --ui-sidebar-active: #23262e;
+  --ui-sidebar-border: #1f2126;
+
+  --ui-primary: #7b9bff;
+  --ui-primary-hover: #9db4ff;
+  --ui-on-primary: #0b1433;
+  --ui-primary-soft: #1f2a4d;
+  --ui-focus: #9db4ff;
+  --ui-selected: #2c2e34;
+  --ui-highlight: #1a2033;
+  --ui-callout: #181d2b;
+  --ui-callout-border: #34416b;
+
+  --ui-success: #6fcf9c;
+  --ui-success-soft: #13291d;
+  --ui-warning: #f5cb78;
+  --ui-warning-soft: #33270f;
+  --ui-danger: #f07b70;
+  --ui-danger-soft: #3b1b18;
+  --ui-danger-border: #6b2a24;
+  --ui-info: #7b9bff;
+  --ui-info-soft: #1f2a4d;
+  --ui-neutral: #c9cbd1;
+  --ui-neutral-soft: #2a2c31;
+
+  --ui-control-border: #74787f;
+  --ui-control-checked: #7b9bff;
+  --ui-on-control-checked: #0b1433;
+  --ui-skeleton: #2a2c31;
+
+  --ui-inverse: #ededef;
+  --ui-on-inverse: #111113;
+  --ui-inverse-muted: #4a4d55;
+
+  --ui-chart-primary: #7b9bff;
+  --ui-chart-success: #52b985;
+  --ui-chart-warning: #e2b04f;
+  --ui-chart-danger: #d9483b;
+
+  --ui-shadow: none;
+  --ui-button-shadow: none;
+  --ui-shadow-pop: 0 12px 32px rgb(0 0 0 / 45%);
+  --ui-shadow-dialog: 0 24px 60px rgb(0 0 0 / 55%);
+}

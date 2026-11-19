@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 export type AccessMatrixRow = {
   id: string;
@@ -95,7 +96,9 @@ export function AccessMatrix({
                         )}
                         aria-hidden
                       >
-                        {v.on && <Check size={12} strokeWidth={3} />}
+                        {v.on && (
+                          <Icon icon={Check} size="2xs" stroke="heavy" />
+                        )}
                       </span>
                     );
                     return (

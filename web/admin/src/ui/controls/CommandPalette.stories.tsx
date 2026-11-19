@@ -5,10 +5,11 @@ import { Button } from "../button";
 import { CommandPalette, type Command } from "../command-palette";
 import { useCommandPaletteShortcut } from "../hooks";
 import { Kbd } from "../feedback";
+import { Icon } from "../icon";
 
 // command-palette.tsx: ⌘K / Ctrl+K, filter combobox over a listbox whose
 // rows end with their kind.
-const icon = (I: typeof Boxes) => <I size={15} />;
+const icon = (I: typeof Boxes) => <Icon icon={I} size="md" />;
 
 function Demo({ initiallyOpen = true }: { initiallyOpen?: boolean }) {
   const [open, setOpen] = useState(initiallyOpen),

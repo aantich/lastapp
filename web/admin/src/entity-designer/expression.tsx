@@ -1,26 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
 import { text, type EntityCatalog, type Item } from "../api-types";
 import { useListKeys } from "../list-keys";
-import { choiceLabel, inputValue, strings } from "./shared";
+import { Button, Columns, FieldGroup, Inline, Select, Stack } from "../ui";
+import { LiteralInput } from "./literal-input";
 // One expression shape for the SDK and the console (packages/client).
 import type { Expression as Expr } from "../../../../packages/client/src/index.ts";
-const own = (value: Item, key: string) =>
-  Object.hasOwn(value, key) ? value[key] : undefined;
-import {
-  Button,
-  Checkbox,
-  Columns,
-  DatePicker,
-  FieldGroup,
-  FormField,
-  Inline,
-  NumberInput,
-  Select,
-  Stack,
-  TextField,
-  Textarea,
-} from "../ui";
-const booleanOptions = ["true", "false"].map((v) => ({ value: v, label: v }));
+// FieldChoices and ValueInputs keep this module path for their importers.
 export function Expression({
   value,
   onChange,
@@ -68,7 +52,7 @@ export function Expression({
     onChange({ ...value, args: args.map((a, j) => (j === i ? v : a)) });
   return (
     <FieldGroup legend={label} nested={depth > 0}>
-      <Columns min={160} gap="sm">
+      <Columns min="xs" gap="sm">
         <Select
           aria-label={label + " value type"}
           value={mode}
@@ -146,80 +130,12 @@ export function Expression({
             options={options.map((o) => ({ value: o.key, label: o.key }))}
           />
         ) : (
-          <>
-            <Select
-              aria-label={label + " literal type"}
-              value={
-                mode === "decimal"
-                  ? "decimal"
-                  : value.literal === null
-                    ? "null"
-                    : typeof value.literal
-              }
-              onChange={(type) =>
-                onChange(
-                  type === "decimal"
-                    ? { decimal: "0" }
-                    : {
-                        literal:
-                          type === "number"
-                            ? 0
-                            : type === "boolean"
-                              ? true
-                              : type === "object"
-                                ? {}
-                                : type === "null"
-                                  ? null
-                                  : "",
-                      },
-                )
-              }
-              options={[
-                { value: "string", label: "Text" },
-                { value: "number", label: "Integer" },
-                { value: "decimal", label: "Decimal" },
-                { value: "boolean", label: "Boolean" },
-                { value: "null", label: "Null" },
-                { value: "object", label: "JSON object or list" },
-              ]}
-            />
-            {value.literal !== null &&
-              (typeof value.literal === "boolean" ? (
-                <Select
-                  aria-label={label + " value"}
-                  value={String(value.literal)}
-                  onChange={(v) => onChange({ literal: v === "true" })}
-                  options={booleanOptions}
-                />
-              ) : typeof value.literal === "object" ? (
-                <JSONInput
-                  value={value.literal}
-                  label={label + " value"}
-                  hideLabel
-                  onChange={(v) => onChange({ literal: v })}
-                />
-              ) : typeof value.literal === "number" ? (
-                <NumberInput
-                  aria-label={label + " value"}
-                  value={value.literal}
-                  onChange={(n) => onChange({ literal: Number(n) })}
-                />
-              ) : (
-                <TextField
-                  hideLabel
-                  label={label + " value"}
-                  value={String(value.decimal ?? value.literal ?? "")}
-                  inputMode={mode === "decimal" ? "decimal" : undefined}
-                  onChange={(e) =>
-                    onChange(
-                      mode === "decimal"
-                        ? { decimal: e.target.value }
-                        : { literal: e.target.value },
-                    )
-                  }
-                />
-              ))}
-          </>
+          <LiteralInput
+            value={value}
+            onChange={onChange}
+            mode={mode}
+            label={label}
+          />
         )}
       </Columns>
       {mode === "op" && depth < catalog.limits.Depth && (
@@ -269,198 +185,5 @@ export function Expression({
         </Stack>
       )}
     </FieldGroup>
-  );
-}
-// A choice of fields (or of other named items: roles, permissions) as a
-// group of checkboxes under one legend.
-export function FieldChoices({
-  legend,
-  description,
-  fields,
-  value,
-  onChange,
-  empty,
-}: {
-  legend: string;
-  description?: ReactNode;
-  fields: Item[];
-  value: string[];
-  onChange: (v: string[]) => void;
-  empty?: ReactNode;
-}) {
-  return (
-    <FieldGroup legend={legend} description={description}>
-      {fields.length ? (
-        <Columns min={160} gap="sm">
-          {fields.map((f) => {
-            const key = text(f.key);
-            return (
-              <Checkbox
-                key={key}
-                label={text(f.label)}
-                checked={value.includes(key)}
-                onChange={(checked) =>
-                  onChange(
-                    checked ? [...value, key] : value.filter((x) => x !== key),
-                  )
-                }
-              />
-            );
-          })}
-        </Columns>
-      ) : (
-        <p>{empty || "Nothing to choose yet."}</p>
-      )}
-    </FieldGroup>
-  );
-}
-// Synthetic values for the test scenario, one input per stored field.
-export function ValueInputs({
-  fields,
-  value,
-  onChange,
-}: {
-  fields: Item[];
-  value: Item;
-  onChange: (v: Item) => void;
-}) {
-  return (
-    <Columns min={220} gap="md">
-      {fields
-        .filter((f) => !f.calculation)
-        .map((f) => {
-          const key = text(f.key),
-            label = text(f.label),
-            current = own(value, key),
-            omit = f.default ? "Omit to use default" : "Omit";
-          const set = (v: unknown) => onChange({ ...value, [key]: v });
-          return f.type === "boolean" ? (
-            <FormField label={label} key={key}>
-              <Select
-                value={current === undefined ? "" : String(current)}
-                onChange={(v) => set(v === "" ? undefined : v === "true")}
-                options={[{ value: "", label: "Omit" }, ...booleanOptions]}
-              />
-            </FormField>
-          ) : f.type === "choice" ? (
-            <FormField label={label} key={key}>
-              <Select
-                value={text(current)}
-                onChange={(v) => set(v || undefined)}
-                options={[
-                  { value: "", label: "Omit" },
-                  ...strings(f.values).map((v) => ({
-                    value: v,
-                    label: choiceLabel(f, v),
-                  })),
-                ]}
-              />
-            </FormField>
-          ) : f.type === "json" ? (
-            <JSONInput
-              key={key}
-              value={current}
-              label={label}
-              allowEmpty
-              onChange={set}
-            />
-          ) : f.type === "integer" ? (
-            <FormField label={label} key={key}>
-              <NumberInput
-                placeholder={omit}
-                value={inputValue(current)}
-                onChange={(n) => set(n === "" ? undefined : n)}
-              />
-            </FormField>
-          ) : f.type === "date" ? (
-            <Stack gap="sm" key={key}>
-              <FormField label={label}>
-                <DatePicker
-                  placeholder={omit}
-                  value={text(current)}
-                  onChange={(v) => set(v || undefined)}
-                />
-              </FormField>
-              {current !== undefined && (
-                <Inline>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={() => set(undefined)}
-                  >
-                    Omit {label}
-                  </Button>
-                </Inline>
-              )}
-            </Stack>
-          ) : (
-            <TextField
-              key={key}
-              label={label}
-              placeholder={omit}
-              value={inputValue(current) ?? ""}
-              onChange={(e) =>
-                set(e.target.value === "" ? undefined : e.target.value)
-              }
-            />
-          );
-        })}
-    </Columns>
-  );
-}
-
-function JSONInput({
-  value,
-  onChange,
-  label,
-  hideLabel,
-  allowEmpty = false,
-}: {
-  value: unknown;
-  onChange: (v: unknown) => void;
-  label: string;
-  hideLabel?: boolean;
-  allowEmpty?: boolean;
-}) {
-  const serialize = (v: unknown) =>
-    v === undefined ? "" : JSON.stringify(v, null, 2);
-  const [text, setText] = useState(() => serialize(value));
-  const last = useRef<string | undefined>(JSON.stringify(value));
-  useEffect(() => {
-    const next = JSON.stringify(value);
-    if (next !== last.current) {
-      last.current = next;
-      setText(serialize(value));
-    }
-  }, [value]);
-  return (
-    <Textarea
-      label={label}
-      hideLabel={hideLabel}
-      rows={5}
-      value={text}
-      placeholder={allowEmpty ? "Omit, or enter a JSON object or list" : ""}
-      onChange={(e) => {
-        const raw = e.target.value;
-        setText(raw);
-        if (!raw.trim() && allowEmpty) {
-          last.current = undefined;
-          e.currentTarget.setCustomValidity("");
-          onChange(undefined);
-          return;
-        }
-        try {
-          const parsed: unknown = JSON.parse(raw);
-          if (parsed === null || typeof parsed !== "object") throw new Error();
-          last.current = JSON.stringify(parsed);
-          e.currentTarget.setCustomValidity("");
-          onChange(parsed);
-        } catch {
-          e.currentTarget.setCustomValidity(
-            "Enter a valid JSON object or list.",
-          );
-        }
-      }}
-    />
   );
 }

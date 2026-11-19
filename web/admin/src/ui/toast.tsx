@@ -6,11 +6,14 @@ import {
   currentToasts,
   type Toast,
 } from "./toast-store";
+import { Icon } from "./icon";
 
 const icons = { info: Info, success: CircleCheck, danger: CircleAlert };
+// How long a toast stays unless it is held (ms).
+const toastDuration = 5000;
 
 function ToastItem({ item }: { item: Toast }) {
-  const { tone = "info", duration = 5000 } = item;
+  const { tone = "info", duration = toastDuration } = item;
   const [paused, setPaused] = useState(false);
   const hold = tone === "danger" || duration === 0;
   useEffect(() => {
@@ -18,7 +21,7 @@ function ToastItem({ item }: { item: Toast }) {
     const timer = setTimeout(() => dismissToast(item.id), duration);
     return () => clearTimeout(timer);
   }, [item.id, hold, paused, duration]);
-  const Icon = icons[tone];
+  const Glyph = icons[tone];
   return (
     <div
       className="ui-toast"
@@ -28,7 +31,7 @@ function ToastItem({ item }: { item: Toast }) {
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
     >
-      <Icon size={16} aria-hidden />
+      <Icon icon={Glyph} size="lg" aria-hidden />
       <div>
         {item.message}
         {item.action && (
@@ -50,7 +53,7 @@ function ToastItem({ item }: { item: Toast }) {
         aria-label="Dismiss notification"
         onClick={() => dismissToast(item.id)}
       >
-        <X size={15} aria-hidden />
+        <Icon icon={X} size="md" aria-hidden />
       </button>
     </div>
   );

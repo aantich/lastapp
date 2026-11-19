@@ -1,41 +1,22 @@
-import type { ReactNode } from "react";
 import {
   ActivityList,
   AllClear,
   AppCard,
-  AttentionCard,
   AttentionGrid,
   Button,
   PageIntro,
-  Progress,
   Section,
   Skeleton,
   StatCard,
   StatGrid,
-  StatusBadge,
 } from "../ui";
-import {
-  isItem,
-  text,
-  type AgentGrant,
-  type Deployment,
-  type EntityItem,
-  type Page,
-  type WorkspaceItem,
-} from "../api-types";
-import { useApiQueries, useApiQuery } from "../query";
-import {
-  deploymentStepLabel,
-  retryDeployment,
-  useDeploymentStates,
-} from "../deployment";
-import { useWorkspaceProgress, workspacesPath } from "../workspaces";
-import { agentGrantsPath, ago } from "../actors";
+import { text } from "../api-types";
 import { describeEvents } from "../activity";
-import { createSpace } from "./forms";
 import type { TenantScreen } from "./screen";
-
-const day = 24 * 60 * 60 * 1000;
+import { useHomeReads } from "./home-reads";
+import { homeAttention } from "./home-attention";
+import { appDeployment } from "./home-app-deployment";
+import { greeting, today } from "./home-greeting";
 
 // The Tenant's Home: a greeting with the Tenant's counts, what needs a person
 // now, the newest Apps and the latest activity. Every number and row comes
@@ -47,254 +28,15 @@ const day = 24 * 60 * 60 * 1000;
 // may manage workspaces or entities there), agent grants and the audit
 // trail. Nothing is estimated in the browser.
 export function HomePage({ t }: { t: TenantScreen }) {
-  const {
-    all,
-    base,
-    can,
-    go,
-    me,
-    overview,
-    profile,
-    scoped,
-    setModal,
-    spaces,
-    tenant,
-  } = t;
-  const loaded = !!overview.tenant;
-  const states = useDeploymentStates();
-  const recent = overview.recent_apps || [];
-  const deployable = recent.filter((a) =>
-    scoped("release.manage", text(a.space_id), text(a.id)),
-  );
-  const deployments = useApiQueries<{ deployment: Deployment | null }>(
-    deployable.map((a) => "/v1/apps/" + text(a.id) + "/deployment"),
-  );
-  const deploymentOf = new Map(
-    deployable.map((a, i) => [text(a.id), deployments[i]?.data?.deployment]),
-  );
-  // A Tenant security manager sees every agent grant in the Tenant; anyone
-  // else sees their own grants, narrowed here to this Tenant.
-  const manager = all("authorization.manage");
-  const grantsQuery = useApiQuery<Page<AgentGrant>>(
-    agentGrantsPath(tenant, manager),
-  );
-  // Measured against the time the grants were read, so a render is pure.
-  const now = grantsQuery.dataUpdatedAt;
-  const grants = (grantsQuery.data?.items || []).filter(
-    (g) =>
-      g.tenant_id === tenant &&
-      g.state === "active" &&
-      new Date(g.expires_at).getTime() > now,
-  );
-  const activity = useApiQuery<Page>(
-    can("audit.read") ? base + "/audit-events?limit=4" : null,
-  );
+  const { can, go, me, overview, profile } = t;
+  const reads = useHomeReads(t);
+  const { loaded, states, recent, deployable, deploymentOf } = reads;
+  const { grantsQuery, grants, activity } = reads;
   const tenantName = text(profile.display_name);
-  // The same reads as the sidebar's workspaces and the entity designer's
-  // list, so Home adds no request they have already made.
-  const progress = useWorkspaceProgress();
-  const workspaceSpaces = spaces.filter((sp) =>
-    scoped("workspace.manage", text(sp.id), ""),
-  );
-  const workspaceReads = useApiQueries<Page<WorkspaceItem>>(
-    workspaceSpaces.map((sp) => workspacesPath(text(sp.id))),
-  );
-  const entitySpaces = spaces.filter((sp) =>
-    scoped("entity.manage", text(sp.id), ""),
-  );
-  const entityReads = useApiQueries<{ items: EntityItem[] }>(
-    entitySpaces.map((sp) => `/v1/spaces/${text(sp.id)}/entities`),
-  );
-
-  const retry = (d: Deployment) => retryDeployment(d, setModal);
-
-  const attention: ReactNode[] = [];
-  if (loaded && overview.spaces === 0 && all("space.manage"))
-    attention.push(
-      <AttentionCard
-        key="first-space"
-        state="new"
-        tone="info"
-        stateLabel="Start here"
-        title="Create your first Space"
-        actions={
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => void createSpace(t)}
-          >
-            Create Space
-          </Button>
-        }
-      >
-        A Space gives your Apps a shared database, entities and permissions.
-      </AttentionCard>,
-    );
-  for (const app of deployable) {
-    const d = deploymentOf.get(text(app.id));
-    if (!isItem(d)) continue;
-    const name = text(app.display_name),
-      release = d.release_name || "A release";
-    if (d.state === states.failed)
-      attention.push(
-        <AttentionCard
-          key={"deploy" + d.id}
-          state={d.state}
-          stateLabel="Deploy failed"
-          meta={name}
-          title={`${release} failed to deploy`}
-          actions={
-            <>
-              <Button size="sm" variant="primary" onClick={() => retry(d)}>
-                Retry deploy
-              </Button>
-              <Button
-                size="sm"
-                onClick={() =>
-                  go("app", { app: text(app.id), tab: "releases" })
-                }
-              >
-                View timeline
-              </Button>
-            </>
-          }
-        >
-          {d.error_message || "The deployment did not finish."}
-        </AttentionCard>,
-      );
-    else if (states.running(d.state)) {
-      const at = states.steps.indexOf(d.state);
-      attention.push(
-        <AttentionCard
-          key={"deploy" + d.id}
-          state={d.state}
-          stateLabel="Deploying"
-          tone="warning"
-          meta={d.deployed_by ? `by ${d.deployed_by}` : name}
-          title={`Deploying ${release} to ${name}`}
-          extra={
-            <Progress
-              value={at + 1}
-              max={states.steps.length}
-              label={`Step ${at + 1} of ${states.steps.length} · ${deploymentStepLabel(d.state)}`}
-            />
-          }
-          actions={
-            <Button
-              size="sm"
-              onClick={() => go("app", { app: text(app.id), tab: "releases" })}
-            >
-              View timeline
-            </Button>
-          }
-        >
-          Production keeps serving its current release until this one is active.
-        </AttentionCard>,
-      );
-    }
-  }
-  workspaceSpaces.forEach((sp, i) => {
-    for (const w of workspaceReads[i]?.data?.items || []) {
-      const step = w.state === "preparing" && progress(w.preparation_step);
-      if (!step) continue;
-      attention.push(
-        <AttentionCard
-          key={"workspace" + w.id}
-          state={w.state}
-          stateLabel="Preparing"
-          tone="warning"
-          meta={
-            w.agent_client_name ? `by ${w.agent_client_name} · agent` : "by you"
-          }
-          title={`Workspace ${w.display_name}`}
-          extra={<Progress {...step} />}
-        >
-          {`Copying ${text(sp.display_name)}'s published configuration into a fresh database.`}
-        </AttentionCard>,
-      );
-    }
-  });
-  entitySpaces.forEach((sp, i) => {
-    for (const e of entityReads[i]?.data?.items || []) {
-      if (
-        !e.has_draft_changes ||
-        e.pending_version_id ||
-        e.state === "archived"
-      )
-        continue;
-      attention.push(
-        <AttentionCard
-          key={"entity" + e.id}
-          state="draft"
-          stateLabel="Review"
-          tone="info"
-          meta={text(sp.display_name)}
-          title={`${e.label} · Unpublished changes`}
-          actions={
-            <Button size="sm" onClick={() => t.openEntity(text(sp.id), e.id)}>
-              Open
-            </Button>
-          }
-        >
-          {e.active_version_id
-            ? "Its draft differs from the published version. Apps keep using the published version until you publish."
-            : "Not published yet. Apps can use it once you publish."}
-        </AttentionCard>,
-      );
-    }
-  });
-  for (const db of overview.attention || []) {
-    const failed = db.state === "failed";
-    attention.push(
-      <AttentionCard
-        key={"db" + text(db.id)}
-        state={text(db.state)}
-        stateLabel={failed ? "Failed" : "Preparing"}
-        meta="Database"
-        title={
-          failed
-            ? `Database ${text(db.database_name)} failed`
-            : `Database ${text(db.database_name)} is being prepared`
-        }
-        actions={
-          <Button
-            size="sm"
-            onClick={() => go("settings", { tab: "databases" })}
-          >
-            Open databases
-          </Button>
-        }
-      >
-        {failed
-          ? text(db.last_error_message) || "Provisioning failed."
-          : "Spaces that use it can open once it is ready."}
-      </AttentionCard>,
-    );
-  }
-  for (const g of grants) {
-    const left = new Date(g.expires_at).getTime() - now;
-    if (left > 7 * day) continue;
-    attention.push(
-      <AttentionCard
-        key={"grant" + g.id}
-        state="expiring"
-        tone="warning"
-        stateLabel="Expiring"
-        meta={`Agent · ${g.owner_name}`}
-        title={`${g.client_name} access ends ${ago(g.expires_at)}`}
-        actions={
-          <Button size="sm" onClick={() => go("agents")}>
-            Review agent access
-          </Button>
-        }
-      >
-        {`Scoped to ${g.scope_name}. Approve a new connection to keep it working.`}
-      </AttentionCard>,
-    );
-  }
+  const attention = homeAttention(t, reads);
 
   const count = (value: number | undefined) =>
-    loaded && value !== undefined ? value : <Skeleton width={24} />;
+    loaded && value !== undefined ? value : <Skeleton width="value" />;
   return (
     <div className="ui-home">
       <PageIntro
@@ -322,7 +64,7 @@ export function HomePage({ t }: { t: TenantScreen }) {
             />
             <StatCard
               label="Agents active"
-              value={grantsQuery.data ? grants.length : <Skeleton width={24} />}
+              value={grantsQuery.data ? grants.length : <Skeleton width="value" />}
               onClick={() => go("agents")}
             />
           </StatGrid>
@@ -405,75 +147,4 @@ export function HomePage({ t }: { t: TenantScreen }) {
       </div>
     </div>
   );
-}
-
-// An App card's status pill, production address and release line, from its
-// latest deployment (read only where this account may manage releases).
-function appDeployment(
-  appState: string,
-  d: Deployment | null | undefined,
-  readable: boolean,
-  states: ReturnType<typeof useDeploymentStates>,
-) {
-  if (!readable || d === undefined)
-    return { status: <StatusBadge state={appState} /> };
-  if (!d)
-    return {
-      status: <StatusBadge state="draft" tone="neutral" label="Not deployed" />,
-      footer: "No production release yet",
-    };
-  const release = <strong>{d.release_name || "release"}</strong>;
-  const address = d.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  if (d.state === states.live)
-    return {
-      status: <StatusBadge state={d.state} label="Live" />,
-      address,
-      footer: (
-        <>
-          Production {release} · deployed {ago(d.finished_at || d.created_at)}
-          {d.deployed_by && ` by ${d.deployed_by}`}
-        </>
-      ),
-    };
-  if (d.state === states.failed)
-    return {
-      status: (
-        <StatusBadge
-          state={d.state}
-          label={`${d.release_name || "Deploy"} failed`}
-        />
-      ),
-      address,
-      footer: (
-        <>
-          {release} failed {ago(d.finished_at || d.created_at)} · production
-          unchanged
-        </>
-      ),
-    };
-  return {
-    status: <StatusBadge state={d.state} tone="warning" label="Deploying" />,
-    address,
-    footer: (
-      <>
-        Deploying {release} · started {ago(d.created_at)}
-        {d.deployed_by && ` by ${d.deployed_by}`}
-      </>
-    ),
-  };
-}
-
-// "Tuesday, 17 November": the weekday, then the date in the reader's locale.
-function today() {
-  const now = new Date();
-  return `${now.toLocaleDateString(undefined, { weekday: "long" })}, ${now.toLocaleDateString(undefined, { day: "numeric", month: "long" })}`;
-}
-
-function greeting() {
-  const hour = new Date().getHours();
-  return hour < 12
-    ? "Good morning"
-    : hour < 18
-      ? "Good afternoon"
-      : "Good evening";
 }

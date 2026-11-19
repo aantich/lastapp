@@ -14,6 +14,7 @@ import {
   type Crumb,
   type MenuItem,
   type NavItem,
+  Icon,
 } from "./ui";
 import type { Me } from "./api-types";
 
@@ -85,28 +86,28 @@ export function ConsoleShell({
     {
       id: "account",
       label: "My account",
-      icon: <UserRound size={16} aria-hidden />,
+      icon: <Icon icon={UserRound} size="lg" aria-hidden />,
       onSelect: account,
     },
     {
       id: "appearance",
       label: "Appearance",
-      icon: <Palette size={16} aria-hidden />,
+      icon: <Icon icon={Palette} size="lg" aria-hidden />,
       onSelect: () => setAppearanceOpen(true),
     },
     {
       id: "signout",
       label: "Sign out",
-      icon: <LogOut size={16} aria-hidden />,
+      icon: <Icon icon={LogOut} size="lg" aria-hidden />,
       onSelect: signOut,
     },
   ];
   const paletteCommands: Command[] = [
-    ...nav.map(({ id, label, icon: Icon }) => ({
+    ...nav.map(({ id, label, icon: Glyph }) => ({
       id: "nav:" + id,
       label: `Go to ${label}`,
       group: "Navigate",
-      icon: <Icon size={16} />,
+      icon: <Icon icon={Glyph} size="lg" />,
       run: () => navigate(id),
     })),
     ...commands,

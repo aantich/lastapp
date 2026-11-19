@@ -6,15 +6,14 @@ import {
   DesignerBody,
   DesignerNote,
   DesignerPage,
-  GridTable,
-  NavList,
-  NavListNote,
   Panel,
   PathCard,
   RecordHeader,
   ResultTile,
   ResultTiles,
 } from "../designer-parts";
+import { GridTable } from "../grid-table";
+import { NavList, NavListNote } from "../nav-list";
 import { Stepper } from "../stepper";
 import { Badge } from "../status";
 import { Tabs } from "../tabs";
@@ -85,13 +84,25 @@ export const Fields: Story = {
             <GridTable
               label="Fields"
               columns={[
-                { key: "field", header: "Field", track: "minmax(150px,1.4fr)" },
-                { key: "type", header: "Type", track: "minmax(120px,1fr)" },
-                { key: "required", header: "Required", track: "90px" },
+                {
+                  key: "field",
+                  header: "Field",
+                  track: "minmax(var(--ui-measure-2xs),1.4fr)",
+                },
+                {
+                  key: "type",
+                  header: "Type",
+                  track: "minmax(var(--ui-col-label),1fr)",
+                },
+                {
+                  key: "required",
+                  header: "Required",
+                  track: "var(--ui-col-flag)",
+                },
                 {
                   key: "note",
                   header: "Behaviour",
-                  track: "minmax(160px,2fr)",
+                  track: "minmax(var(--ui-measure-xs),2fr)",
                   muted: true,
                 },
               ]}

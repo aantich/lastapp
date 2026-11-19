@@ -1,6 +1,7 @@
 import type { Key, ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 export type Fact = { label: ReactNode; value: ReactNode; mono?: boolean };
 
@@ -45,7 +46,7 @@ export function Disclosure({
   return (
     <details className={cx("ui-disclosure", className)} open={defaultOpen}>
       <summary>
-        <ChevronRight size={14} aria-hidden />
+        <Icon icon={ChevronRight} size="sm" aria-hidden />
         <span>{summary}</span>
         {meta && <small>{meta}</small>}
       </summary>

@@ -10,6 +10,7 @@ import {
   PageStack,
   RowTable,
   StatusBadge,
+  Icon,
 } from "../ui";
 import { isItem, text, type DeploymentSummary, type Page } from "../api-types";
 import { useApiQuery } from "../query";
@@ -39,7 +40,7 @@ export function AppsPage({ t }: { t: TenantScreen }) {
       {overview.spaces === 0 && all("space.manage") && (
         <Card>
           <EmptyState
-            icon={<FolderPlus size={28} aria-hidden />}
+            icon={<Icon icon={FolderPlus} size="6xl" aria-hidden />}
             title="Create your first Space"
             actions={
               <Button variant="primary" onClick={() => void createSpace(t)}>
@@ -53,7 +54,7 @@ export function AppsPage({ t }: { t: TenantScreen }) {
       )}
       <RowTable
         label="Apps"
-        columns="minmax(180px, 2fr) 120px 140px minmax(200px, 2fr)"
+        columns="minmax(var(--ui-col-name), 2fr) var(--ui-col-label) var(--ui-col-status) minmax(var(--ui-measure-sm), 2fr)"
         headers={["App", "Space", "Status", "Hostname"]}
         empty={
           list.error

@@ -3,12 +3,13 @@ import { ChevronDown } from "lucide-react";
 import { text, type Item, type Page } from "../api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
 import { useApiQuery } from "../query";
-import { ListboxPopup } from "./select";
+import { ListboxPopup } from "./listbox-popup";
 import {
   useRemoteOptions,
   withParams,
   type RemoteOptions,
 } from "./remote-options";
+import { Icon } from "./icon";
 
 type RemoteSelectProps = {
   path: string;
@@ -142,7 +143,7 @@ function PathSelect({
           }}
           onKeyDown={list.onKeyDown}
         />
-        <ChevronDown size={15} />
+        <Icon icon={ChevronDown} size="md" />
       </span>
       {open && (
         <ListboxPopup

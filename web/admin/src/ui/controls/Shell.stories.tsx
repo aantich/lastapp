@@ -12,11 +12,13 @@ import {
 import { ConsoleShell } from "../../console-shell";
 import type { Me } from "../../api-types";
 import { ContextSwitcher } from "../context-switcher";
-import { AccountMenu, ContextLabel } from "../app-shell";
+import { ContextLabel } from "../app-shell";
+import { AccountMenu } from "../account-menu";
 import { SidebarLinks, SidebarNav } from "../sidebar";
 import { Button } from "../button";
 import { ConsoleStory } from "../storybook/console-story";
 import { policy } from "../storybook/fixtures";
+import { Icon } from "../icon";
 
 // The console shell built from the kit: the ink sidebar (the Tenant
 // switcher under the brand row, SidebarNav with aria-current and rail tooltips,
@@ -127,7 +129,9 @@ function Parts({ collapsed }: { collapsed: boolean }) {
         />
         <SidebarLinks
           label="Spaces"
-          title={<span className="ui-nav-section">Spaces</span>}
+          title="Spaces"
+          titleCurrent={active === "spaces"}
+          onTitle={() => setActive("spaces")}
           items={[
             { id: "crm", label: "CRM", tone: "success" },
             {
@@ -136,7 +140,7 @@ function Parts({ collapsed }: { collapsed: boolean }) {
               tone: "success",
               tag: (
                 <>
-                  <GitBranch size={12} aria-hidden />
+                  <Icon icon={GitBranch} size="2xs" aria-hidden />
                   workspace
                 </>
               ),

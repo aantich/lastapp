@@ -74,8 +74,7 @@ export function ActorMark({ name, kind }: { name: string; kind: AvatarKind }) {
         "AI"
       ) : kind === "system" ? (
         <svg
-          width="14"
-          height="14"
+          className="ui-icon-sm"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
