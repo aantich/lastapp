@@ -1,0 +1,146 @@
+/* Numbered steps (how to connect an agent) */
+.ui-steps {
+  display: grid;
+  gap: calc(var(--ui-space) * 2);
+  margin: 0;
+  padding-left: calc(var(--ui-space) * 5);
+  font-size: var(--ui-text-base);
+  line-height: 1.5;
+}
+
+/* Row table: a card of fixed-track grid rows (Apps, releases, micro-apps) */
+.ui-row-table {
+  line-height: normal;
+}
+.ui-row-table-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1) calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 4);
+}
+.ui-row-table-head h2,
+.ui-titled-card h2 {
+  font: 600 var(--ui-text-lg) var(--ui-font-heading);
+  letter-spacing: normal;
+}
+.ui-row-table-head > span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-row-table-actions,
+.ui-titled-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 2);
+  margin-left: auto;
+}
+.ui-row-table-scroll {
+  overflow-x: auto;
+}
+.ui-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--ui-row-columns);
+  gap: calc(var(--ui-space) * 3);
+  align-items: center;
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 4);
+  border-top: var(--ui-line) solid var(--ui-divider);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: var(--ui-text-md);
+}
+.ui-row > [role="cell"],
+.ui-row > [role="columnheader"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-row-head {
+  border-top: 0;
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--ui-tracking-wider);
+}
+.ui-row-link:hover {
+  background: var(--ui-subtle);
+}
+.ui-row-link:has(.ui-row-open:focus-visible) {
+  outline: var(--ui-line-thick) solid var(--ui-focus);
+  outline-offset: calc(var(--ui-space) * -0.5);
+}
+.ui-row-open {
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.ui-row-open:focus-visible {
+  outline: none;
+}
+.ui-row-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.ui-row [role="cell"] :is(button, a):not(.ui-row-open) {
+  position: relative;
+}
+.ui-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(var(--ui-space) * 1.5);
+}
+.ui-row-actions > :is(.primary, .secondary, .ui-ghost).ui-sm {
+  padding: calc(var(--ui-space) * 1.5) calc(var(--ui-space) * 2.5);
+}
+.ui-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 0.5);
+}
+.ui-row-meta > span + span,
+.ui-row-mono {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.ui-row-mono {
+  font-family: var(--ui-font-mono);
+}
+.ui-row-table-empty {
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 4);
+  border-top: var(--ui-line) solid var(--ui-divider);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-row-table-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(var(--ui-space) * 2);
+  padding: calc(var(--ui-space) * 2.5) calc(var(--ui-space) * 4);
+  border-top: var(--ui-line) solid var(--ui-divider);
+}
+
+/* App tiles in lists and the App header */
+.ui-app-tile.ui-tile-sm {
+  width: calc(var(--ui-space) * 7.5);
+  height: calc(var(--ui-space) * 7.5);
+  border-radius: var(--ui-radius-lg);
+  font: 600 var(--ui-text-sm) var(--ui-font-heading);
+}
+.ui-app-tile.ui-tile-lg {
+  width: calc(var(--ui-space) * 12);
+  height: calc(var(--ui-space) * 12);
+  border-radius: var(--ui-radius-2xl);
+  font: 600 var(--ui-text-2xl) var(--ui-font-heading);
+}
+.ui-app-tile.tone-danger {
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+}

@@ -1,0 +1,184 @@
+/* Access matrix (who may do what to one entity; read-only) */
+.ui-access-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2) calc(var(--ui-space) * 2.5);
+  min-width: 0;
+}
+.ui-access-head > h2,
+.ui-access-head > span {
+  line-height: normal;
+}
+.ui-access-head > span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+/* Actions sit on the title line without making it taller. */
+.ui-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2);
+  margin: calc(var(--ui-space) * -2) 0 calc(var(--ui-space) * -2) auto;
+}
+.ui-access-card > .ui-access-head {
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 4);
+}
+.ui-access-card > .empty {
+  border-top: var(--ui-line) solid var(--ui-divider);
+}
+.ui-access-matrix {
+  overflow-x: auto;
+}
+.ui-access-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-text-md);
+  line-height: normal;
+}
+.ui-access-matrix thead {
+  border-bottom: 0;
+  background: none;
+}
+.ui-access-matrix tbody tr:hover {
+  background: none;
+}
+/* Operation columns are 80 px apart by 12 px, the row padded 16 px. */
+.ui-access-matrix th,
+.ui-access-matrix td {
+  box-sizing: border-box;
+  max-width: none;
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 1.5);
+  border-top: var(--ui-line) solid var(--ui-divider);
+  border-bottom: 0;
+  color: var(--ui-text);
+  font-size: var(--ui-text-md);
+  text-align: center;
+  vertical-align: middle;
+}
+.ui-access-matrix thead th {
+  width: calc(var(--ui-space) * 23);
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+  font-weight: 400;
+  letter-spacing: var(--ui-tracking-wider);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ui-access-matrix th:first-child {
+  min-width: calc(var(--ui-space) * 45);
+  padding-left: calc(var(--ui-space) * 4);
+  text-align: left;
+}
+.ui-access-matrix thead th:first-child {
+  width: auto;
+}
+.ui-access-matrix th:last-child,
+.ui-access-matrix td:last-child {
+  padding-right: calc(var(--ui-space) * 4);
+}
+.ui-access-matrix thead th:last-child {
+  width: calc(var(--ui-space) * 25.5);
+}
+.ui-access-matrix tbody th {
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+.ui-access-matrix tbody th > strong,
+.ui-access-matrix tbody th > span {
+  display: block;
+}
+.ui-access-matrix tbody th > strong {
+  font-weight: 700;
+}
+.ui-access-matrix tbody th > span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.ui-access-matrix td > button,
+.ui-access-matrix td > span {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  vertical-align: middle;
+}
+.ui-access-matrix td > button {
+  cursor: pointer;
+}
+.ui-access-mark {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: calc(var(--ui-space) * 4.5);
+  height: calc(var(--ui-space) * 4.5);
+  border: var(--ui-line-strong) solid var(--ui-button-border);
+  border-radius: var(--ui-radius-xs);
+  background: var(--ui-surface);
+  color: var(--ui-on-primary);
+}
+.ui-access-mark.is-on {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary);
+}
+.ui-access-mark.is-draft {
+  outline: var(--ui-line-strong) dashed var(--ui-warning);
+  outline-offset: calc(var(--ui-space) * 0.5);
+}
+.ui-access-matrix td > button:hover .ui-access-mark {
+  border-color: var(--ui-button-border-hover);
+}
+.ui-access-matrix td > button:hover .ui-access-mark.is-on {
+  border-color: var(--ui-primary-hover);
+  background: var(--ui-primary-hover);
+}
+
+/* Role assignments as lines */
+.panel.ui-assignments-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 4.5);
+}
+.ui-assignments {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 2.5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-assignments > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid var(--ui-border);
+  border-radius: var(--ui-radius-2xl);
+  line-height: normal;
+}
+.ui-assignments > li > strong {
+  min-width: 0;
+  margin-right: auto;
+  font-size: var(--ui-text-md);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+/* Inherited from a broader scope: read-only here. */
+.ui-assignments > li.is-inherited {
+  border-style: dashed;
+}
+/* A row action does not make the line taller. */
+.ui-assignments > li > button {
+  margin-block: calc(var(--ui-space) * -1.5);
+}
+.ui-assignment-arrow {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}

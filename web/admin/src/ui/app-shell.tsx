@@ -9,7 +9,12 @@ import { cx } from "./utils";
 export { SearchField } from "./search-field";
 export { AccountMenu } from "./account-menu";
 
-const narrow = "(max-width:800px)";
+// The phone layout starts at the --ui-breakpoint-narrow token; the shell's
+// @media rules repeat it because custom properties cannot be used there.
+const narrow = () =>
+  `(max-width: ${getComputedStyle(document.documentElement)
+    .getPropertyValue("--ui-breakpoint-narrow")
+    .trim()})`;
 
 // The sidebar toggle's mark: a panel with its divider and a chevron pointing
 // the way the sidebar will move.
@@ -62,13 +67,13 @@ export function AppShell({
   overlays?: ReactNode;
   children: ReactNode;
 }) {
-  const [mobile, setMobile] = useState(() => matchMedia(narrow).matches),
+  const [mobile, setMobile] = useState(() => matchMedia(narrow()).matches),
     [open, setOpen] = useState(false),
     [collapsed, setCollapsed] = useSidebarCollapse();
   const close = () => setOpen(false);
   const ref = useDialogFocus(close, mobile && open);
   useEffect(() => {
-    const m = matchMedia(narrow);
+    const m = matchMedia(narrow());
     const update = () => {
       setMobile(m.matches);
       setOpen(false);

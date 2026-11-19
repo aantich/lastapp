@@ -1,8 +1,10 @@
-import themes from "../../themes.css?raw";
-import base from "../../style.css?raw";
+import lightCss from "../../theme/light.css?raw";
+import darkCss from "../../theme/dark.css?raw";
+import scaleCss from "../../theme/scale.css?raw";
+import sidebarCss from "../../theme/sidebar.css?raw";
 
 // Foundations stories read the token declarations from the stylesheets
-// themselves, so the catalogue cannot drift from themes.css.
+// themselves (src/theme), so the catalogue cannot drift from them.
 function block(css: string, selector: string) {
   const start = css.indexOf(selector + " {");
   if (start < 0) return {};
@@ -13,11 +15,14 @@ function block(css: string, selector: string) {
   return tokens;
 }
 
-export const light = block(themes, ":root");
-export const dark = { ...light, ...block(themes, ':root[data-mode="dark"]') };
-export const sidebarScope = block(themes, ".sidebar");
-// Layout tokens declared with the base styles (spacing, control height).
-export const layout = block(base, ":root");
+export const light = block(lightCss, ":root");
+export const dark = { ...light, ...block(darkCss, ':root[data-mode="dark"]') };
+export const sidebarScope = block(sidebarCss, ".sidebar");
+// The size scale (spacing, layout, type, radii, lines, motion, layers) and
+// the named component sizes.
+export const layout = {
+  ...block(scaleCss, ":root"),
+};
 
 export const isColor = (value: string) => /^(#|rgb)/.test(value);
 

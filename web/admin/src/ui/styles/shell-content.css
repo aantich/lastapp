@@ -1,0 +1,105 @@
+/* A long current name shortens with an ellipsis instead of widening the
+   page. */
+.topbar .ui-breadcrumbs ol,
+.topbar .ui-breadcrumbs li:last-child {
+  min-width: 0;
+}
+.topbar .ui-breadcrumbs li:last-child > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar .ui-breadcrumbs li + li::before {
+  color: var(--ui-muted);
+}
+.topbar > .ui-search-field {
+  flex: 0 1 calc(var(--ui-space) * 90);
+  min-width: 0;
+  margin-left: auto;
+}
+.topbar-actions {
+  display: flex;
+  gap: calc(var(--ui-space) * 2);
+}
+.content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--ui-space) * 310);
+  margin: 0 auto;
+  padding: calc(var(--ui-space) * 7) calc(var(--ui-space) * 8)
+    calc(var(--ui-space) * 12);
+}
+.content:focus {
+  outline: none;
+}
+.content > .ui-page-header {
+  margin-bottom: calc(var(--ui-space) * 6);
+}
+.navigation-backdrop {
+  display: none;
+}
+@media (max-width: 800px) {
+  .shell,
+  .shell.sidebar-collapsed {
+    --ui-sidebar-width: calc(var(--ui-space) * 60);
+  }
+  .sidebar {
+    z-index: var(--ui-z-drawer);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform var(--ui-duration-slow),
+      visibility var(--ui-duration-slow);
+  }
+  .navigation-open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+  }
+  .navigation-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ui-z-drawer-backdrop);
+    display: block;
+    background: var(--ui-overlay);
+  }
+  .main {
+    margin-left: 0;
+    transition: none;
+  }
+  .topbar {
+    flex-wrap: nowrap;
+    gap: calc(var(--ui-space) * 2);
+    padding: calc(var(--ui-space) * 2.5) calc(var(--ui-space) * 4);
+  }
+  .topbar .ui-breadcrumbs li:not(:last-child) {
+    display: none;
+  }
+  .topbar .ui-breadcrumbs li:last-child::before {
+    content: none;
+  }
+  .topbar > .ui-search-field {
+    flex: 0 0 auto;
+    padding: calc(var(--ui-space) * 2.25) calc(var(--ui-space) * 2.5);
+  }
+  .topbar > .ui-search-field > .ui-search-label,
+  .topbar > .ui-search-field > .ui-search-key {
+    position: absolute;
+    width: calc(var(--ui-space) * 0.25);
+    height: calc(var(--ui-space) * 0.25);
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .topbar-actions .primary {
+    padding-inline: calc(var(--ui-space) * 3);
+  }
+  .content {
+    padding: calc(var(--ui-space) * 5) calc(var(--ui-space) * 4)
+      calc(var(--ui-space) * 8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .main {
+    transition: none;
+  }
+}

@@ -1,0 +1,117 @@
+/* Text fields */
+.ui-field {
+  display: grid;
+  align-content: start;
+  gap: calc(var(--ui-space) * 1.75);
+  min-width: 0;
+}
+.ui-field-label {
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
+  color: var(--ui-text);
+}
+.ui-field-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--ui-space) * 0.75);
+  min-width: 0;
+}
+.ui-field-label-row > b {
+  color: var(--ui-danger);
+  font-weight: 400;
+}
+.ui-field > small {
+  margin: 0;
+  font-size: var(--ui-text-xs);
+  line-height: 1.6;
+}
+.ui-input {
+  width: 100%;
+  min-height: var(--ui-control-height);
+  padding: calc(var(--ui-space) * 2) calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid var(--ui-control-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: var(--ui-text-base);
+  line-height: 1.5;
+}
+textarea.ui-input {
+  min-height: calc(var(--ui-space) * 22);
+  resize: vertical;
+  font: inherit;
+  font-size: var(--ui-text-base);
+}
+.ui-input::placeholder {
+  color: var(--ui-faint);
+}
+.ui-input:focus {
+  outline: var(--ui-line-thick) solid var(--ui-primary-soft);
+  outline-offset: calc(var(--ui-space) * 0.25);
+  border-color: var(--ui-primary);
+}
+.ui-input[aria-invalid="true"] {
+  border-color: var(--ui-danger);
+}
+.ui-input:disabled {
+  background: var(--ui-subtle);
+  color: var(--ui-muted);
+  cursor: not-allowed;
+}
+
+/* Stepper (pipelines) */
+.ui-stepper {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--ui-step-min, calc(var(--ui-space) * 37.5)), 100%), 1fr)
+  );
+  gap: calc(var(--ui-space) * 2.5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-step {
+  display: grid;
+  align-content: start;
+  gap: calc(var(--ui-space) * 1.5);
+  padding: calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid transparent;
+  border-radius: var(--ui-radius-xl);
+  background: var(--ui-canvas);
+  color: var(--ui-muted);
+  min-width: 0;
+}
+.ui-step-label {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1.5);
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+.ui-step-label > svg {
+  flex-shrink: 0;
+}
+.ui-step-note {
+  font-size: var(--ui-text-base);
+  line-height: normal;
+  color: var(--ui-neutral);
+  overflow-wrap: anywhere;
+}
+.ui-step[data-state="done"] {
+  background: var(--ui-success-soft);
+  color: var(--ui-success);
+}
+.ui-step[data-state="active"] {
+  background: var(--ui-surface);
+  border-color: var(--ui-primary);
+  color: var(--ui-primary-hover);
+}
+.ui-step[data-state="failed"] {
+  background: var(--ui-danger-soft);
+  border-color: var(--ui-danger-border);
+  color: var(--ui-danger);
+}
+.ui-step[data-state="failed"] .ui-step-note {
+  color: inherit;
+}

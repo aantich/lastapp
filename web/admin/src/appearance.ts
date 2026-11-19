@@ -7,8 +7,6 @@ export type Mode = (typeof modes)[number];
 export type Appearance = { mode: Mode };
 const storageKey = "lastapp-appearance";
 const defaults: Appearance = { mode: "light" };
-// Browser chrome color: the Signal canvas of each resolved mode.
-const chrome = { light: "#f6f5f2", dark: "#141518" };
 
 // Older saved values also carry a `theme` preset; it is ignored.
 function readAppearance(): Appearance {
@@ -24,10 +22,14 @@ export function applyMode(mode: Mode) {
   const dark =
     mode === "dark" ||
     (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.mode = dark ? "dark" : "light";
-  document
-    .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", dark ? chrome.dark : chrome.light);
+  const root = document.documentElement;
+  root.dataset.mode = dark ? "dark" : "light";
+  // Browser chrome color: the Signal canvas token of the resolved mode.
+  const canvas = getComputedStyle(root).getPropertyValue("--ui-canvas").trim();
+  if (canvas)
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", canvas);
 }
 
 // Apply before React mounts; index.html also sets the attribute before CSS loads.

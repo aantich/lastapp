@@ -1,0 +1,178 @@
+/* App card: a whole card that opens the App */
+.ui-app-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--ui-space) * 60, 100%), 1fr)
+  );
+  gap: calc(var(--ui-space) * 3.5);
+}
+.ui-app-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 3.5);
+  padding: calc(var(--ui-space) * 4.5);
+  color: var(--ui-text);
+  font: inherit;
+  line-height: normal;
+  text-align: left;
+}
+.ui-app-card:hover {
+  border-color: var(--ui-button-border-hover);
+}
+.ui-app-card:has(.ui-app-card-open:focus-visible) {
+  outline: var(--ui-line-thick) solid var(--ui-focus);
+  outline-offset: calc(var(--ui-space) * 0.5);
+}
+.ui-app-card-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-app-card-open:focus-visible {
+  outline: none;
+}
+.ui-app-card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.ui-app-card-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 3);
+  width: 100%;
+  min-width: 0;
+}
+.ui-app-card-head > .badge {
+  margin-left: auto;
+}
+.ui-app-tile {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: calc(var(--ui-space) * 10);
+  height: calc(var(--ui-space) * 10);
+  border-radius: var(--ui-radius-xl);
+  background: var(--ui-info-soft);
+  color: var(--ui-primary-hover);
+  font: 600 var(--ui-text-lg) var(--ui-font-heading);
+}
+.ui-app-tile.tone-success {
+  background: var(--ui-success-soft);
+  color: var(--ui-success);
+}
+.ui-app-tile.tone-warning {
+  background: var(--ui-warning-soft);
+  color: var(--ui-warning);
+}
+.ui-app-tile.tone-neutral {
+  background: var(--ui-neutral-soft);
+  color: var(--ui-neutral);
+}
+.ui-app-card-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ui-app-card-name strong {
+  display: flex;
+  min-width: 0;
+  font-size: var(--ui-text-lg);
+}
+.ui-app-card-name strong > button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-app-card-name span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.ui-app-card-detail {
+  display: contents;
+}
+.ui-app-card-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-muted);
+  font: var(--ui-text-sm) var(--ui-font-mono);
+}
+.ui-app-card-footer {
+  width: 100%;
+  padding-top: calc(var(--ui-space) * 3);
+  border-top: var(--ui-line) solid var(--ui-divider);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-app-card-footer strong {
+  color: var(--ui-text);
+}
+
+/* Page intro (Home): eyebrow, greeting and summary beside compact stats */
+.ui-page-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(var(--ui-space) * 4);
+  line-height: normal;
+}
+.ui-page-intro-copy {
+  display: flex;
+  flex: 1 1 calc(var(--ui-space) * 105);
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 1.5);
+  min-width: 0;
+}
+.ui-page-intro-copy > span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-page-intro h1 {
+  font: 600 var(--ui-text-6xl)/1.15 var(--ui-font-heading);
+  letter-spacing: var(--ui-tracking-heading);
+}
+.ui-page-intro p {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-lg);
+}
+
+/* Home layout */
+.ui-home {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 6);
+  line-height: normal;
+}
+.ui-home-columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: calc(var(--ui-space) * 5);
+}
+.ui-home-apps {
+  flex: 2 1 calc(var(--ui-space) * 130);
+}
+.ui-home-empty {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+/* 320 px of content plus its padding and border (358 px), as in the mockup. */
+.ui-activity-card {
+  display: flex;
+  flex: 1 1 calc(var(--ui-space) * 89.5);
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 3.5);
+  min-width: 0;
+  padding: calc(var(--ui-space) * 4.5);
+}

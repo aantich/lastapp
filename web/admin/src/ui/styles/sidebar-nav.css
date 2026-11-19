@@ -1,0 +1,176 @@
+/* The sidebar's Tenant switcher under the brand row: a bordered control with
+   the initials tile, caption, name and chevron (the tile alone on the rail). */
+.ui-switcher-trigger {
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  width: 100%;
+  padding: calc(var(--ui-space) * 1.75) calc(var(--ui-space) * 2.5)
+    calc(var(--ui-space) * 1.75) calc(var(--ui-space) * 1.75);
+  border: var(--ui-line) solid var(--ui-sidebar-field-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-sidebar-field);
+  color: var(--ui-sidebar-active-text);
+  text-align: left;
+}
+.ui-switcher-trigger:hover,
+.ui-switcher-trigger[aria-expanded="true"] {
+  border-color: var(--ui-sidebar-kbd-border);
+  background: var(--ui-sidebar-active);
+}
+.ui-switcher-tile {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: calc(var(--ui-space) * 7.5);
+  height: calc(var(--ui-space) * 7.5);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-sidebar-field-border);
+  color: var(--ui-sidebar-active-text);
+  font: 600 var(--ui-text-sm) var(--ui-font-heading);
+  letter-spacing: var(--ui-tracking-wide);
+}
+.ui-switcher-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.ui-switcher-copy small {
+  margin: 0;
+  color: var(--ui-sidebar-label);
+  font-size: var(--ui-text-xs);
+  font-weight: 400;
+  line-height: calc(var(--ui-space) * 3.5);
+}
+.ui-switcher-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  line-height: calc(var(--ui-space) * 4.25);
+}
+.ui-switcher-trigger > svg {
+  flex-shrink: 0;
+  color: var(--ui-sidebar-label);
+}
+.ui-nav-item {
+  position: relative;
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  width: 100%;
+  padding: calc(var(--ui-space) * 2) calc(var(--ui-space) * 2.5);
+  border: 0;
+  border-radius: var(--ui-radius-lg);
+  background: transparent;
+  color: var(--ui-sidebar-text);
+  font-size: var(--ui-text-md);
+  line-height: normal;
+  text-align: left;
+}
+/* The 18 px icon may overhang the 17 px text line: rows stay 33 px. */
+.ui-nav-item > svg {
+  flex-shrink: 0;
+  margin-block: calc(var(--ui-space) * -0.125);
+}
+.ui-nav-item:hover,
+.ui-nav-item.selected {
+  background: var(--ui-sidebar-field);
+  color: var(--ui-sidebar-active-text);
+}
+.ui-nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-nav-badge {
+  margin-left: auto;
+  padding: calc(var(--ui-space) * 0.25) calc(var(--ui-space) * 1.75);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-sidebar-rule);
+  color: var(--ui-sidebar-field-text);
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
+}
+.ui-nav-dot {
+  flex-shrink: 0;
+  width: calc(var(--ui-space) * 2);
+  height: calc(var(--ui-space) * 2);
+  border-radius: var(--ui-radius-2xs);
+  background: var(--ui-chart-success);
+}
+.ui-nav-dot.tone-warning {
+  background: var(--ui-sidebar-dot-warning);
+}
+.ui-nav-dot.tone-danger {
+  background: var(--ui-chart-danger);
+}
+.ui-nav-dot.tone-success {
+  background: var(--ui-sidebar-dot-success);
+}
+.ui-nav-dot.tone-info {
+  background: var(--ui-chart-primary);
+}
+.ui-nav-dot.tone-neutral {
+  background: var(--ui-sidebar-muted);
+}
+.ui-nav-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1);
+  margin-left: auto;
+  color: var(--ui-sidebar-muted);
+  font: var(--ui-text-xs) var(--ui-font-mono);
+}
+.ui-account {
+  display: flex;
+  margin-top: auto;
+}
+.ui-account-trigger.ui-menu-trigger {
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  width: 100%;
+  min-height: 0;
+  padding: calc(var(--ui-space) * 2.5);
+  border: 0;
+  border-top: var(--ui-line) solid var(--ui-sidebar-rule);
+  border-radius: 0;
+  color: var(--ui-sidebar-active-text);
+  text-align: left;
+}
+.ui-account-trigger.ui-menu-trigger:hover,
+.ui-account-trigger.ui-menu-trigger[aria-expanded="true"] {
+  background: transparent;
+}
+.ui-account-trigger.ui-menu-trigger > svg {
+  margin-left: auto;
+  color: var(--ui-sidebar-label);
+}
+.ui-account .ui-avatar.ui-account-avatar {
+  background: var(--ui-sidebar-field-border);
+  color: var(--ui-sidebar-active-text);
+  font-size: var(--ui-text-base);
+  letter-spacing: 0;
+}
+.ui-account-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ui-account-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ui-text-base);
+}
+.ui-account-copy small {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-sidebar-label);
+  font-size: var(--ui-text-sm);
+}
+.ui-menu-popup.ui-above {
+  top: auto;
+  bottom: calc(100% + var(--ui-space) * 1.5);
+}

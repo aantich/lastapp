@@ -1,0 +1,174 @@
+/* Layout: Stack, Inline, Split, Columns */
+.ui-stack {
+  display: grid;
+  min-width: 0;
+}
+.ui-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.ui-stack.ui-gap-sm,
+.ui-inline.ui-gap-sm {
+  gap: calc(var(--ui-space) * 2);
+}
+.ui-stack.ui-gap-md,
+.ui-inline.ui-gap-md {
+  gap: calc(var(--ui-space) * 4);
+}
+.ui-stack.ui-gap-lg,
+.ui-inline.ui-gap-lg {
+  gap: calc(var(--ui-space) * 6);
+}
+.ui-split {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--ui-space) * 55), 1fr) minmax(0, 3fr);
+  gap: calc(var(--ui-space) * 6);
+  align-items: start;
+}
+.ui-split-aside,
+.ui-split-main {
+  min-width: 0;
+}
+@media (max-width: 800px) {
+  .ui-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ui-columns {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--ui-columns-min)), 1fr)
+  );
+  align-items: start;
+  min-width: 0;
+}
+.ui-columns > * {
+  min-width: 0;
+}
+.ui-columns.ui-columns-weighted {
+  grid-template-columns: var(--ui-columns-weights);
+}
+.ui-columns.ui-gap-sm {
+  gap: calc(var(--ui-space) * 2);
+}
+.ui-columns.ui-gap-md {
+  gap: calc(var(--ui-space) * 4);
+}
+.ui-columns.ui-gap-lg {
+  gap: calc(var(--ui-space) * 6);
+}
+@media (max-width: 800px) {
+  .ui-columns.ui-columns-weighted {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Link button: an anchor with the button look */
+a.ui-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--ui-space) * 1.75);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* Card header actions wrap; on a phone they go under the title */
+.ui-card-header > .row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 640px) {
+  .ui-card-header {
+    flex-wrap: wrap;
+  }
+  .ui-card-header > .row-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* A card header with only a title centres it on its actions */
+.ui-card-header:not(:has(p)) {
+  align-items: center;
+}
+
+/* Phone tables scroll sideways instead of breaking words mid-letter */
+@media (max-width: 640px) {
+  .ui-table td {
+    overflow-wrap: break-word;
+  }
+}
+
+/* Stacked phone tables: below 640 px a DataTable row is a card of
+   label/value pairs (td[data-label]); the header row stays for screen
+   readers but is visually hidden. */
+@media (max-width: 640px) {
+  .table-wrap table.ui-table-stack {
+    min-width: 0;
+  }
+  .ui-table-stack,
+  .ui-table-stack tbody,
+  .ui-table-stack tr,
+  .ui-table-stack td {
+    display: block;
+    width: 100%;
+  }
+  .ui-table-stack thead {
+    position: absolute;
+    width: calc(var(--ui-space) * 0.25);
+    height: calc(var(--ui-space) * 0.25);
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .ui-table-stack tr {
+    padding: calc(var(--ui-space) * 3) calc(var(--ui-space) * 4);
+    border-bottom: var(--ui-line) solid var(--ui-border);
+  }
+  .ui-table-stack tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .ui-table-stack td {
+    display: grid;
+    grid-template-columns: minmax(calc(var(--ui-space) * 22), 34%) minmax(
+        0,
+        1fr
+      );
+    gap: calc(var(--ui-space) * 3);
+    align-items: baseline;
+    max-width: none;
+    padding: calc(var(--ui-space) * 1.25) 0;
+    border: 0;
+    text-align: left;
+  }
+  .ui-table-stack td.ui-num {
+    text-align: left;
+  }
+  .ui-table-stack td::before {
+    content: attr(data-label);
+    color: var(--ui-faint);
+    font-size: var(--ui-text-2xs);
+    font-weight: 600;
+    letter-spacing: var(--ui-tracking-loose);
+    text-transform: uppercase;
+  }
+  .ui-table-stack td:not([data-label])::before {
+    content: none;
+  }
+  .ui-table-stack td:not([data-label]) {
+    display: block;
+  }
+  .ui-table-stack td.actions-column {
+    display: block;
+    min-width: 0;
+    padding-top: calc(var(--ui-space) * 2);
+  }
+  .ui-table-stack td.actions-column .row-actions {
+    justify-content: flex-start;
+    max-width: none;
+    margin-left: 0;
+  }
+}
