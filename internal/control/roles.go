@@ -58,7 +58,11 @@ func (s *Server) grants(w http.ResponseWriter, r *http.Request, p access.Princip
 	if e != nil {
 		return e
 	}
-	v, e := s.authority.Assignments(r.Context(), httpapi.Actor(r, p), scope, res, httpapi.PageRequest(r.URL.Query()))
+	list := s.authority.Assignments
+	if r.URL.Query().Get("include") == "space" {
+		list = s.authority.AppAccessAssignments
+	}
+	v, e := list(r.Context(), httpapi.Actor(r, p), scope, res, httpapi.PageRequest(r.URL.Query()))
 	if e == nil {
 		httpapi.Send(w, 200, v)
 	}

@@ -37,6 +37,11 @@ func (s *Server) releaseDeploy(w http.ResponseWriter, r *http.Request, p access.
 	return httpapi.Reply(w, 202, v, e)
 }
 
+func (s *Server) deploymentRetry(w http.ResponseWriter, r *http.Request, p access.Principal) error {
+	v, e := s.delivery.RetryDeployment(r.Context(), httpapi.Actor(r, p), r.PathValue("deployment"), httpapi.IfMatch(r))
+	return httpapi.Reply(w, 202, v, e)
+}
+
 func (s *Server) deploymentGet(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	v, e := s.delivery.Deployment(r.Context(), httpapi.Actor(r, p), r.PathValue("deployment"))
 	return httpapi.Reply(w, 200, v, e)

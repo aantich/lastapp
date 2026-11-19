@@ -1,0 +1,82 @@
+/* App header: tile, name over address, status and actions */
+.ui-app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 3.5);
+  line-height: normal;
+}
+.ui-app-header-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ui-app-header h1 {
+  font: 600 var(--ui-text-5xl) var(--ui-font-heading);
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+.ui-app-header-name > span {
+  color: var(--ui-muted);
+  font: var(--ui-text-sm) var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+.ui-app-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 2);
+  margin-left: auto;
+}
+
+/* Titled card: heading with a note beside or under it, then its body */
+.ui-titled-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 4);
+  padding: calc(var(--ui-space) * 4.5);
+  line-height: normal;
+}
+.ui-titled-card > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2.5);
+}
+.ui-titled-card > header > span {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-titled-card.ui-titled-stacked {
+  gap: calc(var(--ui-space) * 3);
+}
+.ui-titled-stacked > header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--ui-space) * 3);
+}
+.ui-titled-stacked > header > .ui-titled-card-actions {
+  margin-left: 0;
+}
+.ui-card-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 4);
+}
+.ui-card-row > * {
+  flex: 1 1 calc(var(--ui-space) * 85);
+  min-width: 0;
+}
+.ui-value-box {
+  padding: calc(var(--ui-space) * 2.5) calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid var(--ui-border);
+  border-radius: var(--ui-radius-xl);
+  font: var(--ui-text-base) var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+/* A screen's blocks one above the other, 24 px apart (Apps, an App) */
+.ui-page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 6);
+  line-height: normal;
+}

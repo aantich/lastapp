@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { text, type Item, type Page } from "../api-types";
 import { useListbox, type ListOption as Option } from "./listbox";
 import { useApiQuery } from "../query";
-import { ListboxPopup } from "./select";
+import { ListboxPopup } from "./listbox-popup";
 import {
   useRemoteOptions,
   withParams,
   type RemoteOptions,
 } from "./remote-options";
+import { Icon } from "./icon";
 
 type RemoteSelectProps = {
   path: string;
@@ -142,7 +143,7 @@ function PathSelect({
           }}
           onKeyDown={list.onKeyDown}
         />
-        <ChevronDown size={15} />
+        <Icon icon={ChevronDown} size="md" />
       </span>
       {open && (
         <ListboxPopup
@@ -152,7 +153,11 @@ function PathSelect({
           value={value}
           choose={choose}
         >
-          <RemoteListStatus remote={remote} count={options.length} />
+          <RemoteListStatus
+            remote={remote}
+            count={options.length}
+            reveal={setActive}
+          />
         </ListboxPopup>
       )}
     </span>
@@ -160,28 +165,41 @@ function PathSelect({
 }
 
 // The paged list's status line under its options: searching, no matches, a
-// request error, and the "Load more" button for the next page.
+// request error, and the "Load more" button for the next page. Pressing the
+// button leaves focus in the list's combobox (so the keyboard and Escape keep
+// working and the popup stays open); once the page arrives, `reveal` makes
+// its first option the active one, which scrolls it into view.
 export function RemoteListStatus({
   remote,
   count,
+  reveal,
+  empty = "No matches",
 }: {
-  remote: Pick<RemoteOptions, "busy" | "more" | "error" | "loadMore">;
+  remote: Pick<
+    RemoteOptions,
+    "busy" | "loadingMore" | "more" | "error" | "loadMore"
+  >;
   count: number;
+  reveal?: (index: number) => void;
+  empty?: ReactNode;
 }) {
-  const { busy, more, error, loadMore } = remote;
+  const { busy, loadingMore, more, error, loadMore } = remote;
   return (
     <>
       {busy && <small>Searching…</small>}
-      {!busy && !count && !error && <small>No matches</small>}
+      {!busy && !count && !error && <small>{empty}</small>}
       {error && <small role="alert">{error}</small>}
       {more && (
         <button
           type="button"
           className="text-button"
-          disabled={busy}
-          onClick={loadMore}
+          aria-busy={loadingMore || undefined}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (!loadingMore) void loadMore().then(() => reveal?.(count));
+          }}
         >
-          Load more
+          {loadingMore ? "Loading…" : "Load more"}
         </button>
       )}
     </>

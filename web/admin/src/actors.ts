@@ -1,32 +1,65 @@
 import type { AvatarKind } from "./ui";
-import { isItem, optText, text, type AgentGrant, type Item } from "./api-types";
+import {
+  isItem,
+  optText,
+  text,
+  type AgentConfig,
+  type AgentGrant,
+  type Item,
+} from "./api-types";
 
 // Who did an audited thing. The server classifies the actor once
 // (internal/roles/audit.go: actor_kind is person, agent or system); an agent
 // acts for the person named in actor_name and its grant is in the details
 // (internal/op.AuditAs), named here from the grants the screen has read.
+// `via` says how: "for <person>" (with the grant's preset when its
+// permissions are exactly one of `presets`, GET /v1/agent-access/config),
+// "worker" or "console".
 export function actorOf(
   e: Item,
   grants: AgentGrant[] = [],
+  presets: AgentPreset[] = [],
 ): { name: string; kind: AvatarKind; label: string; via: string } {
   const details = isItem(e.details_json) ? e.details_json : {};
   const person = text(e.actor_name);
   if (e.actor_kind === "agent") {
-    const grant = optText(details.agent_grant_id);
+    const id = optText(details.agent_grant_id);
+    const grant = grants.find((g) => g.id === id);
     const client =
-      grants.find((g) => g.id === grant)?.client_name ||
-      text(details.agent_client_id) ||
-      "Agent";
+      grant?.client_name || text(details.agent_client_id) || "Agent";
+    const preset = grant && presetOf(grant.permissions_json, presets);
     return {
       name: client,
       kind: "agent",
       label: `${client} for ${person}`,
-      via: `Agent for ${person}`,
+      via: `for ${person}` + (preset ? ` · ${preset}` : ""),
     };
   }
   if (e.actor_kind === "system")
-    return { name: person, kind: "system", label: person, via: "Worker" };
-  return { name: person, kind: "person", label: person, via: "Console" };
+    return { name: person, kind: "system", label: person, via: "worker" };
+  return { name: person, kind: "person", label: person, via: "console" };
+}
+
+// The Activity filter's actor choices, the server's actor kinds
+// (roles.AuditFilter.Actor; the worker is the system actor). The command
+// palette offers the same filters.
+export const auditActors = [
+  { value: "", label: "All" },
+  { value: "person", label: "People" },
+  { value: "agent", label: "Agents" },
+  { value: "system", label: "Worker" },
+];
+
+// The Activity page preset to one actor kind (…/activity?actor=agent).
+export const activityQuery = (actor: string) =>
+  actor ? "?actor=" + encodeURIComponent(actor) : "";
+
+export type AgentPreset = AgentConfig["presets"][number];
+
+// The preset whose permissions are exactly these (in any order), if any.
+export function presetOf(permissions: string[] = [], presets: AgentPreset[]) {
+  const key = (codes: string[]) => [...codes].sort().join(" ");
+  return presets.find((p) => key(p.permissions) === key(permissions))?.label;
 }
 
 // "12 min ago", "3 h ago", "yesterday" — or "in 2 days" for a future time.

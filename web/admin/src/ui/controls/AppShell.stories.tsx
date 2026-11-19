@@ -1,26 +1,33 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
-  Boxes,
-  Home,
+  Activity,
+  AlignLeft,
+  Bot,
+  House,
+  LayoutGrid,
   LogOut,
-  ShieldCheck,
+  Shield,
   UserRound,
-  Users,
+  GitBranch,
 } from "lucide-react";
-import { AccountMenu, AppShell, ContextLabel, QuickSearch } from "../app-shell";
+import { AppShell } from "../app-shell";
+import { AccountMenu } from "../account-menu";
 import { ContextSwitcher } from "../context-switcher";
-import { SidebarFooter, SidebarNav } from "../sidebar";
-import { PageHeader } from "../page-header";
+import { SidebarLinks, SidebarNav } from "../sidebar";
+import { Breadcrumbs, PageHeader } from "../page-header";
+import { Button } from "../button";
 import { Card, CardBody, CardHeader } from "../card";
-import { policy, spaces } from "../storybook/fixtures";
+import { policy } from "../storybook/fixtures";
 import { ConsoleStory } from "../storybook/console-story";
+import { Icon } from "../icon";
 
-// app-shell.tsx: the console frame (AppShell: sidebar that collapses to a
-// rail or becomes a drawer under 800 px, top bar, content and footer), the
-// top bar's QuickSearch trigger, AccountMenu and ContextLabel (a fixed
-// Tenant). The Space switcher passed as `secondaryContext` hides on narrow
-// screens.
+// app-shell.tsx: the console frame (AppShell) as in the approved mockup: the
+// 240 px ink sidebar (brand tile and collapse toggle, the Tenant switcher
+// under them, search, screens with a count badge, the Spaces list
+// and the account menu at the bottom), a rail at 68 px, a drawer under
+// 800 px; the top bar with breadcrumbs, search and the primary action; the
+// content column centred at 1240 px.
 const meta = {
   title: "Composites/App shell",
   parameters: { layout: "fullscreen" },
@@ -29,20 +36,38 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const nav = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "spaces", label: "Spaces", icon: Boxes },
-  { id: "people", label: "People", icon: Users },
-  { id: "access", label: "Access", icon: ShieldCheck },
+  { id: "home", label: "Home", icon: House },
+  { id: "apps", label: "Apps", icon: LayoutGrid },
+  { id: "entities", label: "Entities", icon: AlignLeft },
+  { id: "access", label: "Access", icon: Shield },
+  { id: "agents", label: "Agents", icon: Bot, badge: 2 },
+  { id: "activity", label: "Activity", icon: Activity },
 ];
 
 function Frame({ switcher }: { switcher: boolean }) {
   const [active, setActive] = useState("home"),
-    [space, setSpace] = useState<string | undefined>(undefined),
     [searches, setSearches] = useState(0);
-  const label = nav.find((n) => n.id === active)?.label || "";
+  const label =
+    nav.find((n) => n.id === active)?.label ||
+    (active === "crm" ? "CRM" : "sales-exp");
   return (
     <AppShell
-      kind="Tenant"
+      onSearch={() => setSearches((n) => n + 1)}
+      context={(rail) => (
+        <ContextSwitcher
+          kind="Tenant"
+          variant="sidebar"
+          rail={rail}
+          value="ten_1"
+          options={[
+            { value: "ten_1", label: "Example Co" },
+            ...(switcher
+              ? [{ value: "ten_2", label: "Harbor Logistics" }]
+              : []),
+          ]}
+          onChange={() => {}}
+        />
+      )}
       sidebar={({ rail, close }) => (
         <>
           <SidebarNav
@@ -55,59 +80,57 @@ function Frame({ switcher }: { switcher: boolean }) {
               close();
             }}
           />
-          <SidebarFooter name="Ava Chen" detail="ava.chen@northstar.example" />
-        </>
-      )}
-      context={
-        switcher ? (
-          <ContextSwitcher
-            kind="Tenant"
-            value="ten_1"
-            options={[
-              { value: "ten_1", label: "Northstar" },
-              { value: "ten_2", label: "Harbor Logistics" },
+          <SidebarLinks
+            label="Spaces"
+            collapsed={rail}
+            title="Spaces"
+            items={[
+              { id: "crm", label: "CRM", tone: "success" },
+              {
+                id: "crm-dev",
+                label: "sales-exp",
+                tone: "success",
+                tag: (
+                  <>
+                    <Icon icon={GitBranch} size="2xs" aria-hidden />
+                    workspace
+                  </>
+                ),
+              },
             ]}
-            onChange={() => {}}
+            active={active}
+            onSelect={setActive}
           />
-        ) : (
-          <ContextLabel kind="Tenant" value="Northstar" />
-        )
-      }
-      secondaryContext={
-        <ContextSwitcher
-          kind="Space"
-          value={space}
-          placeholder="All Spaces"
-          options={spaces.map((s) => ({
-            value: String(s.id),
-            label: String(s.display_name),
-          }))}
-          onChange={setSpace}
-        />
-      }
-      actions={
-        <>
-          <QuickSearch onOpen={() => setSearches((n) => n + 1)} />
           <AccountMenu
-            name="Ava Chen"
+            name="Alex Kim"
+            detail="alex@example.test"
+            rail={rail}
             items={[
               {
                 id: "account",
                 label: "My account",
-                icon: <UserRound size={16} aria-hidden />,
+                icon: <Icon icon={UserRound} size="lg" aria-hidden />,
                 onSelect: () => {},
               },
               {
                 id: "signout",
                 label: "Sign out",
-                icon: <LogOut size={16} aria-hidden />,
+                icon: <Icon icon={LogOut} size="lg" aria-hidden />,
                 onSelect: () => {},
               },
             ]}
           />
         </>
+      )}
+      breadcrumbs={
+        <Breadcrumbs
+          items={[
+            { label: "Example Co", onClick: () => setActive("home") },
+            { label },
+          ]}
+        />
       }
-      footer={<span>© 2026 Lastapp</span>}
+      actions={<Button variant="primary">Connect agent</Button>}
     >
       <PageHeader title={label} />
       <Card>
@@ -118,7 +141,8 @@ function Frame({ switcher }: { switcher: boolean }) {
   );
 }
 
-// One Tenant: the name is a fixed ContextLabel.
+// One Tenant: the Tenant switcher still shows under the brand row, so switching
+// stays discoverable; it lists the one Tenant.
 export const SingleTenant: Story = {
   render: () => (
     <ConsoleStory passwordPolicy={policy(12, 128)}>
@@ -127,7 +151,7 @@ export const SingleTenant: Story = {
   ),
 };
 
-// Several Tenants: the context is a ContextSwitcher.
+// Several Tenants: the switcher lists them all.
 export const TenantSwitcher: Story = {
   render: () => (
     <ConsoleStory passwordPolicy={policy(12, 128)}>

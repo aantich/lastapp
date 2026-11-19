@@ -29,7 +29,7 @@ function PermissionPath() {
             legend="Which fields"
             description="New fields never join this list automatically."
           >
-            <Columns min={140} gap="sm">
+            <Columns min="2xs" gap="sm">
               {dealFields.map((f) => (
                 <Checkbox
                   key={f}
@@ -45,7 +45,7 @@ function PermissionPath() {
             </Columns>
           </FieldGroup>
           <FieldGroup legend="Which records" nested>
-            <Columns min={180} gap="sm">
+            <Columns min="xs" gap="sm">
               <Select
                 aria-label="Condition field"
                 value="stage"

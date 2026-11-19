@@ -25,8 +25,11 @@ export {
   StatGrid,
   AttentionCard,
   AttentionGrid,
+  AllClear,
+  AppCard,
 } from "./card";
-export { PageHeader, Breadcrumbs, type Crumb } from "./page-header";
+export { PageHeader, PageIntro, Breadcrumbs, type Crumb } from "./page-header";
+export { ActivityList, ActorMark, type ActivityItem } from "./activity-list";
 export { Tabs, type TabItem } from "./tabs";
 export { EmptyState } from "./empty-state";
 export { Alert, InlineError, type AlertTone } from "./alert";
@@ -44,7 +47,9 @@ export {
   type StepState,
   type TimelineEvent,
 } from "./stepper";
-export { Avatar, type AvatarKind } from "./avatar";
+export { Avatar, type AvatarKind, type AvatarSize } from "./avatar";
+export { Icon, type IconSize, type IconStroke } from "./icon";
+export type { Measure } from "./measure";
 export { Tooltip } from "./tooltip";
 export { Spinner, Skeleton, Kbd } from "./feedback";
 export { LoadingScreen } from "./loading-screen";
@@ -60,20 +65,72 @@ export {
 export { SegmentedControl, type Segment } from "./segmented";
 export { AuthLayout } from "./auth-layout";
 export { Section, Lead } from "./section";
+export { NavList, NavListNote, type NavListItem } from "./nav-list";
+export { GridTable, type GridColumn, type GridRow } from "./grid-table";
+export {
+  RecordHeader,
+  Panel,
+  PathCard,
+  Callout,
+  ChipRow,
+  ResultTile,
+  ResultTiles,
+  DesignerPage,
+  DesignerBody,
+  DesignerNote,
+} from "./designer-parts";
 
 // Composites
-export { SidebarNav, SidebarFooter, type NavItem } from "./sidebar";
-export { AppShell, QuickSearch, AccountMenu, ContextLabel } from "./app-shell";
+export {
+  SidebarNav,
+  SidebarLinks,
+  type NavItem,
+  type SidebarLink,
+} from "./sidebar";
+export { AppShell, ContextLabel } from "./app-shell";
+export { SearchField } from "./search-field";
+export { AccountMenu } from "./account-menu";
 export { useSidebarCollapse, useCommandPaletteShortcut } from "./hooks";
 export { ContextSwitcher, type ContextOption } from "./context-switcher";
 export { CommandPalette, type Command } from "./command-palette";
 export { Menu, type MenuItem } from "./menu";
 export { DataTable, type Column } from "./data-table";
 export { RecordList, type RecordRow } from "./record-list";
+export {
+  RowTable,
+  CellTitle,
+  CellMono,
+  CellActions,
+  type RowTableRow,
+} from "./row-table";
+export {
+  AppHeader,
+  AppTile,
+  CardRow,
+  PageStack,
+  TitledCard,
+  ValueBox,
+} from "./app-header";
 export { RoleMatrix, type MatrixRow, type MatrixColumn } from "./role-matrix";
+export {
+  AccessMatrix,
+  AssignmentList,
+  type AccessCell,
+  type AccessMatrixRow,
+} from "./access-matrix";
+export {
+  ConnectionCard,
+  ConnectionGrid,
+  ChoiceCards,
+  FlowCard,
+  FlowSection,
+  FlowStack,
+  type Choice,
+} from "./connection-card";
 
 // Form controls
-export { Select, ListboxPopup, type ListOption } from "./select";
+export { Select, type ListOption } from "./select";
+export { ListboxPopup } from "./listbox-popup";
 export { RemoteSelect } from "./remote-select";
 export { NumberInput } from "./number-input";
 export { DatePicker } from "./date-picker";
@@ -81,7 +138,8 @@ export { isoDay, parseDay, addDays, daysBetween } from "./days";
 export { NewPasswordInput } from "./new-password-input";
 export { ConfirmDialog, ConfirmHost } from "./confirm-dialog";
 export { confirmAction, type ConfirmOptions } from "./confirm";
-export { FormModal, type Field, type Modal } from "./form-modal";
+export { FormModal } from "./form-modal";
+export type { Field, Modal } from "./form-modal-types";
 export { Collection } from "./collection";
 export { ErrorBoundary } from "./error-boundary";
 export { useDialogFocus } from "./use-dialog-focus";

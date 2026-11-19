@@ -1,0 +1,100 @@
+/* Activity list: humanized audit events */
+.ui-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 3.5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  line-height: normal;
+}
+.ui-activity-list > li {
+  display: flex;
+  gap: calc(var(--ui-space) * 3);
+  min-width: 0;
+}
+.ui-activity-copy {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 0.5);
+  min-width: 0;
+  font-size: var(--ui-text-base);
+  overflow-wrap: anywhere;
+}
+.ui-activity-copy code {
+  font-size: var(--ui-text-sm);
+}
+.ui-activity-meta {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.ui-activity-list.ui-rows {
+  gap: 0;
+}
+/* The Activity page's rows: mark, sentence, via, when (mockup columns). */
+.ui-activity-list.ui-rows > li {
+  display: grid;
+  grid-template-columns: calc(var(--ui-space) * 10) minmax(
+      calc(var(--ui-space) * 60),
+      3fr
+    ) minmax(calc(var(--ui-space) * 35), 1fr) calc(var(--ui-space) * 27.5);
+  align-items: center;
+  gap: calc(var(--ui-space) * 3);
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 4);
+  border-top: var(--ui-line) solid var(--ui-divider);
+  font-size: var(--ui-text-md);
+}
+.ui-activity-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-activity-text code {
+  font-size: var(--ui-text-base);
+}
+.ui-activity-via,
+.ui-activity-when {
+  min-width: 0;
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .ui-activity-list.ui-rows > li {
+    grid-template-columns: calc(var(--ui-space) * 7.5) minmax(0, 1fr);
+    grid-template-areas: "mark text" ". via" ". when";
+    gap: calc(var(--ui-space) * 0.5) calc(var(--ui-space) * 3);
+  }
+  .ui-activity-list.ui-rows .ui-actor-mark {
+    grid-area: mark;
+    align-self: start;
+  }
+  .ui-activity-text {
+    grid-area: text;
+  }
+  .ui-activity-via {
+    grid-area: via;
+  }
+  .ui-activity-when {
+    grid-area: when;
+  }
+}
+.ui-actor-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: calc(var(--ui-space) * 7.5);
+  height: calc(var(--ui-space) * 7.5);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-info-soft);
+  color: var(--ui-primary-hover);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+.ui-actor-mark.ui-agent {
+  background: var(--ui-inverse);
+  color: var(--ui-on-inverse);
+}
+.ui-actor-mark.ui-system {
+  background: var(--ui-neutral-soft);
+  color: var(--ui-neutral);
+}

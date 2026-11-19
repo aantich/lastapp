@@ -69,6 +69,19 @@ export function useApiQueries<T>(paths: string[]) {
   });
 }
 
+// Single reads already in the cache whose path `match` accepts, with that
+// path (e.g. the App deployments Home has shown). Nothing is fetched.
+export function cachedData<T>(match: (path: string) => boolean) {
+  const found: [string, T][] = [];
+  for (const [key, data] of queryClient.getQueriesData<T>({
+    queryKey: ["api"],
+  })) {
+    const path = String(key[1] || "");
+    if (data !== undefined && match(path)) found.push([path, data]);
+  }
+  return found;
+}
+
 // Rows of list reads already in the cache (Collection pages, RemoteSelect and
 // ContextSwitcher searches) whose path, without its query string, `match`
 // accepts, de-duplicated by id. Nothing is fetched: the command palette offers
@@ -84,4 +97,31 @@ export function cachedRows(match: (path: string) => boolean): Item[] {
         if (typeof row?.id === "string") rows.set(row.id, row);
   }
   return [...rows.values()];
+}
+
+// Every page of a paged collection, read 200 rows at a time, for a view that
+// must name or count all of it (who holds each role), never just a first
+// page. Cached under the path with "#all"; refreshed like any other read.
+export function useAllPages(path: string | null | undefined) {
+  const live = useContext(LiveRefresh);
+  return useQuery({
+    refetchInterval: live,
+    queryKey: apiKey((path || "") + "#all"),
+    queryFn: async ({ signal }): Promise<Page> => {
+      const items: Item[] = [],
+        sep = path!.includes("?") ? "&" : "?";
+      for (let page = 1; ; page++) {
+        const v = await api<Page>(
+          `${path}${sep}page=${page}&limit=200`,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        );
+        items.push(...v.items);
+        if (!v.pagination?.has_more) return { items };
+      }
+    },
+    enabled: !!path,
+  });
 }

@@ -4,6 +4,7 @@ import { AuthLayout } from "../auth-layout";
 import { Button, LinkButton } from "../button";
 import { TextField } from "../field";
 import { Stack } from "../layout";
+import { Icon } from "../icon";
 
 // auth-layout.tsx: the signed-out and onboarding frame (sign in, set your own
 // password) — one card centred on the canvas, outside the console shell.
@@ -17,7 +18,7 @@ type Story = StoryObj<typeof meta>;
 export const SignIn: Story = {
   render: () => (
     <AuthLayout
-      mark={<Layers3 size={24} />}
+      mark={<Icon icon={Layers3} size="5xl" />}
       eyebrow="Lastapp"
       title="Welcome to your workspace."
       description="Sign in to build and manage Northstar's Apps."
@@ -25,7 +26,7 @@ export const SignIn: Story = {
         <>
           <LinkButton
             href="#sso"
-            trailingIcon={<ArrowUpRight size={16} aria-hidden />}
+            trailingIcon={<Icon icon={ArrowUpRight} size="lg" aria-hidden />}
           >
             Continue with SSO
           </LinkButton>
@@ -58,11 +59,14 @@ export const SignIn: Story = {
 export const Onboarding: Story = {
   render: () => (
     <AuthLayout
-      mark={<Layers3 size={24} />}
+      mark={<Icon icon={Layers3} size="5xl" />}
       title="Set your own password"
       description="Replace your initial password before opening your workspace."
       footer={
-        <Button variant="link" icon={<LogOut size={16} aria-hidden />}>
+        <Button
+          variant="link"
+          icon={<Icon icon={LogOut} size="lg" aria-hidden />}
+        >
           Sign out
         </Button>
       }

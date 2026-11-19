@@ -118,7 +118,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Static releases, coherent security activation and status recovery | `internal/delivery/releases.go`, `deployments.go`; `GET /v1/apps/{app}/deployment` |
 | Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
 | Typed registry reads | `internal/registry`: `ScanAll`/`ScanOne` (and `op.PageScan`) scan hand-written SQL into record structs whose column list is a const beside each type and whose `ScanFields()` returns the scan destinations; `JSONValue` (`*_json` columns), `Bit` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. Plans, Tenant policy, quotas, record locks and the shared `APIError` live there too; `op.Classify` maps MySQL errors. `QueryRow`/`QueryRows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
-| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors; Signal tokens in `themes.css` and the UI library entry `src/ui/` (see [Console UI library](#console-ui-library)); pages under `tenant/`, `platform/`, `entity-designer/` |
+| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors; Signal tokens in `themes.css` (`src/theme/`) and the UI library entry `src/ui/` (see [Console UI library](#console-ui-library)); pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
 | Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`ui/confirm.ts`, `ui/confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `ui/error-boundary.tsx` and `retryable-lazy.ts`; screens use the `src/ui` kit only; choices and numbers use `Select` / `NumberInput` (native `<select>`, date and number inputs are not allowed). No lint suppression file, `//nolint` or inline ESLint disable; the loose `Item` row type in `api-types.ts` is `Record<string, unknown>`, narrowed at use sites (`text`, `num`, `isItem`, `items` or a named shape) |
 
@@ -192,6 +192,12 @@ a pinned registry connection. A term then runs as follows.
   oldest first and stops at the first that progresses, so a workspace waiting
   for its storage or publications never holds back another, and one workspace's
   error does not stop the others in that pass.
+- **Foreground settling.** `Leader.Settle` lets a CLI command (only
+  `seed-development` today) lead one term in its own goroutine: it takes the same
+  lock, runs the starters, then drains the same steps pass by pass, in step
+  order, until a pass does no work (a step error ends the drain with the step
+  name). While a server's worker holds the lock, `Settle` does nothing and
+  reports that it did not lead, so there is never a second leader.
 - **Lock order.** Concurrent steps take registry row locks in the same order as
   console mutations: the Tenant row (`tenants … FOR UPDATE`) first, then the
   Tenant's resources (`database_resources`, `entity_definitions`/
@@ -221,17 +227,38 @@ including exact decimals, nulls, permission paths and old/new update checks.
 The console has one visual theme, **Signal** ("Ink & Signal"), in light, dark
 and system color modes. New console UI follows these rules:
 
-- **Tokens.** `web/admin/src/themes.css` is the only source of colors, fonts,
-  radii and shadows: semantic `--ui-*` variables, redefined for
-  `:root[data-mode="dark"]` and, for the ink sidebar, inside `.sidebar`. Tailwind
-  4 maps them to utilities (`bg-surface`, `text-ink`, `text-muted`,
-  `text-primary`, `border-line`, `rounded-panel`, `font-heading`, `font-mono`,
-  `bg-success-soft`, …). Do not write literal colors in components and do not
-  add theme presets; a new value is a new token in `themes.css`, defined for
+- **Mockups are the visual spec.** The approved mockups are in
+  `design/mockups/` (`Prototype.dc.html` for the whole console,
+  `Main.dc.html` for the shell and Home, `Entity.dc.html` for the entity
+  designer); open them in a browser and compare each changed screen region by
+  region at desktop and mobile widths.
+- **Real content only.** A design mockup defines layout and visual style
+  (spacing, type, components, composition), never content. Names, counts,
+  statuses, tags, environment labels, hostnames, greetings, release numbers,
+  actor names, step names, badges and navigation counts come from real data
+  or an authoritative contract: status and step labels from `/v1/config`
+  states and `statusTone`, navigation and its badges from
+  `tenant/navigation.ts` with real permissions and counts, activity sentences
+  from audit fields through `activity.tsx` (an unknown action reads as its
+  words and its real resource). A mockup element without a data source is
+  omitted or shows a real empty state and becomes a backend follow-up; it is
+  never filled with sample values. Stories use neutral sample data.
+
+- **Tokens.** `web/admin/src/themes.css` imports the only source of visual
+  values, `src/theme/`: `light.css`/`dark.css` (colors and shadows, redefined
+  for `:root[data-mode="dark"]`), `sidebar.css` (the ink sidebar scope),
+  `scale.css` (the 4px `--ui-space` unit, layout, type sizes, letter spacing,
+  radii, line widths, durations, z-index layers), `sizes.css` (named component
+  sizes: icons, avatars, skeletons, measures, table columns, page widths) and
+  `tailwind.css`, which maps them to utilities (`bg-surface`, `text-ink`,
+  `text-muted`, `text-primary`, `border-line`, `rounded-panel`,
+  `font-heading`, `font-mono`, `bg-success-soft`, …). Do not add theme
+  presets; a new value is a new token there, and a new color is defined for
   both modes with AA contrast (text 4.5:1, marks and focus rings 3:1) and, for
   status colors, a lightness difference rather than hue alone.
 - **Mode.** `data-mode` on `<html>` is set by `public/appearance-init.js` before
-  CSS loads and by `applyMode` in `src/appearance.ts`. The browser preference
+  CSS loads and by `applyMode` in `src/appearance.ts`, which also sets the
+  browser chrome color (`theme-color`) from the computed `--ui-canvas`. The browser preference
   `lastapp-appearance` stores only `{ mode }`; a `theme` saved by the former
   presets is ignored.
 - **Fonts.** Inter is bundled from `src/assets`; Inter Tight (headings) and
@@ -242,7 +269,8 @@ and system color modes. New console UI follows these rules:
   its single entry point (no re-exports from old module paths). Screens are
   built only from kit components and `--ui-*` tokens: a screen that needs a new
   control, layout part or state gets it added to the kit, with stories, rather
-  than hand-written markup. Kit styles live in `src/ui/kit.css`; kit components
+  than hand-written markup. Kit styles live in `src/ui/styles/` (imported in order by
+  `src/ui/kit.css`); kit components
   keep the established class names that screens and e2e tests match on
   (`.primary`, `.secondary`, `.danger`, `.icon`, `.badge`, `.error`,
   `.overlay`/`.modal`, `.tabs`, `.empty`, `.panel`, `.sidebar-collapsed`);
@@ -253,8 +281,38 @@ and system color modes. New console UI follows these rules:
   `.workspace-tabs`, `.workspace-facts`, `.deployment-status`,
   `.release-list`, `.development-banner`, `.login-form`, `.password-welcome`/
   `.welcome-card`, `.profile-menu`, `.company-name`), and no screen has its
-  own stylesheet. `style.css` keeps only the base rules and the legacy class
-  names the kit renders (buttons, panels, fields, modal, tabs, shell).
+  own stylesheet. `style.css` imports Tailwind, the tokens, the kit and
+  `src/styles/`, which keeps only the base rules and the legacy class names the
+  kit renders (buttons, panels, fields, modal, tabs, shell).
+- **UI code rules** (enforced by `npm run lint`, so `make lint` and CI):
+  - *No literal visual values.* Colors, lengths, durations and z-index come
+    from `src/theme/` tokens. `scripts/check-css.mjs` rejects color literals,
+    nonzero lengths/durations and literal z-index in any stylesheet outside
+    `src/theme/` (media query breakpoints excepted: custom properties cannot
+    be used there; the shell reads its breakpoint from
+    `--ui-breakpoint-narrow`). ESLint rejects color literals, CSS lengths and
+    durations in TypeScript strings (table tracks name `--ui-col-*` /
+    `--ui-measure-*` tokens), Tailwind arbitrary values (`w-[13px]`,
+    `[&>svg]:…`) and numeric `size`/`width`/`height`/`strokeWidth` props.
+    Kit props take names: `Icon size="lg"` (`ui/icon.tsx`; use it for every
+    Lucide icon that needs a size), `Avatar size`, `Spinner size`, `Skeleton
+    width="value"|"40%"`/`height`/`circle`, `Columns`/`Stepper min` and
+    `tracks` (`Measure`), `StandalonePage width="narrow"`. Behavioural
+    timings are named once: polling intervals in `polling.ts`, the search
+    debounce in `useDebouncedSearch` (`ui/hooks.ts`), the toast duration in
+    `ui/toast.tsx`.
+  - *Kit components only.* Outside `src/ui`, ESLint rejects raw `<button>`,
+    `<input>`, `<textarea>`, `<select>`, `<table>` and `<dialog>` and any
+    `style` prop; add the missing part to the kit, with a story. Native
+    `<select>`, date inputs and number steppers are never used, in the kit
+    either.
+  - *At most 200 lines per file* (blank and comment lines not counted):
+    ESLint `max-lines` for every `.ts`/`.tsx` under `src` (stories excepted:
+    they show every state of one component) and `check-css.mjs` for every
+    stylesheet. Split by responsibility (component, hook, query helper, form
+    definition, style section) without duplicating logic. Nothing in `src`
+    is generated, so there are no other exceptions; there are no suppression
+    comments.
 - **Inventory.**
   - Primitives: `Button`/`IconButton` (primary, secondary, ghost, danger, link;
     sm/md; loading; the icon button's label is required), `StatusBadge` with
@@ -275,7 +333,19 @@ and system color modes. New console UI follows these rules:
     button look, for navigation), `FactList` (a record's labelled values;
     term/definition pairs), `Disclosure` (details/summary), `CodeBlock`,
     `PickList` (a record list beside the open record; pressed toggle rows),
-    `SegmentedControl` (a few views of one list; pressed toggle buttons) and
+    `SegmentedControl` (a few views of one list; pressed toggle buttons),
+    `ChoiceCards` (named starting points as pressed cards with a line under
+    each), `AccessMatrix` (read-only rows × operations card; a cell opens
+    where it is edited), `AssignmentList` (role → holder · scope lines),
+    `ConnectionCard`/`ConnectionGrid` (a delegated connection), `FlowCard`/
+    `FlowSection`/`FlowStack` (one focused task such as a consent), the `pill`
+    Badge,
+    the record designer parts (`designer-parts.tsx`: `RecordHeader`,
+    `NavList`/`NavListNote`, `GridTable` (a grid-template table that scrolls
+    sideways in its card), `Panel` (titled card, `flush` for a table),
+    `PathCard`, `Callout`, `ChipRow`, `ResultTile(s)`, `DesignerPage`,
+    `DesignerBody`, `DesignerNote`; their chips are the `pill` Badge),
+    `Tabs variant="line"` (a page's 14 px section strip) and
     the layout parts `Stack`, `Inline` (`align="end"` lines a labelled field
     up with a button), `Split` (list | record, stacked under 800 px) and
     `Columns` (wrapping equal columns with a minimum width, fixed `weights`
@@ -286,22 +356,49 @@ and system color modes. New console UI follows these rules:
     `disabled`, group actions) and `LoadingScreen` (the announced
     whole-window wait). Fields take `hideLabel`; the required mark sits beside
     the label, not in it.
-  - Composites: `SidebarNav`/`SidebarFooter` and `useSidebarCollapse` (the
-    68 px rail, remembered in the browser as `lastapp-sidebar`; ConsoleShell
-    uses them), `ContextSwitcher` (Tenant/Space popover: filter combobox over a
-    listbox; with `path` it searches and pages a list API through
-    `useRemoteOptions`, the same paging RemoteSelect uses), `CommandPalette`
+  - Composites: `SidebarNav` (a labelled nav group under an uppercase section
+    label, with count badges), `SidebarLinks` (a titled list of places with a
+    status dot and an optional tag: the Spaces and their workspaces) and `useSidebarCollapse` (the 68 px rail,
+    remembered in the browser as `lastapp-sidebar`; ConsoleShell uses them),
+    `ContextSwitcher` (Tenant/Space searchable select: a filter combobox over
+    the listbox in the floating `ListboxPopup`; `variant="sidebar"` is the
+    ink sidebar's bordered control under the brand row (initials tile,
+    "Tenant" caption, name, chevron; the tile alone with a tooltip on the
+    rail, its popup opening beside it), shown for any account with a Tenant
+    so switching is always discoverable; typing on the trigger opens it and
+    starts the search; with `path`
+    it searches and pages a list API through `useRemoteOptions`, the same
+    paging RemoteSelect uses; "Load more" keeps the popup open, keeps focus in
+    the search field and brings the first new option into view),
+    `CommandPalette`
     and `useCommandPaletteShortcut` (⌘K/Ctrl+K), `Menu` (WAI-ARIA menu button;
     the account menu), `DataTable` (Collection adds server search and paging on
     top; below 640 px rows stack as label/value cards labelled by the column
     header, `stack={false}` keeps a scrolling grid) and `RoleMatrix`;
-    `AppShell` with `QuickSearch`, `AccountMenu` and `ContextLabel` (the shell
-    frame: ink sidebar, rail, drawer, top bar; it keeps the legacy shell class
-    names as theme and e2e hooks), `AuthLayout` (sign-in, first-login password
+    `AppShell` with `SearchField`, `AccountMenu` and `ContextLabel` (the shell
+    frame: ink sidebar with the brand, collapse toggle, search, navigation and
+    the account at its foot; rail; drawer; a top bar with breadcrumbs, search
+    and actions; content centred at 1240 px),
+    `PageIntro` (eyebrow, greeting-size title, summary and an aside),
+    `AttentionCard`/`AllClear`, `AppCard` (named by the App's visible name,
+    described by its address and release), `RowTable` (a titled card holding
+    a role=table grid: `columns` tracks, uppercase headers, rows whose
+    `onOpen` makes the first cell a button stretched over the row; cells
+    `CellTitle`, `CellMono`, `CellActions`; scrolls sideways when narrow),
+    `AppHeader`/`AppTile` (an App's initials tile, title, address, status
+    and actions), `TitledCard` (title, note and actions inline or stacked),
+    `CardRow`, `PageStack`, `ValueBox`, `Stepper min` (the narrowest step),
+    `ActivityList` (actor mark, one
+    sentence, meta; `variant="rows"` puts via and when in columns, stacked
+    under 720 px), `AuthLayout` (sign-in, first-login password
     and the App launch approval: one card centred outside the shell) and
     `StandalonePage` (a centred column outside the shell: agent consent).
   - Form controls and services: Select, ListboxPopup/`useListbox`
-    (`listbox.ts`), RemoteSelect, NumberInput, NewPasswordInput (all three
+    (`listbox.ts`; the one popup of every list control, portalled to
+    `<body>` or the open modal dialog, never the ink sidebar, and placed
+    fixed under its control (flipped up without room, at least as wide, the
+    list scrolling inside) so it never moves surrounding layout; the current
+    option carries a check mark), RemoteSelect, NumberInput, NewPasswordInput (all three
     carry `ui-input` and take FormField's id/description wiring),
     `DatePicker` (a button opening a WAI-ARIA calendar dialog with min/max;
     day helpers in `days.ts`), `UploadButton` (a folder/file picker as a kit
@@ -311,53 +408,123 @@ and system color modes. New console UI follows these rules:
     `filters` controls, a `render` feed instead of the table, and `poll`
     while rows are changing), ErrorBoundary, `useDialogFocus`.
 - **Shell.** `console-shell.tsx` wires the kit `AppShell` for both
-  workspaces (an optional `secondaryContext` slot holds the Space switcher): the
-  ink sidebar (`SidebarNav`, `SidebarFooter`, collapse rail, drawer under
-  800 px), the top bar (the workspace's context switchers, the ⌘K search
-  button and the account `Menu`; both are named by their visible text plus
-  visually hidden words, e.g. "<name>, account menu", so the name contains
-  what is shown and survives the narrow layout hiding the text) and
-  `PageHeader`/`Breadcrumbs`. The Tenant
+  workspaces: the ink sidebar (brand and collapse toggle, the Tenant
+  switcher under them (`context`), ⌘K search, `SidebarNav` (its section label
+  only when there is nothing to switch: "Platform" or "No Tenant access"), the Spaces
+  `SidebarLinks`: each Space with its status dot, its development workspaces
+  tagged "workspace"; the account `Menu` at the foot; collapse
+  rail, drawer under 800 px) and the top bar (breadcrumbs starting at the
+  Tenant, the ⌘K search and the workspace's actions; the Tenant console's is
+  **Connect agent**, a dialog with the real MCP URL from
+  `/v1/agent-access/config`, shared with Agent access through
+  `connect-agent.tsx`). Triggers are named by their visible text plus visually
+  hidden words, e.g. "<name>, account menu" and "Tenant <name>", so the name
+  contains what is shown and survives the narrow layout hiding the text.
+  Pages other than Home keep `PageHeader` (Activity draws its own, with its
+  filters beside the title). The Tenant
   navigation is defined once in `tenant/navigation.ts` (`tenantNav`,
   `tenantTabs`): the sidebar, the page `Tabs` (`.workspace-tabs`) and the
-  palette's Navigate/section commands all derive from it. The palette's App,
-  Space and entity jumps read only list rows already in the query cache
-  (`cachedRows` in `query.ts`); it fetches nothing. Console URLs may carry a
-  query string (`?entity=`), which `useConsoleURL` keeps in the route.
+  palette's "Go to …"/section commands all derive from it. The palette (one
+  row per command: glyph, label, its kind at the end; the input suggests words
+  that find real commands) offers "Open …" for entities, Apps and Spaces from
+  list rows already in the query cache (`cachedRows`), **Retry <App> deploy**
+  for a failed deployment Home has already read (`cachedData`, under
+  `release.manage`; the same `retryDeployment` as Home), **Connect a new
+  agent** (the top bar's dialog) and "Activity · … only" for each actor kind;
+  it fetches nothing. Mockup commands without a backing operation or read
+  (publish an entity with draft changes, role matrix, test as a person) are
+  not offered. Console URLs may carry a query string (`?entity=`,
+  `?actor=`, `?resource_id=`), which `useConsoleURL` keeps in the route.
 - **Home.** `tenant/home-page.tsx` composes only existing authorized reads:
-  the Tenant overview (counts, recent Apps, databases pending or failed), each
-  recent App's `GET /v1/apps/{app}/deployment` where `release.manage` applies,
-  `GET /v1/agent-access` (Tenant grants for `authorization.manage`, otherwise
-  the user's own) and `audit-events?limit=8` (actors from the audit
-  `actor_kind`, agents named from their grant). A card without a backing read is omitted, not estimated.
+  the Tenant overview (entities, live Apps, recent Apps with their micro-app
+  counts, databases pending or failed), each recent App's
+  `GET /v1/apps/{app}/deployment` where `release.manage` applies (status,
+  production address, release and deployer), `GET /v1/agent-access` (Tenant
+  grants for `authorization.manage`, otherwise the user's own),
+  `audit-events?limit=4` and, for the sidebar's Spaces, the user's own
+  workspaces (`GET /v1/spaces/{s}/workspaces`, where `workspace.manage`
+  applies; a preparing one shows its `preparation_step` as "Step N of M")
+  and entities (`GET /v1/spaces/{s}/entities`, where `entity.manage`
+  applies; one card per entity with `has_draft_changes` and no pending
+  publication, opening the entity designer). It greets the person with the date, says how many
+  things need them, shows three stats (Entities, Apps live, Agents active),
+  the attention cards (or a one-line All clear), App cards and the activity
+  feed. A card without a backing read is omitted, not estimated.
+- **Activity sentences.** `activity.tsx` (`describeEvents`) is the one place
+  audit actions become sentences, for Home and the Activity page. Each event
+  carries `resource_name` (`roles.AuditResourceName`: the current name of its
+  App, Space, entity, release "<App> <release>", deployment, workspace, team,
+  role, person or Tenant); the worker is written in the passive voice and an
+  agent's line names the person it acted for, and the grant's preset when its
+  permissions are exactly one of `/v1/agent-access/config` presets. The
+  Activity page (`activity-log.tsx`) shows one row per event (mark, sentence,
+  via, when) and joins consecutive events of one actor, action and resource
+  into one line whose "N changes" opens that resource's trail
+  (`?resource_id=`).
 - **Feedback.** FormModal confirms a successful save with a success `toast`
   (from `Modal.success` or derived from the title); errors stay in the form.
 - **Delivery screens.** Apps and Spaces lists, App/Space detail tabs
   (micro-apps, settings), Space → Development, App → Releases and Activity are
-  built only from kit parts. Deployment progress derives from
+  built only from kit parts. The Apps list is a `RowTable` read from
+  `GET /v1/tenants/{t}/apps`, whose items carry `active_release_id`,
+  `hosted_origin` and, where `release.manage` applies, `latest_deployment`
+  (state, `failed_state`, release name, deployer); `tenant/app-status.tsx`
+  derives the one status badge used by the list and the App header. An App
+  opens on Releases, then Micro-apps, Data access, Access and Settings: the
+  production deployment timeline marks the step a failed deployment reached
+  (`failed_state`), and release rows name their creator and, for agent
+  workspaces, the agent client (`created_by_name`, `agent_client_name`).
+  Releases carry no number: per-App ordinals would collide across
+  development Apps or count private workspace releases. Deployment progress derives from
   `GET /v1/config` → `development_policy.deployment_states` (`deployment.ts`;
   `delivery.DeploymentSteps`/`DeploymentFailed`, kept equal to the
   `release_deployments` state constraint by `TestDeploymentStatesMatchSchema`):
   the stepper, the polling and Home's attention cards read it. **Retry deploy**
-  is `POST /v1/releases/{id}/deploy` of the failed deployment's release. The
+  (App page, Home, palette; `retryModal`) is `POST /v1/deployments/{id}/retry`
+  with the deployment's revision: the same deployment runs again
+  (`delivery.RetryDeployment`, see WORKSPACES.md). Workspace preparation
+  progress derives from `development_policy.workspace_steps`
+  (`delivery.WorkspaceSteps`, kept equal to the `preparation_step` constraint
+  by `TestWorkspaceStepsMatchSchema`; `workspaces.ts`). The
   audit trail carries `actor_kind` (person, agent, system; classified once in
-  `roles.Audits`), filtered with `?actor=` and `?kind=` before search and
-  paging; `GET …/audit-kinds` lists the kinds a trail holds. `actors.ts`
-  names actors for Home and Activity.
+  `roles.Audits`), filtered with `?actor=`, `?kind=` and `?resource_id=`
+  (one object's changes) before search and paging, under the same
+  `audit.read` check; `GET …/audit-kinds` lists the kinds a trail holds.
+  `actors.ts` names actors for Home and Activity and holds the actor filter's
+  choices.
 - **Entity, access, agent and platform screens.** The entity designer
-  (`entity-designer/`, no stylesheet: list beside the open entity, Fields /
-  Access / Rules / Test / History tabs, permission paths shown as who +
-  operation + fields + record condition, the publication `Stepper`), Space/App
-  Access and People/Teams, agent connections and the consent page
-  (`agent-access.tsx`; expiry is a `DatePicker` bounded by the agent config's
-  `max_days`, sent as whole `days`), the Platform pages, account, appearance
+  (`entity-designer/`, no stylesheet) is the Entities section's own screen:
+  the Space header and tabs give way to its `RecordHeader` (initial tile,
+  name, `key · published <date>` from the active publication, a "Draft · N
+  changes" chip counted client-side against `active_definition`), line
+  `Tabs` (Fields / Access / Rules with its rule count / Test / History) and,
+  in the tab panel, the Space's entities as a `NavList` (dot =
+  `has_draft_changes` from the list, or unsaved edits; "+ New entity" opens
+  a dialog) beside the tab content. Fields is a `GridTable` (type,
+  required/Auto/—, behaviour derived from the field definition) with the
+  publication `Stepper` and the entity settings below; Access shows each
+  permission path as a `PathCard` (who + operation + fields + record
+  condition) and a `Callout` for fields no read path reaches, whose button
+  adds them to the first read path in the draft; Rules are `ChipRow`s; Test
+  shows `ResultTile`s (allowed/denied and the fields of the complete matching
+  paths, never a record count). Without an `?entity=` link the first entity
+  opens. Space/App
+  Access (`access-control.tsx`: `AccessMatrix`, read-only, derived from the
+  entity's published and draft permission paths, holders from every page of
+  the Space's assignments (`useAllPages`), a cell opening the entity's Access
+  tab; `AssignmentList`, an App's inherited Space assignments tagged and
+  read-only; the Roles collection) and People/Teams, the Agents page and agent connections
+  (`ConnectionCard`; preset read as an exact match of the grant's permissions)
+  and the consent page (`agent-access.tsx`, a `FlowCard`; preset `ChoiceCards`
+  with the config's descriptions, the config's `day_choices` and a
+  `DatePicker` bounded by `max_days`, sent as whole `days`), the Platform pages, account, appearance
   (a `Dialog`), sign-in/password and Tenant settings are kit-only.
   Destructive removals (access assignment, agent revoke, Tenant administrator,
   account disable) go through `confirmAction`.
 - **Stories.** Every kit component has stories
   (`src/ui/controls/*.stories.tsx`, grouped as Primitives, Composites and
   Controls) with realistic Northstar data;
-  `src/ui/foundations/` shows the tokens (read from `themes.css`, both modes,
+  `src/ui/foundations/` shows the tokens (read from `src/theme/`, both modes,
   contrast ratios), typography, spacing/radius and the lucide icons in use.
   Stories supply the password policy and mock list APIs (`src/ui/storybook/`);
   they never copy server limits.
@@ -398,8 +565,8 @@ deployments/starters and the MCP workspace/release tools (`delivery_shapes`),
 OAuth including cookie names/attributes (`session_shapes`), and normalised
 `audit_events` attribution for human, agent and worker steps (`audit_attribution`).
 Refactors must leave them unchanged. Regenerate them only for an intended contract
-change with `go test ./internal/control -run Golden -update-golden` (all but the
-tool schema golden need `LASTAPP_TEST_CONFIG`) and review the diff.
+change with `python3 scripts/testdb.py ./internal/control -run Golden -update-golden`
+(all but the tool schema golden need the test database) and review the diff.
 
 Important management groups are Tenant/Space/App/micro-app inventory, scoped
 `roles`, `role-assignments`, `recipients`, memberships/teams, database resources,
@@ -427,12 +594,13 @@ If Go is run directly in a restricted environment, set
 rather than replacing the global toolchain.
 
 ```sh
-make test                       # unit/build checks; DB tests may skip
+make test                       # unit/build checks; DB tests skip
 make lint                       # golangci-lint v2.15.0 + console npm run lint/typecheck
 make fmt                        # gofumpt/gci via golangci-lint fmt
 GOCACHE="$PWD/.local/go-cache" go vet ./...
-make mcp-test                   # TestAgent* only (agent + control): MCP/OAuth/agent security + agent worker
-make integration                # full backend race/security + browser suite
+make mcp-test                   # TestAgent* only (agent + control) on the test DB: MCP/OAuth/agent security + agent worker
+make integration                # every Go package with -race on the test DB, then make e2e
+python3 scripts/testdb.py ARGS  # any `go test ARGS` on a fresh test DB, e.g. ./internal/delivery -run Quota
 make e2e                        # browser suite only, on a disposable stack
 make client                     # SDK + example client.js; needs web/admin npm ci
 (cd web/admin && npm run build-storybook)  # local Storybook build; not in CI
@@ -445,16 +613,16 @@ CI (`.github/workflows/checks.yml`, job `test`) runs the same lint, type, schema
 driver, race-test and browser checks, plus `govulncheck`.
 
 Integration/database tests over HTTP/MCP, `TestNoHTTPLoopback` and the goldens
-live in `internal/control`, so `make integration` and `make mcp-test` target that
-package. `internal/publisher` has its own storage tests and a disposable
-business-database fixture (they skip without `LASTAPP_TEST_CONFIG`; run them with
-`go test ./internal/publisher`). `internal/dataapi` has database-free unit tests
+live in `internal/control`; `make mcp-test` targets its `TestAgent*` tests.
+`internal/publisher` has its own storage tests and a disposable
+business-database fixture (run them with
+`python3 scripts/testdb.py ./internal/publisher`). `internal/dataapi` has database-free unit tests
 for its SQL builders, gates, definition cache and Tenant fairness
 (`go test ./internal/dataapi`); its HTTP behaviour is covered black-box by the
 `/data/v1` tests and `data_shapes` golden in `internal/control`.
 `internal/delivery` has database-free tests (snapshot remapping, contract
-hashes, deployment plans, pinned versions, hosted origins) and, with
-`LASTAPP_TEST_CONFIG`, a disposable registry fixture built from the migrations
+hashes, deployment plans, pinned versions, hosted origins) and, on the test
+database, a disposable registry fixture built from the migrations
 for deployment candidate entities, the production App quota and capture
 readiness (`go test ./internal/delivery`); the workspace/release/deployment
 flows and the `delivery_shapes` golden stay black-box in `internal/control`.
@@ -474,9 +642,10 @@ run black-box (and through `Server.Tools`) in `internal/control`, with the
 `mcp_tools`, `response_shapes`, `session_shapes`, `delivery_shapes` and
 `audit_attribution` goldens.
 `internal/worker` tests the leader with fake steps on a lock-only fixture
-(`LASTAPP_TEST_CONFIG`, no schema): starters once per term on the lock
+(test database, no schema): starters once per term on the lock
 connection before any step, steps on connections of their own, standing by while
-another session holds the lock, the per-step idle pause, transient retries,
+another session holds the lock, `Settle` draining until idle or deferring to
+another leader, the per-step idle pause, transient retries,
 error isolation with backoff and no lost leadership, a slow step not delaying
 another, and term end (killed lock connection) stopping every step before the
 next term's recovery (`go test ./internal/worker`); the `Fair` and publication
@@ -486,20 +655,43 @@ workspace do not block another Tenant's; `TestWorkerWorkspacesIndependent`: a
 waiting workspace does not block a newer one of the same Tenant. `internal/databases` has database-free tests for the stored provisioning
 error mapping and generated names; provisioning itself, queue fairness and
 leadership-loss recovery run black-box in `internal/control`.
-The agreed direction is that each layer gets its own tests and its own fixtures;
-do not add a shared test-environment package.
+The agreed direction is that each layer gets its own tests and its own fixtures.
+The one shared test package is `internal/testdb`: it only locates the test
+database and refuses everything else; it holds no fixtures.
 
-`make mcp-test` and the backend half of `make integration` require the existing
-local development config/server. `make mcp-test` runs only the `TestAgent*` tests
-of `internal/agent` and `internal/control` with race detection; the general security suite (`LASTAPP_SECURITY_CONFIG`)
-runs under `make integration`, whose browser half is `make e2e` (below). `make client`
+**Tests never use the development data.** No test reads or writes the
+development registry `lastapp_foundation`, its Space databases or the dev
+MariaDB on 127.0.0.1:33317, and no test reads `.local/` secrets. Every
+database-backed Go test (all packages) runs on a disposable server:
+`scripts/testdb.py` (used by `make integration`, `make mcp-test`, CI,
+`design/validate_schema.py` and the security probe runner) removes any old
+`mariadb-test` container, starts a fresh one from `docker-compose.yaml`
+(profile `test`, same image as development, tmpfs, no volume, port 13319),
+creates the marker database `lastapp_disposable_test`, writes per-run
+passwords, encryption key and configs into a new temporary directory
+(`scripts/ci_config.py`), prepares the `lastapp_control` registry and its
+least-privilege runtime/provisioner accounts with `TestPrepareFixture`, runs
+`go test` with `LASTAPP_TEST_CONFIG` naming that config, then removes the
+container and the directory. Arguments go to `go test`. Fixtures still create
+and drop their own throwaway registries and Space databases there;
+`TestMariaDBControlPlane` uses the prepared registry because it checks the
+runtime account's grants. `testdb.Load` is the only way tests read that
+configuration: it skips without `LASTAPP_TEST_CONFIG` (so plain `go test ./...`
+is database-free and is not integration evidence) and fails a test whose DSNs
+use port 33317, the `lastapp_foundation` registry or a socket, or whose server
+lacks the marker database. Docker is required. Only that container is removed;
+never `docker compose down`, which would also own the development volume.
+
+`make mcp-test` runs only the `TestAgent*` tests of `internal/agent` and
+`internal/control` with race detection; `make integration` runs every Go
+package with race detection (including the security suite), then its browser
+half `make e2e` (below). `make client`
 compiles with the console's TypeScript, so run `make web` (or `make dev`) once first;
 `make e2e` runs `make client` automatically through the `pretest:e2e` hook. Database fixtures use disposable registries; worker tests clean
-their owned generated resources. Do not point them at production. Plain Go tests
-without explicit fixture config are not integration evidence. The browser suite never touches the development stack or its data: `make e2e`
+their owned generated resources. Do not point them at production. The browser suite never touches the development stack or its data either: `make e2e`
 (`scripts/e2e.py`, also used by CI) starts a fresh MariaDB from
-the `mariadb-e2e` service of `docker-compose.yaml` (profile `e2e`, tmpfs, port 33318; only that container is removed, never the development volume),
-prepares it the way CI does (`scripts/ci_config.py` + `TestPrepareFixture`),
+the `mariadb-e2e` service of `docker-compose.yaml` (profile `test`, tmpfs, port 13318)
+through the same `scripts/testdb.py` preparation,
 builds the current source and runs a separate API on 8797, development issuer on
 8798 and Vite on 5183, then stops them and removes the container. Its disposable
 config, secrets, binaries, artifacts and logs are in `.local/e2e/` (recreated each
@@ -512,8 +704,8 @@ For registry changes, add a forward Goose migration (the startup schema check
 derives its required version from the newest embedded migration), then regenerate
 the SQL document with `python3 design/validate_schema.py --write`. `--check` compares the document
 with the migrations without database access. Without a flag the validator does the same
-comparison and then runs `TestAuthorizationFoundation` on a disposable registry on
-the existing local server (`LASTAPP_TEST_CONFIG`, default `.local/config.json`). It does not test
+comparison and then runs `TestAuthorizationFoundation` on the disposable test
+database (`scripts/testdb.py`). It does not test
 every later feature; use the relevant entity/MCP/security suites too. Never edit
 the generated SQL independently of migrations.
 

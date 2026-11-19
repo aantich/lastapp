@@ -1,9 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { isColor, layout, light } from "./tokens";
 
-// Shape and layout tokens from themes.css and the style.css root.
+// Shape and size tokens from src/theme (lengths shown as bars). Layers,
+// durations, letter spacing and stroke weights are not lengths.
 const shape = Object.entries({ ...light, ...layout }).filter(
-  ([name, value]) => !isColor(value) && !name.startsWith("--ui-font"),
+  ([name, value]) =>
+    !isColor(value) &&
+    !name.startsWith("--ui-font") &&
+    !/-(z|duration|tracking|icon-stroke)-|-duration$/.test(name),
 );
 
 function Spacing() {
@@ -12,10 +16,7 @@ function Spacing() {
       <h2 className="mb-4">Spacing, radius and elevation</h2>
       <div className="grid gap-4">
         {shape.map(([name, value]) => (
-          <div
-            key={name}
-            className="grid items-center gap-4 sm:grid-cols-[220px_1fr]"
-          >
+          <div key={name} className="grid items-center gap-4 sm:grid-cols-2">
             <span>
               <code>{name}</code>
               <small>{value}</small>

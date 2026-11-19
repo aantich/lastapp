@@ -137,7 +137,7 @@ func TestTenantInventoryOperations(t *testing.T) {
 	}
 
 	target, resource := registry.NewID(), registry.NewID()
-	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Ops target','127.0.0.2',33317,'disabled')", target); e != nil {
+	if _, e = s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Ops target','127.0.0.2',3306,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.DB.Exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc) VALUES(?,?,?,'ops_metadata_only','registered','shared','ready',X'00')", resource, tenant.ID, target); e != nil {

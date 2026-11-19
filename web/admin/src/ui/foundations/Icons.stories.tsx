@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { icons } from "lucide-react";
+import { Icon } from "../icon";
 
 // The lucide-react icons the console imports today, found in its source.
 const sources = import.meta.glob<string>(
@@ -42,15 +43,15 @@ function Icons() {
         lucide-react, 1.7 stroke in navigation, sized 15–21px beside text. Add
         new icons from the same set.
       </p>
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+      <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6">
         {shown.map((name) => {
-          const Icon = icons[name];
+          const Glyph = icons[name];
           return (
             <li
               key={name}
               className="grid justify-items-center gap-2 rounded-panel border border-line p-3 text-center"
             >
-              <Icon size={20} aria-hidden="true" />
+              <Icon icon={Glyph} size="3xl" aria-hidden="true" />
               <code>{name}</code>
             </li>
           );

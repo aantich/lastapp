@@ -155,12 +155,15 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, apps.Items, "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND sp.workspace_id IS NULL ORDER BY a.created_at DESC,a.id", tenant)
+	// The hosted origin is derived from configuration around the App ID; no
+	// App here has been deployed.
+	pre, post, _ := strings.Cut(s.delivery.HostedOrigin("APP"), "APP")
+	sameJSON(t, s.DB, apps.Items, "SELECT a.id,a.tenant_id,a.space_id,sp.workspace_id,a.active_release_id,CONCAT(?,a.id,?) AS hosted_origin,NULL AS latest_deployment,a.slug,a.display_name,a.state,a.compute_mode,a.revision,a.created_at,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapp_count FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND sp.workspace_id IS NULL ORDER BY a.created_at DESC,a.id", pre, post, tenant)
 	one2, e := s.inv.App(ctx, admin, tenant, app)
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, one2, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", tenant, app)
+	sameJSON(t, s.DB, one2, "SELECT a.id,a.tenant_id,t.display_name AS tenant_name,a.space_id,sp.workspace_id,a.active_release_id,CONCAT(?,a.id,?) AS hosted_origin,a.slug,a.display_name,a.state,a.compute_mode,a.revision,sp.display_name AS space_name FROM apps a JOIN tenants t ON t.id=a.tenant_id JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.id=?", pre, post, tenant, app)
 
 	// The Tenant overview, with databases that need attention.
 	var target string
@@ -174,7 +177,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	}
 	overview := rawFields(t, c.as(operator), "/v1/tenants/"+tenant+"/overview")
 	sameRaw(t, s.DB, overview["tenant"], "SELECT t.id,t.slug,t.display_name,t.state,t.revision,t.plan_id,CASE WHEN t.default_layout='shared' AND p.allow_shared_database=1 THEN 'shared' WHEN t.default_layout='dedicated' AND p.allow_dedicated_database=1 THEN 'dedicated' ELSE p.default_layout END AS default_layout,p.display_name AS plan_name,p.max_spaces,p.max_apps,p.max_databases,p.allow_shared_database,p.allow_dedicated_database,p.allow_managed_database,p.allow_registered_database,p.allow_dedicated_compute FROM tenants t JOIN plans p ON p.id=t.plan_id WHERE t.id=?", tenant)
-	sameRaw(t, s.DB, overview["recent_apps"], "SELECT a.id,a.space_id,a.display_name,a.state,sp.display_name AS space_name FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) ORDER BY a.created_at DESC,a.id LIMIT 6", tenant)
+	sameRaw(t, s.DB, overview["recent_apps"], "SELECT a.id,a.space_id,a.display_name,a.state,sp.display_name AS space_name,(SELECT COUNT(*) FROM microapp_installations m WHERE m.app_id=a.id AND m.state<>'archived') AS microapps FROM apps a JOIN spaces sp ON sp.id=a.space_id WHERE a.tenant_id=? AND a.state<>'archived' AND NOT EXISTS(SELECT 1 FROM spaces dsp WHERE dsp.id=a.space_id AND dsp.workspace_id IS NOT NULL) ORDER BY a.created_at DESC,a.id LIMIT 6", tenant)
 	sameRaw(t, s.DB, overview["attention"], "SELECT id,database_name,state,last_error_message FROM database_resources WHERE tenant_id=? AND state IN ('pending','provisioning','failed') ORDER BY created_at DESC LIMIT 6", tenant)
 
 	// Memberships, administrators, teams, team members and users; audited
@@ -388,7 +391,19 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, entityPage["items"], "SELECT id,entity_key,label,state,revision,active_version_id,pending_version_id FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", reviewSpace, tenant)
+	// has_draft_changes is computed (draft hash against the active version's
+	// hash), so it is checked here and the stored columns are compared below.
+	var listed []map[string]any
+	if e = json.Unmarshal([]byte(mustJSON(t, entityPage["items"])), &listed); e != nil {
+		t.Fatal(e)
+	}
+	for _, item := range listed {
+		if item["has_draft_changes"] != (item["id"] == draft.ID) {
+			t.Fatal("entity draft flag", item)
+		}
+		delete(item, "has_draft_changes")
+	}
+	sameJSON(t, s.DB, listed, "SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,v.version_number AS active_version_number,e.pending_version_id FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id", reviewSpace, tenant)
 	for _, key := range []string{entityID, draft.ID} {
 		detail, e := s.authoring.DetailOf(ctx, admin, key)
 		if e != nil {
@@ -402,7 +417,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 				t.Fatal("empty publications", mustJSON(t, old))
 			}
 		} else {
-			sameJSON(t, s.DB, *detail.Publications, "SELECT id,state,error_message,definition_hash,base_version_id,created_at FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", key)
+			sameJSON(t, s.DB, *detail.Publications, "SELECT id,state,error_message,definition_hash,base_version_id,created_at,version_number FROM entity_versions WHERE entity_id=? ORDER BY version_number DESC LIMIT 20", key)
 		}
 		if detail.ActiveDefinition != nil {
 			stored, e := registry.QueryRows(ctx, s.DB, "SELECT definition_json FROM entity_versions WHERE id=?", *detail.ActiveVersion)
@@ -413,17 +428,18 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			sameJSON(t, s.DB, publication, "SELECT id,base_version_id,state,error_message,definition_hash,created_at,finished_at FROM entity_versions WHERE id=?", *detail.ActiveVersion)
+			sameJSON(t, s.DB, publication, "SELECT id,base_version_id,state,error_message,definition_hash,created_at,finished_at,version_number FROM entity_versions WHERE id=?", *detail.ActiveVersion)
 		}
 		detail.ActiveDefinition, detail.Diagnostics, detail.DraftContract, detail.Publications, detail.PublishedContract = nil, nil, nil, nil, nil
+		detail.ActiveNumber, detail.NextNumber, detail.PendingNumber = nil, nil, nil
 		sameJSON(t, s.DB, detail, "SELECT * FROM entity_definitions WHERE id=?", key)
 	}
 	// The agent inventory summarizes each draft as the untyped read did.
-	drafts, e := registry.ScanAll[agent.EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	drafts, e := registry.ScanAll[agent.EntityRecord](ctx, s.DB, `SELECT e.active_version_id,v.version_number,v.definition_hash,e.draft_json,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil {
 		t.Fatal(e)
 	}
-	untyped, e := registry.QueryRows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
+	untyped, e := registry.QueryRows(ctx, s.DB, `SELECT e.id,e.entity_key,e.label,e.state,e.revision,e.active_version_id,v.version_number AS active_version_number,e.pending_version_id,e.draft_json,v.definition_hash FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id`, reviewSpace, tenant)
 	if e != nil || len(untyped) != len(drafts) {
 		t.Fatal("entity inventory", e)
 	}
@@ -490,7 +506,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, workspaces.Items, "SELECT id,display_name,production_space_id,backing_space_id,state,error_message,revision,created_at,owner_agent_grant_id FROM development_workspaces WHERE production_space_id=? AND owner_user_id=? ORDER BY created_at DESC,id", reviewSpace, p.ID)
+	sameJSON(t, s.DB, workspaces.Items, "SELECT w.id,w.display_name,w.production_space_id,w.backing_space_id,w.state,w.error_message,w.revision,w.created_at,w.owner_agent_grant_id,g.client_name AS agent_client_name,w.preparation_step FROM development_workspaces w LEFT JOIN agent_grants g ON g.id=w.owner_agent_grant_id WHERE w.production_space_id=? AND w.owner_user_id=? ORDER BY w.created_at DESC,w.id", reviewSpace, p.ID)
 
 	// The principal's Tenants and agent connections.
 	myTenants := rawFields(t, c, "/v1/my-tenants")
@@ -511,7 +527,7 @@ func TestRegistryRecordsMatchUntypedRows(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sameJSON(t, s.DB, audits.Items, "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,"+roles.AuditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.tenant_id=? ORDER BY a.id DESC LIMIT 200", tenant)
+	sameJSON(t, s.DB, audits.Items, "SELECT a.id,a.tenant_id,a.action,a.resource_type,a.resource_id,a.request_id,a.details_json,a.created_at,"+roles.AuditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,"+roles.AuditResourceName+" AS resource_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.tenant_id=? ORDER BY a.id DESC LIMIT 200", tenant)
 }
 
 func mustJSON(t *testing.T, v any) string {

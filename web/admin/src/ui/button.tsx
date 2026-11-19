@@ -7,6 +7,7 @@ import {
 import { LoaderCircle } from "lucide-react";
 import { Tooltip } from "./tooltip";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 export type ButtonVariant =
   "primary" | "secondary" | "ghost" | "danger" | "link";
@@ -65,9 +66,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {...rest}
       >
         {loading ? (
-          <LoaderCircle
+          <Icon
+            icon={LoaderCircle}
             className="spin"
-            size={size === "sm" ? 14 : 16}
+            size={size === "sm" ? "sm" : "lg"}
             aria-hidden
           />
         ) : (
@@ -163,7 +165,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         {...rest}
       >
         {loading ? (
-          <LoaderCircle className="spin" size={16} aria-hidden />
+          <Icon icon={LoaderCircle} className="spin" size="lg" aria-hidden />
         ) : (
           icon
         )}

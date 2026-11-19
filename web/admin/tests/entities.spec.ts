@@ -27,7 +27,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
   const created = await post(page, base + "/spaces", {
     id: space,
     slug: "crm",
-    display_name: "CRM entities",
+    display_name: "CRM",
     initial_manager_user_id: owner.id,
     database: {
       mode: "managed",
@@ -40,8 +40,9 @@ test("entity designer creates, tests and publishes a real shared backend", async
     "/console/tenants/" + tenant + "/spaces/" + space + "/entities",
   );
   await expect(
-    page.getByRole("heading", { name: "Business entities" }),
+    page.getByRole("heading", { name: "CRM entities", exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "New entity", exact: true }).click();
   await page.getByLabel("Entity name", { exact: true }).fill("Deal");
   await page
     .getByRole("button", { name: "Create entity", exact: true })
@@ -102,31 +103,38 @@ test("entity designer creates, tests and publishes a real shared backend", async
   ).toBe(200);
   await page.reload();
 
+  // The entity's name is the page's one h1.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(["Deal"]);
+  // The Fields tab shows the draft's permission paths beside the fields,
+  // with the field no read path reaches.
+  const paths = page.getByRole("region", { name: "Permission paths" });
+  await expect(paths.getByText("Fields: name", { exact: true })).toHaveCount(2);
   await expect(
-    page.getByRole("heading", { name: "Deal", exact: true }),
+    paths.getByText("website is not in any read path yet", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("tablist", { name: "Entity designer" })
+    .getByRole("tablist", { name: "Entity sections" })
     .getByRole("tab", { name: "Access", exact: true })
     .click();
   await expect(page.getByText("View deals", { exact: true })).toBeVisible();
   await page
-    .getByRole("tablist", { name: "Entity designer" })
+    .getByRole("tablist", { name: "Entity sections" })
     .getByRole("tab", { name: "Test", exact: true })
     .click();
   await page
     .getByRole("textbox", { name: "Name", exact: true })
     .fill("Synthetic Deal");
   await page.getByRole("button", { name: "Run test", exact: true }).click();
+  await expect(page.getByText("Allowed", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Allowed", exact: true }),
+    page.getByText("Allowed through Create deals.", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Review changes", exact: true })
+    .getByRole("button", { name: "Review & publish", exact: true })
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Publish", exact: true })
+    .getByRole("button", { name: "Publish v1", exact: true })
     .click();
   await expect
     .poll(
@@ -138,24 +146,55 @@ test("entity designer creates, tests and publishes a real shared backend", async
     )
     .toBe("published");
   await expect(
-    page.getByText("Published · draft saved", { exact: true }),
+    page.getByText("deal · published v1", { exact: true }),
   ).toBeVisible();
+  // The draft now matches v1: publishing is impossible, and says why. The
+  // backend rejects it as well.
   await page
-    .getByRole("tablist", { name: "Entity designer" })
+    .getByRole("button", { name: "Review & publish", exact: true })
+    .click();
+  const review = page.getByRole("dialog");
+  await expect(
+    review.getByRole("button", { name: "Publish v2", exact: true }),
+  ).toBeDisabled();
+  await expect(review.getByText(/^Nothing to publish/)).toBeVisible();
+  await expect(
+    review.getByText("No changes to publish", { exact: true }),
+  ).toBeVisible();
+  await review.getByRole("button", { name: "Close editor" }).click();
+  expect(
+    (
+      await post(
+        page,
+        "/v1/entities/" + id + "/publications",
+        {},
+        "POST",
+        saved.revision,
+      )
+    ).status,
+  ).toBe(409);
+  await page
+    .getByRole("tablist", { name: "Entity sections" })
+    .getByRole("tab", { name: "History", exact: true })
+    .click();
+  const history = page.getByRole("table", { name: "Publication history" });
+  await expect(history.getByText("v1", { exact: true })).toBeVisible();
+  await expect(history.getByText("Active", { exact: true })).toBeVisible();
+  await capture("entity-history-desktop.png", false);
+  // The Space list flags no unpublished changes once the draft is live.
+  await expect(
+    page
+      .getByRole("navigation", { name: "CRM entities", exact: true })
+      .getByText("unpublished changes"),
+  ).toHaveCount(0);
+  await page
+    .getByRole("tablist", { name: "Entity sections" })
     .getByRole("tab", { name: "Fields", exact: true })
     .click();
   await page.getByText("Entity settings", { exact: true }).click();
   const nameInput = await page
     .getByRole("textbox", { name: "Name", exact: true })
     .boundingBox();
-  const addButton = await page
-    .getByRole("button", { name: "Add field", exact: true })
-    .boundingBox();
-  expect(
-    Math.abs(
-      nameInput!.y + nameInput!.height - addButton!.y - addButton!.height,
-    ),
-  ).toBeLessThanOrEqual(1);
   const ownerInput = await page
     .getByRole("combobox", { name: "Owner field", exact: true })
     .boundingBox();
@@ -163,6 +202,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
     .getByRole("combobox", { name: "Owning team field", exact: true })
     .boundingBox();
   expect(Math.abs(ownerInput!.y - teamInput!.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(nameInput!.y - ownerInput!.y)).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await capture("entity-designer-desktop.png");
   await menu(page);
@@ -180,7 +220,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
   await appearance.getByRole("button", { name: "Done", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
-    page.getByRole("button", { name: "Review changes", exact: true }),
+    page.getByRole("button", { name: "Review & publish", exact: true }),
   ).toBeVisible();
   await expect(page.locator("aside.sidebar")).toHaveCSS("visibility", "hidden");
   expect(
@@ -218,6 +258,7 @@ test("entity designer creates, tests and publishes a real shared backend", async
     await route.fulfill({ response, json: value });
   });
   await page.reload();
+  await page.getByText("Entity settings", { exact: true }).click();
   await expect(
     page.getByRole("textbox", { name: "Name", exact: true }),
   ).toBeVisible();

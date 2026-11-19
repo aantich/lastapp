@@ -30,23 +30,36 @@ type ReleaseCreateInput struct {
 // persisted plan or delegation details through a status response.
 // Deployment is a production deployment's status and the URL it serves.
 type Deployment struct {
-	CreatedAt  time.Time  `json:"created_at"`
-	Error      *string    `json:"error_message"`
-	FinishedAt *time.Time `json:"finished_at"`
-	ID         string     `json:"id"`
-	ReleaseID  string     `json:"release_id"`
-	Revision   int64      `json:"revision"`
-	SpaceID    string     `json:"space_id"`
-	State      string     `json:"state"`
-	TargetApp  string     `json:"target_app_id"`
-	TenantID   string     `json:"tenant_id"`
-	URL        string     `json:"url"`
+	// Attempts counts the deployment's runs: 1, plus one per retry.
+	Attempts   int64     `json:"attempts"`
+	CreatedAt  time.Time `json:"created_at"`
+	DeployedBy string    `json:"deployed_by"`
+	Error      *string   `json:"error_message"`
+	// FailedState is the step a failed deployment had reached.
+	FailedState *string    `json:"failed_state"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	ID          string     `json:"id"`
+	ReleaseID   string     `json:"release_id"`
+	Release     string     `json:"release_name"`
+	// RetriedBy names the person who last retried it; null before a retry.
+	RetriedBy *string `json:"retried_by"`
+	Revision  int64   `json:"revision"`
+	SpaceID   string  `json:"space_id"`
+	State     string  `json:"state"`
+	TargetApp string  `json:"target_app_id"`
+	TenantID  string  `json:"tenant_id"`
+	URL       string  `json:"url"`
 }
 
-const deploymentStatusColumns = "d.created_at,d.error_message,d.finished_at,d.id,d.release_id,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+// The status names who started the deployment (the person; an agent acts for
+// one) and the release's name, so a status needs no further reads to display.
+const (
+	deploymentStatusColumns = "d.attempts,d.created_at,u.display_name AS deployed_by,d.error_message,d.failed_state,d.finished_at,d.id,d.release_id,rel.display_name AS release_name,r.display_name AS retried_by,d.revision,d.space_id,d.state,d.target_app_id,d.tenant_id"
+	deploymentStatusFrom    = " FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id JOIN users u ON u.id=d.created_by LEFT JOIN users r ON r.id=d.retried_by"
+)
 
 func (v *Deployment) ScanFields() []any {
-	return []any{&v.CreatedAt, &v.Error, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
+	return []any{&v.Attempts, &v.CreatedAt, &v.DeployedBy, &v.Error, &v.FailedState, &v.FinishedAt, &v.ID, &v.ReleaseID, &v.Release, &v.RetriedBy, &v.Revision, &v.SpaceID, &v.State, &v.TargetApp, &v.TenantID}
 }
 
 // Release is a captured App release with its workspace ownership and
@@ -77,17 +90,21 @@ func (v *Release) ScanFields() []any {
 	return []any{&v.AppID, &v.BackingSpace, &v.BaseHash, &v.BuildID, &v.CreatedAt, &v.CreatedBy, &v.Name, &v.ID, &v.Manifest, &v.OwnerGrant, &v.Owner, &v.ProductionApp, &v.ProductionSpace, &v.SnapshotHash, &v.Snapshot, &v.TenantID, &v.WorkspaceID}
 }
 
-// ReleaseItem is a release in an App's collection.
+// ReleaseItem is a release in an App's collection. It names who captured it:
+// the person and, when an agent owns the release's workspace, that agent
+// client acting for them.
 type ReleaseItem struct {
+	AgentClient  *string   `json:"agent_client_name"`
 	BuildID      string    `json:"build_id"`
 	CreatedAt    time.Time `json:"created_at"`
+	CreatedBy    string    `json:"created_by_name"`
 	Name         string    `json:"display_name"`
 	ID           string    `json:"id"`
 	SnapshotHash string    `json:"snapshot_hash"`
 }
 
 func (v *ReleaseItem) ScanFields() []any {
-	return []any{&v.BuildID, &v.CreatedAt, &v.Name, &v.ID, &v.SnapshotHash}
+	return []any{&v.AgentClient, &v.BuildID, &v.CreatedAt, &v.CreatedBy, &v.Name, &v.ID, &v.SnapshotHash}
 }
 
 type deploymentPlan struct {
@@ -199,7 +216,7 @@ func (s *Service) Releases(ctx context.Context, actor op.Actor, app string, page
 	if e = s.Access.Authorize(ctx, s.DB, p, "release.manage", access.Resource{Tenant: a.TenantID, App: a.ID}, false); e != nil {
 		return op.Page[ReleaseItem]{}, e
 	}
-	vs, e := op.PageScan[ReleaseItem](ctx, s.DB, page, op.CollectionFor("releases"), "SELECT rel.build_id,rel.created_at,rel.display_name,rel.id,rel.snapshot_hash FROM app_releases rel WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
+	vs, e := op.PageScan[ReleaseItem](ctx, s.DB, page, op.CollectionFor("releases"), "SELECT g.client_name AS agent_client_name,rel.build_id,rel.created_at,u.display_name AS created_by_name,rel.display_name,rel.id,rel.snapshot_hash FROM app_releases rel JOIN users u ON u.id=rel.created_by JOIN development_workspaces ws ON ws.id=rel.workspace_id LEFT JOIN agent_grants g ON g.id=ws.owner_agent_grant_id WHERE rel.app_id=? OR EXISTS(SELECT 1 FROM release_deployments d WHERE d.release_id=rel.id AND d.target_app_id=? AND d.state='active') ORDER BY rel.created_at DESC,rel.id", a.ID, a.ID)
 	return vs, e
 }
 
@@ -404,7 +421,7 @@ func (s *Service) DeployRelease(ctx context.Context, actor op.Actor, release str
 
 func (s *Service) Deployment(ctx context.Context, actor op.Actor, deployment string) (Deployment, error) {
 	p := actor.Principal
-	v, e := registry.ScanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+" FROM release_deployments d WHERE d.id=?", deployment)
+	v, e := registry.ScanOne[Deployment](ctx, s.DB, "SELECT "+deploymentStatusColumns+deploymentStatusFrom+" WHERE d.id=?", deployment)
 	if e != nil {
 		return v, e
 	}
@@ -435,8 +452,7 @@ func (s *Service) AppDeployment(ctx context.Context, actor op.Actor, app string)
 	if production != "" {
 		space = production
 	}
-	vs, e := registry.ScanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+`
- FROM release_deployments d JOIN app_releases rel ON rel.id=d.release_id
+	vs, e := registry.ScanAll[Deployment](ctx, s.DB, `SELECT `+deploymentStatusColumns+deploymentStatusFrom+`
  WHERE d.tenant_id=? AND d.space_id=? AND (d.state IN ('queued','preparing','publishing') OR d.target_app_id=? OR rel.app_id=?)
  ORDER BY (d.state IN ('queued','preparing','publishing')) DESC,d.created_at DESC,d.id DESC LIMIT 1`, a.TenantID, space, a.ID, a.ID)
 	if e != nil {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/databases"
+	"github.com/aantich/lastapp/internal/entities"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
 )
@@ -45,8 +46,26 @@ func TestEntityRuntime(t *testing.T) {
 	}
 	created := oc.want("POST", "/v1/spaces/"+space+"/entities", registry.Row{"definition": d}, 0, 200)
 	eid := registry.Str(created["id"])
+	// The Space list flags a draft that differs from the active version
+	// (or has none), without loading each definition.
+	draftFlag := func() any {
+		t.Helper()
+		for _, v := range oc.want("GET", "/v1/spaces/"+space+"/entities", nil, 0, 200)["items"].([]any) {
+			if item := v.(map[string]any); item["id"] == eid {
+				return item["has_draft_changes"]
+			}
+		}
+		t.Fatal("entity missing from its Space list")
+		return nil
+	}
+	if draftFlag() != true {
+		t.Fatal("an unpublished entity has no draft flag")
+	}
+	c.want("GET", "/v1/spaces/"+space+"/entities", nil, 0, 403)
 	c.want("GET", "/v1/entities/"+eid, nil, 0, 403)
-	oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202)
+	if queued := oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, 1, 202); registry.Integer(queued["version_number"]) != 1 {
+		t.Fatal("the first publication is not v1", queued)
+	}
 	// A failed workspace read is not "no workspace": the job fails closed and
 	// stays queued for a retry instead of skipping the owner's authority check.
 	if _, e := s.publisher.Job(ctx, failingWorkspaceRead{s.DB}); e == nil || isAPIStatus(e, 404) {
@@ -61,6 +80,21 @@ func TestEntityRuntime(t *testing.T) {
 	published := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
 	if published["active_version_id"] == nil {
 		t.Fatal(published["publications"])
+	}
+	if registry.Integer(published["active_version_number"]) != 1 || registry.Integer(published["next_version_number"]) != 2 || registry.Integer(published["publications"].([]any)[0].(map[string]any)["version_number"]) != 1 {
+		t.Fatal("version numbers", published["active_version_number"], published["next_version_number"], published["publications"])
+	}
+	if draftFlag() != false {
+		t.Fatal("a draft equal to its active version is flagged as changed")
+	}
+	// Publishing a draft identical to the active version is rejected (console
+	// and MCP share the operation) and queues nothing.
+	unchanged := oc.want("POST", "/v1/entities/"+eid+"/publications", registry.Row{}, registry.Integer(published["revision"]), 409)
+	if problem, _ := unchanged["error"].(map[string]any); problem["message"] != entities.UnchangedDraft {
+		t.Fatal("unchanged publication", unchanged)
+	}
+	if v, e := registry.QueryRow(ctx, s.DB, "SELECT COUNT(*) n FROM entity_versions WHERE entity_id=?", eid); e != nil || registry.Integer(v["n"]) != 1 {
+		t.Fatal("an unchanged publication queued a version", v, e)
 	}
 	appInfo := oc.want("GET", base+"/apps/"+app, nil, 0, 200)
 	oc.want("PATCH", "/v1/apps/"+app+"/data-access", entity.AppAccess{Origin: "http://localhost:8789", Inherit: true}, registry.Integer(appInfo["revision"]), 200)
@@ -296,7 +330,15 @@ func TestEntityRuntime(t *testing.T) {
 			t.Fatal(latest["publications"])
 		}
 	}
+	current := oc.want("GET", "/v1/entities/"+eid, nil, 0, 200)
+	oc.want("PATCH", "/v1/entities/"+eid, registry.Row{"definition": d}, registry.Integer(current["revision"]), 200)
+	if draftFlag() != true {
+		t.Fatal("a saved draft that differs from the active version is not flagged")
+	}
 	publish()
+	if draftFlag() != false {
+		t.Fatal("the draft flag stayed after publishing the draft")
+	}
 	pid := entity.PermissionID(eid, "shared_read")
 	grant := registry.Row{"permission_id": pid, "recipient_kind": "user", "recipient_id": outsider}
 	request(bearer, "POST", "/entities/deal/records/"+record+"/shares", grant, 0, 200)
@@ -349,6 +391,12 @@ func TestEntityRuntime(t *testing.T) {
 	if latest["active_version_id"] == nil || latest["publications"].([]any)[0].(map[string]any)["state"] != "failed" {
 		t.Fatal(latest["publications"])
 	}
+	// The failed version keeps its number; the next one skips past it and the
+	// active version keeps the number it had.
+	failedNumber := registry.Integer(latest["publications"].([]any)[0].(map[string]any)["version_number"])
+	if active := registry.Integer(latest["active_version_number"]); active < 1 || active >= failedNumber || registry.Integer(latest["next_version_number"]) != failedNumber+1 || latest["pending_version_number"] != nil {
+		t.Fatal("version numbers after a failed publication", latest["active_version_number"], latest["next_version_number"], latest["publications"])
+	}
 	request(bearer, "POST", "/entities/deal/query", registry.Row{"select": []string{"name"}}, 0, 200)
 	exec("DELETE FROM sessions WHERE token_hash=?", registry.TokenHash(oc.session))
 	request(bearer, "GET", "/schema", nil, 0, 401)
@@ -390,10 +438,11 @@ func businessDatabaseFixture(t *testing.T, s *Server, tenant string, managed boo
 	})
 	enc, _ := s.sealer.Seal("database", resource, tenant, runtime)
 	schema, _ := s.sealer.Seal("schema", resource, tenant, ddl)
+	host, port := registryAddress(s.Config.RegistryDSN) // the test server holding the database above
 	if managed {
-		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Test','127.0.0.1',33317,'disabled',1,X'00')", target)
+		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode,managed_enabled,provisioning_credentials_enc) VALUES(?,'Test',?,?,'disabled',1,X'00')", target, host, port)
 	} else {
-		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES(?,'Test','127.0.0.1',33317,'disabled')", target)
+		exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES(?,'Test',?,?,'disabled')", target, host, port)
 	}
 	exec("INSERT INTO database_resources(id,tenant_id,target_id,database_name,management_mode,layout,state,runtime_credentials_enc,schema_credentials_enc) VALUES(?,?,?,?,'registered','shared','ready',?,?)", resource, tenant, target, name, enc, schema)
 	return resource, target

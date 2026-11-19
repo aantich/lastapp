@@ -1,5 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
-import { login, nav, choose, post, fixtureTenant, pick } from "./helpers";
+import {
+  login,
+  nav,
+  people,
+  choose,
+  post,
+  fixtureTenant,
+  pick,
+} from "./helpers";
 const roleIds = {
   platform: "00000000-0000-4000-8000-000000000001",
   tenant: "00000000-0000-4000-8000-000000000002",
@@ -118,7 +126,7 @@ test("existing administrative roles can be revoked while account, membership and
       )
     ).status,
   ).toBe(200);
-  await nav(admin, "People");
+  await people(admin);
   const row = admin.getByRole("row").filter({ hasText: outsider.display_name }),
     tenantRole = row.getByRole("checkbox", { name: /Tenant administrator/ });
   await expect(tenantRole).toBeEnabled();
@@ -234,7 +242,7 @@ test("platform can add a verified SSO identity as an ordinary member and access 
   const member = await tenantPage(browser, tenant),
     admin = member.page;
   expect((await admin.request.get("/admin/v1/users")).status()).toBe(403);
-  await nav(admin, "People");
+  await people(admin);
   await expect(
     admin
       .getByRole("row")
@@ -265,7 +273,7 @@ test("platform can add a verified SSO identity as an ordinary member and access 
     .click();
   await expect(admin.getByRole("dialog")).toHaveCount(0);
   await expect(
-    admin.getByRole("row").filter({ hasText: outsider.display_name }),
+    admin.getByRole("listitem").filter({ hasText: outsider.display_name }),
   ).toContainText("SSO reviewer");
   expect(
     (await read(admin, base + "/memberships?q=" + outsider.id)).items[0]
@@ -326,9 +334,6 @@ test("access refresh preserves stale editors and App compute preferences survive
       display_name: "Original reviewer",
     });
   await admin.goto(`/console/tenants/${tenant}/spaces/${space}/access`);
-  await admin
-    .getByRole("button", { name: "Manage roles", exact: true })
-    .click();
   await expect(
     admin.getByRole("row").filter({ hasText: "Original reviewer" }),
   ).toBeVisible();
@@ -392,8 +397,15 @@ test("access refresh preserves stale editors and App compute preferences survive
   ]) {
     const scope = base + "/" + kind + "/" + id;
     await admin.goto(`/console/tenants/${tenant}/${kind}/${id}/access`);
+    // The owner manages the scope (an App also lists its Space's
+    // assignments, inherited).
     await expect(
-      admin.getByRole("row").filter({ hasText: owner.display_name }),
+      admin
+        .getByRole("listitem")
+        .filter({ hasText: owner.display_name })
+        .filter({
+          hasText: kind === "spaces" ? "Space manager" : "App manager",
+        }),
     ).toBeVisible();
     const r = await create(admin, scope + "/roles", {
       id: crypto.randomUUID(),
@@ -407,7 +419,7 @@ test("access refresh preserves stale editors and App compute preferences survive
     });
     await admin.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(
-      admin.getByRole("row").filter({ hasText: outsider.display_name }),
+      admin.getByRole("listitem").filter({ hasText: outsider.display_name }),
     ).toContainText("Refreshed assignment");
   }
   expect(

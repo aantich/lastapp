@@ -1,5 +1,13 @@
 import { Check, RotateCcw } from "lucide-react";
-import { Alert, Button, Dialog, DialogBody, RadioGroup, Stack } from "./ui";
+import {
+  Alert,
+  Button,
+  Dialog,
+  DialogBody,
+  RadioGroup,
+  Stack,
+  Icon,
+} from "./ui";
 import { modes, type Appearance, type Mode } from "./appearance";
 
 const modeLabels: Record<Mode, string> = {
@@ -30,12 +38,15 @@ export function AppearancePanel({
       onClose={close}
       footer={
         <>
-          <Button icon={<RotateCcw size={15} aria-hidden />} onClick={reset}>
+          <Button
+            icon={<Icon icon={RotateCcw} size="md" aria-hidden />}
+            onClick={reset}
+          >
             Reset to default
           </Button>
           <Button variant="primary" onClick={close}>
             Done
-            <Check size={15} aria-hidden />
+            <Icon icon={Check} size="md" aria-hidden />
           </Button>
         </>
       }

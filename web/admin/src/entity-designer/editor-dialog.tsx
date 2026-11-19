@@ -9,6 +9,7 @@ import {
   IconButton,
   Inline,
   Stack,
+  Icon,
 } from "../ui";
 
 // Edit and Remove for one row of the designer's field, access and rule
@@ -24,20 +25,18 @@ export function RowActions({
 }) {
   return (
     <Inline gap="sm">
-      <Button
-        size="sm"
-        icon={<Pencil size={13} aria-hidden />}
-        aria-label={"Edit " + title}
+      <IconButton
+        label={"Edit " + title}
+        tooltip
+        icon={<Icon icon={Pencil} size="md" aria-hidden />}
         onClick={edit}
-      >
-        Edit
-      </Button>
+      />
       {remove && (
         <IconButton
           label={"Remove " + title}
           tone="danger"
           tooltip
-          icon={<Trash2 size={15} aria-hidden />}
+          icon={<Icon icon={Trash2} size="md" aria-hidden />}
           onClick={remove}
         />
       )}

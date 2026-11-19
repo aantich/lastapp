@@ -76,6 +76,11 @@ export const entityState = (v: Item) =>
         ? "published"
         : "draft";
 
+// A version's number as "v8", or "" when there is none. The backend assigns
+// the numbers (version_number, active_/pending_/next_version_number).
+export const versionLabel = (v: unknown): string =>
+  typeof v === "number" && v > 0 ? "v" + v : "";
+
 // A one-line reading of an expression for lists ("Stage ≠ "lost""). The
 // editor and the backend work on the expression itself; this is display only.
 const infix: Record<string, string> = {
@@ -152,11 +157,15 @@ export type Designer = {
   me: Item;
   catalog: EntityCatalog;
   roles: Item[];
+  // The Space's entities (the list), for reference targets' names.
+  entities: Item[];
   record: Item | null;
   setRecord: Dispatch<SetStateAction<Item | null>>;
   draft: Item;
   setDraft: Dispatch<SetStateAction<Item | null>>;
   dirty: boolean;
+  // The draft's changes to the active version (publishableChanges).
+  changes: number | null;
   busy: boolean;
   run: (fn: () => Promise<unknown>) => Promise<void>;
   save: () => Promise<Item>;

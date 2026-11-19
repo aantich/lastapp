@@ -1,0 +1,103 @@
+/* Timeline */
+.ui-timeline {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-timeline > li {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: calc(var(--ui-space) * 3);
+  padding-bottom: calc(var(--ui-space) * 4);
+}
+.ui-timeline > li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--ui-space) * 3.75);
+  top: calc(var(--ui-space) * 8.5);
+  bottom: calc(var(--ui-space) * 0.5);
+  width: calc(var(--ui-space) * 0.25);
+  background: var(--ui-border);
+}
+.ui-timeline-copy {
+  display: grid;
+  gap: calc(var(--ui-space) * 0.5);
+  font-size: var(--ui-text-base);
+  line-height: 1.5;
+  padding-top: calc(var(--ui-space) * 1.25);
+}
+.ui-timeline-copy > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1) calc(var(--ui-space) * 2);
+}
+.ui-timeline-copy small,
+.ui-timeline-copy time {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+
+/* Empty state: .empty (style.css) */
+.empty .ui-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--ui-space) * 2);
+  margin-top: calc(var(--ui-space) * 1);
+}
+
+/* Data table */
+.ui-table caption {
+  text-align: left;
+}
+.ui-table th[aria-sort] button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.ui-table td.ui-num,
+.ui-table th.ui-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ui-table tr[aria-selected="true"] td {
+  background: var(--ui-primary-soft);
+}
+.ui-table .ui-skeleton {
+  height: calc(var(--ui-space) * 3);
+}
+
+/* Role matrix */
+.ui-matrix th[scope="col"] {
+  text-align: center;
+}
+.ui-matrix th[scope="col"]:first-child {
+  text-align: left;
+}
+.ui-matrix th[scope="col"] > span {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1.5);
+}
+.ui-matrix td {
+  text-align: center;
+}
+.ui-matrix td input.ui-checkbox {
+  vertical-align: middle;
+}
+.ui-matrix th[scope="row"] {
+  text-align: left;
+  font-weight: 400;
+}
+.ui-matrix th[scope="row"] small {
+  margin-top: calc(var(--ui-space) * 0.5);
+}

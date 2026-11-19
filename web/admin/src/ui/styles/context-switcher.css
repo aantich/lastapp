@@ -1,0 +1,98 @@
+/* Context switcher (on the ink sidebar or a light surface) */
+.ui-context {
+  position: relative;
+  width: 100%;
+}
+.ui-context-trigger {
+  width: 100%;
+  justify-content: space-between;
+  gap: calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 2) calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  text-align: left;
+}
+.ui-context-trigger:hover {
+  background: var(--ui-hover);
+}
+.ui-context-trigger > span {
+  display: grid;
+  min-width: 0;
+}
+.ui-context-trigger small {
+  margin: 0;
+  font-size: var(--ui-text-2xs);
+  letter-spacing: var(--ui-tracking-caps);
+  text-transform: uppercase;
+}
+.ui-context-trigger strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ui-text-base);
+}
+.ui-context-trigger > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+/* The switcher's popup is the floating ListboxPopup with a search field. */
+.combobox-popup.ui-context-popup {
+  padding: calc(var(--ui-space) * 1.5);
+  border-radius: var(--ui-radius-2xl);
+}
+.ui-context-filter {
+  padding: calc(var(--ui-space) * 1) calc(var(--ui-space) * 2)
+    calc(var(--ui-space) * 2);
+  margin-bottom: calc(var(--ui-space) * 1.5);
+}
+.ui-context-filter input {
+  font-size: var(--ui-text-base);
+}
+.ui-option-list {
+  display: grid;
+  gap: calc(var(--ui-space) * 0.5);
+  max-height: calc(var(--ui-space) * 70);
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+}
+.ui-option {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 2) calc(var(--ui-space) * 2.5);
+  border-radius: var(--ui-radius-lg);
+  font-size: var(--ui-text-base);
+  cursor: pointer;
+  min-width: 0;
+}
+.ui-option[data-active="true"] {
+  background: var(--ui-hover);
+}
+.ui-option[aria-selected="true"] {
+  font-weight: 600;
+}
+.ui-option[aria-disabled="true"] {
+  color: var(--ui-muted);
+  cursor: not-allowed;
+}
+.ui-option > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.ui-option small {
+  margin: 0;
+  font-weight: 400;
+}
+.ui-option > svg {
+  flex-shrink: 0;
+  color: var(--ui-primary);
+}
+.ui-option-empty {
+  padding: calc(var(--ui-space) * 2.5);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}

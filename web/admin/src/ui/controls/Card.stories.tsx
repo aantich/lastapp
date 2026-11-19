@@ -11,6 +11,7 @@ import {
   StatCard,
   StatGrid,
 } from "../card";
+import { Icon } from "../icon";
 
 // card.tsx: the .panel surface with header/body/footer, KPI tiles and the
 // cards that ask a person to act.
@@ -27,7 +28,7 @@ export const WithParts: Story = {
         actions={
           <IconButton
             label="Refresh database"
-            icon={<RefreshCw size={16} aria-hidden />}
+            icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
           />
         }
       />

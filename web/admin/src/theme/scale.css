@@ -1,0 +1,95 @@
+/*
+ * Signal size scale: spacing, layout, type, radii, lines, letter spacing,
+ * motion and layers. Every other stylesheet takes its lengths, durations and
+ * z-index values from these tokens (scripts/check-css.mjs rejects literals
+ * outside src/theme), so the scale changes in one place.
+ */
+:root {
+  /*
+   * The spacing unit. Lengths are multiples of it, as Tailwind's --spacing:
+   * calc(var(--ui-space) * 3.5) is 14px. Media query breakpoints cannot read
+   * custom properties and stay literal.
+   */
+  --ui-space: 4px;
+
+  /* Layout */
+  --ui-panel-padding: 24px;
+  --ui-form-gap: 20px;
+  --ui-control-height: 37px;
+  --ui-sidebar-width: 240px;
+  --ui-sidebar-rail: 68px;
+  /* The shell's phone layout (app-shell.tsx); @media rules repeat the value */
+  --ui-breakpoint-narrow: 800px;
+
+  /* Type sizes; 13px is the console's body text */
+  --ui-text-2xs: 10px;
+  --ui-text-xs: 11px;
+  --ui-text-sm: 12px;
+  --ui-text-base: 13px;
+  --ui-text-md: 14px;
+  --ui-text-lg: 15px;
+  --ui-text-xl: 16px;
+  --ui-text-2xl: 18px;
+  --ui-text-3xl: 22px;
+  --ui-text-4xl: 26px;
+  --ui-text-5xl: 28px;
+  --ui-text-6xl: 34px;
+
+  /* Letter spacing */
+  --ui-tracking-tighter: -0.6px;
+  --ui-tracking-tight: -0.5px;
+  --ui-tracking-snug: -0.4px;
+  --ui-tracking-heading: -0.02em;
+  --ui-tracking-loose: 0.4px;
+  --ui-tracking-wide: 0.02em;
+  --ui-tracking-wider: 0.04em;
+  --ui-tracking-widest: 0.05em;
+  --ui-tracking-caps: 0.06em;
+  --ui-tracking-label: 1.4px;
+
+  /* Radii: --ui-radius is a control's, --ui-radius-card a card's */
+  --ui-radius-hair: 1px;
+  --ui-radius-2xs: 3px;
+  --ui-radius-xs: 5px;
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 7px;
+  --ui-radius-lg: 8px;
+  --ui-radius: 9px;
+  --ui-radius-xl: 10px;
+  --ui-radius-2xl: 12px;
+  --ui-radius-card: 14px;
+  --ui-radius-pill: 999px;
+
+  /* Line widths: borders, outlines, rings and accent bars */
+  --ui-line: 1px;
+  --ui-line-strong: 1.5px;
+  --ui-line-thick: 2px;
+  --ui-line-accent: 3px;
+
+  /* Motion */
+  --ui-duration-fast: 0.1s;
+  --ui-duration: 0.15s;
+  --ui-duration-slow: 0.2s;
+  --ui-duration-spin: 1s;
+  --ui-duration-pulse: 1.4s;
+  /* A slower spinner when the user prefers reduced motion */
+  --ui-duration-spin-reduced: 2.5s;
+
+  /* Layers, lowest first */
+  --ui-z-topbar: 30;
+  --ui-z-sidebar: 40;
+  --ui-z-popover: 60;
+  --ui-z-drawer-backdrop: 60;
+  --ui-z-drawer: 70;
+  --ui-z-overlay: 100;
+  --ui-z-listbox: 110;
+  --ui-z-tooltip: 120;
+  --ui-z-toast: 130;
+  --ui-z-skip-link: 200;
+}
+
+@media (max-width: 650px) {
+  :root {
+    --ui-panel-padding: 16px;
+  }
+}

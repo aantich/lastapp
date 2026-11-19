@@ -30,12 +30,16 @@ export type TenantScreen = {
   profile: Item;
   space: Item;
   app: Item;
+  // The sidebar's Spaces (the first page of the Tenant's Spaces).
+  spaces: Item[];
   all: (action: string) => boolean;
   can: (action: string) => boolean;
   scoped: (action: string, spaceID?: string, appID?: string) => boolean;
   go: (page: string, v?: Partial<TenantRoute>) => void;
   openSpace: (row: Item) => void;
   openApp: (row: Item) => void;
+  // Opens an entity in its Space's entity designer.
+  openEntity: (space: string, entity: string) => void;
   edit: (row: Item, path: string, title: string, fields?: Field[]) => void;
   setModal: (modal: Modal | null) => void;
   setError: (message: string) => void;

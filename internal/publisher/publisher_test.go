@@ -3,44 +3,24 @@ package publisher
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	mariadb "github.com/aantich/go-mariadb"
 
-	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/data"
 	"github.com/aantich/lastapp/internal/entity"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
-// storageFixture opens a fresh, empty business database on the local MariaDB
-// named by LASTAPP_TEST_CONFIG (its migrate.json administrator account). The
-// test owns the database and drops it on cleanup.
+// storageFixture opens a fresh, empty business database on the disposable test
+// server (internal/testdb, its administrator account). The test owns the
+// database and drops it on cleanup.
 func storageFixture(t *testing.T) *sql.DB {
 	t.Helper()
-	file := os.Getenv("LASTAPP_TEST_CONFIG")
-	if file == "" {
-		t.Skip("set LASTAPP_TEST_CONFIG for the installed local MariaDB")
-	}
-	b, e := os.ReadFile(filepath.Join(filepath.Dir(file), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	var c config.Config
-	if e = json.Unmarshal(b, &c); e != nil {
-		t.Fatal(e)
-	}
-	cfg, e := mariadb.ParseDSN(c.RegistryDSN)
-	if e != nil {
-		t.Fatal("invalid registry DSN")
-	}
-	cfg.DBName = ""
-	cfg.ParseTime = true
+	cfg := testdb.Load(t, testdb.ConfigEnv).AdminDSN(t)
 	connector, e := mariadb.NewConnector(cfg)
 	if e != nil {
 		t.Fatal(e)

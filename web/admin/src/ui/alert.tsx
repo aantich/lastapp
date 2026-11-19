@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
 export type AlertTone = "danger" | "warning" | "info" | "success";
 
@@ -25,6 +26,7 @@ export function Alert({
   live = true,
   icon = true,
   as: As = "div",
+  id,
   className,
 }: {
   tone?: AlertTone;
@@ -36,9 +38,11 @@ export function Alert({
   live?: boolean;
   icon?: boolean;
   as?: "div" | "p";
+  // Lets a control name this message with aria-describedby.
+  id?: string;
   className?: string;
 }) {
-  const Icon = icons[tone];
+  const Glyph = icons[tone];
   const role = !live ? undefined : tone === "danger" ? "alert" : "status";
   const Body = As === "p" ? "span" : "div";
   return (
@@ -49,8 +53,9 @@ export function Alert({
         className,
       )}
       role={role}
+      id={id}
     >
-      {icon && <Icon size={16} aria-hidden />}
+      {icon && <Icon icon={Glyph} size="lg" aria-hidden />}
       <Body className="ui-alert-body">
         {title && <strong>{title}</strong>}
         {children && <span>{children}</span>}
@@ -65,7 +70,7 @@ export function Alert({
               aria-label={dismissLabel}
               onClick={onDismiss}
             >
-              <X size={15} aria-hidden />
+              <Icon icon={X} size="md" aria-hidden />
             </button>
           )}
         </span>
@@ -85,7 +90,7 @@ export function InlineError({
 }) {
   return (
     <p className="ui-field-error" id={id}>
-      <CircleAlert size={13} aria-hidden />
+      <Icon icon={CircleAlert} size="xs" aria-hidden />
       {children}
     </p>
   );

@@ -2,6 +2,7 @@ import { useId, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cx } from "./utils";
 import { useDialogFocus } from "./use-dialog-focus";
+import { Icon } from "./icon";
 
 // The one modal shell. It is labelled by its title (and described by its
 // description), sets aria-modal, focuses the first control (or the one marked
@@ -77,7 +78,7 @@ export function Dialog({
             disabled={!dismissable}
             onClick={close}
           >
-            <X size={19} aria-hidden />
+            <Icon icon={X} size="2xl" aria-hidden />
           </button>
         </header>
         {children}

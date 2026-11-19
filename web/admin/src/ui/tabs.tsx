@@ -19,6 +19,7 @@ export function Tabs({
   value,
   onChange,
   activation = "auto",
+  variant,
   className,
   children,
 }: {
@@ -27,6 +28,8 @@ export function Tabs({
   value: string;
   onChange: (id: string) => void;
   activation?: "auto" | "manual";
+  // "line": a page's section strip (14 px tabs under an ink rule).
+  variant?: "line";
   className?: string;
   children?: ReactNode;
 }) {
@@ -58,7 +61,11 @@ export function Tabs({
         ref={list}
         role="tablist"
         aria-label={label}
-        className={cx("tabs ui-tabs", className)}
+        className={cx(
+          "tabs ui-tabs",
+          variant && "ui-tabs-" + variant,
+          className,
+        )}
       >
         {items.map((item, i) => {
           const selected = item.id === value;

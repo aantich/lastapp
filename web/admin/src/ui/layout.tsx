@@ -1,5 +1,6 @@
 import { Children, type CSSProperties, type ReactNode } from "react";
 import { cx } from "./utils";
+import { measure, type Measure } from "./measure";
 
 type Gap = "sm" | "md" | "lg";
 
@@ -63,23 +64,23 @@ export function Split({
   );
 }
 
-// Cards side by side: equal columns of at least `min` px that wrap as the
+// Cards side by side: equal columns of at least the `min` measure that wrap as the
 // screen narrows (a grid of cards), or fixed `weights` such as "2fr 1fr"
 // (a main column and a side column) that stack under 800 px. `tracks`
 // gives each child its own share and minimum width instead, e.g.
-// [{ grow: 8, min: 480 }, { grow: 5, min: 320 }]: the columns stack as soon
+// [{ grow: 8, min: "2xl" }, { grow: 5, min: "xl" }]: the columns stack as soon
 // as the space cannot hold both minimums, whatever the viewport.
 export function Columns({
-  min = 280,
+  min = "lg",
   weights,
   tracks,
   gap = "lg",
   children,
   className,
 }: {
-  min?: number;
+  min?: Measure;
   weights?: string;
-  tracks?: { grow: number; min: number }[];
+  tracks?: { grow: number; min: Measure }[];
   gap?: Gap;
   children: ReactNode;
   className?: string;
@@ -92,7 +93,7 @@ export function Columns({
             key={i}
             style={{
               flexGrow: tracks[i]?.grow ?? 1,
-              flexBasis: (tracks[i]?.min ?? min) + "px",
+              flexBasis: measure(tracks[i]?.min ?? min),
             }}
           >
             {child}
@@ -110,7 +111,7 @@ export function Columns({
       )}
       style={
         {
-          "--ui-columns-min": min + "px",
+          "--ui-columns-min": measure(min),
           ...(weights && { "--ui-columns-weights": weights }),
         } as CSSProperties
       }

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Write private settings for a DISPOSABLE CI MariaDB with empty root password.
+"""Write private settings for a DISPOSABLE test MariaDB (scripts/testdb.py) with empty root password.
 Server must be bound to loopback. This does not change the normal .local stack.
-Usage: ci_config.py DIR [DB_PORT] [--api-port N] [--oidc-port N] [--ui-port N] [--artifact-directory PATH]
+Usage: ci_config.py DIR DB_PORT [--api-port N] [--oidc-port N] [--ui-port N] [--artifact-directory PATH]
 """
 import argparse, base64, json, os, pathlib, secrets
 parser=argparse.ArgumentParser()
-parser.add_argument('directory');parser.add_argument('port',nargs='?',type=int,default=33317)
+parser.add_argument('directory');parser.add_argument('port',type=int) # never the development MariaDB (33317)
 parser.add_argument('--api-port',type=int,default=8787);parser.add_argument('--oidc-port',type=int,default=8788);parser.add_argument('--ui-port',type=int,default=5173)
 parser.add_argument('--artifact-directory')
 args=parser.parse_args()

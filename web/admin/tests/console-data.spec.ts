@@ -3,11 +3,11 @@ import {
   login,
   logout,
   menu,
-  nav,
   fixtureTenant,
   selectTenant,
   post,
   pick,
+  openSpaces,
 } from "./helpers";
 
 // Console data layer: cached reads poll without overlap and pause behind open
@@ -59,7 +59,7 @@ test("tenant polling never overlaps and pauses while a form is open", async ({
   expect(started.length).toBeLessThanOrEqual(3);
   expect(overlapped).toBe(false);
 
-  await page.locator("nav").getByRole("button", { name: "Spaces" }).click();
+  await openSpaces(page);
   await page.getByRole("button", { name: "Create Space", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   const before = started.length;
@@ -81,6 +81,7 @@ test("removing an expression argument keeps the other arguments' inputs", async 
   await selectTenant(page, tenant);
   const space = await managedSpace(page, base, owner.id);
   await page.goto(`/console/tenants/${tenant}/spaces/${space}/entities`);
+  await page.getByRole("button", { name: "New entity", exact: true }).click();
   await page.getByLabel("Entity name", { exact: true }).fill("Ticket");
   await page
     .getByRole("button", { name: "Create entity", exact: true })
@@ -209,7 +210,7 @@ test("a page that throws while rendering shows the fallback inside a working she
   await expect(fallback(page)).toBeVisible();
   await expect(fallback(page)).toContainText("Cannot read properties of null");
   // The shell around the failed page still works.
-  await nav(page, "Spaces");
+  await openSpaces(page);
   await expect(
     page.getByRole("heading", { name: "Spaces", exact: true, level: 1 }),
   ).toBeVisible();
@@ -245,7 +246,13 @@ test("a failed designer chunk download shows the fallback and retries", async ({
   await page.goto(`/console/tenants/${tenant}/spaces/${space}/entities`);
   await expect(fallback(page)).toBeVisible();
   expect(requests).toBe(1);
-  // The shell is still usable while the designer is unavailable.
+  // The shell is still usable while the designer is unavailable: the
+  // breadcrumb leads back to the Space and its tabs.
+  await page
+    .getByRole("navigation", { name: "Breadcrumb" })
+    .getByRole("button")
+    .last()
+    .click();
   await page.getByRole("tab", { name: "Access", exact: true }).click();
   await expect(fallback(page)).toHaveCount(0);
   await page.getByRole("tab", { name: "Entities", exact: true }).click();
@@ -254,6 +261,8 @@ test("a failed designer chunk download shows the fallback and retries", async ({
   offline = false;
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(fallback(page)).toHaveCount(0);
-  await expect(page.getByLabel("Entity name", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "New entity", exact: true }),
+  ).toBeVisible();
   expect(requests).toBe(2);
 });

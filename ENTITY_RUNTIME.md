@@ -8,16 +8,20 @@ their storage. This implementation includes the optional record-sharing mileston
 ## Try the designer
 
 Sign in as a Tenant administrator or Space manager, open a Space, and select
-**Entities**. Create a blank entity or use the Company, Contact or Deal template.
-Templates start without access grants. An open entity shows the Space's other
-entities beside it and the tabs **Fields, Access, Rules, Test, History**. Add
-fields (fields not in the published version are marked **New**), choose the
+**Entities**. Use **+ New entity** to create a blank entity or start from the
+Company, Contact or Deal template. Templates start without access grants. An
+open entity shows the Space's entities beside it (a dot marks unpublished
+changes) and the tabs **Fields, Access, Rules, Test, History**. Add
+fields (fields not in the published version are marked **new**), choose the
 default read projection, and configure Access. Access lists each permission path
 as one unit: who, the operation, the fields it reaches and its record condition
 (plus any allowed-change condition), and names the fields no read path reaches,
 because a new field never joins an allowlist by itself. Use a Space role or an
 owner/team relationship; Tenant administration itself grants no business-record
-access. **History** lists the recent publications and marks the active version.
+access. The Fields tab shows the same permission paths read-only beside the
+fields, with the fields no read path reaches. **History** lists the recent publications by version number (v1, v2, …)
+and marks the active version; the header shows the active one ("published v3")
+and the publish pipeline the next one ("Publish v4").
 
 **Rules** configures defaults, stored calculations, resulting-record validation
 and allowed changes. **Test** evaluates synthetic values using the real backend
@@ -25,11 +29,15 @@ evaluator and current same-Tenant relationships. It never fetches or writes a
 business record. Live uniqueness, referenced-record existence and actual shares
 are explicitly outside that simulation.
 
-Save incomplete drafts, then use **Review changes → Validate → Publish**. Review
+Save incomplete drafts, then use **Review & publish → Validate → Publish**. Review
 shows the changes and a pipeline (Drafted → Validated → Review → Prepare storage
 → Published) derived from the saved draft, the last validation of that exact
-draft and the latest publication; the page shows the same pipeline while a
-publication is pending or failed. The published version remains separate from
+draft and the latest publication; the Fields tab shows the same pipeline
+below the fields while the draft differs from the active version or a
+publication is pending or failed. A draft identical to the active version
+(same definition hash) cannot publish: the console disables **Publish** and
+says why, and `PublishEntity` (console and MCP alike) rejects it with 409
+without queuing a version. The published version remains separate from
 the draft. The UI preserves the selected
 entity across reloads and warns before abandoning unsaved edits. Publication
 status stays pending until the generated storage is ready to serve that version.
@@ -111,10 +119,10 @@ API key, while management `{entity}` is its registry UUID.
 | Endpoint group | Purpose |
 | --- | --- |
 | `GET /v1/entity-capabilities` | Authoritative types, operators, limits and templates |
-| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions |
-| `GET/PATCH /v1/entities/{entity}` | Inspect/replace a draft or change lifecycle |
+| `GET/POST /v1/spaces/{space}/entities` | List/create Space definitions; each listed item carries `has_draft_changes` (no active version, or the saved draft's definition hash differs from the active version's) |
+| `GET/PATCH /v1/entities/{entity}` | Inspect/replace a draft or change lifecycle; the authoring view adds `active_version_number`, `pending_version_number` (when set), `next_version_number` and each `publications[].version_number` |
 | `POST /v1/entities/{entity}/validate` and `/test` | Shared validator and synthetic evaluator |
-| `POST /v1/entities/{entity}/publications`; `GET .../publications/{version}` | Queue and inspect exact-version publication |
+| `POST /v1/entities/{entity}/publications`; `GET .../publications/{version}` | Queue and inspect exact-version publication; both return its `version_number` |
 | `GET/PATCH /v1/apps/{app}/data-access` | Approved origins, inheritance, ceilings and restrictions |
 | `GET /v1/apps/{app}/entity-contracts` | Author-visible published App contracts |
 | `POST /data/v1/session/exchange`; `GET /data/v1/schema` | App PKCE exchange and actor-visible contracts |
@@ -166,6 +174,13 @@ Already-authorized bounded requests use their captured authorization snapshot.
 ## Publication and supported limits
 
 Two registry tables store entity drafts and immutable publication versions/jobs.
+Each entity numbers its versions 1, 2, … in creation order (`version_number`).
+Every created version takes the next number under the entity row lock, whatever
+its outcome; a failed version keeps its number, so published numbers can have
+gaps. Versions are never deleted, so a number is never reused; a unique
+(entity, number) key backs this. Versions created before numbering were numbered
+by creation time. The Space entity list, the MCP entity inventory and App
+contracts carry the active (published) version's number beside its ID.
 The publisher (`internal/publisher`, run by the existing worker) prepares owned storage under a pinned entity lock and local
 write gate, activates registry projections transactionally, then opens the exact
 version. Recovery can finish an activation interrupted before opening. Failed

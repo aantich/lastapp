@@ -1,10 +1,10 @@
 import {
-  AppWindow,
-  FolderOpen,
+  Activity,
+  Bot,
   House,
-  ScrollText,
-  Settings,
-  Users,
+  LayoutGrid,
+  Shield,
+  AlignLeft,
 } from "lucide-react";
 import type { NavItem, TabItem } from "../ui";
 import type { Item } from "../api-types";
@@ -19,38 +19,87 @@ export type Capabilities = {
   scoped: (action: string, spaceID?: string, appID?: string) => boolean;
 };
 
+// The Tenant's members and teams (page "people"): reached from the account
+// menu, the Space Access page and the command palette, and from Access when
+// the account reads no Space's or App's assignments.
+export const peopleVisible = (c: Capabilities) =>
+  c.all("membership.read") || c.can("team.manage");
+
+// Entities open the current (or first) Space's Entities tab, Access the
+// current (or first) Space's Access tab (see accessTarget), Agents the
+// Tenant's agent access for a security manager and otherwise the person's
+// own. Spaces are listed under the sidebar's Spaces heading; Settings is in
+// the account menu.
 const sections: (NavItem & { visible?: (c: Capabilities) => boolean })[] = [
   { id: "home", label: "Home", icon: House },
-  { id: "apps", label: "Apps", icon: AppWindow },
+  { id: "apps", label: "Apps", icon: LayoutGrid },
   {
-    id: "spaces",
-    label: "Spaces",
-    icon: FolderOpen,
-    visible: (c) => c.can("space.read"),
+    id: "entities",
+    label: "Entities",
+    icon: AlignLeft,
+    visible: (c) => c.can("space.read") && c.can("entity.manage"),
   },
   {
-    id: "people",
-    label: "People",
-    icon: Users,
-    visible: (c) => c.all("membership.read") || c.can("team.manage"),
+    id: "access",
+    label: "Access",
+    icon: Shield,
+    visible: (c) => c.can("authorization.read") || peopleVisible(c),
   },
+  { id: "agents", label: "Agents", icon: Bot },
   {
     id: "activity",
     label: "Activity",
-    icon: ScrollText,
+    icon: Activity,
     visible: (c) => c.can("audit.read"),
   },
-  { id: "settings", label: "Settings", icon: Settings },
 ];
 
-// The sections this account may open, in sidebar order.
-export const tenantNav = (c: Capabilities): NavItem[] =>
+// Pages reached from elsewhere than the sidebar sections, by their title.
+const otherPages: Record<string, string> = {
+  people: "Members and teams",
+  spaces: "Spaces",
+  settings: "Settings",
+};
+
+// The sections this account may open, in sidebar order; `badges` adds a
+// count to a section (Agents).
+export const tenantNav = (
+  c: Capabilities,
+  badges: Record<string, number | undefined> = {},
+): NavItem[] =>
   sections
     .filter((s) => !s.visible || s.visible(c))
-    .map(({ id, label, icon }) => ({ id, label, icon }));
+    .map(({ id, label, icon }) => ({ id, label, icon, badge: badges[id] }));
+
+// Where the Access section opens: the open Space's (an App's Space's) Access
+// tab when this account reads its assignments; otherwise the first Space
+// that it may read (the sidebar's list, then the capabilities); otherwise
+// the open or first such App; otherwise the Tenant's members and teams.
+// `read` is the authorization.read capability.
+export function accessTarget(
+  c: Capabilities,
+  read: { spaces: string[] | null; apps: string[] | null } | undefined,
+  open: { space: string; app: string },
+  listed: string[],
+):
+  | { page: "space"; space: string }
+  | { page: "app"; app: string }
+  | { page: "people" }
+  | null {
+  const space = [open.space, ...listed, ...(read?.spaces || [])].find(
+    (id) => !!id && c.scoped("authorization.read", id, ""),
+  );
+  if (space) return { page: "space", space };
+  const app =
+    open.app && c.scoped("authorization.read", open.space, open.app)
+      ? open.app
+      : read?.apps?.[0];
+  if (app) return { page: "app", app };
+  return peopleVisible(c) ? { page: "people" } : null;
+}
 
 export const sectionLabel = (id: string) =>
-  sections.find((s) => s.id === id)?.label;
+  sections.find((s) => s.id === id)?.label || otherPages[id];
 
 // A page's tabs: a Space or App (`space` is the open Space, for the
 // development-workspace check), People or Settings.
@@ -74,8 +123,9 @@ export function tenantTabs(
         ]
       : page === "app"
         ? [
-            ["microapps", "Micro-apps"],
             ["releases", "Releases", c.scoped("release.manage")],
+            ["microapps", "Micro-apps", c.scoped("microapp.read")],
+            ["data", "Data access", c.scoped("app.manage")],
             ["access", "Access", c.scoped("authorization.read")],
             ["settings", "Settings"],
           ]

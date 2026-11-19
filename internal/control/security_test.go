@@ -9,14 +9,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,88 +21,17 @@ import (
 	"github.com/aantich/lastapp/internal/access"
 	"github.com/aantich/lastapp/internal/databases"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 	"github.com/aantich/lastapp/internal/worker"
 )
 
 // Regression tests for the ten independently reproduced security review findings.
 // They run against a disposable registry and remove only their own databases/users.
 func TestSecurityRegressions(t *testing.T) {
-	configPath := os.Getenv("LASTAPP_SECURITY_CONFIG")
-	if configPath == "" {
-		t.Skip("set LASTAPP_SECURITY_CONFIG to local .local/config.json")
-	}
-	source, e := LoadConfig(configPath)
+	s, admin, provisioner := disposableRegistry(t, "lastapp_review_")
+	cfg := s.Config
+	e := s.SeedDevelopment(context.Background(), provisioner)
 	if e != nil {
-		t.Fatal(e)
-	}
-	if !source.Development {
-		t.Fatal("review requires local development configuration")
-	}
-	adminCfg, e := LoadConfig(filepath.Join(filepath.Dir(configPath), "migrate.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	admin, e := Open(adminCfg)
-	if e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(func() { admin.DB.Close() })
-	reviewRegistry := "lastapp_review_" + strings.ReplaceAll(registry.NewID(), "-", "")
-	if _, e = admin.DB.Exec("CREATE DATABASE `" + reviewRegistry + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); e != nil {
-		t.Fatal(e)
-	}
-	cfg := source
-	slash := strings.LastIndex(adminCfg.RegistryDSN, "/")
-	cfg.RegistryDSN = adminCfg.RegistryDSN[:slash+1] + reviewRegistry
-	s, e := Open(cfg)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var cancel context.CancelFunc
-	var done chan struct{}
-	t.Cleanup(func() {
-		if cancel != nil {
-			cancel()
-			<-done
-		}
-		resources, _ := registry.QueryRows(context.Background(), s.DB, "SELECT id,database_name,LOWER(HEX(ownership_token)) AS ownership_hex FROM database_resources WHERE management_mode='managed'")
-		for _, r := range resources {
-			name := registry.Str(r["database_name"])
-			var comment string
-			if err := admin.DB.QueryRow("SELECT SCHEMA_COMMENT FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?", name).Scan(&comment); err != nil {
-				if !errors.Is(err, sql.ErrNoRows) {
-					t.Error("cleanup lookup failed", err)
-				}
-				continue
-			}
-			if databases.GeneratedName.MatchString(name) && comment == "lastapp:"+registry.Str(r["id"])+":"+registry.Str(r["ownership_hex"]) {
-				if _, err := admin.DB.Exec("DROP DATABASE `" + name + "`"); err != nil {
-					t.Error("review database cleanup failed", err)
-				}
-				if _, err := admin.DB.Exec("DROP USER IF EXISTS '" + name + "'@'" + cfg.RuntimeAccountHost + "'"); err != nil {
-					t.Error("review account cleanup failed", err)
-				}
-			}
-		}
-		s.DB.Close()
-		if _, err := admin.DB.Exec("DROP DATABASE `" + reviewRegistry + "`"); err != nil {
-			t.Error("review registry cleanup failed", err)
-		}
-	})
-	if e = Migrate(context.Background(), s.DB); e != nil {
-		t.Fatal(e)
-	}
-	var state struct {
-		Provisioner string `json:"provisioner_password"`
-	}
-	raw, e := os.ReadFile(filepath.Join(filepath.Dir(configPath), "state.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = json.Unmarshal(raw, &state); e != nil {
-		t.Fatal(e)
-	}
-	if e = s.SeedDevelopment(context.Background(), state.Provisioner); e != nil {
 		t.Fatal(e)
 	}
 	h := s.Handler()
@@ -122,8 +48,9 @@ func TestSecurityRegressions(t *testing.T) {
 	c := (testClient{t: t, s: s, h: h}).as(operator)
 	ownerClient := c.as(owner)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done = make(chan struct{})
+	done := make(chan struct{})
+	// Registered after the registry cleanup, so the worker stops before it runs.
+	t.Cleanup(func() { cancel(); <-done })
 	go func() { defer close(done); s.RunWorker(ctx) }()
 
 	createTenant := func(plan string) string {
@@ -337,7 +264,7 @@ func TestSecurityRegressions(t *testing.T) {
 		}
 	})
 	t.Run("ProductionRegistryRejectsPlaintextTCP", func(t *testing.T) {
-		production := source
+		production := testdb.Load(t, testdb.ConfigEnv).Config
 		production.Development = false
 		production.PublicURL = "https://review.example"
 		production.Address = "127.0.0.1:0"

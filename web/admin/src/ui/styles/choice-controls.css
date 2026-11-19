@@ -1,0 +1,157 @@
+/* Checkbox and radio: native inputs with a custom face. */
+.ui-check,
+.ui-radio {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: calc(var(--ui-space) * 2.25);
+  font-size: var(--ui-text-base);
+  line-height: calc(var(--ui-space) * 4.5);
+  color: var(--ui-text);
+  cursor: pointer;
+}
+.ui-check:has(input:disabled),
+.ui-radio:has(input:disabled) {
+  cursor: not-allowed;
+  color: var(--ui-muted);
+}
+.ui-check-copy {
+  display: grid;
+  gap: calc(var(--ui-space) * 0.25);
+}
+.ui-check-copy small {
+  margin: 0;
+  font-size: var(--ui-text-sm);
+  line-height: 1.5;
+}
+input.ui-checkbox,
+input.ui-radio-input {
+  appearance: none;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  width: calc(var(--ui-space) * 4.25);
+  height: calc(var(--ui-space) * 4.25);
+  margin: calc(var(--ui-space) * 0.125) 0 0;
+  border: var(--ui-line-strong) solid var(--ui-control-border);
+  background: var(--ui-surface);
+  cursor: inherit;
+  outline-offset: calc(var(--ui-space) * 0.5);
+}
+input.ui-checkbox {
+  border-radius: var(--ui-radius-xs);
+}
+input.ui-radio-input {
+  border-radius: 50%;
+}
+input.ui-checkbox:hover:not(:disabled),
+input.ui-radio-input:hover:not(:disabled) {
+  border-color: var(--ui-control-checked);
+}
+input.ui-checkbox:checked,
+input.ui-checkbox:indeterminate {
+  background: var(--ui-control-checked);
+  border-color: var(--ui-control-checked);
+}
+input.ui-checkbox::before {
+  content: "";
+  width: calc(var(--ui-space) * 2.25);
+  height: calc(var(--ui-space) * 1.25);
+  border: solid var(--ui-on-control-checked);
+  border-width: 0 0 var(--ui-line-thick) var(--ui-line-thick);
+  transform: translateY(calc(var(--ui-space) * -0.25)) rotate(-45deg) scale(0);
+  transition: transform var(--ui-duration-fast);
+}
+input.ui-checkbox:checked::before {
+  transform: translateY(calc(var(--ui-space) * -0.25)) rotate(-45deg) scale(1);
+}
+input.ui-checkbox:indeterminate::before {
+  width: calc(var(--ui-space) * 2.25);
+  height: 0;
+  border-width: 0 0 var(--ui-line-thick);
+  transform: none;
+}
+input.ui-radio-input:checked {
+  border-color: var(--ui-control-checked);
+}
+input.ui-radio-input::before {
+  content: "";
+  width: calc(var(--ui-space) * 2);
+  height: calc(var(--ui-space) * 2);
+  border-radius: 50%;
+  background: var(--ui-control-checked);
+  transform: scale(0);
+  transition: transform var(--ui-duration-fast);
+}
+input.ui-radio-input:checked::before {
+  transform: scale(1);
+}
+input.ui-checkbox:disabled,
+input.ui-radio-input:disabled {
+  opacity: 0.5;
+}
+.ui-radio-group {
+  display: grid;
+  gap: calc(var(--ui-space) * 2.5);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.ui-radio-group legend {
+  padding: 0;
+  margin-bottom: calc(var(--ui-space) * 2);
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
+}
+.ui-radio-group.ui-horizontal > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 2.5) calc(var(--ui-space) * 5);
+}
+.ui-radio-group > div {
+  display: grid;
+  gap: calc(var(--ui-space) * 2.5);
+}
+
+/* Switch: a button with role=switch. */
+.ui-switch-row {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  font-size: var(--ui-text-base);
+  line-height: calc(var(--ui-space) * 5);
+  color: var(--ui-text);
+}
+.ui-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: calc(var(--ui-space) * 8.5);
+  height: calc(var(--ui-space) * 5);
+  padding: 0;
+  border-radius: var(--ui-radius-pill);
+  border: var(--ui-line-strong) solid var(--ui-control-border);
+  background: var(--ui-surface);
+  outline-offset: calc(var(--ui-space) * 0.5);
+}
+.ui-switch::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--ui-space) * 0.5);
+  left: calc(var(--ui-space) * 0.5);
+  width: calc(var(--ui-space) * 3.25);
+  height: calc(var(--ui-space) * 3.25);
+  border-radius: 50%;
+  background: var(--ui-control-border);
+  transition: transform var(--ui-duration);
+}
+.ui-switch[aria-checked="true"] {
+  background: var(--ui-control-checked);
+  border-color: var(--ui-control-checked);
+}
+.ui-switch[aria-checked="true"]::after {
+  background: var(--ui-on-control-checked);
+  transform: translateX(calc(var(--ui-space) * 3.5));
+}
+.ui-switch:disabled {
+  cursor: not-allowed;
+}

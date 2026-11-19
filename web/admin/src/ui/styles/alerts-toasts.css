@@ -1,0 +1,137 @@
+/* Alerts: .error is the danger banner (style.css). */
+.ui-alert {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+}
+.ui-alert > svg {
+  flex-shrink: 0;
+  margin-top: calc(var(--ui-space) * 0.5);
+}
+.ui-alert-body {
+  display: grid;
+  gap: calc(var(--ui-space) * 0.5);
+  flex: 1;
+  min-width: 0;
+}
+.ui-alert-body strong {
+  font-weight: 600;
+}
+.ui-alert-actions {
+  display: flex;
+  gap: calc(var(--ui-space) * 2);
+  align-items: center;
+  margin-left: auto;
+}
+.ui-alert:not(.error) {
+  padding: calc(var(--ui-space) * 3) calc(var(--ui-space) * 4);
+  margin: 0 0 calc(var(--ui-space) * 5);
+  border-radius: var(--ui-radius);
+  border: var(--ui-line) solid;
+  font-size: var(--ui-text-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ui-alert.tone-warning {
+  background: var(--ui-warning-soft);
+  color: var(--ui-warning);
+  border-color: color-mix(in srgb, var(--ui-warning) 25%, transparent);
+}
+.ui-alert.tone-info {
+  background: var(--ui-info-soft);
+  color: var(--ui-info);
+  border-color: color-mix(in srgb, var(--ui-info) 25%, transparent);
+}
+.ui-alert.tone-success {
+  background: var(--ui-success-soft);
+  color: var(--ui-success);
+  border-color: color-mix(in srgb, var(--ui-success) 25%, transparent);
+}
+.ui-alert .icon {
+  color: inherit;
+  padding: calc(var(--ui-space) * 0.5);
+  margin: calc(var(--ui-space) * -0.5) calc(var(--ui-space) * -1)
+    calc(var(--ui-space) * -0.5) 0;
+}
+.ui-field-error {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1.5);
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: var(--ui-text-xs);
+  line-height: 1.5;
+}
+
+/* Dialog sizes: .overlay/.modal are the shell (style.css). */
+.modal.ui-dialog-sm {
+  width: calc(var(--ui-space) * 110);
+}
+.modal.ui-dialog-lg {
+  width: calc(var(--ui-space) * 205);
+}
+.modal > .ui-dialog-body {
+  padding: var(--ui-panel-padding);
+}
+
+/* Toasts */
+.ui-toaster {
+  position: fixed;
+  right: calc(var(--ui-space) * 6);
+  bottom: calc(var(--ui-space) * 6);
+  z-index: var(--ui-z-toast);
+  display: grid;
+  gap: calc(var(--ui-space) * 2.5);
+  width: min(var(--ui-space) * 95, calc(100vw - var(--ui-space) * 8));
+  pointer-events: none;
+}
+.ui-toaster-region {
+  display: grid;
+  gap: calc(var(--ui-space) * 2.5);
+}
+.ui-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 3) calc(var(--ui-space) * 3)
+    calc(var(--ui-space) * 3) calc(var(--ui-space) * 4);
+  border-radius: var(--ui-radius-2xl);
+  background: var(--ui-inverse);
+  color: var(--ui-on-inverse);
+  box-shadow: var(--ui-shadow-pop);
+  font-size: var(--ui-text-base);
+  line-height: 1.5;
+  pointer-events: auto;
+}
+.ui-toast > svg {
+  flex-shrink: 0;
+  margin-top: calc(var(--ui-space) * 0.5);
+}
+.ui-toast > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-toast .text-button {
+  color: inherit;
+  text-decoration: underline;
+  padding: 0;
+  margin-left: calc(var(--ui-space) * 2);
+}
+.ui-toast .icon {
+  color: var(--ui-inverse-muted);
+  padding: calc(var(--ui-space) * 0.75);
+  margin: calc(var(--ui-space) * -0.25) 0;
+}
+.ui-toast .icon:hover {
+  background: transparent;
+  color: var(--ui-on-inverse);
+}
+@media (max-width: 800px) {
+  .ui-toaster {
+    right: calc(var(--ui-space) * 4);
+    bottom: calc(var(--ui-space) * 4);
+  }
+}

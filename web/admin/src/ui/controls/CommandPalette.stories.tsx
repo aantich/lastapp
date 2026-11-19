@@ -5,9 +5,11 @@ import { Button } from "../button";
 import { CommandPalette, type Command } from "../command-palette";
 import { useCommandPaletteShortcut } from "../hooks";
 import { Kbd } from "../feedback";
+import { Icon } from "../icon";
 
-// command-palette.tsx: ⌘K / Ctrl+K, filter combobox over a grouped listbox.
-const icon = (I: typeof Boxes) => <I size={15} />;
+// command-palette.tsx: ⌘K / Ctrl+K, filter combobox over a listbox whose
+// rows end with their kind.
+const icon = (I: typeof Boxes) => <Icon icon={I} size="md" />;
 
 function Demo({ initiallyOpen = true }: { initiallyOpen?: boolean }) {
   const [open, setOpen] = useState(initiallyOpen),
@@ -15,13 +17,13 @@ function Demo({ initiallyOpen = true }: { initiallyOpen?: boolean }) {
   const show = useCallback(() => setOpen(true), []);
   useCommandPaletteShortcut(show);
   const commands: Command[] = [
-    ["spaces", "Spaces", "Navigate", Boxes],
-    ["people", "People", "Navigate", Users],
-    ["access", "Access control", "Navigate", ShieldCheck],
-    ["deal", "Deal", "Entities", Database, "crm sales pipeline"],
-    ["invoice", "Invoice", "Entities", Database, "finance"],
-    ["deploy", "Deploy Sales Desk r15", "Actions", Rocket, "release"],
-    ["retire", "Retire release r12", "Actions", Rocket, "release", true],
+    ["spaces", "Go to Spaces", "Navigate", Boxes],
+    ["people", "Go to People", "Navigate", Users],
+    ["access", "Go to Access", "Navigate", ShieldCheck],
+    ["order", "Open Order entity", "Entities", Database, "order"],
+    ["invoice", "Open Invoice entity", "Entities", Database, "invoice"],
+    ["deploy", "Retry Sales Desk deploy", "Action", Rocket, "release"],
+    ["retire", "Retire release r12", "Action", Rocket, "release", true],
   ].map(([id, label, group, I, keywords, disabled]) => ({
     id: id as string,
     label: label as string,
@@ -38,7 +40,11 @@ function Demo({ initiallyOpen = true }: { initiallyOpen?: boolean }) {
       </Button>
       {ran && <p role="status">Ran: {ran}</p>}
       {open && (
-        <CommandPalette commands={commands} onClose={() => setOpen(false)} />
+        <CommandPalette
+          commands={commands}
+          onClose={() => setOpen(false)}
+          examples={["order", "deploy"]}
+        />
       )}
     </div>
   );

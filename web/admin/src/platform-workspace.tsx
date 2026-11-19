@@ -12,32 +12,23 @@ import { consoleURL, parsePlatformURL, useConsoleURL } from "./console-url";
 import {
   Alert,
   Button,
+  ContextLabel,
   ErrorBoundary,
   FormModal,
   IconButton,
   type Modal,
+  Icon,
 } from "./ui";
 import { useAppearance } from "./appearance";
 import { useAction } from "./use-action";
 import { refreshQueries, useApiQuery } from "./query";
 import { useRouteState, useScreenError } from "./route-state";
-import { AccountPage } from "./account-page";
-import { ActivityLog } from "./activity-log";
 import { text, type Me, type Page, type TenantOverview } from "./api-types";
 import type { PlatformScreen } from "./platform/screen";
-import {
-  addAdmin,
-  createTenant,
-  createUser,
-  planForm,
-  serverForm,
-} from "./platform/forms";
-import {
-  PlatformSettings,
-  PlatformTenant,
-  TenantsPage,
-  UsersPage,
-} from "./platform/pages";
+import { addAdmin, createTenant, createUser } from "./platform/forms";
+import { planForm } from "./platform/plan-form";
+import { serverForm } from "./platform/server-form";
+import { PlatformPages } from "./platform/workspace-pages";
 
 // The Platform console: resolves the route, loads plans and the open Tenant's
 // overview and composes the pages under platform/.
@@ -108,7 +99,7 @@ export function PlatformWorkspace({
   const add = (label: string, run: () => void) => (
     <Button
       variant="primary"
-      icon={<Plus size={16} aria-hidden />}
+      icon={<Icon icon={Plus} size="lg" aria-hidden />}
       onClick={run}
     >
       {label}
@@ -129,7 +120,8 @@ export function PlatformWorkspace({
   return (
     <ConsoleShell
       me={me}
-      kind="Platform"
+      role="Platform operator"
+      section={<ContextLabel value="Platform" />}
       title={title}
       nav={nav}
       active={page === "account" ? "" : page}
@@ -140,16 +132,20 @@ export function PlatformWorkspace({
       breadcrumbs={
         tenant
           ? [
+              { label: "Platform", onClick: () => go("tenants") },
               { label: "Tenants", onClick: () => go("tenants") },
               { label: title },
             ]
-          : undefined
+          : [
+              { label: "Platform", onClick: () => go("tenants") },
+              { label: title },
+            ]
       }
       actions={
         <>
           <IconButton
             label="Refresh"
-            icon={<RefreshCw size={16} aria-hidden />}
+            icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
             tooltip="bottom"
             onClick={refresh}
           />
@@ -163,25 +159,7 @@ export function PlatformWorkspace({
         </Alert>
       )}
       <ErrorBoundary key={path}>
-        {tenant ? (
-          <PlatformTenant p={p} />
-        ) : page === "tenants" ? (
-          <TenantsPage p={p} />
-        ) : page === "users" ? (
-          <UsersPage p={p} />
-        ) : page === "activity" ? (
-          <ActivityLog
-            path={
-              route.id
-                ? "/v1/tenants/" + route.id + "/audit-events"
-                : "/admin/v1/audit-events"
-            }
-          />
-        ) : page === "settings" ? (
-          <PlatformSettings p={p} />
-        ) : page === "account" ? (
-          <AccountPage me={me} refreshMe={refreshMe} />
-        ) : null}
+        <PlatformPages p={p} refreshMe={refreshMe} />
       </ErrorBoundary>
       {modal && (
         <FormModal

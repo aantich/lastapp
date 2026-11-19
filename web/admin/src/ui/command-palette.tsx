@@ -1,13 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { CornerDownLeft, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useListbox } from "./listbox";
 import { useDialogFocus } from "./use-dialog-focus";
-import { Kbd } from "./feedback";
+import { Icon } from "./icon";
 
 export type Command = {
   id: string;
   label: string;
-  // Group heading: Navigate, Entities, Apps, Actions…
+  // Its kind, shown at the row's end: Navigate, Entities, Apps, Action…
   group: string;
   icon?: ReactNode;
   // Extra words that match the filter (IDs, synonyms).
@@ -17,22 +17,25 @@ export type Command = {
   run: () => void;
 };
 
+// Search words that find real commands, quoted in the placeholder and the
+// empty state ("try “deal”, “deploy”, “agent”").
+const quoted = (words: string[]) => words.map((w) => `“${w}”`);
+
 // The ⌘K command palette: a modal dialog with a filter combobox over a
-// grouped listbox. ↑/↓ move (skipping disabled commands), Enter runs, Escape
-// or a press outside closes and focus returns to the opener. Keyboard state
-// is the shared useListbox.
+// listbox of commands, each with its glyph, label and kind. ↑/↓ move
+// (skipping disabled commands), Enter runs, Escape, the Esc button or a press
+// outside closes and focus returns to the opener. Keyboard state is the
+// shared useListbox.
 export function CommandPalette({
   commands,
   onClose,
   label = "Command palette",
-  placeholder = "Search or run a command…",
-  empty = "Nothing matches.",
+  examples = [],
 }: {
   commands: Command[];
   onClose: () => void;
   label?: string;
-  placeholder?: string;
-  empty?: ReactNode;
+  examples?: string[];
 }) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
@@ -58,12 +61,6 @@ export function CommandPalette({
     onClose();
     command.run();
   }
-  const groups: [string, number[]][] = [];
-  shown.forEach((c, i) => {
-    const group = groups.find(([name]) => name === c.group);
-    if (group) group[1].push(i);
-    else groups.push([c.group, [i]]);
-  });
   return (
     <div className="overlay ui-palette-overlay">
       <section
@@ -74,17 +71,20 @@ export function CommandPalette({
         aria-label={label}
         tabIndex={-1}
       >
-        <label className="ui-palette-input">
-          <Search size={18} aria-hidden />
+        <div className="ui-palette-input">
+          <Icon icon={Search} size="xl" aria-hidden />
           <input
             data-autofocus
             role="combobox"
-            aria-label={label}
+            aria-label="Search commands"
             aria-expanded
             aria-controls={list.id}
             aria-autocomplete="list"
             aria-activedescendant={list.activeId}
-            placeholder={placeholder}
+            placeholder={
+              "Type a command or search…" +
+              (examples.length ? " try " + quoted(examples).join(", ") : "")
+            }
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -92,65 +92,42 @@ export function CommandPalette({
             }}
             onKeyDown={(e) => list.onKeyDown(e)}
           />
-          <Kbd>Esc</Kbd>
-        </label>
+          <button type="button" className="ui-palette-close" onClick={onClose}>
+            Esc
+          </button>
+        </div>
         <div role="listbox" id={list.id} aria-label="Commands">
-          {groups.map(([group, indexes], g) => (
+          {shown.map((c, i) => (
             <div
-              key={group}
-              role="group"
-              aria-labelledby={`${list.id}-g${g}`}
-              className="ui-palette-group"
+              key={c.id}
+              id={`${list.id}-${i}`}
+              role="option"
+              aria-selected={list.active === i}
+              aria-disabled={c.disabled || undefined}
+              data-active={list.active === i || undefined}
+              className="ui-option"
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseMove={() => list.setActive(i)}
+              onClick={() => {
+                if (!c.disabled) run(c);
+              }}
             >
-              <div id={`${list.id}-g${g}`}>{group}</div>
-              {indexes.map((i) => {
-                const c = shown[i];
-                return (
-                  <div
-                    key={c.id}
-                    id={`${list.id}-${i}`}
-                    role="option"
-                    aria-selected={list.active === i}
-                    aria-disabled={c.disabled || undefined}
-                    data-active={list.active === i || undefined}
-                    className="ui-option"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onMouseMove={() => list.setActive(i)}
-                    onClick={() => {
-                      if (!c.disabled) run(c);
-                    }}
-                  >
-                    {c.icon && <i aria-hidden>{c.icon}</i>}
-                    <span>
-                      {c.label}
-                      {c.hint && <small>{c.hint}</small>}
-                    </span>
-                    {list.active === i && (
-                      <CornerDownLeft size={14} aria-hidden />
-                    )}
-                  </div>
-                );
-              })}
+              <i aria-hidden>{c.icon}</i>
+              <span>
+                {c.label}
+                {c.hint && <small>{c.hint}</small>}
+              </span>
+              <small className="ui-palette-kind">{c.group}</small>
             </div>
           ))}
           {!shown.length && (
-            <div className="ui-option-empty" role="status">
-              {empty}
-            </div>
+            <p className="ui-palette-empty" role="status">
+              Nothing matches.
+              {examples.length > 1 &&
+                ` Try ${quoted(examples.slice(-2)).join(" or ")}.`}
+            </p>
           )}
         </div>
-        <footer aria-hidden>
-          <span>
-            <Kbd>↑</Kbd>
-            <Kbd>↓</Kbd> move
-          </span>
-          <span>
-            <Kbd>↵</Kbd> run
-          </span>
-          <span>
-            <Kbd>Esc</Kbd> close
-          </span>
-        </footer>
       </section>
     </div>
   );

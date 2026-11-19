@@ -26,6 +26,7 @@ import (
 type EntityDefinition struct {
 	ActiveDefinition  *registry.JSONValue  `json:"active_definition,omitempty"`
 	ActiveVersion     *string              `json:"active_version_id"`
+	ActiveNumber      *int64               `json:"active_version_number,omitempty"`
 	CreatedAt         time.Time            `json:"created_at"`
 	Diagnostics       *[]entity.Diagnostic `json:"diagnostics,omitempty"`
 	DraftContract     registry.Row         `json:"draft_contract,omitempty"`
@@ -33,7 +34,9 @@ type EntityDefinition struct {
 	Key               string               `json:"entity_key"`
 	ID                string               `json:"id"`
 	Label             string               `json:"label"`
+	NextNumber        *int64               `json:"next_version_number,omitempty"`
 	PendingVersion    *string              `json:"pending_version_id"`
+	PendingNumber     *int64               `json:"pending_version_number,omitempty"`
 	Publications      *[]PublicationItem   `json:"publications,omitempty"`
 	PublishedContract registry.Row         `json:"published_contract,omitempty"`
 	Revision          int64                `json:"revision"`
@@ -51,20 +54,47 @@ func (v *EntityDefinition) ScanFields() []any {
 // draft decodes the saved draft definition.
 func (v EntityDefinition) DraftDefinition() (entity.Definition, error) { return DefOf(v.Draft.Value()) }
 
-// EntityItem is an entity in a Space's entity collection.
+// EntityItem is an entity in a Space's entity collection. HasDraftChanges
+// says whether the saved draft differs from the active version: nothing is
+// published, or the draft's definition hash differs from the active one's.
 type EntityItem struct {
-	ActiveVersion  *string `json:"active_version_id"`
-	Key            string  `json:"entity_key"`
-	ID             string  `json:"id"`
-	Label          string  `json:"label"`
-	PendingVersion *string `json:"pending_version_id"`
-	Revision       int64   `json:"revision"`
-	State          string  `json:"state"`
+	ActiveVersion   *string `json:"active_version_id"`
+	ActiveNumber    *int64  `json:"active_version_number"`
+	Key             string  `json:"entity_key"`
+	HasDraftChanges bool    `json:"has_draft_changes"`
+	ID              string  `json:"id"`
+	Label           string  `json:"label"`
+	PendingVersion  *string `json:"pending_version_id"`
+	Revision        int64   `json:"revision"`
+	State           string  `json:"state"`
+	draft           []byte
+	activeHash      *string
 }
 
+const entityItemColumns = "e.active_version_id,v.version_number,e.entity_key,e.id,e.label,e.pending_version_id,e.revision,e.state,e.draft_json,v.definition_hash"
+
 func (v *EntityItem) ScanFields() []any {
-	return []any{&v.ActiveVersion, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State}
+	return []any{&v.ActiveVersion, &v.ActiveNumber, &v.Key, &v.ID, &v.Label, &v.PendingVersion, &v.Revision, &v.State, &v.draft, &v.activeHash}
 }
+
+// draftChanged compares the draft's definition hash, computed as publication
+// computes it (entity.Hash of the decoded definition), with the active
+// version's. A draft that does not decode counts as changed.
+func (v *EntityItem) draftChanged() bool {
+	if v.activeHash == nil {
+		return true
+	}
+	d, e := entity.Decode(v.draft)
+	return e != nil || entity.Hash(d) != *v.activeHash
+}
+
+// NextVersionNumber selects the number the entity's next version gets
+// (argument: entity ID). Each entity numbers its versions 1, 2, ... in creation
+// order; every created version takes one whatever its state, a failed version
+// keeps its number (published numbers can have gaps) and versions are never
+// deleted, so a number is never reused. Assignment appends FOR UPDATE under the
+// entity row lock; the unique (entity_id, version_number) key backs it.
+const NextVersionNumber = "SELECT COALESCE(MAX(version_number),0)+1 FROM entity_versions WHERE entity_id=?"
 
 // PublicationItem is one of an entity's recent publications.
 type PublicationItem struct {
@@ -74,10 +104,11 @@ type PublicationItem struct {
 	Error       *string   `json:"error_message"`
 	ID          string    `json:"id"`
 	State       string    `json:"state"`
+	Number      int64     `json:"version_number"`
 }
 
 func (v *PublicationItem) ScanFields() []any {
-	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.ID, &v.State}
+	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.ID, &v.State, &v.Number}
 }
 
 // Publication is an entity publication with its completion time.
@@ -89,10 +120,23 @@ type Publication struct {
 	FinishedAt  *time.Time `json:"finished_at"`
 	ID          string     `json:"id"`
 	State       string     `json:"state"`
+	Number      int64      `json:"version_number"`
 }
 
 func (v *Publication) ScanFields() []any {
-	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.FinishedAt, &v.ID, &v.State}
+	return []any{&v.BaseVersion, &v.CreatedAt, &v.Hash, &v.Error, &v.FinishedAt, &v.ID, &v.State, &v.Number}
+}
+
+// versionNumber is a version's number, or nil for no version.
+func versionNumber(ctx context.Context, q registry.Queryer, version *string) (*int64, error) {
+	if version == nil {
+		return nil, nil
+	}
+	var n int64
+	if e := q.QueryRowContext(ctx, "SELECT version_number FROM entity_versions WHERE id=?", *version).Scan(&n); e != nil {
+		return nil, e
+	}
+	return &n, nil
 }
 
 // storedDefinition is a stored definition document.
@@ -103,11 +147,12 @@ func (v *storedDefinition) ScanFields() []any { return []any{&v.Definition} }
 // publishedEntity is an active entity with its published definition.
 type publishedEntity struct {
 	ID, ActiveVersion, Hash string
+	Number                  int64
 	Definition              registry.JSONValue
 }
 
 func (v *publishedEntity) ScanFields() []any {
-	return []any{&v.ID, &v.ActiveVersion, &v.Hash, &v.Definition}
+	return []any{&v.ID, &v.ActiveVersion, &v.Hash, &v.Number, &v.Definition}
 }
 
 // VersionDefinition reads a stored entity version's definition document.
@@ -290,9 +335,13 @@ func (v *Authoring) Entities(ctx context.Context, a op.Actor, space string) (reg
 	if e != nil {
 		return nil, e
 	}
-	items, e := registry.ScanAll[EntityItem](ctx, v.DB, "SELECT active_version_id,entity_key,id,label,pending_version_id,revision,state FROM entity_definitions WHERE space_id=? AND tenant_id=? ORDER BY label,id", sp.Space, sp.Tenant)
+	items, e := registry.ScanAll[EntityItem](ctx, v.DB, "SELECT "+entityItemColumns+" FROM entity_definitions e LEFT JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.tenant_id=? ORDER BY e.label,e.id", sp.Space, sp.Tenant)
 	if e != nil {
 		return nil, e
+	}
+	for i := range items {
+		items[i].HasDraftChanges = items[i].draftChanged()
+		items[i].draft, items[i].activeHash = nil, nil
 	}
 	return registry.Row{"items": items}, nil
 }
@@ -397,11 +446,22 @@ func (v *Authoring) entityDetail(ctx context.Context, out EntityDefinition) (Ent
 	diagnostics := d.Validate()
 	out.Diagnostics = &diagnostics
 	out.DraftContract = registry.Row{"definition_hash": entity.Hash(d), "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()}
-	versions, e := registry.ScanAll[PublicationItem](ctx, v.DB, "SELECT base_version_id,created_at,definition_hash,error_message,id,state FROM entity_versions WHERE entity_id=? ORDER BY created_at DESC LIMIT 20", out.ID)
+	versions, e := registry.ScanAll[PublicationItem](ctx, v.DB, "SELECT base_version_id,created_at,definition_hash,error_message,id,state,version_number FROM entity_versions WHERE entity_id=? ORDER BY version_number DESC LIMIT 20", out.ID)
 	if e != nil {
 		return out, e
 	}
 	out.Publications = &versions
+	var next int64
+	if e = v.DB.QueryRowContext(ctx, NextVersionNumber, out.ID).Scan(&next); e != nil {
+		return out, e
+	}
+	out.NextNumber = &next
+	if out.ActiveNumber, e = versionNumber(ctx, v.DB, out.ActiveVersion); e != nil {
+		return out, e
+	}
+	if out.PendingNumber, e = versionNumber(ctx, v.DB, out.PendingVersion); e != nil {
+		return out, e
+	}
 	if out.ActiveVersion != nil {
 		active, e := VersionDefinition(ctx, v.DB, *out.ActiveVersion)
 		if e != nil {
@@ -505,7 +565,12 @@ func (v *Authoring) ValidateEntity(ctx context.Context, a op.Actor, key string, 
 	return out, nil
 }
 
-// PublishEntity queues the saved draft for the publication worker.
+// UnchangedDraft rejects publishing a draft identical to the active version.
+const UnchangedDraft = "The draft matches the published version. Change the draft before publishing."
+
+// PublishEntity queues the saved draft for the publication worker. A draft
+// identical to the active version is rejected (409): it would only add a
+// version that changes nothing.
 func (v *Authoring) PublishEntity(ctx context.Context, a op.Actor, key string, revision int64) (registry.Row, error) {
 	if revision < 1 {
 		return nil, op.RevisionRequired()
@@ -536,12 +601,27 @@ func (v *Authoring) PublishEntity(ctx context.Context, a op.Actor, key string, r
 		if current.State != registry.StateActive {
 			return registry.Conflict("Archived entities cannot publish.")
 		}
+		// A version must change something: the draft's definition hash,
+		// computed as publication computes it, differs from the active one's.
+		if current.ActiveVersion != nil {
+			var active string
+			if e = tx.QueryRowContext(ctx, "SELECT definition_hash FROM entity_versions WHERE id=?", *current.ActiveVersion).Scan(&active); e != nil {
+				return e
+			}
+			if d, e := current.DraftDefinition(); e == nil && entity.Hash(d) == active {
+				return registry.Conflict(UnchangedDraft)
+			}
+		}
 		return v.Queue(ctx, tx, a.Principal, current, version, nil)
 	})
 	if e != nil {
 		return nil, e
 	}
-	return registry.Row{"id": version, "state": "queued"}, nil
+	number, e := versionNumber(ctx, v.DB, &version)
+	if e != nil {
+		return nil, e
+	}
+	return registry.Row{"id": version, "state": "queued", "version_number": number}, nil
 }
 
 func (v *Authoring) Publication(ctx context.Context, a op.Actor, key, version string) (Publication, error) {
@@ -549,7 +629,7 @@ func (v *Authoring) Publication(ctx context.Context, a op.Actor, key, version st
 	if e != nil {
 		return Publication{}, e
 	}
-	return registry.ScanOne[Publication](ctx, v.DB, "SELECT base_version_id,created_at,definition_hash,error_message,finished_at,id,state FROM entity_versions WHERE id=? AND entity_id=?", version, current.ID)
+	return registry.ScanOne[Publication](ctx, v.DB, "SELECT base_version_id,created_at,definition_hash,error_message,finished_at,id,state,version_number FROM entity_versions WHERE id=? AND entity_id=?", version, current.ID)
 }
 
 // TestEntity evaluates one synthetic case against a candidate definition
@@ -640,7 +720,7 @@ func (v *Authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 		return nil, e
 	}
 	manager := v.Run.Check(ctx, v.DB, a, "entity.manage", access.Resource{Tenant: current.TenantID, Space: current.SpaceID}, true) == nil
-	vs, e := registry.ScanAll[publishedEntity](ctx, v.DB, "SELECT e.id,e.active_version_id,v.definition_hash,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
+	vs, e := registry.ScanAll[publishedEntity](ctx, v.DB, "SELECT e.id,e.active_version_id,v.definition_hash,v.version_number,v.definition_json FROM entity_definitions e JOIN entity_versions v ON v.id=e.active_version_id WHERE e.space_id=? AND e.state='active' ORDER BY e.label,e.id", current.SpaceID)
 	if e != nil {
 		return nil, e
 	}
@@ -692,7 +772,7 @@ func (v *Authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 			if field != "" {
 				return nil, registry.Bad("field requires a generated contract section.")
 			}
-			out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
+			out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "published_version_number": value.Number, "definition_hash": value.Hash, "key": d.Key, "label": d.Label, "section": "inventory", "fields": fieldInventory(fields), "permissions": perms})
 			continue
 		}
 		if section != "" {
@@ -712,7 +792,7 @@ func (v *Authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 					return nil, e
 				}
 			}
-			out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "section": section, "field": field, "partial": field != "", "value": part})
+			out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "published_version_number": value.Number, "definition_hash": value.Hash, "section": section, "field": field, "partial": field != "", "value": part})
 			continue
 		}
 		if field != "" {
@@ -722,7 +802,7 @@ func (v *Authoring) AppContracts(ctx context.Context, a op.Actor, app string, vi
 		if e != nil {
 			return nil, e
 		}
-		out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "definition_hash": value.Hash, "definition": registry.Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
+		out = append(out, registry.Row{"id": value.ID, "published_version_id": value.ActiveVersion, "published_version_number": value.Number, "definition_hash": value.Hash, "definition": registry.Row{"key": d.Key, "label": d.Label, "fields": public, "permissions": perms}, "json_schema": d.JSONSchema(), "create_schema": d.Schema("create"), "update_schema": d.Schema("update"), "typescript": d.TypeScript()})
 	}
 	roles, e := registry.ScanAll[roles.Named](ctx, v.DB, "SELECT display_name,id FROM roles WHERE app_id=? AND domain='data' AND state='active'", current.ID)
 	if e != nil {

@@ -1,56 +1,33 @@
-import { useEffect } from "react";
-import { AppWindow, Database, FolderOpen, Plus, RefreshCw } from "lucide-react";
-import { api } from "./api";
-import { DevelopmentBanner } from "./development-workspaces";
+import { useState } from "react";
 import { ConsoleShell } from "./console-shell";
-import { consoleURL, parseTenantURL, useConsoleURL } from "./console-url";
-import {
-  Alert,
-  Button,
-  Card,
-  ContextLabel,
-  ContextSwitcher,
-  EmptyState,
-  ErrorBoundary,
-  FormModal,
-  IconButton,
-  Tabs,
-  type Command,
-  type Crumb,
-  type Field,
-  type Modal,
-} from "./ui";
+import { parseTenantURL, useConsoleURL } from "./console-url";
+import { Alert, Button, FormModal, type Modal } from "./ui";
 import { useAppearance } from "./appearance";
-import { useAction } from "./use-action";
-import { TenantPeople } from "./tenant-people";
-import { readPreference, savePreference } from "./preferences";
-import { cachedRows, LiveRefresh, refreshQueries, useApiQuery } from "./query";
-import { useRouteState, useScreenError } from "./route-state";
-import { AccountPage } from "./account-page";
-import { ActivityLog } from "./activity-log";
-import { agentGrantsPath } from "./actors";
+import { readPreference } from "./preferences";
+import { LiveRefresh, refreshQueries } from "./query";
+import { useRouteState } from "./route-state";
+import { useDeploymentStates } from "./deployment";
+import { ConnectAgentDialog } from "./connect-agent";
+import { text, type Me } from "./api-types";
+import { tenantNav } from "./tenant/navigation";
+import { useTenantQueries } from "./tenant/use-tenant-queries";
+import { useTenantScreen } from "./tenant/use-tenant-screen";
+import { paletteExamples, tenantCommands } from "./tenant/palette-commands";
+import { TenantActions } from "./tenant/header-actions";
+import { tenantCrumbs } from "./tenant/crumbs";
+import { useSidebarPlaces } from "./tenant/use-sidebar-places";
+import { SpacesLinks } from "./tenant/spaces-links";
+import { TenantPages } from "./tenant/workspace-pages";
+import { tenantContext } from "./tenant/tenant-context";
+import { tenantAccountItems } from "./tenant/account-menu";
 import {
-  num,
-  optText,
-  text,
-  type Item,
-  type Me,
-  type TenantCapabilities,
-  type TenantOverview,
-} from "./api-types";
-import { editFields, options, type TenantScreen } from "./tenant/screen";
-import {
-  addDatabase,
-  createApp,
-  createMicro,
-  createSpace,
-} from "./tenant/forms";
-import { AppsPage, SpacesPage } from "./tenant/inventory";
-import { HomePage } from "./tenant/home-page";
-import { sectionLabel, tenantNav, tenantTabs } from "./tenant/navigation";
-import { SpacePage } from "./tenant/space-page";
-import { AppPage } from "./tenant/app-page";
-import { TenantSettings } from "./tenant/settings-page";
+  activeNavItem,
+  pageTitle,
+  peopleTabOf,
+  routeDetail,
+  shellHeading,
+} from "./tenant/workspace-route";
+import { poll } from "./polling";
 
 // The Tenant console: resolves the Tenant and route, loads what every page
 // shares (overview, capabilities and the open Space or App) and composes the
@@ -76,433 +53,137 @@ export function TenantWorkspace({
   const tenant = parsed.area === "tenants" ? parsed.tenant : fallback,
     base = "/v1/tenants/" + tenant;
   const [modal, setModal] = useRouteState<Modal | null>(url, null);
-  // Everything this workspace shows refreshes every 5 s while no form is open.
-  // refetchInterval never overlaps requests and pauses in a hidden tab.
-  const live = tenant && !modal ? 5000 : false;
-  const overviewQuery = useApiQuery<TenantOverview>(
-      tenant ? base + "/overview" : null,
-      { refetchInterval: live },
-    ),
-    capsQuery = useApiQuery<{ permissions: TenantCapabilities }>(
-      tenant ? base + "/capabilities" : null,
-      { refetchInterval: live },
-    ),
-    // A Space or App screen also reads its subject.
-    spaceQuery = useApiQuery<Item>(
-      tenant && parsed.page === "spaces" && parsed.space
-        ? base + "/spaces/" + parsed.space
-        : null,
-      { refetchInterval: live },
-    ),
-    appQuery = useApiQuery<Item>(
-      tenant && parsed.page === "apps" && parsed.app
-        ? base + "/apps/" + parsed.app
-        : null,
-      { refetchInterval: live },
-    );
-  const overview: TenantOverview = overviewQuery.data || {},
-    caps: TenantCapabilities = capsQuery.data?.permissions || {},
-    space: Item = spaceQuery.data || {},
-    app: Item = appQuery.data || {};
-  const { error, setError, dismiss } = useScreenError(url, [
-    overviewQuery.error,
-    capsQuery.error,
-    spaceQuery.error,
-    appQuery.error,
-  ]);
-  const route = {
-    page: parsed.page,
-    // An App URL names no Space; take it from the loaded App.
-    space:
-      parsed.space ||
-      (parsed.app && app.id === parsed.app ? text(app.space_id) || "" : ""),
-    app: parsed.app,
-    tab: parsed.tab,
-    team: parsed.team,
-  };
-  if (route.page === "spaces" && route.space) route.page = "space";
-  if (route.page === "apps" && route.app) route.page = "app";
-  const profile = overview.tenant || {};
-  const all = (action: string) => !!caps[action]?.all,
-    can = (action: string) => !!caps[action]?.available;
-  const scoped = (action: string, spaceID = route.space, appID = route.app) =>
-    all(action) ||
-    (caps[action]?.spaces || []).includes(spaceID) ||
-    (caps[action]?.apps || []).includes(appID);
-  const refresh = () => void refreshQueries();
-  const { busy, run: act } = useAction(url, {
-    onSuccess: () => done(),
-    onError: setError,
-  });
-  function go(page: string, v: Partial<typeof route> = {}) {
-    if (page === "account") {
-      navigate(consoleURL.account);
-      return;
-    }
-    const path =
-      page === "space"
-        ? ["spaces", v.space || route.space, v.tab || "apps"]
-        : page === "app"
-          ? ["apps", v.app || route.app, v.tab || "microapps"]
-          : page === "people"
-            ? [
-                "people",
-                v.tab || (all("membership.read") ? "members" : "teams"),
-                ...(v.team ? [v.team] : []),
-              ]
-            : page === "settings"
-              ? ["settings", v.tab || "general"]
-              : [page];
-    navigate(consoleURL.tenant(tenant, ...path));
-  }
-  function selectTenant(id: string) {
-    if (!id) return;
-    savePreference("lastapp-tenant", id);
-    navigate(consoleURL.tenant(id, "home"));
-  }
-  const openSpace = (r: Item) => go("space", { space: optText(r.id) }),
-    openApp = (r: Item) => go("app", { app: optText(r.id) });
-  useEffect(() => {
-    if (parsed.area !== "tenants" && parsed.area !== "account" && tenant)
-      navigate(consoleURL.tenant(tenant, "home"), true);
-  }, [parsed.area, tenant, navigate]);
-  function done() {
-    setModal(null);
-  }
-  function edit(
-    row: Item,
-    path: string,
-    title: string,
-    fields: Field[] = editFields,
-  ) {
-    setModal({
-      title,
-      fields,
-      initial: { ...row },
-      save: (v) =>
-        api(
-          path,
-          "PATCH",
-          Object.fromEntries(
-            fields.map((f) => [
-              f.key,
-              f.type === "number" ? Number(v[f.key]) : v[f.key],
-            ]),
-          ),
-          num(row.revision),
-        ),
-    });
-  }
-
-  const t: TenantScreen = {
+  const [connecting, setConnecting] = useState(false);
+  const deploymentStates = useDeploymentStates();
+  // Everything this workspace shows refreshes while no form is open.
+  const live = tenant && !modal ? poll.tenant : false;
+  const queries = useTenantQueries(tenant, base, parsed, live);
+  const { capsQuery, canSpaces, manager, activeAgents } = queries;
+  const { t, error, dismiss, done } = useTenantScreen({
     me,
+    url,
+    navigate,
+    parsed,
     tenant,
     base,
-    route,
-    caps,
-    overview,
-    profile,
-    space,
-    app,
-    all,
-    can,
-    scoped,
-    go,
-    openSpace,
-    openApp,
-    edit,
+    queries,
     setModal,
-    setError,
-    busy,
-    act,
-  };
-  const detail = route.page === "space" ? space : app,
-    detailReady =
-      route.page === "space" ? space.id === route.space : app.id === route.app;
-  const peopleTab =
-    route.tab === "general"
-      ? all("membership.read")
-        ? "members"
-        : "teams"
-      : route.tab;
-  const capabilities = { all, can, scoped };
-  const tabs = tenantTabs(route.page, capabilities, space);
-  const activeTab = route.page === "people" ? peopleTab : route.tab;
-  const title =
-    route.page === "account"
-      ? "My account"
-      : ["space", "app"].includes(route.page)
-        ? detailReady
-          ? text(detail.display_name)
-          : route.page === "space"
-            ? "Space"
-            : "App"
-        : sectionLabel(route.page) || "Home";
-  const menu = tenantNav(capabilities);
+  });
+  const { route, profile, space, app, all, scoped, go } = t;
+  const refresh = () => void refreshQueries();
+  const connect = () => setConnecting(true);
+  const { detail, detailReady } = routeDetail(route, space, app);
+  const peopleTab = peopleTabOf(route, all);
+  const title = pageTitle(route, detail, detailReady);
+  const menu = tenantNav(t, { agents: activeAgents });
   const tenantName =
     text(profile.display_name) ||
     memberships.find((m) => m.id === tenant)?.display_name ||
     "";
-  const crumbs: Crumb[] =
-    route.page === "space"
-      ? [
-          {
-            label: "Spaces",
-            onClick: can("space.read") ? () => go("spaces") : undefined,
-          },
-          { label: title },
-        ]
-      : route.page === "app"
-        ? [
-            { label: "Apps", onClick: () => go("apps") },
-            ...(detailReady
-              ? [
-                  {
-                    label: text(app.space_name),
-                    onClick: scoped("space.read", optText(app.space_id), "")
-                      ? () => openSpace({ id: app.space_id })
-                      : undefined,
-                  },
-                ]
-              : []),
-            { label: title },
-          ]
-        : [];
-  // The palette's jumps beyond the sidebar sections: this page's tabs, the
-  // other sections' tabs, and Apps, Spaces and entities this session has
-  // already loaded (nothing is fetched for the palette).
-  const commands = (): Command[] => {
-    const subject = route.page === "space" || route.page === "app" ? title : "";
-    const tabCommands = (page: string, label: string, group: string) =>
-      tenantTabs(page, capabilities, space).map(({ id, label: tab }) => ({
-        id: `tab:${page}:${id}`,
-        label: `${label} › ${String(tab)}`,
-        group,
-        run: () => go(page, { space: route.space, app: route.app, tab: id }),
-      }));
-    const apps = new Map<string, Item>();
-    for (const a of [
-      ...(overview.recent_apps || []),
-      ...cachedRows((p) => p === base + "/apps"),
-    ])
-      apps.set(text(a.id), a);
-    const entities = cachedRows((p) =>
-      /^\/v1\/spaces\/[^/]+\/entities$/.test(p),
-    );
-    return [
-      ...(subject && detailReady
-        ? tabCommands(route.page, subject, "This page")
-        : []),
-      ...["people", "settings"]
-        .filter((page) => menu.some((m) => m.id === page))
-        .flatMap((page) =>
-          tabCommands(page, sectionLabel(page) || page, "Sections"),
-        ),
-      ...[...apps.values()].map((a) => ({
-        id: "app:" + text(a.id),
-        label: text(a.display_name),
-        group: "Apps",
-        keywords: text(a.space_name),
-        hint: text(a.space_name),
-        icon: <AppWindow size={16} />,
-        run: () => openApp(a),
-      })),
-      ...cachedRows((p) => p === base + "/spaces").map((sp) => ({
-        id: "space:" + text(sp.id),
-        label: text(sp.display_name),
-        group: "Spaces",
-        icon: <FolderOpen size={16} />,
-        run: () => openSpace(sp),
-      })),
-      ...entities.map((e) => ({
-        id: "entity:" + text(e.id),
-        label: text(e.label),
-        group: "Entities",
-        keywords: text(e.entity_key),
-        hint: text(e.entity_key),
-        icon: <Database size={16} />,
-        run: () =>
-          navigate(
-            consoleURL.tenant(tenant, "spaces", text(e.space_id), "entities") +
-              "?entity=" +
-              encodeURIComponent(text(e.id)),
-          ),
-      })),
-    ];
-  };
-  const canCreateApp =
-    all("app.manage") || (caps["app.manage"]?.spaces || []).length > 0;
+  // The Space's entity designer is its own screen (the Entities section):
+  // it draws its own header and list, so the Space header and tabs give way.
+  const entityScreen = route.page === "space" && route.tab === "entities";
+  const crumbs = tenantCrumbs(t, {
+    tenantName,
+    title,
+    entityScreen,
+    detailReady,
+  });
+  const paletteCommands = tenantCommands(t, {
+    title,
+    detailReady,
+    failedState: deploymentStates.failed,
+    menu,
+    navigate,
+    connect,
+  });
   const actions = (
-    <>
-      <IconButton
-        label="Refresh"
-        icon={<RefreshCw size={16} aria-hidden />}
-        tooltip="bottom"
-        onClick={refresh}
-      />
-      {route.page === "spaces" && all("space.manage") && (
-        <Button
-          variant="primary"
-          icon={<Plus size={16} aria-hidden />}
-          onClick={() => void createSpace(t)}
-        >
-          Create Space
-        </Button>
-      )}
-      {((route.page === "apps" && canCreateApp && (overview.spaces ?? 0) > 0) ||
-        (route.page === "space" &&
-          route.tab === "apps" &&
-          scoped("app.manage") &&
-          detailReady)) && (
-        <Button
-          variant="primary"
-          icon={<Plus size={16} aria-hidden />}
-          onClick={() => createApp(t)}
-        >
-          Create App
-        </Button>
-      )}
-      {route.page === "app" &&
-        route.tab === "microapps" &&
-        scoped("microapp.manage") &&
-        detailReady && (
-          <Button
-            variant="primary"
-            icon={<Plus size={16} aria-hidden />}
-            onClick={() => createMicro(t)}
-          >
-            Add micro-app
-          </Button>
-        )}
-      {route.page === "settings" &&
-        route.tab === "databases" &&
-        all("database.manage") && (
-          <Button variant="primary" onClick={() => void addDatabase(t)}>
-            Add database
-          </Button>
-        )}
-    </>
-  );
-  const spaceName =
-    route.page === "space"
-      ? detailReady
-        ? text(space.display_name)
-        : ""
-      : route.page === "app" && detailReady
-        ? text(app.space_name)
-        : "";
-  const context =
-    memberships.length > 1 || me.pagination?.has_more ? (
-      <ContextSwitcher
-        kind="Tenant"
-        path="/v1/my-tenants"
-        value={tenant}
-        current={tenantName}
-        options={options(memberships)}
-        onChange={selectTenant}
-      />
-    ) : (
-      <ContextLabel
-        className="company-name"
-        kind="Tenant"
-        value={tenantName || "No Tenant access"}
-      />
-    );
-  const spaceContext = tenant && can("space.read") && (
-    <ContextSwitcher
-      kind="Space"
-      path={base + "/spaces"}
-      value={route.space || undefined}
-      current={spaceName}
-      placeholder="All Spaces"
-      options={[]}
-      onChange={(id) => go("space", { space: id })}
+    <TenantActions
+      t={t}
+      detailReady={detailReady}
+      refresh={refresh}
+      connect={connect}
     />
   );
+  const { context, section } = tenantContext({
+    me,
+    memberships,
+    tenant,
+    tenantName,
+    navigate,
+  });
+  const places = useSidebarPlaces(t.spaces, scoped);
+  const navActive = activeNavItem(route),
+    heading = shellHeading(t, title, detailReady, entityScreen);
   return (
     <LiveRefresh value={live}>
       <ConsoleShell
         me={me}
-        kind="Tenant"
-        title={title}
+        // The broadest fixed control role here, else the email.
+        role={capsQuery.data?.control_roles[0]?.display_name || me.email}
+        title={heading.title}
+        description={heading.description}
+        header={heading.header}
         nav={menu}
-        active={
-          route.page === "space"
-            ? "spaces"
-            : route.page === "app"
-              ? "apps"
-              : route.page
-        }
+        active={navActive}
         navigate={go}
+        section={section}
         context={context}
-        secondaryContext={spaceContext}
+        places={
+          tenant && canSpaces
+            ? (rail, close) => (
+                <SpacesLinks
+                  rail={rail}
+                  close={close}
+                  items={places}
+                  current={route.page === "spaces"}
+                  active={navActive === "space" ? route.space : undefined}
+                  go={go}
+                />
+              )
+            : undefined
+        }
         breadcrumbs={crumbs}
-        commands={commands()}
+        commands={paletteCommands}
+        paletteExamples={paletteExamples(paletteCommands)}
         actions={actions}
+        topActions={
+          <Button variant="primary" onClick={connect}>
+            Connect agent
+          </Button>
+        }
+        accountItems={tenantAccountItems(t, go)}
         appearanceControls={appearanceControls}
         account={() => go("account")}
         signOut={signOut}
       >
+        {connecting && (
+          <ConnectAgentDialog
+            tenantName={tenantName}
+            agentAccess={() => {
+              setConnecting(false);
+              go("agents");
+            }}
+            close={() => setConnecting(false)}
+          />
+        )}
         {error && (
           <Alert onDismiss={dismiss} dismissLabel="Dismiss error">
             {error}
           </Alert>
         )}
-        {detailReady &&
-          (route.page === "space" || route.page === "app") &&
-          text(detail.workspace_id) && (
-            <DevelopmentBanner
-              workspace={text(detail.workspace_id)}
-              openSpace={(id) => go("space", { space: id })}
-            />
-          )}
-        {!!tabs.length && (
-          <Tabs
-            label={`${title} sections`}
-            className="workspace-tabs"
-            items={tabs}
-            value={activeTab}
-            onChange={(id) =>
-              go(route.page, { space: route.space, app: route.app, tab: id })
-            }
-          />
-        )}
-        <ErrorBoundary key={url}>
-          {route.page === "account" ? (
-            <AccountPage me={me} refreshMe={refreshMe} />
-          ) : !tenant ? (
-            <Card>
-              <EmptyState title="No Tenant yet">
-                Your administrator can add this account to a Tenant.
-              </EmptyState>
-            </Card>
-          ) : (
-            <>
-              {route.page === "home" && <HomePage t={t} />}
-              {route.page === "apps" && <AppsPage t={t} />}
-              {route.page === "spaces" && <SpacesPage t={t} />}
-              {route.page === "space" && detailReady && <SpacePage t={t} />}
-              {route.page === "app" && detailReady && <AppPage t={t} />}
-              {route.page === "people" && (
-                <TenantPeople
-                  key={tenant + "/" + peopleTab + "/" + route.team}
-                  tenant={tenant}
-                  caps={caps}
-                  tab={peopleTab}
-                  team={route.team}
-                  selectTeam={(id) => go("people", { tab: "teams", team: id })}
-                />
-              )}
-              {route.page === "activity" && (
-                <ActivityLog
-                  path={base + "/audit-events"}
-                  grants={agentGrantsPath(tenant, all("authorization.manage"))}
-                />
-              )}
-              {route.page === "settings" && <TenantSettings t={t} />}
-            </>
-          )}
-        </ErrorBoundary>
+        <TenantPages
+          t={t}
+          url={url}
+          refreshMe={refreshMe}
+          detail={detail}
+          detailReady={detailReady}
+          entityScreen={entityScreen}
+          peopleTab={peopleTab}
+          title={title}
+          actions={actions}
+          manager={manager}
+        />
         {modal && (
           <FormModal
             key={url + modal.title}

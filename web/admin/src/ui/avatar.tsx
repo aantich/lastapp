@@ -1,7 +1,10 @@
 import { Bot, Settings } from "lucide-react";
+import type { CSSProperties } from "react";
 import { cx, initials } from "./utils";
 
 export type AvatarKind = "person" | "agent" | "system";
+// The --ui-avatar-* tokens (src/theme/sizes.css).
+export type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 
 // A person (initials), an agent (bot mark on ink) or the system worker.
 // Decorative by default because the name is printed beside it; pass
@@ -9,13 +12,13 @@ export type AvatarKind = "person" | "agent" | "system";
 export function Avatar({
   name,
   kind = "person",
-  size = 32,
+  size = "md",
   labelled,
   className,
 }: {
   name: string;
   kind?: AvatarKind;
-  size?: number;
+  size?: AvatarSize;
   labelled?: boolean;
   className?: string;
 }) {
@@ -33,16 +36,18 @@ export function Avatar({
         kind === "system" && "ui-system",
         className,
       )}
-      style={{ "--ui-avatar-size": `${size}px` } as React.CSSProperties}
+      style={
+        { "--ui-avatar-size": `var(--ui-avatar-${size})` } as CSSProperties
+      }
       role={labelled ? "img" : undefined}
       aria-label={labelled ? label : undefined}
       aria-hidden={labelled ? undefined : true}
       title={labelled ? label : undefined}
     >
       {kind === "agent" ? (
-        <Bot size={Math.round(size * 0.5)} aria-hidden />
+        <Bot aria-hidden />
       ) : kind === "system" ? (
-        <Settings size={Math.round(size * 0.5)} aria-hidden />
+        <Settings aria-hidden />
       ) : (
         initials(name)
       )}

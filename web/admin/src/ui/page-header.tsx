@@ -69,3 +69,28 @@ export function PageHeader({
     </div>
   );
 }
+
+// A dashboard's opening: a muted eyebrow (the date), a large greeting h1 and
+// a summary sentence, with compact stats beside it.
+export function PageIntro({
+  eyebrow,
+  title,
+  summary,
+  aside,
+}: {
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  summary?: ReactNode;
+  aside?: ReactNode;
+}) {
+  return (
+    <section className="ui-page-intro">
+      <div className="ui-page-intro-copy">
+        {eyebrow && <span>{eyebrow}</span>}
+        <h1>{title}</h1>
+        {summary && <p>{summary}</p>}
+      </div>
+      {aside}
+    </section>
+  );
+}

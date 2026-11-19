@@ -1,5 +1,445 @@
 # Lastapp verification
 
+## Console UI code rules: tokens only, kit only, 200-line files — 19 November 2026
+
+- `npm run lint` (ESLint plus `scripts/check-css.mjs`) and `npm run
+  typecheck` clean on `web/admin`; `go test ./...` passes (database tests
+  skipped as usual). A probe screen with `w-[13px]`, a hex color, a raw
+  `<button>`/`<input>`, a `style` prop, `<Plus size={16} />` and a `"12px"`
+  string drew one error each; a probe stylesheet with a named color, a hex
+  border, an `rgb()` shadow, a `0.2s` transition and `z-index: 5` drew six.
+- Built stylesheet compared with `main`'s (`vite build --minify false`, the
+  new scale tokens substituted, `4px * n` products evaluated): 957 rules on
+  both sides; the only differences are equivalent spellings (flex
+  shorthands such as `1 1 420px` / `420px`, nested `calc()`, animation
+  shorthand order, `var(--ui-shadow-modal)` for the same shadow).
+- Every `.ts`/`.tsx` (stories excepted) and `.css` file under `src` is at
+  most 200 lines without blanks and comments; the largest before were
+  `agent-access.tsx` 807, `tenant-workspace.tsx` 770 and `ui/kit.css` 3926
+  (raw). Splits are moves; hook order, query keys, markup and class names
+  are unchanged.
+- Local Storybook build succeeds (`npm run build-storybook`). Browser e2e
+  was not run locally; it ran in CI on the pushed branch.
+
+## Tests on a disposable test database only — 19 November 2026
+
+Earlier entries that mention `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` on
+`.local/config.json` ran on the development MariaDB; that is no longer possible.
+
+- `python3 scripts/testdb.py -race -count=1 ./...` (the `make integration`
+  backend half) on a fresh `mariadb-test` container (port 13319, tmpfs,
+  per-run secrets in a temp dir): every package **PASS**, control 278.5 s,
+  no skipped tests. Container and temp dir are removed afterwards.
+- The first run found tests that had depended on the dev server: the
+  registered business-database fixture (`businessDatabaseFixture`) targeted
+  127.0.0.1:33317, and `TestMariaDBControlPlane` relied on the dev API's
+  worker to provision. Both now use the test server (target address from the
+  registry DSN; the test runs its own worker). Metadata-only targets use 3306.
+- Guard: with `LASTAPP_TEST_CONFIG` pointing at the dev `.local/config.json`,
+  the database tests fail immediately with "registry port 127.0.0.1:33317 is
+  the development MariaDB". `TestGuardRefusesDevelopmentData` covers the
+  port, the `lastapp_foundation` name, socket DSNs and non-development config.
+- Dev registry, read-only `SELECT` before and after both full runs:
+  `lastapp_foundation.tenants` 12 (latest 2026-11-18 22:50), `audit_events`
+  385, 46 schemas, 43 MariaDB accounts. No change.
+- `make lint` clean. Browser e2e (now sharing `scripts/testdb.py`) was run
+  in CI.
+- A merge-queue run then failed to bind 127.0.0.1:33318 for `mariadb-e2e`
+  although nothing listened there. 33318/33319 lie in the Linux ephemeral
+  range (32768-60999), so any outgoing connection could hold them. The
+  disposable ports moved to 13318/13319, and `up` is retried (container
+  removed in between) up to three times.
+
+## Entity designer review fixes — 19 November 2026
+
+- Backend (MariaDB, `TestEntityRuntime`): after v1 is published, publishing
+  the unchanged draft returns 409 `conflict` ("The draft matches the published
+  version…") and queues no version; `PublishEntity` is the one operation
+  behind the console route and `lastapp_entity_publish` (tool description and
+  its golden updated). All Go packages passed with
+  `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` set; `make lint` clean.
+- Browser (`tests/entities.spec.ts`, `tests/access.spec.ts`,
+  `tests/layout.spec.ts` on the disposable e2e stack): the page has exactly
+  one h1 (the entity name, already rendered by `RecordHeader`; h2s follow);
+  the Fields tab shows the read-only permission paths beside the fields with
+  the "not in any read path yet" callout; with no changes the Review dialog's
+  **Publish v2** is disabled, a reason names it (`aria-describedby`) and the
+  Drafted step reads "No changes to publish" (not done); on Space Access the
+  sidebar has one `aria-current` item.
+- Probe (same stack, not committed): the five pipeline steps share one row in
+  the dialog and in the Fields-tab card at 1440 px; Fields (605 px) and
+  Permission paths sit side by side at 1440 px; axe (wcag2a/aa, wcag21a/aa,
+  best-practice) 0 violations on the Fields tab with and without a draft, the
+  Review dialog, the Fields tab at 390 px and Space Access; no horizontal
+  overflow at 390 px. A text-only visual review against `Entity.dc.html` led
+  to a wider Fields track and removed a repeated reason in the dialog. Not
+  addressed here: the pipeline/settings cards span the content column, not the
+  entity list column as in the mockup, and the fields grid clips its
+  Behaviour column at 390 px (existing grid behaviour).
+
+## Access navigation, control role and inherited App assignments — 19 November 2026
+
+- Backend (MariaDB, `TestScopedRecipientOptions`): `GET …/capabilities`
+  returns `control_roles` broadest first (an App manager gets only App
+  manager; the Tenant administrator gets Tenant administrator, then Space
+  manager); `GET …/apps/{app}/role-assignments?include=space` lists the App's
+  own assignments before its Space's, returns 403 to an App-only manager
+  (who still reads the App's own) and 400 on a Space. All Go packages
+  passed with `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` set
+  (`internal/control` 119 s); `make lint` clean.
+- Browser (`tests/access.spec.ts`): the sidebar's Access opens the Space's
+  Access tab and stays highlighted on Members and teams; the account block
+  names the role from `control_roles`; with 53 Space assignments the matrix
+  names a holder whose only assignment is on the second page and counts
+  "+49" for a role with 51 holders; a cell opens the entity on its Access tab
+  (this also fixed a matrix link that changed the address without opening
+  the entity: a second `useConsoleURL` user's state was not shared); App
+  Access lists its App manager (removable) first, then inherited Space
+  assignments with no action. Members and teams specs reach the page from
+  the account menu.
+- axe (wcag2a/aa, wcag21a/aa): 0 violations on Space Access, App Access and
+  Members and teams at 1440 and 390 px; no horizontal overflow at 390 px.
+  Local runs shared the machine's single e2e database port with other
+  stacks; two runs were lost when another run replaced the container.
+- CI run 44397554328 (commit 8ded208, rebased on main after #29) passed
+  lint, schema, race tests and the full browser suite. A text-only visual
+  review against the mockup found no material problem; it noted that the
+  open Space stays highlighted in the Spaces list beside Access (as it does
+  beside Entities).
+
+## Workspace preparation steps, Home attention and deployment retry — 19 November 2026
+
+- `TestDevelopmentWorkspaceReleaseFlow` (MariaDB) checks that a new workspace
+  starts at `storage`, that the list shows `publishing` after the first worker
+  pass, and that the step is cleared once the workspace is ready. For both
+  injected failures (activation conflict, corrupt build) it removes the fault
+  and then checks the retry rules. A stale revision gets 412. A production
+  Space change after the failure gets 409. Of two concurrent retries, exactly
+  one gets 202 and the other 412. The same deployment then becomes active with
+  `attempts` 2 and `retried_by` set. `release.deployment_retried` and
+  `release.deployed` are audited under the retrying person. Retrying a
+  deployment that is no longer failed gets 409.
+  `TestWorkspaceStepsMatchSchema` keeps `WorkspaceSteps` equal to the
+  `preparation_step` CHECK constraint.
+- Goldens were regenerated for intended contract changes: the
+  `lastapp_release` retry schema; retry stale/not-failed shapes, including over
+  MCP without `production.deploy`; `attempts`/`retried_by`;
+  `preparation_step`/`agent_client_name`; and
+  `development_policy.workspace_steps`. `design/control_plane.sql` was
+  regenerated for migration 00014.
+- Local runs: the full Go suite passed, except `TestMariaDBControlPlane`. That
+  test uses the shared development registry, which was not migrated to 00014
+  (the dev stack was deliberately left untouched). `make lint` reported 0
+  issues. Browser specs passed: the deployment recovery spec (now also covers
+  the Retry dialog and its If-Match) and the new Home/Development progress and
+  unpublished-entity spec.
+- axe (wcag2a/aa, wcag21a/aa, best-practice) on Home, Space → Development and
+  the App Retry dialog, in light and dark at 1440 and 390 px: 0 violations in
+  all 12 states and no horizontal overflow. A text-only visual review against
+  the mockup found the Development list's Preparing badge stretched across its
+  column (fixed). Its remaining findings are pre-existing shared-kit details:
+  database card title wrapping, the failed card border, attention-card
+  spacing, and the field-less confirmation dialog.
+
+## Apps list and App detail on the approved design — 18 November 2026
+
+- The Apps list and the App page (Releases tab of a live App) were measured
+  against the mockup's prototype in Chrome, region by region (box, padding,
+  radius, colors, font shorthand), at 1440×900 and 1920×1080 on a private
+  probe stack seeded with the Northstar demo. Header, "New app", the table
+  card, header row, rows, tiles, status badges, the App header tile and
+  title, page tabs, the Production deployment card, its steps (label and
+  note type) and the Releases header are within 2 px with identical type.
+  Before the change the page title was 26 px instead of 28 px and sat 4 px
+  low. Remaining differences are data or mockup artefacts: hostnames are the
+  real ID-based origins (widths), the mockup's rows overflow its card by
+  31 px (its Preview button is clipped) while real rows fit, release rows have
+  no "r23" number column (no safe source; titles start 93 px further left),
+  the mockup's "↗" glyph makes its header buttons 41 px tall instead of 37 px,
+  and the content height follows the number of releases.
+- A failed deployment (patched into the deployment response, verification
+  only) shows "<release> failed" in the header, a danger tile, "Production
+  still serves <active release>.", Retry deploy, the failed step marked with
+  the stored error, and the failed release listed with a Failed chip.
+- axe (wcag2a/aa, wcag21a/aa, best-practice): 0 violations on Apps and on
+  each App tab (Releases, Micro-apps, Data access, Settings) for two Apps, in
+  light and dark, at 1440 and 390 px; no horizontal overflow at 390 px.
+- A separate visual review of the screenshots found no material difference;
+  its minor findings (the Launch app arrow) were fixed or are listed above.
+- Backend: `TestDevelopmentWorkspaceReleaseFlow` (MariaDB) checks the App
+  list's `hosted_origin`, `latest_deployment` and `active_release_id` against
+  the deployment, that an App manager without `release.manage` gets no
+  `latest_deployment`, `failed_state` "publishing" on a failed activation and
+  none on success, and the release creator; goldens and
+  `design/control_plane.sql` were regenerated for migration 00013.
+- CI run 44343686226 (commit bf4941c, on main after #24) passed the
+  backend, MariaDB and all 37 browser regressions. Local browser runs were
+  not usable: with several stacks sharing the machine (load average ~50) the
+  console took over 5 s to leave "Opening Lastapp…", so every spec timed out
+  at sign-in. The earlier CI failures were real and fixed: the typed/untyped
+  App row comparison lacked the new fields, the App page had lost Refresh
+  with the shell header, and "active" matched the running note before the
+  deployment was live.
+
+## Tenant switcher under the brand row; floating list popup — 18 November 2026
+
+- Storybook (App shell, ContextSwitcher, Select, RemoteSelect, FormModal),
+  headless Chromium: the switcher is a 212×47 control under the brand row;
+  its popup is portalled to `<body>` (inside the dialog for a FormModal
+  Select), 4 px under the trigger (beside the 40 px tile on the rail), with
+  the page surface colour in both modes, and opening it does not move the
+  sidebar search field. Focus goes to "Find a Tenant"; Load more (5 per
+  mocked page) appended a page with the popup open and focus kept; Escape
+  closed it; a search with no result shows "No Tenants match". Select
+  (keyboard and mouse, outside press), the FormModal Select and RemoteSelect
+  still choose and close.
+- axe-core on the sidebar and open popup: no violations in light and dark at
+  1440 px, 390 px (drawer) and on the collapsed rail, except the drawer's
+  existing `aria-allowed-role` (role=dialog on `aside`), unchanged here.
+- Not run locally: the Playwright e2e suite (left to CI's `test` check).
+
+## Access, Agents and agent consent on the approved design — 18 November 2026
+
+- Space Access, the Agents page and the consent page were measured against
+  the mockup's `access` and `agents` screens and its consent modal, region by
+  region (position, size, padding, radius, colors, font shorthand), at
+  1440×900 and 1920×1080, on a disposable stack seeded with real records (a
+  Space with two custom roles, an entity with published paths and a draft
+  change, an assignment, two consented connections and a pending consent).
+  Agent cards match except text-length widths and the danger token (Revoke is
+  `#7d150d`, the mockup `#9a1c12`; small button padding 7 px vs 6 px). Access
+  matrix and assignment rows match in size and type; the whole block sits
+  66 px lower under the Space tabs, and op columns start 35 px further left
+  because `acl.manage` (the real operation name) is wider than the mockup's
+  `acl` and the mockup's row button overflows its card by 32 px. The consent
+  card's title, labels, preset cards and expiry control match in size and
+  type; it is taller because it also shows the client ID, the unverified-name
+  warning, the scope pickers and the single permissions disclosure, and the
+  expiry choices are the served 1/7/30 days.
+- axe-core reports no violations in light and dark mode on Space Access, App
+  Access, Agents, My account and the consent page (the consent card's title is
+  now the page's `h1`), and none of them overflows horizontally at 390 px
+  (the matrix scrolls inside its own region).
+- A separate text-only visual review of the screenshots found Agents faithful
+  and Access/consent close; its findings on centred preset-card text and the
+  selected-card tint were fixed and remeasured.
+- `go test ./internal/agent` (preset descriptions, day choices within
+  1..`max_days` including the default) and the integration golden
+  (`config` shape with `day_choices`, `max_connections`, preset
+  `description`) pass against the local MariaDB; `make lint` is clean. The
+  targeted browser specs (agent access, review fixes, security, database
+  access) were run against the disposable stack; the full suite runs in CI.
+- Not verified: Space-wide assignments shown with App assignments in one list
+  (the Space list shows Space assignments only) and opening an entity directly
+  on its Access tab from a matrix cell (it opens the entity).
+
+## Activity and the command palette on the approved design — 18 November 2026
+
+- Server: `GET …/audit-events` accepts `resource_id` (at most 36 bytes),
+  applied with `actor` and `kind` before search and paging under the same
+  `audit.read` check. `TestAuditAttributionGolden` asserts that the filter
+  returns exactly the App's events and no other, survives `limit=1`, rejects
+  a 37-byte ID with 400 and still gives a member without `audit.read` 403.
+  The golden output is unchanged.
+- Fidelity: the mockup's Activity screen and ⌘K palette were rendered from
+  the prototype source and measured against the real screens on a private
+  disposable stack (the mockup's six events routed into the API response for
+  geometry only) at 1440×900 and 1920×1080. Heading, actor filter, card,
+  rows, avatar marks, palette dialog, input row, Esc button, list, rows,
+  glyph tiles and kind labels are within 2 px with identical leaf type. The
+  only difference: the mockup's rows are 32 px wider than their card
+  (content-box padding), so its via/when columns sit 24–33 px further right
+  and its time column is clipped; the real rows fit the card. Before the
+  fix the heading wrapped (a full-width Select) and the palette was centred
+  vertically (the generic overlay rule won); both corrected.
+- Real data (a fresh Tenant with a Space, an App and three renames): the
+  renames read as one line ending "3 changes", which opens the App's trail
+  (`resource_id=` sent) and "Show all activity" returns; Enter on **Agents**
+  sends `actor=agent`. The palette lists "Go to …" from the navigation,
+  "Open …" for loaded Apps and Spaces, Connect a new agent (opens the
+  dialog) and the three "Activity · … only" filters; typing "agents only"
+  and Enter opens `…/activity?actor=agent` with Agents pressed; the Esc
+  button closes it; an unmatched query shows "Nothing matches.".
+- axe-core (WCAG 2.0/2.1 A/AA + best practice) on Activity and on the open
+  palette at 1440 and 390 px, light and dark: 0 violations, no horizontal
+  overflow. A separate visual review of the screenshots found no
+  high-severity difference; the shell's 1–3 px sidebar offsets belong to the
+  shell, the kind Select (a real filter the mockup lacks) keeps the kit
+  Select look.
+- Content audit: no mockup content was copied. Omitted for lack of a
+  backing operation or read: "Publish {entity}" (needs the entity draft
+  flag, G3), "Role matrix for {entity}" and "Test {entity} as {user}" (no
+  designer deep link to those tabs), the agent's preset where its grant is
+  unreadable or matches no preset.
+
+Executed checks: `go test ./...`; `TestAuditAttributionGolden` against the
+local MariaDB; `make lint` 0 issues; console lint and typecheck;
+`python3 design/validate_schema.py --check`; `python3
+scripts/verify_driver.py`. The full browser suite ran in CI.
+
+## Entity designer on the approved design — 18 November 2026
+
+- `has_draft_changes` on `GET /v1/spaces/{space}/entities`: the MariaDB
+  integration tests (`TestEntityRuntime`, `TestRegistry*`) assert it is true
+  before the first publication, false after it, true after a PATCH that
+  changes the definition and false again after republishing; the untyped-row
+  registry comparison checks it separately.
+- The Entities screen was measured against the prototype's `entities`
+  screen rendered statically in Chrome (same shell head), region by region,
+  at 1440×900 and 1920×1080, with a populated Space (Company, Contact, Deal;
+  two new draft fields). Header tile, title, meta, chip and tabs, the entity
+  list (212 px card, 35 px items, the selected item's 600 weight, background
+  and 3 px bar), grid header/row (43 px rows, 12px 16px padding, 14 px type)
+  and pipeline steps match within 1 px with identical type. Remaining
+  differences are content or composition: text-length widths (title/meta,
+  "Review & publish"), the Fields card's heading row with Add field and the
+  row-actions column (from the full comp; they move the grid 61 px down and
+  narrow the columns), the templates note under the list, and one-line step
+  notes (63 px steps instead of 79 px). The done-step green is the shared
+  `--ui-success` (#1a603d vs the mockup's #1f6b45).
+- axe (WCAG 2.1 AA + best practice): 0 violations on Fields, Access, Rules,
+  Test and History in light and dark mode at 1440 and on Fields/Access at
+  390; no horizontal overflow at 390 px (the field grid scrolls inside its
+  card). A text-only visual review found the composition close; its findings
+  (a list item without a dot centred, choices/calculations not in body text,
+  the list card not full width on a phone, a duplicate "Publications"
+  landmark) were fixed.
+
+## Console shell and Tenant Home on the approved design — 18 November 2026
+
+- The shell (sidebar, top bar, centred content) and Home were measured
+  against the mockup's interactive prototype rendered in Chrome, region by
+  region (position, size, padding, radius, colors, font shorthand), at
+  1440×900 and 1920×1080, and checked for horizontal overflow at 390×844.
+  With the dev seed, every shell region and the header, stats, App card and
+  activity components are within 1 px of the mockup with identical type;
+  before the change the sidebar nav sat 55 px higher, the h1 was "Home" at
+  26 px instead of the 34 px greeting, the stat cards spanned the content
+  width (278×93) and at 1920 the content stretched to 1480 px instead of the
+  1240 px column. With the mockup's own data patched into the API responses
+  (verification only), the remaining differences are data-driven: two
+  attention cards instead of three (wider, one fewer wrapped line) and
+  text-length widths. The Spaces group sits 3 px higher than the mockup,
+  whose Agents row is 36 px tall only because its "◉" placeholder glyph
+  falls back to a taller font; real rows use 18 px icons.
+- A separate visual review of the screenshots (mockup, real with mockup data,
+  real with the seed, 390 px and dark) found layout, type scale, spacing and
+  components faithful; its findings (dev Space dot colour, a red border on
+  the failed card, a chevron on the account, the date comma, bold names in
+  activity sentences, an orphaned breadcrumb separator at 390 px) were fixed.
+- "Load more" in the Tenant switcher: the popup stayed open in headless
+  Chrome, but focus fell to the page when the clicked button was disabled
+  and removed, the status line switched to "Searching…" and the new options
+  landed below the scrolled view, so the list looked unchanged and stopped
+  answering the keyboard. The button now keeps focus in the search field
+  (no mouse-down focus), shows "Loading…" while only the next page loads and
+  brings the first new option into view. `tests/tenant-switcher.spec.ts`
+  creates 52 Tenants on the e2e stack and asserts more than 50 options, the
+  popup still open, focus in the search field, option 51 in view and Escape
+  closing it.
+
+- Owner review of the sidebar: Spaces carry no environment tag (there is no
+  production environment locally); development workspaces are listed under
+  their Space with a branch icon and "workspace"; every row keeps its status
+  dot. The Tenant switcher is the sidebar section label for every account
+  with a Tenant, even one, and `tests/tenant-switcher.spec.ts` reaches it by
+  role and name.
+- Content audit: the mockup sets layout and style only. The diff was searched
+  for mockup content (names, releases, hostnames, step counts, environment
+  tags, sample sentences); the real screens derive every value from API data
+  or contracts, the Connect agent dialog names no particular client, and the
+  stories use neutral sample data. Mockup elements without a data source are
+  omitted: an "unpublished entity changes" attention card, the account's
+  role label under the name and an agent's role in activity meta.
+
+Executed checks:
+
+- `go test -race` with `LASTAPP_TEST_CONFIG` over `./internal/...` (17
+  packages) passes; `TestRegistryRecordsMatchUntypedRows` covers the audit
+  trail's new `resource_name` and the overview's micro-app counts; the
+  delivery shape golden gained `deployed_by` and `release_name` only.
+- `make lint` 0 issues; console lint, typecheck, build and Storybook build
+  pass.
+- axe (WCAG 2.0/2.1 A/AA and best practice) over all 113 Storybook stories
+  in light and dark at 1440 px, and the changed groups at 390 px: no
+  violations beyond the page-level rules a component story cannot meet
+  (`landmark-one-main`, `page-has-heading-one`, `region`, as in the earlier
+  baseline) once App cards were named by their visible App name. Real Home,
+  Activity and the Connect agent dialog at 1440 px (light): the same App-card
+  finding, since fixed; no other violations.
+- Platform screens at 390 px with a long Tenant name: no horizontal overflow
+  after the current breadcrumb was allowed to shrink.
+- e2e: on this machine every browser login in the Playwright runner took 4–8 s
+  (the same steps outside the runner: under 1 s; the commit before this UI
+  work failed its login wait identically), so local runs at stock timeouts
+  fail at login. With a temporary 20 s expect timeout (not committed)
+  `tests/tenant-switcher.spec.ts` passed both tests. The full suite ran in
+  CI at stock timeouts (GitHub Actions `test` run 44325920770): green, all
+  browser regressions passing, after the specs were moved to where the new
+  shell puts Spaces, Tenant settings and Refresh.
+
+## Trimmed Northstar development demo — 18 November 2026
+
+- The seed no longer creates the mockup-named workspace `crm-pricing-exp` or
+  the staged Deal `forecast_category` field that Forecasting's release used to
+  promote. It publishes Account, Contact and Deal with their own fields only,
+  captures release 1.0.0 of Deal review and Forecasting in a workspace named
+  `demo-release`, deploys both, and then archives that workspace with
+  `delivery.ChangeWorkspace` (the console's archive operation). The archived
+  workspace stays listed with its Archived status; no active workspace remains.
+- Local registry: backed up to
+  `.local/backups/lastapp_foundation-20261118-2232-before-trim.sql.gz`, then the
+  existing `crm-pricing-exp` workspace was archived through
+  `POST /v1/workspaces/{id}/archive` as the Tenant administrator. The Deal's
+  `forecast_category` field was already published to production by the earlier
+  seed (no unpublished draft existed) and stays: the publisher rejects removing a
+  published field until a destructive-change workflow exists.
+
+Executed checks:
+
+- `TestNorthstarDemoSeed` (updated): entities publish exactly the demo fields,
+  the workspace is `demo-release`, archived and owned by the Tenant
+  administrator, no workspace remains unarchived, one active selected
+  deployment per App, and a second `SeedDevelopment` leaves the counts
+  unchanged. `TestNorthstarDemoDefinitions` **PASS** against the local MariaDB.
+
+## Populated Northstar development demo — 18 November 2026
+
+- `seed-development` now also fills the Northstar demo through the real
+  operations, as the Tenant administrator: CRM entities Account, Contact and
+  Deal created and published (`entities.Authoring`), the development workspace
+  `crm-pricing-exp` (`delivery.CreateWorkspace`), and for Deal review and
+  Forecasting a static build stored through an upload ticket
+  (`UploadTicket`/`AuthorizeUpload`/`StoreBuild`), release 1.0.0
+  (`CreateRelease`) and a production deployment (`DeployRelease`). Forecasting's
+  release promotes a new Deal field published in the workspace. No registry
+  table of these resources is written directly.
+- Queued work runs in the seed through the worker's own steps:
+  `worker.Leader.Settle` takes the worker lock, runs the starters and drains the
+  steps until a pass does no work, and defers (skipping the demo content with a
+  warning) while a server's worker leads. Each piece is created only while it is
+  missing; an App with any deployment is never shipped again.
+- Not seeded: a failed deployment (no genuine check fails without faking state)
+  and an agent grant (created only by the OAuth consent flow).
+
+Executed checks:
+
+- `TestNorthstarDemoSeed` (new): all three entities published with no pending
+  version, the forecast field only on Deal, the workspace ready and owned by the
+  Tenant administrator, exactly one active deployment per App that is the App's
+  selected release; a second `SeedDevelopment` leaves the counts of audit
+  events, entities, entity versions, workspaces, builds, releases, deployments,
+  upload tickets and database resources unchanged. `TestNorthstarDemoDefinitions`
+  validates the definitions. `TestSettleDrainsUntilIdle` and
+  `TestSettleDefersAndReportsFailures` cover `Settle`. `TestSecurityRegressions`
+  (which seeds with the provisioner) now shares the disposable-registry helper.
+- `go build ./...`, `go test ./...`, `LASTAPP_SECURITY_CONFIG=… LASTAPP_TEST_CONFIG=…
+  go test -race -count=1 ./internal/control ./internal/worker` **PASS**;
+  `golangci-lint run ./...` (v2.15.0, 0 issues), `python3
+  design/validate_schema.py --check`, `python3 scripts/verify_driver.py`
+  **PASS**. No console change; `make e2e` and the development database were not
+  run or reseeded.
+
 ## Entities, Access, Agents and Platform screens on the UI kit (U4b) — 18 November 2026
 
 - Every console screen outside `src/ui` is now kit-only: the entity designer

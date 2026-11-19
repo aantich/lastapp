@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lastapp — clickable prototype</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Inter+Tight:wght@500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F5F2}
+a{color:#2F5BEA;text-decoration:none}a:hover{color:#1E3FB8}
+button{font-family:Inter,system-ui,sans-serif}
+.nb{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:8px;border:0;background:transparent;color:#B9BCC4;font-size:14px;cursor:pointer;text-align:left}
+.nb:hover{background:#1B1D23;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #E6E4DF;border-radius:14px}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:500 14px Inter,sans-serif;border-radius:9px;padding:9px 14px;cursor:pointer;border:1px solid #DAD7D0;background:#FFFFFF;color:#111113}
+.btn:hover{border-color:#B9B5AC}
+.btn-primary{background:#111113;color:#FFFFFF;border-color:#111113}
+.btn-primary:hover{background:#2A2C31}
+.chip{display:inline-flex;align-items:center;gap:6px;font:500 12px Inter,sans-serif;padding:3px 9px;border-radius:999px}
+.tab{border:0;background:transparent;padding:10px 0;font-size:14px;cursor:pointer}
+.rowbtn{display:grid;width:100%;border:0;border-top:1px solid #EFEDE8;background:#FFFFFF;text-align:left;cursor:pointer;font-size:14px;color:#111113;padding:14px 16px;gap:12px;align-items:center}
+.rowbtn:hover{background:#FBFAF8}
+.frow{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(120px,1fr) 90px minmax(160px,2fr);gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #EFEDE8;font-size:14px}
+.h2{margin:0;font:600 15px 'Inter Tight',sans-serif}
+.muted{color:#5C5F66}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; font-family: Inter, system-ui, sans-serif; color: #111113; background: #F6F5F2">
+
+  <sc-if value="{{expanded}}" hint-placeholder-val="{{true}}">
+  <aside style="flex: 1 1 240px; max-width: 100%; background: #0E0F12; color: #FFFFFF; padding: 18px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px">
+      <div style="width: 28px; height: 28px; border-radius: 8px; background: {{accent}}; display: grid; place-items: center; font: 700 15px 'Inter Tight', sans-serif">L</div>
+      <span style="font: 600 16px 'Inter Tight', sans-serif">Lastapp</span>
+      <button onClick="{{toggleNav}}" aria-label="Collapse menu" title="Collapse menu" style="margin-left: auto; width: 30px; height: 30px; border-radius: 8px; border: 1px solid #2A2D35; background: #1B1D23; color: #C9CBD1; cursor: pointer; display: grid; place-items: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M16 10l-2 2 2 2"/></svg></button>
+    </div>
+    <button class="btn" onClick="{{openPalette}}" style="display: flex; align-items: center; gap: 8px; background: #1B1D23; border-color: #2A2D35; color: #C9CBD1; width: 100%">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      Search or run…<span class="mono" style="margin-left: auto; font-size: 11px; border: 1px solid #2F323B; border-radius: 5px; padding: 0 5px">⌘K</span>
+    </button>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-size: 11px; color: #9DA1AB; letter-spacing: .05em; text-transform: uppercase; padding: 0 10px">Northstar demo</span>
+      <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+        <sc-for list="{{nav}}" as="n" hint-placeholder-count="7">
+          <button class="nb" onClick="{{n.go}}" style="background: {{n.bg}}; color: {{n.fg}}">
+            <span style="width: 18px; display: grid; place-items: center; font-size: 13px">{{n.glyph}}</span>{{n.label}}
+            <sc-if value="{{n.hasBadge}}" hint-placeholder-val="{{false}}"><span class="chip" style="margin-left: auto; background: #23262E; color: #C9CBD1; padding: 1px 7px">{{n.badge}}</span></sc-if>
+          </button>
+        </sc-for>
+      </nav>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-size: 11px; color: #9DA1AB; letter-spacing: .05em; text-transform: uppercase; padding: 0 10px">Spaces</span>
+      <button class="nb" onClick="{{goEntities}}"><span style="width: 8px; height: 8px; border-radius: 3px; background: #3FB27F"></span>CRM<span class="mono" style="margin-left: auto; font-size: 11px; color: #8A8E98">prod</span></button>
+      <button class="nb" onClick="{{goHome}}"><span style="width: 8px; height: 8px; border-radius: 3px; background: #E3A23B"></span>crm-pricing-exp<span class="mono" style="margin-left: auto; font-size: 11px; color: #8A8E98">dev</span></button>
+    </div>
+    <div style="margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 10px; border-top: 1px solid #23262E">
+      <div style="width: 32px; height: 32px; border-radius: 50%; background: #2A2D35; display: grid; place-items: center; font-weight: 600; font-size: 13px">MC</div>
+      <div style="display: flex; flex-direction: column"><span style="font-size: 13px; font-weight: 600">Maya Chen</span><span style="font-size: 12px; color: #9DA1AB">Tenant admin</span></div>
+    </div>
+  </aside>
+  </sc-if>
+  <sc-if value="{{collapsed}}" hint-placeholder-val="{{false}}">
+  <aside aria-label="Navigation" style="flex: 0 0 68px; background: #0E0F12; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 0; box-sizing: border-box">
+    <div style="width: 28px; height: 28px; border-radius: 8px; background: {{accent}}; color: #FFFFFF; display: grid; place-items: center; font: 700 15px 'Inter Tight', sans-serif; margin-bottom: 8px">L</div>
+    <button onClick="{{toggleNav}}" aria-label="Expand menu" title="Expand menu" style="width: 40px; height: 40px; border-radius: 10px; border: 1px solid #2A2D35; background: #1B1D23; color: #C9CBD1; cursor: pointer; display: grid; place-items: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M14 10l2 2-2 2"/></svg></button>
+    <button onClick="{{openPalette}}" aria-label="Search or run (⌘K)" title="Search or run (⌘K)" style="width: 40px; height: 40px; border-radius: 10px; border: 0; background: transparent; color: #B9BCC4; cursor: pointer; display: grid; place-items: center; margin-bottom: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+    <sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+      <button onClick="{{n.go}}" aria-label="{{n.label}}" title="{{n.label}}" style="width: 40px; height: 40px; border-radius: 10px; border: 0; cursor: pointer; font-size: 16px; background: {{n.bg}}; color: {{n.fg}}">{{n.glyph}}</button>
+    </sc-for>
+    <div title="Maya Chen · Tenant admin" style="margin-top: auto; width: 32px; height: 32px; border-radius: 50%; background: #2A2D35; color: #FFFFFF; display: grid; place-items: center; font-weight: 600; font-size: 12px">MC</div>
+  </aside>
+  </sc-if>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px max(32px, calc((100% - 1176px) / 2)); border-bottom: 1px solid #E6E4DF; background: #FBFAF8">
+      <nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 14px" class="muted">
+        <button onClick="{{goHome}}" style="border: 0; background: transparent; padding: 0; cursor: pointer; color: #5C5F66; font-size: 14px">Northstar demo</button>
+        <span aria-hidden="true">/</span><span style="color: #111113; font-weight: 500">{{crumb}}</span>
+      </nav>
+      <button class="btn" onClick="{{openPalette}}" style="margin-left: auto; flex: 0 1 360px; display: flex; align-items: center; gap: 10px; color: #5C5F66">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        Search, jump to, or run…<span class="mono" style="margin-left: auto; font-size: 12px; border: 1px solid #E6E4DF; border-radius: 6px; padding: 1px 6px">⌘K</span>
+      </button>
+      <button class="btn btn-primary" onClick="{{openAgentModal}}">Connect agent</button>
+    </header>
+
+    <div style="padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 24px; max-width: 1240px; width: 100%; margin: 0 auto; box-sizing: border-box">
+
+      <!-- HOME -->
+      <sc-if value="{{isHome}}" hint-placeholder-val="{{true}}">
+        <section style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+          <div style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 420px">
+            <span class="muted" style="font-size: 13px">Tuesday, 17 November</span>
+            <h1 style="margin: 0; font: 600 34px/1.15 'Inter Tight', sans-serif; letter-spacing: -0.02em">Good morning, Maya</h1>
+            <p class="muted" style="margin: 0; font-size: 15px">{{attnSummary}}</p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+            <button class="card" onClick="{{goEntities}}" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 112px; cursor: pointer; text-align: left"><span class="muted" style="font-size: 12px">Entities</span><span style="font: 600 22px 'Inter Tight', sans-serif">3</span></button>
+            <button class="card" onClick="{{goApps}}" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 112px; cursor: pointer; text-align: left"><span class="muted" style="font-size: 12px">Apps live</span><span style="font: 600 22px 'Inter Tight', sans-serif">2</span></button>
+            <button class="card" onClick="{{goAgents}}" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 112px; cursor: pointer; text-align: left"><span class="muted" style="font-size: 12px">Agents active</span><span style="font: 600 22px 'Inter Tight', sans-serif">{{activeGrants}}</span></button>
+          </div>
+        </section>
+
+        <section aria-labelledby="attn" style="display: flex; flex-direction: column; gap: 12px">
+          <h2 id="attn" class="h2">Needs attention</h2>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px">
+            <article class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: center; gap: 8px"><span class="chip" style="background: {{fc.chipBg}}; color: {{fc.chipFg}}">{{fc.chip}}</span><span class="muted" style="margin-left: auto; font-size: 12px">Forecasting</span></div>
+              <div style="display: flex; flex-direction: column; gap: 4px"><strong style="font-size: 15px">{{fc.title}}</strong><span class="muted" style="font-size: 13px">{{fc.detail}}</span></div>
+              <div style="display: flex; gap: 8px">
+                <sc-if value="{{fc.canRetry}}" hint-placeholder-val="{{true}}"><button class="btn btn-primary" onClick="{{retryDeploy}}" style="padding: 7px 12px">Retry deploy</button></sc-if>
+                <button class="btn" onClick="{{openForecasting}}" style="padding: 7px 12px">View timeline</button>
+              </div>
+            </article>
+            <article class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: center; gap: 8px"><span class="chip" style="background: #FDF1DC; color: #7A4706">◐ Preparing</span><span class="muted" style="margin-left: auto; font-size: 12px">by Claude · agent</span></div>
+              <div style="display: flex; flex-direction: column; gap: 6px"><strong style="font-size: 15px">Workspace crm-pricing-exp</strong><span class="muted" style="font-size: 13px">Copying CRM schema into a fresh database</span>
+                <div style="height: 6px; border-radius: 99px; background: #EFEDE8; overflow: hidden"><div style="width: 62%; height: 100%; background: {{accent}}"></div></div>
+                <span class="muted" style="font-size: 12px">Step 3 of 4 · snapshot tables</span></div>
+            </article>
+            <article class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: center; gap: 8px"><span class="chip" style="background: {{pub.chipBg}}; color: {{pub.chipFg}}">{{pub.chip}}</span><span class="muted" style="margin-left: auto; font-size: 12px">CRM · Deal</span></div>
+              <div style="display: flex; flex-direction: column; gap: 4px"><strong style="font-size: 15px">{{pub.title}}</strong><span class="muted" style="font-size: 13px">{{pub.detail}}</span></div>
+              <div><button class="btn" onClick="{{openDeal}}" style="padding: 7px 12px">Open Deal</button></div>
+            </article>
+          </div>
+        </section>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+          <section style="flex: 2 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center"><h2 class="h2">Apps</h2><button onClick="{{goApps}}" style="margin-left: auto; border: 0; background: transparent; color: #2F5BEA; cursor: pointer; font-size: 13px">All apps →</button></div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px">
+              <sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+                <button class="card" onClick="{{a.open}}" style="padding: 18px; display: flex; flex-direction: column; gap: 14px; cursor: pointer; text-align: left; font: inherit; color: inherit">
+                  <span style="display: flex; align-items: center; gap: 12px; width: 100%">
+                    <span style="width: 40px; height: 40px; border-radius: 10px; background: {{a.tileBg}}; color: {{a.tileFg}}; display: grid; place-items: center; font: 600 15px 'Inter Tight', sans-serif">{{a.initials}}</span>
+                    <span style="display: flex; flex-direction: column"><strong style="font-size: 15px">{{a.name}}</strong><span class="muted" style="font-size: 12px">CRM · {{a.micro}} micro-apps</span></span>
+                    <span class="chip" style="margin-left: auto; background: {{a.chipBg}}; color: {{a.chipFg}}">{{a.chip}}</span>
+                  </span>
+                  <span class="mono muted" style="font-size: 12px">{{a.host}}</span>
+                  <span class="muted" style="font-size: 13px; border-top: 1px solid #EFEDE8; padding-top: 12px; width: 100%">Production <strong style="color: #111113">{{a.prod}}</strong> · {{a.prodNote}}</span>
+                </button>
+              </sc-for>
+            </div>
+          </section>
+          <section class="card" style="flex: 1 1 320px; min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+            <div style="display: flex; align-items: center"><h2 class="h2">Activity</h2><button onClick="{{goActivity}}" style="margin-left: auto; border: 0; background: transparent; color: #2F5BEA; cursor: pointer; font-size: 13px">Audit trail →</button></div>
+            <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+              <sc-for list="{{recent}}" as="e" hint-placeholder-count="4">
+                <li style="display: flex; gap: 12px"><span style="width: 30px; height: 30px; flex: none; border-radius: 8px; background: {{e.avBg}}; color: {{e.avFg}}; display: grid; place-items: center; font-size: 11px; font-weight: 600">{{e.av}}</span><span style="display: flex; flex-direction: column; gap: 2px; font-size: 13px"><span>{{e.text}}</span><span class="muted" style="font-size: 12px">{{e.meta}}</span></span></li>
+              </sc-for>
+            </ol>
+          </section>
+        </div>
+      </sc-if>
+
+      <!-- APPS -->
+      <sc-if value="{{isApps}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap"><h1 style="margin: 0; font: 600 28px 'Inter Tight', sans-serif">Apps</h1><button class="btn" style="margin-left: auto" onClick="{{toastNewApp}}">New app</button></div>
+        <section class="card" style="overflow: hidden">
+          <div style="overflow-x: auto">
+            <div class="rowbtn" style="grid-template-columns: minmax(180px,2fr) 120px 140px minmax(200px,2fr); cursor: default; font-size: 12px; color: #5C5F66; text-transform: uppercase; letter-spacing: .04em; background: #FBFAF8; border-top: 0">
+              <span>App</span><span>Space</span><span>Status</span><span>Hostname</span>
+            </div>
+            <sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+              <button class="rowbtn" onClick="{{a.open}}" style="grid-template-columns: minmax(180px,2fr) 120px 140px minmax(200px,2fr)">
+                <span style="display: flex; align-items: center; gap: 10px"><span style="width: 30px; height: 30px; border-radius: 8px; background: {{a.tileBg}}; color: {{a.tileFg}}; display: grid; place-items: center; font: 600 12px 'Inter Tight', sans-serif">{{a.initials}}</span><strong>{{a.name}}</strong></span>
+                <span>CRM</span>
+                <span><span class="chip" style="background: {{a.chipBg}}; color: {{a.chipFg}}">{{a.chip}}</span></span>
+                <span class="mono muted" style="font-size: 12px">{{a.host}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </section>
+      </sc-if>
+
+      <!-- APP DETAIL -->
+      <sc-if value="{{isApp}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: {{cur.tileBg}}; color: {{cur.tileFg}}; display: grid; place-items: center; font: 600 18px 'Inter Tight', sans-serif">{{cur.initials}}</div>
+          <div style="display: flex; flex-direction: column"><h1 style="margin: 0; font: 600 28px 'Inter Tight', sans-serif">{{cur.name}}</h1><span class="mono muted" style="font-size: 12px">{{cur.host}}</span></div>
+          <span class="chip" style="background: {{cur.chipBg}}; color: {{cur.chipFg}}">{{cur.chip}}</span>
+          <div style="margin-left: auto; display: flex; gap: 8px"><button class="btn" onClick="{{toastPreview}}">Open preview</button><button class="btn btn-primary" onClick="{{toastLaunch}}">Launch app ↗</button></div>
+        </div>
+        <nav aria-label="App sections" style="display: flex; gap: 22px; border-bottom: 1px solid #E6E4DF">
+          <sc-for list="{{appTabs}}" as="t" hint-placeholder-count="4">
+            <button class="tab" onClick="{{t.go}}" style="color: {{t.fg}}; font-weight: {{t.fw}}; border-bottom: 2px solid {{t.line}}">{{t.label}}</button>
+          </sc-for>
+        </nav>
+
+        <sc-if value="{{tabReleases}}" hint-placeholder-val="{{true}}">
+          <section class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap"><h2 class="h2">Production deployment</h2><span class="muted" style="font-size: 13px">{{cur.deployNote}}</span>
+              <sc-if value="{{cur.canRetry}}" hint-placeholder-val="{{false}}"><button class="btn btn-primary" onClick="{{retryDeploy}}" style="margin-left: auto; padding: 7px 12px">Retry deploy</button></sc-if>
+            </div>
+            <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px">
+              <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+                <li style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: {{s.bg}}; border: 1px solid {{s.border}}"><span style="font-size: 12px; font-weight: 600; color: {{s.fg}}">{{s.mark}} {{s.label}}</span><span style="font-size: 13px; color: #3A3D44">{{s.note}}</span></li>
+              </sc-for>
+            </ol>
+          </section>
+          <section class="card" style="overflow: hidden">
+            <div style="display: flex; align-items: center; padding: 14px 16px"><h2 class="h2">Releases</h2><span class="muted" style="margin-left: 10px; font-size: 13px">Immutable build + micro-app pins + Space snapshot</span></div>
+            <sc-for list="{{releases}}" as="r" hint-placeholder-count="3">
+              <div class="rowbtn" style="grid-template-columns: 80px minmax(200px,2fr) 150px auto; cursor: default">
+                <strong class="mono">{{r.id}}</strong>
+                <span style="display: flex; flex-direction: column; gap: 2px"><span>{{r.title}}</span><span class="muted" style="font-size: 12px">{{r.meta}}</span></span>
+                <span><span class="chip" style="background: {{r.chipBg}}; color: {{r.chipFg}}">{{r.chip}}</span></span>
+                <span style="display: flex; gap: 6px; justify-content: flex-end"><button class="btn" onClick="{{toastPreview}}" style="padding: 6px 10px">Preview</button></span>
+              </div>
+            </sc-for>
+          </section>
+        </sc-if>
+        <sc-if value="{{tabMicro}}" hint-placeholder-val="{{false}}">
+          <section class="card" style="overflow: hidden">
+            <sc-for list="{{micro}}" as="m" hint-placeholder-count="4">
+              <div class="rowbtn" style="grid-template-columns: 40px minmax(180px,2fr) minmax(160px,2fr) 100px; cursor: default">
+                <span class="mono muted">{{m.order}}</span><strong>{{m.name}}</strong><span class="mono muted" style="font-size: 12px">{{m.ref}}</span><span><span class="chip" style="background: #EAF5EF; color: #1F6B45">Active</span></span>
+              </div>
+            </sc-for>
+          </section>
+        </sc-if>
+        <sc-if value="{{tabData}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-wrap: wrap; gap: 16px">
+            <section class="card" style="flex: 1 1 340px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+              <h2 class="h2">Approved origins</h2><span class="muted" style="font-size: 13px">Browsers allowed to sign in to this App’s data API.</span>
+              <div class="mono" style="font-size: 13px; padding: 10px 12px; border: 1px solid #E6E4DF; border-radius: 10px">https://{{cur.host}}</div>
+              <div class="mono" style="font-size: 13px; padding: 10px 12px; border: 1px solid #E6E4DF; border-radius: 10px">http://localhost:5173 <span class="chip" style="background: #FDF1DC; color: #7A4706; font-family: Inter">dev</span></div>
+            </section>
+            <section class="card" style="flex: 1 1 340px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+              <h2 class="h2">Permission ceiling</h2><span class="muted" style="font-size: 13px">The App can narrow Space access, never widen it.</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px"><span class="chip" style="background: #F1EFEA">deal · read, update</span><span class="chip" style="background: #F1EFEA">company · read</span><span class="chip" style="background: #F1EFEA">contact · read</span></div>
+              <div class="mono" style="font-size: 12px; background: #0E0F12; color: #E6E7EA; border-radius: 10px; padding: 12px; white-space: pre-line">const deals = await client.query('deal', {
+  where: { stage: 'qualified' }, limit: 50 })</div>
+            </section>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <!-- ENTITIES -->
+      <sc-if value="{{isEntities}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: #111113; color: #FFFFFF; display: grid; place-items: center; font: 600 18px 'Inter Tight', sans-serif">{{ent.initial}}</div>
+          <div style="display: flex; flex-direction: column"><h1 style="margin: 0; font: 600 28px 'Inter Tight', sans-serif">{{ent.name}}</h1><span class="mono muted" style="font-size: 12px">{{ent.meta}}</span></div>
+          <sc-if value="{{ent.hasDraft}}" hint-placeholder-val="{{false}}"><span class="chip" style="background: #E8EEFD; color: #1E3FB8">Draft · 3 changes</span></sc-if>
+          <div style="margin-left: auto; display: flex; gap: 8px"><button class="btn" onClick="{{goTest}}">Test as user…</button>
+            <sc-if value="{{ent.canPublish}}" hint-placeholder-val="{{false}}"><button class="btn btn-primary" onClick="{{publish}}">Publish v9</button></sc-if>
+          </div>
+        </div>
+        <nav aria-label="Entity sections" style="display: flex; gap: 22px; border-bottom: 1px solid #E6E4DF">
+          <sc-for list="{{entTabs}}" as="t" hint-placeholder-count="4">
+            <button class="tab" onClick="{{t.go}}" style="color: {{t.fg}}; font-weight: {{t.fw}}; border-bottom: 2px solid {{t.line}}">{{t.label}}</button>
+          </sc-for>
+        </nav>
+        <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+          <nav aria-label="Entities" class="card" style="flex: 1 1 190px; max-width: 230px; padding: 10px; display: flex; flex-direction: column; gap: 2px">
+            <span class="muted" style="font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 6px 10px">CRM entities</span>
+            <sc-for list="{{entities}}" as="x" hint-placeholder-count="3">
+              <sc-if value="{{x.sel}}" hint-placeholder-val="{{false}}"><button onClick="{{x.pick}}" aria-current="true" style="display: flex; align-items: center; border: 0; text-align: left; cursor: pointer; padding: 9px 10px; border-radius: 8px; font-size: 14px; color: #111113; background: #EDEBE5; font-weight: 600; box-shadow: inset 3px 0 0 #111113">{{x.name}}<sc-if value="{{x.dot}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #2F5BEA"></span></sc-if></button></sc-if>
+              <sc-if value="{{x.unsel}}" hint-placeholder-val="{{true}}"><button onClick="{{x.pick}}" style="display: flex; align-items: center; border: 0; text-align: left; cursor: pointer; padding: 9px 10px; border-radius: 8px; font-size: 14px; color: #3A3D44; background: transparent; font-weight: 400">{{x.name}}<sc-if value="{{x.dot}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #2F5BEA"></span></sc-if></button></sc-if>
+            </sc-for>
+            <button class="btn" onClick="{{toastNewEntity}}" style="margin-top: 8px; border-style: dashed">+ New entity</button>
+          </nav>
+          <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+            <sc-if value="{{etFields}}" hint-placeholder-val="{{true}}">
+              <section class="card" style="overflow: hidden">
+                <div style="overflow-x: auto">
+                  <div class="frow muted" style="font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: #FBFAF8; border-top: 0"><span>Field</span><span>Type</span><span>Required</span><span>Behaviour</span></div>
+                  <sc-for list="{{fields}}" as="f" hint-placeholder-count="5">
+                    <div class="frow" style="background: {{f.bg}}; box-shadow: inset 3px 0 0 {{f.bar}}"><span class="mono" style="display: flex; gap: 8px; align-items: center">{{f.name}}<sc-if value="{{f.isNew}}" hint-placeholder-val="{{false}}"><span class="chip" style="background: #E8EEFD; color: #1E3FB8; font-family: Inter">new</span></sc-if></span><span>{{f.type}}</span><span>{{f.req}}</span><span class="muted">{{f.note}}</span></div>
+                  </sc-for>
+                </div>
+              </section>
+              <sc-if value="{{showPipeline}}" hint-placeholder-val="{{false}}">
+                <section class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+                  <h2 class="h2">Publish v9 · live data keeps working while storage is prepared</h2>
+                  <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px">
+                    <sc-for list="{{pubSteps}}" as="s" hint-placeholder-count="5">
+                      <li style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: {{s.bg}}; border: 1px solid {{s.border}}"><span style="font-size: 12px; font-weight: 600; color: {{s.fg}}">{{s.mark}} {{s.label}}</span><span style="font-size: 13px; color: #3A3D44">{{s.note}}</span></li>
+                    </sc-for>
+                  </ol>
+                </section>
+              </sc-if>
+            </sc-if>
+
+            <sc-if value="{{etAccess}}" hint-placeholder-val="{{false}}">
+              <section class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+                <h2 class="h2">Permission paths</h2><span class="muted" style="font-size: 13px">Fields and their record predicates stay together. Apps can only narrow them.</span>
+                <div style="border: 1px solid #E6E4DF; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span class="chip" style="background: #111113; color: #FFFFFF">Sales reviewer</span><span class="muted" style="font-size: 13px">can</span><span class="chip" style="background: #F1EFEA">read</span><span class="chip" style="background: #F1EFEA">update</span></div>
+                  <div class="mono" style="font-size: 12px; background: #FBFAF8; border-radius: 8px; padding: 8px 10px">where stage ≠ lost</div>
+                  <span class="muted" style="font-size: 12px">Fields: {{reviewerFields}}</span>
+                </div>
+                <div style="border: 1px solid #E6E4DF; border-radius: 12px; padding: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span class="chip" style="background: #EAF5EF; color: #1F6B45">Record owner</span><span class="muted" style="font-size: 13px">can</span><span class="chip" style="background: #F1EFEA">all operations</span><span class="chip" style="background: #F1EFEA">acl.manage</span><span class="muted" style="font-size: 12px; margin-left: auto">all fields</span></div>
+                <sc-if value="{{needsPath}}" hint-placeholder-val="{{true}}">
+                  <div style="border: 1px dashed #C9D4F8; border-radius: 12px; padding: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: #F8FAFF">
+                    <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 260px"><strong style="font-size: 13px; color: #1E3FB8">probability, weighted are not in any path yet</strong><span style="font-size: 12px; color: #3A3D44">New fields never join existing allowlists automatically.</span></span>
+                    <button class="btn" onClick="{{addPath}}" style="padding: 7px 12px">Add to Sales reviewer</button>
+                  </div>
+                </sc-if>
+              </section>
+            </sc-if>
+
+            <sc-if value="{{etRules}}" hint-placeholder-val="{{false}}">
+              <section class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px">
+                <h2 class="h2">Rules</h2>
+                <sc-for list="{{rules}}" as="r" hint-placeholder-count="3">
+                  <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px; border: 1px solid #E6E4DF; border-radius: 12px"><span class="chip" style="background: #F1EFEA">{{r.kind}}</span><span class="mono" style="font-size: 13px">{{r.expr}}</span><span class="muted" style="margin-left: auto; font-size: 12px">{{r.note}}</span></div>
+                </sc-for>
+              </section>
+            </sc-if>
+
+            <sc-if value="{{etTest}}" hint-placeholder-val="{{false}}">
+              <section class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 14px">
+                <h2 class="h2">Test as user</h2><span class="muted" style="font-size: 13px">Runs the real permission engine on synthetic data. Nothing is written.</span>
+                <div role="group" aria-label="Pick a user" style="display: flex; flex-wrap: wrap; gap: 8px">
+                  <sc-for list="{{testUsers}}" as="u" hint-placeholder-count="3">
+                    <button onClick="{{u.pick}}" class="btn" style="background: {{u.bg}}; color: {{u.fg}}; border-color: {{u.border}}">{{u.label}}</button>
+                  </sc-for>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 12px">
+                  <div style="flex: 1 1 180px; padding: 14px; border-radius: 12px; background: #FBFAF8"><span class="muted" style="font-size: 12px">Records visible</span><div style="font: 600 26px 'Inter Tight', sans-serif">{{test.records}}</div></div>
+                  <div style="flex: 2 1 280px; padding: 14px; border-radius: 12px; background: #FBFAF8; display: flex; flex-direction: column; gap: 4px"><span class="muted" style="font-size: 12px">Fields</span><span class="mono" style="font-size: 13px">{{test.fields}}</span></div>
+                </div>
+                <p style="margin: 0; font-size: 13px; color: #3A3D44">{{test.why}}</p>
+              </section>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ACCESS -->
+      <sc-if value="{{isAccess}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 6px"><h1 style="margin: 0; font: 600 28px 'Inter Tight', sans-serif">Access · CRM</h1><span class="muted" style="font-size: 14px">Business roles live in the Space. Tenant administration grants no automatic record access.</span></div>
+        <section class="card" style="overflow: hidden">
+          <div style="display: flex; align-items: center; padding: 14px 16px"><h2 class="h2">Role matrix · deal</h2><span class="muted" style="margin-left: 10px; font-size: 13px">Click a cell to toggle</span></div>
+          <div style="overflow-x: auto">
+            <div class="rowbtn" style="grid-template-columns: minmax(180px,2fr) repeat(5, 80px); justify-items: center; cursor: default; font-size: 12px; color: #5C5F66; text-transform: uppercase; letter-spacing: .04em; background: #FBFAF8"><span style="justify-self: start">Role</span><span>read</span><span>create</span><span>update</span><span>delete</span><span>acl</span></div>
+            <sc-for list="{{matrix}}" as="row" hint-placeholder-count="3">
+              <div class="rowbtn" style="grid-template-columns: minmax(180px,2fr) repeat(5, 80px); justify-items: center; cursor: default">
+                <span style="display: flex; flex-direction: column; justify-self: start"><strong>{{row.role}}</strong><span class="muted" style="font-size: 12px">{{row.who}}</span></span>
+                <sc-for list="{{row.cells}}" as="c" hint-placeholder-count="5">
+                  <button onClick="{{c.toggle}}" aria-label="{{c.aria}}" aria-pressed="{{c.on}}" style="width: 18px; height: 18px; min-width: 18px; padding: 0; box-sizing: border-box; border-radius: 5px; border: 1.5px solid {{c.border}}; background: {{c.bg}}; color: #FFFFFF; cursor: pointer; font-size: 11px; line-height: 1; display: grid; place-items: center">{{c.mark}}</button>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+        <section class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px">
+          <h2 class="h2">Assignments</h2>
+          <sc-for list="{{assignments}}" as="a" hint-placeholder-count="3">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; border: 1px solid #E6E4DF; border-radius: 12px"><span class="chip" style="background: #111113; color: #FFFFFF">{{a.role}}</span><span class="muted" style="font-size: 13px">→</span><strong style="font-size: 14px">{{a.who}}</strong><span class="chip" style="background: #F1EFEA; margin-left: auto">{{a.scope}}</span></div>
+          </sc-for>
+        </section>
+      </sc-if>
+
+      <!-- AGENTS -->
+      <sc-if value="{{isAgents}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap"><div style="display: flex; flex-direction: column; gap: 6px"><h1 style="margin: 0; font: 600 28px 'Inter Tight', sans-serif">Agent connections</h1><span class="muted" style="font-size: 14px">Agents act for a person, inside a grant. Same operations, same audit trail.</span></div><button class="btn btn-primary" style="margin-left: auto" onClick="{{openAgentModal}}">New connection</button></div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px">
+          <sc-for list="{{grants}}" as="g" hint-placeholder-count="2">
+            <article class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px; opacity: {{g.opacity}}">
+              <div style="display: flex; align-items: center; gap: 12px"><span style="width: 40px; height: 40px; border-radius: 10px; background: #111113; color: #FFFFFF; display: grid; place-items: center; font: 600 14px 'Inter Tight', sans-serif">{{g.initial}}</span><span style="display: flex; flex-direction: column"><strong>{{g.client}}</strong><span class="muted" style="font-size: 12px">for {{g.owner}} · {{g.scope}}</span></span><span class="chip" style="margin-left: auto; background: {{g.chipBg}}; color: {{g.chipFg}}">{{g.chip}}</span></div>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px"><span class="chip" style="background: #E8EEFD; color: #1E3FB8">{{g.preset}}</span><sc-for list="{{g.perms}}" as="p" hint-placeholder-count="3"><span class="chip mono" style="background: #F1EFEA; font-family: 'JetBrains Mono', monospace">{{p}}</span></sc-for></div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px" class="muted"><span>Expires {{g.expires}}</span><span aria-hidden="true">·</span><span>last used {{g.last}}</span>
+                <sc-if value="{{g.active}}" hint-placeholder-val="{{true}}"><button class="btn" onClick="{{g.revoke}}" style="margin-left: auto; padding: 6px 12px; color: #9A1C12">Revoke</button></sc-if>
+              </div>
+            </article>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- ACTIVITY -->
+      <sc-if value="{{isActivity}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap"><h1 style="margin: 0; font: 600 28px 'Inter Tight', sans-serif">Activity</h1>
+          <div role="group" aria-label="Filter actors" style="margin-left: auto; display: flex; gap: 4px; background: #EFEDE8; padding: 4px; border-radius: 10px">
+            <sc-for list="{{filters}}" as="f" hint-placeholder-count="4"><button onClick="{{f.pick}}" style="border: 0; border-radius: 7px; padding: 7px 12px; cursor: pointer; font-size: 13px; background: {{f.bg}}; color: #111113; font-weight: {{f.fw}}">{{f.label}}</button></sc-for>
+          </div>
+        </div>
+        <section class="card" style="overflow: hidden">
+          <sc-for list="{{events}}" as="e" hint-placeholder-count="6">
+            <div class="rowbtn" style="grid-template-columns: 40px minmax(240px,3fr) minmax(140px,1fr) 110px; cursor: default">
+              <span style="width: 30px; height: 30px; border-radius: 8px; background: {{e.avBg}}; color: {{e.avFg}}; display: grid; place-items: center; font-size: 11px; font-weight: 600">{{e.av}}</span>
+              <span>{{e.text}}</span><span class="muted" style="font-size: 13px">{{e.via}}</span><span class="muted" style="font-size: 13px">{{e.time}}</span>
+            </div>
+          </sc-for>
+        </section>
+      </sc-if>
+    </div>
+  </main>
+
+  <!-- COMMAND PALETTE -->
+  <sc-if value="{{palette}}" hint-placeholder-val="{{false}}">
+    <div style="position: fixed; inset: 0; background: rgba(14,15,18,.42); display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; z-index: 20">
+      <div role="dialog" aria-label="Command palette" class="card" style="width: 100%; max-width: 620px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.25)">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #EFEDE8">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5C5F66" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <label for="pq" style="position: absolute; left: -9999px">Search commands</label>
+          <input id="pq" value="{{query}}" onChange="{{onQuery}}" placeholder="Type a command or search… try “deal”, “deploy”, “agent”" style="flex: 1; border: 0; outline: none; font: 400 16px Inter, sans-serif; background: transparent">
+          <button class="btn" onClick="{{closePalette}}" style="padding: 4px 8px; font-size: 12px">Esc</button>
+        </div>
+        <div style="max-height: 420px; overflow: auto; padding: 8px">
+          <sc-for list="{{commands}}" as="c" hint-placeholder-count="6">
+            <button onClick="{{c.run}}" style="display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: transparent; padding: 10px 12px; border-radius: 10px; cursor: pointer; text-align: left; font-size: 14px; color: #111113"><span style="width: 28px; height: 28px; border-radius: 8px; background: #F1EFEA; display: grid; place-items: center; font-size: 13px">{{c.glyph}}</span>{{c.label}}<span class="muted" style="margin-left: auto; font-size: 12px">{{c.group}}</span></button>
+          </sc-for>
+          <sc-if value="{{noCommands}}" hint-placeholder-val="{{false}}"><p class="muted" style="margin: 0; padding: 16px; font-size: 14px">Nothing matches. Try “deploy” or “agent”.</p></sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- AGENT CONSENT MODAL -->
+  <sc-if value="{{agentModal}}" hint-placeholder-val="{{false}}">
+    <div style="position: fixed; inset: 0; background: rgba(14,15,18,.42); display: flex; justify-content: center; align-items: flex-start; padding: 8vh 16px 16px; z-index: 20; overflow: auto">
+      <div role="dialog" aria-label="Connect an agent" class="card" style="width: 100%; max-width: 680px; padding: 24px; display: flex; flex-direction: column; gap: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.25)">
+        <div style="display: flex; align-items: center"><h2 style="margin: 0; font: 600 22px 'Inter Tight', sans-serif">Connect an agent</h2><button class="btn" onClick="{{closeAgentModal}}" aria-label="Close" style="margin-left: auto; padding: 6px 10px">✕</button></div>
+        <div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 13px; font-weight: 600">Agent</span>
+          <div role="group" aria-label="Agent" style="display: flex; gap: 8px; flex-wrap: wrap"><sc-for list="{{clients}}" as="c" hint-placeholder-count="3"><button class="btn" onClick="{{c.pick}}" style="background: {{c.bg}}; color: {{c.fg}}; border-color: {{c.border}}">{{c.label}}</button></sc-for></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 13px; font-weight: 600">What may it do in CRM?</span>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px">
+            <sc-for list="{{presets}}" as="p" hint-placeholder-count="4">
+              <button onClick="{{p.pick}}" style="text-align: left; cursor: pointer; padding: 14px; border-radius: 12px; border: 1.5px solid {{p.border}}; background: {{p.bg}}; display: flex; flex-direction: column; gap: 4px; font: inherit; color: #111113"><strong style="font-size: 14px">{{p.label}}</strong><span class="muted" style="font-size: 12px">{{p.desc}}</span></button>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{presetPerms}}" as="p" hint-placeholder-count="3"><span class="chip" style="background: #F1EFEA; font-family: 'JetBrains Mono', monospace">{{p}}</span></sc-for></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 13px; font-weight: 600">Expires after</span>
+          <div role="group" aria-label="Expiry" style="display: flex; gap: 4px; background: #EFEDE8; padding: 4px; border-radius: 10px; align-self: flex-start"><sc-for list="{{expiries}}" as="x" hint-placeholder-count="3"><button onClick="{{x.pick}}" style="border: 0; border-radius: 7px; padding: 7px 14px; cursor: pointer; font-size: 13px; background: {{x.bg}}; font-weight: {{x.fw}}; color: #111113">{{x.label}}</button></sc-for></div>
+        </div>
+        <p class="muted" style="margin: 0; font-size: 13px">It never gets business records, database credentials or SQL. You can revoke it any time.</p>
+        <div style="display: flex; gap: 8px; justify-content: flex-end"><button class="btn" onClick="{{closeAgentModal}}">Cancel</button><button class="btn btn-primary" onClick="{{approveAgent}}">Approve connection</button></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{hasToast}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="position: fixed; right: 24px; bottom: 24px; z-index: 30; background: #111113; color: #FFFFFF; padding: 12px 16px; border-radius: 12px; font-size: 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 12px 32px rgba(0,0,0,.25)">{{toast}}<button onClick="{{clearToast}}" aria-label="Dismiss" style="border: 0; background: transparent; color: #9DA1AB; cursor: pointer">✕</button></div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#2F5BEA","options":["#2F5BEA","#111113","#0F8A6A","#C2410C"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.timers = [];
+    this.state = {
+      screen: 'home', appId: 'forecasting', appTab: 'releases', entity: 'deal', entTab: 'fields',
+      deploy: 'failed', deployStep: 2, pubStep: 2, pathAdded: false, testUser: 'joe',
+      palette: false, query: '', agentModal: false, client: 'Claude', preset: 'workspace', expiry: 30,
+      filter: 'all', toast: '', navCollapsed: false,
+      matrix: { reviewer: [true, false, true, false, false], owner: [true, true, true, true, true], manager: [true, true, true, false, false] },
+      grants: [
+        { id: 1, client: 'Claude', owner: 'Maya Chen', preset: 'Workspace author', perms: ['read', 'workspaces.write', 'workspaces.test'], expires: 'in 23 days', last: '8 min ago', active: true },
+        { id: 2, client: 'Codex', owner: 'Joe', preset: 'Entity author', perms: ['read', 'entities.draft', 'entities.check'], expires: 'in 6 days', last: '3 h ago', active: true }
+      ],
+      extraEvents: []
+    };
+  }
+  componentWillUnmount() { this.timers.forEach(clearTimeout); }
+  later(ms, fn) { this.timers.push(setTimeout(fn, ms)); }
+  say(msg) { this.setState({ toast: msg }); this.later(3200, () => { if (this.state.toast === msg) this.setState({ toast: '' }); }); }
+  go(screen, extra) { this.setState(Object.assign({ screen, palette: false, query: '' }, extra || {})); }
+  logEvent(e) { this.setState({ extraEvents: [e].concat(this.state.extraEvents) }); }
+
+  retryDeploy() {
+    if (this.state.deploy === 'deploying') return;
+    this.setState({ deploy: 'deploying', deployStep: 0, palette: false });
+    this.say('Retrying Forecasting r14…');
+    [1, 2, 3].forEach((n, i) => this.later(1300 * (i + 1), () => {
+      if (n < 3) this.setState({ deployStep: n });
+      else { this.setState({ deploy: 'active', deployStep: 3 }); this.say('Forecasting r14 is live'); this.logEvent({ kind: 'human', av: 'MC', text: 'Maya deployed Forecasting r14', via: 'console', time: 'just now' }); }
+    }));
+  }
+  publish() {
+    if (this.state.pubStep !== 2) return;
+    this.setState({ pubStep: 3, entTab: 'fields' });
+    this.say('Preparing storage for Deal v9…');
+    this.later(1800, () => { this.setState({ pubStep: 4 }); this.say('Deal v9 published'); this.logEvent({ kind: 'human', av: 'MC', text: 'Maya published entity Deal v9', via: 'console', time: 'just now' }); });
+  }
+
+  renderVals() {
+    const s = this.state, accent = this.props.accent ?? '#2F5BEA';
+    const ok = { bg: '#EAF5EF', fg: '#1F6B45' }, warn = { bg: '#FDF1DC', fg: '#7A4706' }, bad = { bg: '#FCEBE9', fg: '#9A1C12' }, info = { bg: '#E8EEFD', fg: '#1E3FB8' };
+    const navDefs = [['home', 'Home', '⌂'], ['apps', 'Apps', '▦'], ['entities', 'Entities', '≡'], ['access', 'Access', '◈'], ['agents', 'Agents', '◉'], ['activity', 'Activity', '∿']];
+    const activeGrants = s.grants.filter(g => g.active).length;
+    const navKey = s.screen === 'app' ? 'apps' : s.screen;
+    const nav = navDefs.map(([k, label, glyph]) => ({ label, glyph, go: () => this.go(k), bg: navKey === k ? '#1B1D23' : 'transparent', fg: navKey === k ? '#FFFFFF' : '#B9BCC4', hasBadge: k === 'agents', badge: String(activeGrants) }));
+
+    // deployment
+    const fcState = s.deploy;
+    const fc = fcState === 'failed' ? { chip: '● Deploy failed', chipBg: bad.bg, chipFg: bad.fg, title: 'Release r14 failed to deploy', detail: 'Storage gate conflict while publishing deal v9. Production still serves r13.', canRetry: true }
+      : fcState === 'deploying' ? { chip: '◐ Deploying', chipBg: warn.bg, chipFg: warn.fg, title: 'Deploying release r14', detail: 'Production keeps serving r13 until r14 is active.', canRetry: false }
+      : { chip: '● Live', chipBg: ok.bg, chipFg: ok.fg, title: 'Release r14 is live', detail: 'Deployed just now. Nothing to do.', canRetry: false };
+    const pubDone = s.pubStep >= 4;
+    const pub = pubDone ? { chip: '● Published', chipBg: ok.bg, chipFg: ok.fg, title: 'Deal v9 is live', detail: 'probability and weighted are available to apps.' }
+      : s.pubStep === 3 ? { chip: '◐ Preparing', chipBg: warn.bg, chipFg: warn.fg, title: 'Publishing Deal v9', detail: 'Adding columns while v8 keeps serving.' }
+      : { chip: '◇ Review', chipBg: info.bg, chipFg: info.fg, title: 'Deal · 3 draft changes', detail: 'New field probability, a calculation and a validation rule.' };
+    const attnCount = (fcState === 'active' ? 0 : 1) + 1 + (pubDone ? 0 : 1);
+    const apps = [
+      { id: 'deal-review', name: 'Deal review', initials: 'DR', tileBg: ok.bg, tileFg: ok.fg, micro: 4, host: 'deal-review.northstar.lastapp.app', chip: '● Live', chipBg: ok.bg, chipFg: ok.fg, prod: 'r23', prodNote: 'deployed 2 h ago by Joe', deployNote: 'r23 active since 09:41', canRetry: false },
+      { id: 'forecasting', name: 'Forecasting', initials: 'FC', tileBg: info.bg, tileFg: info.fg, micro: 2, host: 'forecasting.northstar.lastapp.app', chip: fcState === 'failed' ? '● r14 failed' : fcState === 'deploying' ? '◐ Deploying' : '● Live', chipBg: fcState === 'failed' ? bad.bg : fcState === 'deploying' ? warn.bg : ok.bg, chipFg: fcState === 'failed' ? bad.fg : fcState === 'deploying' ? warn.fg : ok.fg, prod: fcState === 'active' ? 'r14' : 'r13', prodNote: fcState === 'active' ? 'deployed just now' : 'r14 pending', deployNote: fc.detail, canRetry: fc.canRetry }
+    ].map(a => Object.assign(a, { open: () => this.go('app', { appId: a.id, appTab: 'releases' }) }));
+    const cur = apps.find(a => a.id === s.appId) || apps[0];
+    const stepDefs = [['Queued', 'Release r14 accepted'], ['Preparing storage', 'Entity versions prepared'], ['Publishing', 'Switching roles, ACLs and App together'], ['Active', 'Serving r14']];
+    const steps = stepDefs.map(([label, note], i) => {
+      if (cur.id === 'deal-review') return { label, note: i === 3 ? 'Serving r23' : note.replace('r14', 'r23'), mark: '✓', bg: ok.bg, fg: ok.fg, border: ok.bg };
+      const failedHere = fcState === 'failed' && i === s.deployStep;
+      const done = fcState === 'active' || i < s.deployStep;
+      const current = fcState === 'deploying' && i === s.deployStep;
+      if (failedHere) return { label, note: 'Storage gate conflict on deal v9', mark: '✕', bg: bad.bg, fg: bad.fg, border: '#F1C9C4' };
+      if (done) return { label, note, mark: '✓', bg: ok.bg, fg: ok.fg, border: ok.bg };
+      if (current) return { label, note, mark: '●', bg: '#FFFFFF', fg: info.fg, border: accent };
+      return { label, note, mark: '', bg: '#F6F5F2', fg: '#5C5F66', border: '#F6F5F2' };
+    });
+    const releases = (cur.id === 'forecasting'
+      ? [['r14', 'Pricing panel + weighted pipeline', 'built 40 min ago · Claude for Maya', fcState === 'active' ? ['Production', ok] : fcState === 'deploying' ? ['Deploying', warn] : ['Failed', bad]], ['r13', 'Quarter filter', '2 days ago · Joe', fcState === 'active' ? ['Previous', { bg: '#F1EFEA', fg: '#3A3D44' }] : ['Production', ok]], ['r12', 'First release', 'last week · Maya', ['Previous', { bg: '#F1EFEA', fg: '#3A3D44' }]]]
+      : [['r23', 'Bulk stage update', '2 h ago · Joe', ['Production', ok]], ['r22', 'Shares sidebar', 'yesterday · Codex for Joe', ['Previous', { bg: '#F1EFEA', fg: '#3A3D44' }]]])
+      .map(([id, title, meta, [chip, c]]) => ({ id, title, meta, chip, chipBg: c.bg, chipFg: c.fg }));
+    const tabsOf = (defs, curKey, key) => defs.map(([k, label]) => ({ label, go: () => this.setState({ [key]: k }), fg: curKey === k ? '#111113' : '#5C5F66', fw: curKey === k ? '600' : '400', line: curKey === k ? '#111113' : 'transparent' }));
+
+    // entities
+    const draft = s.pubStep < 4;
+    const entDefs = { company: ['Company', 'company · v3 · 212 records'], contact: ['Contact', 'contact · v5 · 940 records'], deal: ['Deal', draft ? 'deal · published v8 · 1,284 records' : 'deal · published v9 · 1,284 records'] };
+    const entities = Object.keys(entDefs).map(k => ({ name: entDefs[k][0], pick: () => this.setState({ entity: k }), sel: s.entity === k, unsel: s.entity !== k, dot: k === 'deal' && draft }));
+    const isDeal = s.entity === 'deal';
+    const fieldSets = {
+      company: [['name', 'text', 'Yes', 'Legal name'], ['website', 'text', 'No', 'Must be https'], ['industry', 'choice', 'No', 'SaaS, Retail, Finance']],
+      contact: [['name', 'text', 'Yes', 'Full name'], ['email', 'text', 'Yes', 'Unique per company'], ['company', 'reference → Company', 'No', 'Options filtered by access']],
+      deal: [['name', 'text', 'Yes', 'Title of the deal'], ['amount', 'decimal', 'Yes', 'Validated ≥ 0'], ['stage', 'choice', 'Yes', 'new · qualified · won · lost'], ['company', 'reference → Company', 'No', 'Options filtered by access'], ['probability', 'decimal', 'No', 'Default 0.2 · between 0 and 1', 'new'], ['weighted', 'decimal · calculated', '—', 'amount × probability', 'new'], ['owner', 'user', 'Auto', 'Set to creator']]
+    };
+    const fields = fieldSets[s.entity].map(([name, type, req, note, n]) => { const isNew = !!n && draft; return { name, type, req, note, isNew, bg: isNew ? '#F4F7FF' : '#FFFFFF', bar: isNew ? accent : 'transparent' }; });
+    const pubDefs = [['Drafted', '3 changes by Codex for Joe'], ['Validated', 'Schema & rules check'], ['Review', 'Waiting for you'], ['Prepare storage', 'Add columns, keep v8 live'], ['Published', 'Apps switch to v9']];
+    const pubSteps = pubDefs.map(([label, note], i) => i < s.pubStep || (i === 4 && s.pubStep === 4) ? { label, note, mark: '✓', bg: ok.bg, fg: ok.fg, border: ok.bg } : i === s.pubStep ? { label, note, mark: '●', bg: '#FFFFFF', fg: info.fg, border: accent } : { label, note, mark: '', bg: '#F6F5F2', fg: '#5C5F66', border: '#F6F5F2' });
+    const baseFields = 'name, amount, stage, company';
+    const reviewerFields = s.pathAdded ? baseFields + ', probability, weighted' : baseFields;
+    const testDefs = { joe: ['Joe · Sales reviewer', '1,190', reviewerFields, 'Joe is in Marketing, which holds Sales reviewer in CRM. He sees deals where stage ≠ lost, only the listed fields.'], maya: ['Maya · Tenant admin', '0', '—', 'Tenant administration grants no automatic business-record access. Maya would see only deals she owns.'], outside: ['Outside user', '0', '—', 'Not a member of Northstar. The request is rejected before any data is read.'] };
+    const t = testDefs[s.testUser];
+    const testUsers = Object.keys(testDefs).map(k => ({ label: testDefs[k][0], pick: () => this.setState({ testUser: k }), bg: s.testUser === k ? '#111113' : '#FFFFFF', fg: s.testUser === k ? '#FFFFFF' : '#111113', border: s.testUser === k ? '#111113' : '#DAD7D0' }));
+    const rules = isDeal ? [{ kind: 'default', expr: 'probability = 0.2', note: 'on create' }, { kind: 'calculation', expr: 'weighted = amount × probability', note: 'stored' }, { kind: 'validation', expr: 'amount ≥ 0', note: '“Amount can’t be negative”' }, { kind: 'allowed change', expr: 'stage: lost → *  only owner', note: 'transition' }] : [{ kind: 'validation', expr: s.entity === 'company' ? 'website starts with https://' : 'email is unique within company', note: 'on save' }];
+
+    // access matrix
+    const ops = ['read', 'create', 'update', 'delete', 'acl'];
+    const roleDefs = [['reviewer', 'Sales reviewer', 'Marketing team · where stage ≠ lost'], ['manager', 'Deal manager', 'nobody yet'], ['owner', 'Record owner', 'whoever owns the record']];
+    const matrix = roleDefs.map(([k, role, who]) => ({ role, who, cells: s.matrix[k].map((on, i) => ({ on: on ? 'true' : 'false', mark: on ? '✓' : '', bg: on ? accent : '#FFFFFF', border: on ? accent : '#DAD7D0', aria: role + ' ' + ops[i], toggle: () => { const m = Object.assign({}, s.matrix); m[k] = m[k].slice(); m[k][i] = !m[k][i]; this.setState({ matrix: m }); this.say(role + ': ' + ops[i] + (m[k][i] ? ' allowed' : ' removed') + ' · saved as draft'); } })) }));
+    const assignments = [{ role: 'Sales reviewer', who: 'Marketing team', scope: 'Space · CRM' }, { role: 'space.manager', who: 'Maya Chen', scope: 'Space · CRM' }, { role: 'app.manager', who: 'Joe', scope: 'App · Deal review' }];
+
+    // agents
+    const presetDefs = { inspect: ['Inspect only', 'Read context, nothing else', ['read']], app: ['App author', 'Micro-apps and releases', ['read', 'resources.write', 'releases.write']], entity: ['Entity author', 'Draft, check, publish entities', ['read', 'entities.draft', 'entities.check', 'entities.publish']], workspace: ['Workspace author', 'Own dev copy, test, release', ['read', 'workspaces.write', 'workspaces.test', 'releases.write']] };
+    const presets = Object.keys(presetDefs).map(k => ({ label: presetDefs[k][0], desc: presetDefs[k][1], pick: () => this.setState({ preset: k }), border: s.preset === k ? accent : '#E6E4DF', bg: s.preset === k ? '#F4F7FF' : '#FFFFFF' }));
+    const presetPerms = presetDefs[s.preset][2];
+    const clients = ['Claude', 'Codex', 'Cursor'].map(c => ({ label: c, pick: () => this.setState({ client: c }), bg: s.client === c ? '#111113' : '#FFFFFF', fg: s.client === c ? '#FFFFFF' : '#111113', border: s.client === c ? '#111113' : '#DAD7D0' }));
+    const expiries = [7, 30, 90].map(d => ({ label: d + ' days', pick: () => this.setState({ expiry: d }), bg: s.expiry === d ? '#FFFFFF' : 'transparent', fw: s.expiry === d ? '600' : '400' }));
+    const grants = s.grants.map(g => Object.assign({}, g, { initial: g.client[0], scope: 'Space CRM', chip: g.active ? '● Active' : 'Revoked', chipBg: g.active ? ok.bg : '#F1EFEA', chipFg: g.active ? ok.fg : '#5C5F66', opacity: g.active ? '1' : '0.6', revoke: () => { this.setState({ grants: s.grants.map(x => x.id === g.id ? Object.assign({}, x, { active: false }) : x) }); this.say(g.client + ' for ' + g.owner + ' revoked — effective immediately'); this.logEvent({ kind: 'human', av: 'MC', text: 'Maya revoked ' + g.client + ' for ' + g.owner, via: 'console', time: 'just now' }); } }));
+
+    // activity
+    const baseEvents = [
+      { kind: 'agent', av: 'AI', text: 'Claude started workspace crm-pricing-exp', via: 'for Maya · Workspace author', time: '8 min' },
+      { kind: 'worker', av: '⚙', text: fcState === 'failed' ? 'Deploy of Forecasting r14 failed' : 'Deploy of Forecasting r14 failed (first attempt)', via: 'worker', time: '12 min' },
+      { kind: 'human', av: 'JO', text: 'Joe deployed Deal review r23', via: 'console', time: '2 h' },
+      { kind: 'agent', av: 'AI', text: 'Codex drafted 3 changes to deal', via: 'for Joe · Entity author', time: '3 h' },
+      { kind: 'human', av: 'MC', text: 'Maya assigned Sales reviewer to Marketing', via: 'console', time: 'yesterday' },
+      { kind: 'worker', av: '⚙', text: 'Database for CRM became ready', via: 'worker', time: '3 days' }
+    ];
+    const all = s.extraEvents.concat(baseEvents);
+    const style = k => k === 'agent' ? { avBg: '#111113', avFg: '#FFFFFF' } : k === 'worker' ? { avBg: '#F1EFEA', avFg: '#3A3D44' } : { avBg: info.bg, avFg: info.fg };
+    const events = all.filter(e => s.filter === 'all' || e.kind === s.filter).map(e => Object.assign({}, e, style(e.kind)));
+    const recent = all.slice(0, 4).map(e => Object.assign({ meta: e.via + ' · ' + e.time }, e, style(e.kind)));
+    const filters = [['all', 'All'], ['human', 'People'], ['agent', 'Agents'], ['worker', 'Worker']].map(([k, label]) => ({ label, pick: () => this.setState({ filter: k }), bg: s.filter === k ? '#FFFFFF' : 'transparent', fw: s.filter === k ? '600' : '400' }));
+
+    // palette
+    const cmdDefs = [
+      ['⌂', 'Go to Home', 'Navigate', () => this.go('home')],
+      ['≡', 'Open Deal entity', 'Entities', () => this.go('entities', { entity: 'deal', entTab: 'fields' })],
+      ['▦', 'Open Forecasting', 'Apps', () => this.go('app', { appId: 'forecasting', appTab: 'releases' })],
+      ['▦', 'Open Deal review', 'Apps', () => this.go('app', { appId: 'deal-review', appTab: 'releases' })],
+      ['↻', 'Retry Forecasting deploy', 'Action', () => { this.go('app', { appId: 'forecasting', appTab: 'releases' }); this.retryDeploy(); }],
+      ['▶', 'Publish Deal v9', 'Action', () => { this.go('entities', { entity: 'deal' }); this.publish(); }],
+      ['◉', 'Connect a new agent', 'Action', () => this.setState({ palette: false, agentModal: true })],
+      ['◈', 'Role matrix for deal', 'Access', () => this.go('access')],
+      ['∿', 'Activity · agents only', 'Activity', () => this.go('activity', { filter: 'agent' })],
+      ['?', 'Test Deal as Joe', 'Entities', () => this.go('entities', { entity: 'deal', entTab: 'test', testUser: 'joe' })]
+    ];
+    const q = s.query.trim().toLowerCase();
+    const commands = cmdDefs.filter(c => !q || (c[1] + ' ' + c[2]).toLowerCase().includes(q)).map(([glyph, label, group, run]) => ({ glyph, label, group, run }));
+    const crumbs = { home: 'Home', apps: 'Apps', app: 'Apps / ' + cur.name, entities: 'CRM / Entities / ' + entDefs[s.entity][0], access: 'CRM / Access', agents: 'Agents', activity: 'Activity' };
+
+    return {
+      accent, nav, crumb: crumbs[s.screen], activeGrants: String(activeGrants),
+      expanded: !s.navCollapsed, collapsed: s.navCollapsed, toggleNav: () => this.setState({ navCollapsed: !s.navCollapsed }),
+      isHome: s.screen === 'home', isApps: s.screen === 'apps', isApp: s.screen === 'app', isEntities: s.screen === 'entities', isAccess: s.screen === 'access', isAgents: s.screen === 'agents', isActivity: s.screen === 'activity',
+      attnSummary: attnCount + ' things need you. Everything else in Northstar is healthy.',
+      fc, pub, apps, cur, steps, releases,
+      appTabs: tabsOf([['releases', 'Releases'], ['micro', 'Micro-apps'], ['data', 'Data access']], s.appTab, 'appTab'),
+      tabReleases: s.appTab === 'releases', tabMicro: s.appTab === 'micro', tabData: s.appTab === 'data',
+      micro: (cur.id === 'forecasting' ? [['1', 'Pipeline', 'pkg:pipeline@1.4'], ['2', 'Pricing panel', 'pkg:pricing@0.3']] : [['1', 'Inbox', 'pkg:inbox@2.0'], ['2', 'Deal card', 'pkg:deal-card@1.8'], ['3', 'Shares', 'pkg:shares@1.1'], ['4', 'Bulk update', 'pkg:bulk@0.9']]).map(([order, name, ref]) => ({ order, name, ref })),
+      ent: { name: entDefs[s.entity][0], initial: entDefs[s.entity][0][0], meta: entDefs[s.entity][1], hasDraft: isDeal && draft, canPublish: isDeal && s.pubStep === 2 },
+      entities, fields, pubSteps, showPipeline: isDeal, reviewerFields, needsPath: isDeal && !s.pathAdded,
+      entTabs: tabsOf([['fields', 'Fields'], ['access', 'Access'], ['rules', 'Rules'], ['test', 'Test']], s.entTab, 'entTab'),
+      etFields: s.entTab === 'fields', etAccess: s.entTab === 'access', etRules: s.entTab === 'rules', etTest: s.entTab === 'test',
+      testUsers, test: { records: t[1], fields: t[2], why: t[3] }, rules,
+      matrix, assignments, grants, presets, presetPerms, clients, expiries, events, recent, filters,
+      palette: s.palette, query: s.query, commands, noCommands: commands.length === 0,
+      agentModal: s.agentModal, hasToast: !!s.toast, toast: s.toast,
+      goHome: () => this.go('home'), goApps: () => this.go('apps'), goEntities: () => this.go('entities'), goAgents: () => this.go('agents'), goActivity: () => this.go('activity'),
+      goTest: () => this.setState({ entTab: 'test' }),
+      openForecasting: () => this.go('app', { appId: 'forecasting', appTab: 'releases' }),
+      openDeal: () => this.go('entities', { entity: 'deal', entTab: 'fields' }),
+      retryDeploy: () => this.retryDeploy(), publish: () => this.publish(),
+      addPath: () => { this.setState({ pathAdded: true }); this.say('probability, weighted added to Sales reviewer (draft)'); },
+      openPalette: () => this.setState({ palette: true, query: '' }), closePalette: () => this.setState({ palette: false }),
+      onQuery: e => this.setState({ query: e.target.value }),
+      openAgentModal: () => this.setState({ agentModal: true, palette: false }), closeAgentModal: () => this.setState({ agentModal: false }),
+      approveAgent: () => {
+        const p = presetDefs[s.preset];
+        const g = { id: Date.now(), client: s.client, owner: 'Maya Chen', preset: p[0], perms: p[2], expires: 'in ' + s.expiry + ' days', last: 'never', active: true };
+        this.setState({ agentModal: false, screen: 'agents', grants: [g].concat(s.grants) });
+        this.say(s.client + ' connected as ' + p[0]);
+        this.logEvent({ kind: 'human', av: 'MC', text: 'Maya approved ' + s.client + ' as ' + p[0], via: 'console', time: 'just now' });
+      },
+      toastPreview: () => this.say('Preview opens on a one-time URL — production untouched'),
+      toastLaunch: () => this.say('Opening ' + cur.host + ' in a new tab'),
+      toastNewApp: () => this.say('New app: pick a Space, name it, get a hostname'),
+      toastNewEntity: () => this.say('Start from Company, Contact or Deal template'),
+      clearToast: () => this.setState({ toast: '' })
+    };
+  }
+}
+</script>
+</body>
+</html>

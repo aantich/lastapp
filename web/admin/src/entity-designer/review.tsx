@@ -1,37 +1,46 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api";
 import { isItem, items, num, text, type Item } from "../api-types";
-import {
-  Alert,
-  Badge,
-  Button,
-  DataTable,
-  Dialog,
-  DialogBody,
-  FactList,
-  Stack,
-  Stepper,
-} from "../ui";
-import type { Designer } from "./shared";
+import { Alert, Button, Dialog, DialogBody, Stack, Stepper } from "../ui";
+import { versionLabel, type Designer } from "./shared";
 import { publishSteps } from "./pipeline";
+import { ReviewDiff } from "./review-diff";
 
 // Reviews the draft against the published definition, validates and
 // publishes it.
 export function ReviewDialog({ d }: { d: Designer }) {
-  const { busy, dirty, draft, record, run, save, setRecord, setReview } = d;
+  const {
+    busy,
+    changes,
+    dirty,
+    draft,
+    record,
+    run,
+    save,
+    setRecord,
+    setReview,
+  } = d;
+  // A draft identical to the active version cannot publish (the backend
+  // rejects it too).
+  const unchanged = changes === 0,
+    reasonId = useId();
   // The draft the last validation ran on and its outcome: a later edit
   // needs a new run. Before one, the saved draft's diagnostics show.
   const [checked, setChecked] = useState<{ draft: string; ok: boolean }>(),
     current = JSON.stringify(draft),
     fresh = checked?.draft === current;
   const diagnostics = items(record?.diagnostics);
+  const nextVersion = versionLabel(record?.next_version_number);
   const validation = fresh
     ? checked?.ok
       ? "passed"
       : "failed"
     : diagnostics.length
       ? "failed"
-      : "";
+      : // The saved draft's diagnostics are its validation, as on the page.
+        dirty
+        ? ""
+        : "passed";
   const revealing = items(draft.fields).some(
     (f) =>
       f.calculation &&
@@ -73,7 +82,8 @@ export function ReviewDialog({ d }: { d: Designer }) {
           </Button>
           <Button
             variant="primary"
-            disabled={busy || !!record?.pending_version_id}
+            disabled={busy || unchanged || !!record?.pending_version_id}
+            aria-describedby={unchanged ? reasonId : undefined}
             onClick={() =>
               void run(async () => {
                 const saved = dirty ? await save() : record!;
@@ -89,7 +99,7 @@ export function ReviewDialog({ d }: { d: Designer }) {
               })
             }
           >
-            Publish
+            {["Publish", nextVersion].filter(Boolean).join(" ")}
           </Button>
         </>
       }
@@ -98,23 +108,39 @@ export function ReviewDialog({ d }: { d: Designer }) {
         <Stack gap="md">
           <Stepper
             label="Publication"
-            steps={publishSteps({ dirty, validation })}
+            min="3xs"
+            steps={publishSteps(
+              { dirty, validation, changes },
+              {
+                active: versionLabel(record?.active_version_number),
+                next: nextVersion,
+              },
+            )}
           />
-          <ReviewDiff
-            before={
-              isItem(record?.active_definition)
-                ? record.active_definition
-                : undefined
-            }
-            after={draft}
-          />
+          {!unchanged && (
+            <ReviewDiff
+              before={
+                isItem(record?.active_definition)
+                  ? record.active_definition
+                  : undefined
+              }
+              after={draft}
+            />
+          )}
+          {unchanged && (
+            <Alert tone="info" live={false} id={reasonId}>
+              Nothing to publish: the draft matches the published{" "}
+              {versionLabel(record?.active_version_number) || "version"}. Change
+              the draft first.
+            </Alert>
+          )}
           {revealing && (
             <Alert tone="warning" live={false}>
               Calculated fields with view access can reveal information about
               their inputs. Review their access alongside the formula.
             </Alert>
           )}
-          {validation === "passed" && (
+          {validation === "passed" && !unchanged && (
             <Alert tone="success">Validation passed. Ready to publish.</Alert>
           )}
           {validation === "failed" && (
@@ -133,126 +159,5 @@ export function ReviewDialog({ d }: { d: Designer }) {
         </Stack>
       </DialogBody>
     </Dialog>
-  );
-}
-
-const kinds: Record<string, string> = {
-  fields: "Field",
-  permissions: "Access rule",
-  rules: "Business rule",
-};
-
-type Change = {
-  key: string;
-  change: string;
-  kind: string;
-  name: string;
-  note: string;
-};
-
-// What publishing changes: each added, changed or removed field, access
-// rule and business rule, with what to check for it.
-function ReviewDiff({ before, after }: { before?: Item; after: Item }) {
-  if (!before)
-    return (
-      <FactList
-        facts={[
-          { label: "Change", value: "New entity" },
-          {
-            label: "Contents",
-            value: `${items(after.fields).length} fields · ${items(after.permissions).length} access rules · ${items(after.rules).length} business rules`,
-          },
-          {
-            label: "Access",
-            value: "No data is accessible until an access rule grants it.",
-          },
-        ]}
-      />
-    );
-  const name = (v: Item) => text(v.label || v.name || v.key);
-  const changes: Change[] = ["fields", "permissions", "rules"].flatMap((k) => {
-    const previous = items(before[k]),
-      next = items(after[k]);
-    const row = (change: string, v: Item, note: string): Change => ({
-      key: change + k + text(v.key),
-      change,
-      kind: kinds[k],
-      name: name(v),
-      note,
-    });
-    return [
-      ...next
-        .filter((n) => !previous.some((p) => p.key === n.key))
-        .map((v) =>
-          row("Add", v, k === "fields" ? "Select its access explicitly" : ""),
-        ),
-      ...next
-        .filter((n) =>
-          previous.some(
-            (p) => p.key === n.key && JSON.stringify(n) !== JSON.stringify(p),
-          ),
-        )
-        .map((v) =>
-          row(
-            "Change",
-            v,
-            k === "permissions"
-              ? "Review recipients, fields and conditions; existing shares may become inactive"
-              : "",
-          ),
-        ),
-      ...previous
-        .filter((p) => !next.some((n) => n.key === p.key))
-        .map((v) =>
-          row(
-            "Remove",
-            v,
-            k === "fields" ? "Unsupported for published fields" : "",
-          ),
-        ),
-    ];
-  });
-  return (
-    <Stack gap="sm">
-      {changes.length ? (
-        <DataTable
-          caption="Changes to publish"
-          rows={changes}
-          rowKey={(c) => c.key}
-          columns={[
-            {
-              key: "change",
-              header: "Change",
-              render: (c) => (
-                <Badge
-                  tone={
-                    c.change === "Add"
-                      ? "success"
-                      : c.change === "Remove"
-                        ? "danger"
-                        : "info"
-                  }
-                >
-                  {c.change}
-                </Badge>
-              ),
-            },
-            { key: "kind", header: "Kind", render: (c) => c.kind },
-            {
-              key: "name",
-              header: "Name",
-              render: (c) => <strong>{c.name}</strong>,
-            },
-            { key: "note", header: "Check", render: (c) => c.note || "—" },
-          ]}
-        />
-      ) : (
-        <p>The draft matches the published definition.</p>
-      )}
-      <p>
-        Every inheriting App uses the newly published version. Existing records
-        are checked before activation.
-      </p>
-    </Stack>
   );
 }

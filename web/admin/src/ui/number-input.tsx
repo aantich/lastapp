@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import { Minus, Plus } from "lucide-react";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 // A text field for numbers: no native stepper, numeric keyboard on mobile,
 // ArrowUp/ArrowDown step, out-of-range values clamp on blur and block submit.
 export function NumberInput({
@@ -108,7 +109,7 @@ export function NumberInput({
         }
         onClick={() => nudge(-1)}
       >
-        <Minus size={14} />
+        <Icon icon={Minus} size="sm" />
       </button>
       <button
         type="button"
@@ -120,7 +121,7 @@ export function NumberInput({
         }
         onClick={() => nudge(1)}
       >
-        <Plus size={14} />
+        <Icon icon={Plus} size="sm" />
       </button>
     </span>
   );

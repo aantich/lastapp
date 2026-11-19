@@ -34,6 +34,7 @@ var layers = map[string]int{
 	"access":     30,
 	"registry":   20,
 	"sealer":     15,
+	"testdb":     11,
 	"config":     10,
 	"data":       5,
 	"authz":      4,

@@ -154,6 +154,28 @@ func TestAuditAttributionGolden(t *testing.T) {
 		t.Fatalf("agent micro-app events %v", got)
 	}
 	oc.want("GET", base+"/audit-events?actor=robot", nil, 0, 400)
+	// One resource's changes: every event of that resource and no other,
+	// before paging, under the same audit.read check.
+	ofApp := 0
+	for _, v := range events("") {
+		if registry.Str(v.(map[string]any)["resource_id"]) == app {
+			ofApp++
+		}
+	}
+	got := events("&resource_id=" + app)
+	for _, v := range got {
+		if registry.Str(v.(map[string]any)["resource_id"]) != app {
+			t.Fatalf("resource_id=%s returned %v", app, v)
+		}
+	}
+	if ofApp < 2 || len(got) != ofApp {
+		t.Fatalf("resource_id=%s returned %d of %d events", app, len(got), ofApp)
+	}
+	if one, _ := oc.want("GET", base+"/audit-events?limit=1&resource_id="+app, nil, 0, 200)["items"].([]any); len(one) != 1 || registry.Str(one[0].(map[string]any)["resource_id"]) != app {
+		t.Fatalf("resource_id with limit=1 returned %v", one)
+	}
+	oc.want("GET", base+"/audit-events?resource_id="+strings.Repeat("x", 37), nil, 0, 400)
+	c.as(joe).want("GET", base+"/audit-events?resource_id="+app, nil, 0, 403)
 	kinds, _ := oc.want("GET", base+"/audit-kinds", nil, 0, 200)["items"].([]any)
 	if fmt.Sprint(kinds) != "[access_grant app apps entity microapp space tenant user]" {
 		t.Fatalf("audit kinds %v", kinds)

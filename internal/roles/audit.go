@@ -86,13 +86,32 @@ type AuditEvent struct {
 	ID           int64              `json:"id"`
 	RequestID    string             `json:"request_id"`
 	ResourceID   *string            `json:"resource_id"`
+	ResourceName *string            `json:"resource_name"`
 	ResourceType string             `json:"resource_type"`
 	TenantID     *string            `json:"tenant_id"`
 }
 
 func (v *AuditEvent) ScanFields() []any {
-	return []any{&v.Action, &v.ActorKind, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceType, &v.TenantID}
+	return []any{&v.Action, &v.ActorKind, &v.ActorName, &v.CreatedAt, &v.Details, &v.ID, &v.RequestID, &v.ResourceID, &v.ResourceName, &v.ResourceType, &v.TenantID}
 }
+
+// AuditResourceName is the SQL expression of an audit row's (alias a) current
+// resource name, so a trail reads "deployed Forecasting 1.0.0" without the
+// browser reading every resource. A release or deployment is named by its
+// App and release; an unnamed or deleted resource is NULL.
+const AuditResourceName = `CASE a.resource_type
+ WHEN 'app' THEN (SELECT x.display_name FROM apps x WHERE x.id=a.resource_id)
+ WHEN 'space' THEN (SELECT x.display_name FROM spaces x WHERE x.id=a.resource_id)
+ WHEN 'microapp' THEN (SELECT x.display_name FROM microapp_installations x WHERE x.id=a.resource_id)
+ WHEN 'entity' THEN (SELECT x.label FROM entity_definitions x WHERE x.id=a.resource_id)
+ WHEN 'release' THEN (SELECT CONCAT(p.display_name,' ',x.display_name) FROM app_releases x JOIN apps p ON p.id=x.app_id WHERE x.id=a.resource_id)
+ WHEN 'deployment' THEN (SELECT CONCAT(p.display_name,' ',r.display_name) FROM release_deployments x JOIN app_releases r ON r.id=x.release_id JOIN apps p ON p.id=x.target_app_id WHERE x.id=a.resource_id)
+ WHEN 'workspace' THEN (SELECT x.display_name FROM development_workspaces x WHERE x.id=a.resource_id)
+ WHEN 'group' THEN (SELECT x.display_name FROM ` + "`groups`" + ` x WHERE x.id=a.resource_id)
+ WHEN 'role' THEN (SELECT x.display_name FROM roles x WHERE x.id=a.resource_id)
+ WHEN 'user' THEN (SELECT x.display_name FROM users x WHERE x.id=a.resource_id)
+ WHEN 'tenant' THEN (SELECT x.display_name FROM tenants x WHERE x.id=a.resource_id)
+END`
 
 // Who acted, the one classification of an audit event's actor (op.AuditAs):
 // an agent acting for a person carries its grant in the details, the
@@ -106,9 +125,10 @@ const (
 // AuditActorKind is the SQL expression of an audit row's (alias a) actor kind.
 const AuditActorKind = "CASE WHEN JSON_VALUE(a.details_json,'$.agent_grant_id') IS NOT NULL THEN '" + ActorAgent + "' WHEN a.actor_user_id IS NULL THEN '" + ActorSystem + "' ELSE '" + ActorPerson + "' END"
 
-// AuditFilter narrows an audit trail to one actor kind and/or one resource
-// type; empty fields do not filter.
-type AuditFilter struct{ Actor, Kind string }
+// AuditFilter narrows an audit trail to one actor kind, one resource type
+// and/or one resource (its ID, so a screen can show every change to one
+// object); empty fields do not filter.
+type AuditFilter struct{ Actor, Kind, Resource string }
 
 // auditScope authorizes reading a Tenant's audit trail (tenant set) or the
 // whole platform's and returns the matching predicate.
@@ -148,7 +168,14 @@ func (v *Authority) Audits(ctx context.Context, actor op.Actor, tenant string, p
 		where += " AND a.resource_type=?"
 		args = append(args, filter.Kind)
 	}
-	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,"+AuditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
+	if filter.Resource != "" {
+		if len(filter.Resource) > 36 {
+			return op.Page[AuditEvent]{}, registry.Bad("Resource ID must be at most 36 bytes.")
+		}
+		where += " AND a.resource_id=?"
+		args = append(args, filter.Resource)
+	}
+	return op.PageScan[AuditEvent](ctx, v.DB, page, op.CollectionFor("audit-events"), "SELECT a.action,"+AuditActorKind+" AS actor_kind,COALESCE(u.display_name,'System worker') AS actor_name,a.created_at,a.details_json,a.id,a.request_id,a.resource_id,"+AuditResourceName+" AS resource_name,a.resource_type,a.tenant_id FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id WHERE "+where+" ORDER BY a.id DESC", args...)
 }
 
 // maxAuditKinds bounds the resource types an audit filter offers.

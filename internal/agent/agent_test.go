@@ -208,6 +208,19 @@ func TestAgentPermissionCatalog(t *testing.T) {
 			}
 		}
 	}
+	for _, preset := range agentPresets {
+		if registry.Str(preset["description"]) == "" {
+			t.Fatal("preset without a description", preset["label"])
+		}
+	}
+	if !slices.Contains(agentGrantDayChoices, agentGrantDays) {
+		t.Fatal("the default expiry is not one of the choices")
+	}
+	for _, days := range agentGrantDayChoices {
+		if days < 1 || days > agentMaxGrantDays {
+			t.Fatal("expiry choice outside 1..max_days", days)
+		}
+	}
 	for _, code := range agentDefaultPermissions {
 		if !slices.Contains(codes, code) {
 			t.Fatal("default names an unknown permission", code)

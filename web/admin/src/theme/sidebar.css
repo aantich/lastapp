@@ -1,0 +1,23 @@
+/*
+ * The sidebar is an ink surface in both modes: generic tokens resolve to the
+ * sidebar palette inside it, so shared controls (selects, icon buttons) stay
+ * legible without sidebar-specific copies.
+ */
+.sidebar {
+  color-scheme: dark;
+  /* Inherited text was resolved at :root; restate it with the ink tokens. */
+  color: var(--ui-text);
+  --ui-text: var(--ui-sidebar-active-text);
+  --ui-muted: var(--ui-sidebar-muted);
+  --ui-faint: var(--ui-sidebar-muted);
+  --ui-border: var(--ui-sidebar-border);
+  --ui-surface: var(--ui-sidebar-surface);
+  --ui-subtle: var(--ui-sidebar-surface);
+  --ui-hover: var(--ui-sidebar-hover);
+  --ui-primary: #9db4ff;
+  --ui-primary-soft: #1f2a4d;
+  --ui-focus: #9db4ff;
+  --ui-control-border: #74787f;
+  --ui-control-checked: #9db4ff;
+  --ui-on-control-checked: #0b1433;
+}

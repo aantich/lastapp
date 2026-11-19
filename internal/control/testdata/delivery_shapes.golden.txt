@@ -21,11 +21,16 @@ GET /v1/apps/{app}/builds other user -> 404
 GET /v1/apps/{app}/deployment finished -> 200
   $ object
   .deployment object
+  .deployment.attempts number
   .deployment.created_at string
+  .deployment.deployed_by string
   .deployment.error_message null
+  .deployment.failed_state null
   .deployment.finished_at string
   .deployment.id string
   .deployment.release_id string
+  .deployment.release_name string
+  .deployment.retried_by null
   .deployment.revision number
   .deployment.space_id string
   .deployment.state string
@@ -45,11 +50,16 @@ GET /v1/apps/{app}/deployment other user -> 403
 GET /v1/apps/{app}/deployment queued -> 200
   $ object
   .deployment object
+  .deployment.attempts number
   .deployment.created_at string
+  .deployment.deployed_by string
   .deployment.error_message null
+  .deployment.failed_state null
   .deployment.finished_at null
   .deployment.id string
   .deployment.release_id string
+  .deployment.release_name string
+  .deployment.retried_by null
   .deployment.revision number
   .deployment.space_id string
   .deployment.state string
@@ -60,8 +70,10 @@ GET /v1/apps/{app}/releases -> 200
   $ object
   .items array
   .items[] object
+  .items[].agent_client_name null
   .items[].build_id string
   .items[].created_at string
+  .items[].created_by_name string
   .items[].display_name string
   .items[].id string
   .items[].snapshot_hash string
@@ -103,11 +115,16 @@ GET /v1/apps/{app}/starter.zip -> 200
   header Content-Type application/zip
 GET /v1/deployments/{deployment} finished -> 200
   $ object
+  .attempts number
   .created_at string
+  .deployed_by string
   .error_message null
+  .failed_state null
   .finished_at string
   .id string
   .release_id string
+  .release_name string
+  .retried_by null
   .revision number
   .space_id string
   .state string
@@ -123,11 +140,16 @@ GET /v1/deployments/{deployment} other user -> 403
   .error.retryable bool
 GET /v1/deployments/{deployment} queued -> 200
   $ object
+  .attempts number
   .created_at string
+  .deployed_by string
   .error_message null
+  .failed_state null
   .finished_at null
   .id string
   .release_id string
+  .release_name string
+  .retried_by null
   .revision number
   .space_id string
   .state string
@@ -193,12 +215,14 @@ GET /v1/spaces/{space}/workspaces -> 200
   $ object
   .items array
   .items[] object
+  .items[].agent_client_name null
   .items[].backing_space_id string
   .items[].created_at string
   .items[].display_name string
   .items[].error_message null
   .items[].id string
   .items[].owner_agent_grant_id null
+  .items[].preparation_step string
   .items[].production_space_id string
   .items[].revision number
   .items[].state string
@@ -237,6 +261,7 @@ GET /v1/workspaces/{workspace} provisioning -> 200
   .mappings[].production_id string
   .owner_agent_grant_id null
   .owner_user_id string
+  .preparation_step string
   .production_space_id string
   .revision number
   .state string
@@ -258,6 +283,7 @@ GET /v1/workspaces/{workspace} ready -> 200
   .mappings[].production_id string
   .owner_agent_grant_id null
   .owner_user_id string
+  .preparation_step string
   .production_space_id string
   .revision number
   .state string
@@ -387,6 +413,20 @@ POST /v1/apps/{app}/upload-tickets production -> 404
   .error.message string=Resource not found or not accessible.
   .error.request_id string
   .error.retryable bool
+POST /v1/deployments/{deployment}/retry not failed -> 409
+  $ object
+  .error object
+  .error.code string=conflict
+  .error.message string=Only a failed deployment can be retried.
+  .error.request_id string
+  .error.retryable bool
+POST /v1/deployments/{deployment}/retry stale -> 412
+  $ object
+  .error object
+  .error.code string=stale_revision
+  .error.message string=This resource changed. Refresh before saving.
+  .error.request_id string
+  .error.retryable bool
 POST /v1/releases/{release}/deploy -> 202
   $ object
   .id string
@@ -434,6 +474,7 @@ POST /v1/spaces/{space}/workspaces -> 200
   .mappings[].production_id string
   .owner_agent_grant_id null
   .owner_user_id string
+  .preparation_step string
   .production_space_id string
   .revision number
   .state string
@@ -469,6 +510,7 @@ POST /v1/workspaces/{workspace}/archive -> 200
   .mappings[].production_id string
   .owner_agent_grant_id null
   .owner_user_id string
+  .preparation_step string
   .production_space_id string
   .revision number
   .state string
@@ -498,11 +540,16 @@ mcp lastapp_get app_deployment -> 200
   $ object
   .data object
   .data.deployment object
+  .data.deployment.attempts number
   .data.deployment.created_at string
+  .data.deployment.deployed_by string
   .data.deployment.error_message null
+  .data.deployment.failed_state null
   .data.deployment.finished_at null
   .data.deployment.id string
   .data.deployment.release_id string
+  .data.deployment.release_name string
+  .data.deployment.retried_by null
   .data.deployment.revision number
   .data.deployment.space_id string
   .data.deployment.state string
@@ -521,11 +568,16 @@ mcp lastapp_get deployment missing -> 200
 mcp lastapp_get deployment queued -> 200
   $ object
   .data object
+  .data.attempts number
   .data.created_at string
+  .data.deployed_by string
   .data.error_message null
+  .data.failed_state null
   .data.finished_at null
   .data.id string
   .data.release_id string
+  .data.release_name string
+  .data.retried_by null
   .data.revision number
   .data.space_id string
   .data.state string
@@ -625,6 +677,7 @@ mcp lastapp_get workspace -> 200
   .data.mappings[].production_id string
   .data.owner_agent_grant_id string
   .data.owner_user_id string
+  .data.preparation_step string
   .data.production_space_id string
   .data.revision number
   .data.state string
@@ -648,6 +701,7 @@ mcp lastapp_get workspace before archive -> 200
   .data.mappings[].production_id string
   .data.owner_agent_grant_id string
   .data.owner_user_id string
+  .data.preparation_step string
   .data.production_space_id string
   .data.revision number
   .data.state string
@@ -683,8 +737,10 @@ mcp lastapp_list release -> 200
   .data.complete bool
   .data.items array
   .data.items[] object
+  .data.items[].agent_client_name string
   .data.items[].build_id string
   .data.items[].created_at string
+  .data.items[].created_by_name string
   .data.items[].display_name string
   .data.items[].id string
   .data.items[].snapshot_hash string
@@ -699,12 +755,14 @@ mcp lastapp_list workspace -> 200
   .data.complete bool
   .data.items array
   .data.items[] object
+  .data.items[].agent_client_name string
   .data.items[].backing_space_id string
   .data.items[].created_at string
   .data.items[].display_name string
   .data.items[].error_message null
   .data.items[].id string
   .data.items[].owner_agent_grant_id string
+  .data.items[].preparation_step string
   .data.items[].production_space_id string
   .data.items[].revision number
   .data.items[].state string
@@ -805,6 +863,26 @@ mcp lastapp_release preview -> 200
   .data.id string
   .data.url string
   .ok bool
+mcp lastapp_release retry not failed -> 200
+  $ object
+  .error object
+  .error.code string=conflict
+  .error.message string=Only a failed deployment can be retried.
+  .error.request_id string
+  .error.retryable bool
+  .ok bool
+mcp lastapp_release retry without production.deploy -> 200
+  $ object
+  .authorization_url string
+  .error object
+  .error.code string=needs_authorization
+  .error.message string=Additional delegated scopes required: production.deploy
+  .error.request_id string
+  .error.retryable bool
+  .guidance string
+  .ok bool
+  .required_scopes array
+  .required_scopes[] string
 mcp lastapp_release upload_ticket -> 200
   $ object
   .data object
@@ -844,6 +922,7 @@ mcp lastapp_workspace archive -> 200
   .data.mappings[].production_id string
   .data.owner_agent_grant_id string
   .data.owner_user_id string
+  .data.preparation_step string
   .data.production_space_id string
   .data.revision number
   .data.state string
@@ -875,6 +954,7 @@ mcp lastapp_workspace create -> 200
   .data.mappings[].production_id string
   .data.owner_agent_grant_id string
   .data.owner_user_id string
+  .data.preparation_step string
   .data.production_space_id string
   .data.revision number
   .data.state string

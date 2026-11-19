@@ -1,58 +1,77 @@
 import { useEffect, useState, type ReactNode } from "react";
-import {
-  ChevronDown,
-  Layers3,
-  Menu as MenuIcon,
-  Search,
-  X,
-} from "lucide-react";
-import { Avatar } from "./avatar";
+import { Menu as MenuIcon, X } from "lucide-react";
 import { IconButton } from "./button";
-import { Kbd } from "./feedback";
-import { Menu, type MenuItem } from "./menu";
+import { Tooltip } from "./tooltip";
 import { useSidebarCollapse } from "./hooks";
 import { useDialogFocus } from "./use-dialog-focus";
+import { SearchField } from "./search-field";
 import { cx } from "./utils";
+import { Icon } from "./icon";
 
-const narrow = "(max-width:800px)";
+// The phone layout starts at the --ui-breakpoint-narrow token; the shell's
+// @media rules repeat it because custom properties cannot be used there.
+const narrow = () =>
+  `(max-width: ${getComputedStyle(document.documentElement)
+    .getPropertyValue("--ui-breakpoint-narrow")
+    .trim()})`;
 
-// The console frame: the ink sidebar (collapsible to a 68 px rail that
-// survives reloads, a modal drawer under 800 px), the top bar with the menu
-// toggle, the working context and the trailing actions, and the content
-// region with a skip link and the page footer. The sidebar's own content is
-// a render function: `rail` says whether only icons show, `close` shuts the
-// drawer after a choice. `secondaryContext` (the Space switcher) hides on
-// narrow screens. The frame's class names (.shell, aside.sidebar, .main,
-// .topbar, .content, .sidebar-collapsed) are also the e2e and theme hooks.
+// The sidebar toggle's mark: a panel with its divider and a chevron pointing
+// the way the sidebar will move.
+function PanelMark({ open }: { open: boolean }) {
+  return (
+    <svg
+      className="ui-icon-lg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden
+    >
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+      <path d={open ? "M9 4v16M16 10l-2 2 2 2" : "M9 4v16M14 10l2 2-2 2"} />
+    </svg>
+  );
+}
+
+// The console frame: the ink sidebar (brand, collapse toggle and search at
+// the top; collapsible to a 68 px rail that survives reloads; a modal drawer
+// under 800 px), the top bar with the breadcrumbs, the search field and the
+// page's primary actions, and the centred content column with a skip link.
+// The sidebar's own content is a render function: `rail` says whether only
+// icons show, `close` shuts the drawer after a choice. `context` (the
+// Tenant switcher) sits under the brand row, above the search field. The
+// frame's class
+// names (.shell, aside.sidebar, .main, .topbar, .content, .sidebar-collapsed)
+// are also the e2e and theme hooks.
 export function AppShell({
-  kind,
   sidebar,
   context,
-  secondaryContext,
+  breadcrumbs,
+  onSearch,
   actions,
-  footer,
   overlays,
   children,
 }: {
-  // The workspace name after the wordmark ("Tenant", "Platform").
-  kind: ReactNode;
   sidebar: (state: { rail: boolean; close: () => void }) => ReactNode;
-  context?: ReactNode;
-  secondaryContext?: ReactNode;
+  // The working-context control under the brand row.
+  context?: (rail: boolean) => ReactNode;
+  // The top bar's location (a Breadcrumbs element).
+  breadcrumbs?: ReactNode;
+  // Opens the command palette from the sidebar and top bar search fields.
+  onSearch: () => void;
   actions?: ReactNode;
-  footer?: ReactNode;
   // Dialogs the frame owns (command palette, appearance panel), rendered
   // inside the shell after the main region.
   overlays?: ReactNode;
   children: ReactNode;
 }) {
-  const [mobile, setMobile] = useState(() => matchMedia(narrow).matches),
+  const [mobile, setMobile] = useState(() => matchMedia(narrow()).matches),
     [open, setOpen] = useState(false),
     [collapsed, setCollapsed] = useSidebarCollapse();
   const close = () => setOpen(false);
   const ref = useDialogFocus(close, mobile && open);
   useEffect(() => {
-    const m = matchMedia(narrow);
+    const m = matchMedia(narrow());
     const update = () => {
       setMobile(m.matches);
       setOpen(false);
@@ -61,10 +80,31 @@ export function AppShell({
     return () => m.removeEventListener("change", update);
   }, []);
   const rail = collapsed && !mobile;
+  const toggleLabel = rail ? "Expand sidebar" : "Collapse sidebar";
+  const toggle = mobile ? (
+    <IconButton
+      className="ui-sidebar-toggle"
+      label="Close navigation"
+      icon={<Icon icon={X} size="lg" aria-hidden />}
+      onClick={close}
+    />
+  ) : (
+    <Tooltip content={toggleLabel} side="right" labelOnly>
+      <button
+        type="button"
+        className="ui-sidebar-toggle"
+        aria-label={toggleLabel}
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        <PanelMark open={!rail} />
+      </button>
+    </Tooltip>
+  );
   return (
     <div
       className={cx(
-        "shell tenant-console",
+        "shell",
         open && "navigation-open",
         rail && "sidebar-collapsed",
       )}
@@ -87,55 +127,42 @@ export function AppShell({
         aria-modal={mobile && open ? true : undefined}
         aria-label="Navigation"
       >
-        <div className="sidebar-brand">
-          <span className="brand-mark">
-            <Layers3 size={23} aria-hidden />
+        <div className="ui-sidebar-head">
+          <span className="ui-brand-tile" aria-hidden>
+            L
           </span>
-          <strong>
-            lastapp<span>{kind}</span>
-          </strong>
-          {mobile && (
-            <IconButton
-              label="Close navigation"
-              icon={<X aria-hidden />}
-              onClick={close}
-            />
-          )}
+          <strong className="ui-brand-name">Lastapp</strong>
+          {toggle}
         </div>
+        {context?.(rail)}
+        <SearchField
+          variant="sidebar"
+          label="Search or run…"
+          rail={rail}
+          onOpen={() => {
+            close();
+            onSearch();
+          }}
+        />
         {sidebar({ rail, close })}
       </aside>
       <main className="main">
         <header className="topbar">
-          <div className="topbar-left">
+          {mobile && (
             <IconButton
               className="menu-toggle"
-              label={
-                mobile
-                  ? "Open navigation"
-                  : collapsed
-                    ? "Expand sidebar"
-                    : "Collapse sidebar"
-              }
-              aria-expanded={mobile ? open : !collapsed}
-              icon={<MenuIcon size={21} aria-hidden />}
-              onClick={() =>
-                mobile ? setOpen(true) : setCollapsed(!collapsed)
-              }
+              label="Open navigation"
+              aria-expanded={open}
+              icon={<Icon icon={MenuIcon} size="3xl" aria-hidden />}
+              onClick={() => setOpen(true)}
             />
-            {(context || secondaryContext) && (
-              <div className="topbar-context">
-                {context}
-                {secondaryContext && (
-                  <span className="topbar-space">{secondaryContext}</span>
-                )}
-              </div>
-            )}
-          </div>
+          )}
+          {breadcrumbs}
+          <SearchField label="Search, jump to, or run…" onOpen={onSearch} />
           {actions && <div className="topbar-actions">{actions}</div>}
         </header>
         <section className="content" id="main-content" tabIndex={-1}>
           {children}
-          {footer && <footer className="page-footer">{footer}</footer>}
         </section>
       </main>
       {overlays}
@@ -143,76 +170,14 @@ export function AppShell({
   );
 }
 
-const shortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘K" : "Ctrl K";
-
-// The top bar's search trigger: opens the command palette, shows the
-// platform's shortcut (⌘K or Ctrl K) and keeps its label in the accessible
-// name when narrow screens hide it.
-export function QuickSearch({
-  label = "Search or jump to…",
-  onOpen,
-}: {
-  label?: string;
-  onOpen: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="quick-search"
-      aria-keyshortcuts="Meta+K Control+K"
-      onClick={onOpen}
-    >
-      <Search size={16} aria-hidden />
-      <span className="quick-search-label">{label}</span>
-      <span className="quick-search-key" aria-hidden>
-        <Kbd>{shortcut}</Kbd>
-      </span>
-    </button>
-  );
-}
-
-// The signed-in person's menu in the top bar: avatar and name (the name is
-// kept for screen readers on narrow screens) over account actions.
-export function AccountMenu({
-  name,
-  items,
-  className,
-}: {
-  name: string;
-  items: MenuItem[];
-  className?: string;
-}) {
-  return (
-    <Menu
-      className={className}
-      trigger={
-        <>
-          <Avatar name={name} size={30} />
-          <span className="profile-name">{name}</span>
-          <span className="ui-sr-only">, account menu</span>
-          <ChevronDown size={14} aria-hidden />
-        </>
-      }
-      items={items}
-    />
-  );
-}
-
 // The working context when there is nothing to switch to (a person in one
-// Tenant): the kind as an eyebrow over the truncating name.
+// Tenant): the sidebar's section label.
 export function ContextLabel({
-  kind,
   value,
   className,
 }: {
-  kind: ReactNode;
   value: ReactNode;
   className?: string;
 }) {
-  return (
-    <span className={cx("ui-context-label", className)}>
-      <small>{kind}</small>
-      <strong>{value}</strong>
-    </span>
-  );
+  return <span className={cx("ui-nav-section", className)}>{value}</span>;
 }

@@ -1,0 +1,117 @@
+/* Menu button (account menu, row actions) */
+.ui-menu {
+  position: relative;
+  display: inline-flex;
+}
+.ui-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2);
+  min-height: var(--ui-control-height);
+  padding: calc(var(--ui-space) * 1) calc(var(--ui-space) * 2);
+  border: var(--ui-line) solid transparent;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-text);
+  font-size: var(--ui-text-base);
+  font-weight: 500;
+}
+.ui-menu-trigger:hover,
+.ui-menu-trigger[aria-expanded="true"] {
+  background: var(--ui-hover);
+}
+.ui-menu-trigger > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+.ui-menu-popup {
+  position: absolute;
+  top: calc(100% + var(--ui-space) * 1.5);
+  right: 0;
+  z-index: var(--ui-z-popover);
+  display: grid;
+  gap: calc(var(--ui-space) * 0.5);
+  min-width: calc(var(--ui-space) * 50);
+  padding: calc(var(--ui-space) * 1.5);
+  border: var(--ui-line) solid var(--ui-border);
+  border-radius: var(--ui-radius-2xl);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-pop);
+}
+.ui-menu-popup.ui-start {
+  right: auto;
+  left: 0;
+}
+.ui-menu-popup [role="menuitem"] {
+  justify-content: flex-start;
+  gap: calc(var(--ui-space) * 2.5);
+  width: 100%;
+  padding: calc(var(--ui-space) * 2) calc(var(--ui-space) * 2.5);
+  border: 0;
+  border-radius: var(--ui-radius-lg);
+  background: transparent;
+  color: var(--ui-text);
+  font-size: var(--ui-text-base);
+  text-align: left;
+}
+.ui-menu-popup [role="menuitem"] > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+.ui-menu-popup [role="menuitem"]:hover,
+.ui-menu-popup [role="menuitem"]:focus-visible {
+  background: var(--ui-hover);
+}
+.ui-menu-popup [role="menuitem"].danger {
+  color: var(--ui-danger);
+}
+
+/* Segmented control (one view of a list) */
+/* The mockup's segmented filter: a divider-tone track, the chosen segment
+   on the surface in semibold. */
+.ui-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 1);
+  padding: calc(var(--ui-space) * 1);
+  border-radius: var(--ui-radius-xl);
+  background: var(--ui-divider);
+  max-width: 100%;
+}
+.ui-segmented > button {
+  padding: calc(var(--ui-space) * 1.75) calc(var(--ui-space) * 3);
+  border: 0;
+  border-radius: var(--ui-radius-md);
+  background: transparent;
+  color: var(--ui-text);
+  font-size: var(--ui-text-base);
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+.ui-segmented > button:hover {
+  background: var(--ui-hover);
+}
+.ui-segmented > button[aria-pressed="true"] {
+  background: var(--ui-surface);
+  font-weight: 600;
+}
+
+/* Pill chips (cards: a preset, a permission, a scope, a role) */
+.ui-tag.ui-pill {
+  gap: calc(var(--ui-space) * 1.5);
+  border-radius: var(--ui-radius-pill);
+  padding: calc(var(--ui-space) * 0.75) calc(var(--ui-space) * 2.25);
+  font-size: var(--ui-text-sm);
+  line-height: normal;
+}
+.ui-tag.ui-pill:not([class*="tone-"]) {
+  color: var(--ui-text);
+}
+.ui-tag.ui-pill.ui-mono {
+  font-weight: 500;
+}
+.ui-tag.ui-pill.tone-info {
+  color: var(--ui-primary-hover);
+}

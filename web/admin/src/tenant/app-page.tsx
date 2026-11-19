@@ -1,173 +1,120 @@
-import { Pencil } from "lucide-react";
+import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { AppReleases } from "../app-releases";
-import { AppDataAccess } from "../entity-designer/app-access";
 import {
-  Badge,
+  AppHeader,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Collection,
-  Disclosure,
-  FactList,
-  Stack,
-  StatusBadge,
+  IconButton,
+  LinkButton,
+  PageStack,
+  Tabs,
+  Icon,
 } from "../ui";
 import { AccessControl } from "../access-control";
 import { refreshQueries } from "../query";
 import { keyOf, optText, text } from "../api-types";
-import {
-  computeField,
-  editFields,
-  nameColumn,
-  states,
-  statusColumn,
-  type TenantScreen,
-} from "./screen";
+import { useAppDeployment, useDeploymentStates } from "../deployment";
+import { DataAccess } from "./app-data-access";
+import { MicroApps } from "./app-microapps";
+import { AppSettings } from "./app-settings";
+import { appStatus, hostOf } from "./app-status";
+import { tenantTabs } from "./navigation";
+import { createMicro } from "./forms";
+import type { TenantScreen } from "./screen";
 
-// An App's tabs: Micro-apps, Releases, Access and Settings.
+// An App: its header (tile, name, hosted address, status, launch) over its
+// sections: Releases, Micro-apps and Data access, then Access and Settings.
+// The status and address come from the App read and, where this account may
+// manage releases, its latest deployment.
 export function AppPage({ t }: { t: TenantScreen }) {
-  const { app, base, caps, edit, go, profile, route, scoped, tenant } = t;
-  const refresh = () => void refreshQueries();
+  const { all, app, can, go, route, scoped, tenant } = t;
+  const deploymentStates = useDeploymentStates();
+  const { deployment, error: deploymentError } = useAppDeployment(
+    text(app.id),
+    scoped("release.manage"),
+  );
+  const status = appStatus(app, deployment, deploymentStates);
+  const tabs = tenantTabs("app", { all, can, scoped });
+  const tab = tabs.some((x) => x.id === route.tab)
+    ? route.tab
+    : tabs[0]?.id || "";
+  const origin = text(app.hosted_origin);
   return (
-    <>
-      {route.tab === "releases" && (
+    <PageStack>
+      <AppHeader
+        name={text(app.display_name)}
+        tone={status.tone}
+        address={hostOf(origin)}
+        status={status.badge}
+        actions={
+          <>
+            {/* The shell's page header is hidden here, so its Refresh moves in. */}
+            <IconButton
+              label="Refresh"
+              icon={<Icon icon={RefreshCw} size="lg" aria-hidden />}
+              tooltip="bottom"
+              onClick={() => void refreshQueries()}
+            />
+            {tab === "microapps" && scoped("microapp.manage") && (
+              <Button onClick={() => createMicro(t)}>Add micro-app</Button>
+            )}
+            {!app.workspace_id &&
+              scoped("workspace.manage", optText(app.space_id), "") && (
+                <Button
+                  onClick={() =>
+                    go("space", {
+                      space: optText(app.space_id),
+                      tab: "development",
+                    })
+                  }
+                >
+                  Development workspaces
+                </Button>
+              )}
+            {optText(app.active_release_id) && origin && (
+              <LinkButton
+                href={origin + "/"}
+                external
+                variant="primary"
+                trailingIcon={
+                  <Icon icon={ArrowUpRight} size="lg" aria-hidden />
+                }
+              >
+                Launch app
+              </LinkButton>
+            )}
+          </>
+        }
+      />
+      <Tabs
+        label={`${text(app.display_name)} sections`}
+        variant="line"
+        className="workspace-tabs"
+        items={tabs}
+        value={tab}
+        onChange={(id) => go("app", { app: route.app, tab: id })}
+      />
+      {tab === "releases" && (
         <AppReleases
           key={keyOf(app.id)}
           app={app}
           tenant={tenant}
-          refresh={refresh}
-          openWorkspaces={() =>
-            go("space", { space: optText(app.space_id), tab: "development" })
-          }
+          deployment={deployment}
+          deploymentError={deploymentError}
+          refresh={() => void refreshQueries()}
         />
       )}
-      {route.tab === "microapps" && (
-        <Collection
-          key={app.id + "microapps"}
-          path={base + "/microapps?app_id=" + app.id}
-          caption={`${text(app.display_name)} micro-apps`}
-          columns={[
-            ["Order", (r) => text(r.navigation_order)],
-            nameColumn,
-            [
-              "Artifact",
-              (r) =>
-                optText(r.artifact_ref) ? (
-                  <Badge mono>{text(r.artifact_ref)}</Badge>
-                ) : (
-                  "—"
-                ),
-            ],
-            statusColumn,
-          ]}
-          empty="Add your first micro-app."
-          actions={
-            scoped("microapp.manage")
-              ? (r) => (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      edit(r, base + "/microapps/" + r.id, "Edit micro-app", [
-                        {
-                          key: "display_name",
-                          label: "Name",
-                          required: true,
-                        },
-                        {
-                          key: "state",
-                          label: "Status",
-                          type: "select",
-                          options: states,
-                          required: true,
-                        },
-                        {
-                          key: "artifact_ref",
-                          label: "Artifact reference",
-                          advanced: true,
-                        },
-                        {
-                          key: "navigation_order",
-                          label: "Navigation order",
-                          type: "number",
-                          advanced: true,
-                        },
-                      ])
-                    }
-                  >
-                    Edit micro-app
-                  </Button>
-                )
-              : undefined
-          }
-        />
-      )}
-      {route.tab === "access" && (
+      {tab === "microapps" && <MicroApps t={t} />}
+      {tab === "data" && <DataAccess t={t} />}
+      {tab === "access" && (
         <AccessControl
           key={keyOf(app.id)}
           tenant={tenant}
-          caps={caps}
+          caps={t.caps}
           scopeKind="app"
           scopeId={text(app.id)}
         />
       )}
-      {route.tab === "settings" && (
-        <Stack>
-          <Card>
-            <CardHeader
-              title="General"
-              actions={
-                <>
-                  <StatusBadge state={app.state} />
-                  {scoped("app.manage") && (
-                    <Button
-                      icon={<Pencil size={14} aria-hidden />}
-                      onClick={() =>
-                        edit(app, base + "/apps/" + app.id, "Edit App", [
-                          ...editFields,
-                          computeField(
-                            !!profile.allow_dedicated_compute ||
-                              app.compute_mode === "dedicated",
-                          ),
-                        ])
-                      }
-                    >
-                      Edit App
-                    </Button>
-                  )}
-                </>
-              }
-            />
-            <CardBody>
-              <FactList
-                facts={[
-                  { label: "Name", value: text(app.display_name) },
-                  { label: "Space", value: text(app.space_name) },
-                ]}
-              />
-              <Disclosure summary="Advanced">
-                <FactList
-                  facts={[
-                    { label: "Slug", value: text(app.slug), mono: true },
-                    {
-                      label: "Compute preference",
-                      value: text(app.compute_mode),
-                    },
-                  ]}
-                />
-              </Disclosure>
-            </CardBody>
-          </Card>
-          {scoped("app.manage") && (
-            <AppDataAccess
-              key={keyOf(app.id)}
-              app={text(app.id)}
-              spaceManager={scoped("entity.manage", optText(app.space_id), "")}
-            />
-          )}
-        </Stack>
-      )}
-    </>
+      {tab === "settings" && <AppSettings t={t} />}
+    </PageStack>
   );
 }

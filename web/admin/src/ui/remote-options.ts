@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import type { Item, Page } from "../api-types";
 import { apiKey } from "../query";
 import type { ListOption } from "./listbox";
+import { useDebouncedSearch } from "./hooks";
 
 // Appends query parameters to a list path that may already carry some.
 export const withParams = (path: string, params: string) =>
@@ -26,12 +27,8 @@ export function useRemoteOptions<T extends ListOption>({
   convert: (items: Item[]) => T[];
   initial: T[];
 }) {
-  const [query, setQuery] = useState(""),
-    [search, setSearch] = useState("");
-  useEffect(() => {
-    const timer = setTimeout(() => setSearch(query), 150);
-    return () => clearTimeout(timer);
-  }, [query]);
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useDebouncedSearch(query);
   const results = useInfiniteQuery({
     queryKey: [...apiKey(path), "search", search],
     queryFn: ({ pageParam, signal }) =>
@@ -71,10 +68,13 @@ export function useRemoteOptions<T extends ListOption>({
       setSearch("");
     },
     options,
-    busy: typing || results.isPending || results.isFetchingNextPage,
+    // Searching (a new query); a next page keeps the list and its button.
+    busy: typing || results.isPending,
+    loadingMore: results.isFetchingNextPage,
     more: !typing && results.hasNextPage,
     error: results.error?.message || "",
-    loadMore: () => void results.fetchNextPage(),
+    // Resolves once the next page is in `options`.
+    loadMore: () => results.fetchNextPage().then(() => undefined),
   };
 }
 

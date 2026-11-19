@@ -35,3 +35,23 @@ func TestDeploymentStatesMatchSchema(t *testing.T) {
 		t.Fatalf("deployment states %v, schema allows %v", got, schema)
 	}
 }
+
+// The preparation steps the console shows come from WorkspaceSteps; they must
+// be exactly the steps the registry allows.
+func TestWorkspaceStepsMatchSchema(t *testing.T) {
+	b, err := os.ReadFile("../../design/control_plane.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := regexp.MustCompile(`preparation_step IS NULL OR preparation_step IN \(([^)]*)\)`).FindSubmatch(b)
+	if check == nil {
+		t.Fatal("development_workspaces preparation_step CHECK not found")
+	}
+	var schema []string
+	for _, v := range strings.Split(string(check[1]), ",") {
+		schema = append(schema, strings.Trim(strings.TrimSpace(v), "'"))
+	}
+	if !reflect.DeepEqual(schema, WorkspaceSteps) {
+		t.Fatalf("workspace steps %v, schema allows %v", WorkspaceSteps, schema)
+	}
+}

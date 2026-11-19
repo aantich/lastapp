@@ -24,11 +24,12 @@ type WorkspaceInput struct {
 
 // ReleaseInput is the lastapp_release argument.
 type ReleaseInput struct {
-	Action     string                       `json:"action" jsonschema:"upload_ticket, capture, preview or deploy. All builds compile locally. Upload tickets accept one bounded immutable file tree; they cannot execute code."`
+	Action     string                       `json:"action" jsonschema:"upload_ticket, capture, preview, deploy or retry. All builds compile locally. Upload tickets accept one bounded immutable file tree; they cannot execute code. retry re-runs a failed deployment (same release and target) from its first step."`
 	App        string                       `json:"app_id,omitempty"`
 	Release    string                       `json:"release_id,omitempty"`
+	Deployment string                       `json:"deployment_id,omitempty" jsonschema:"Failed deployment to retry."`
 	Capture    *delivery.ReleaseCreateInput `json:"capture,omitempty" jsonschema:"capture: immutable build ID, release name, exact versions keyed by every active micro-app slug, plus shared dependencies. Inspect lastapp_get release before production deployment."`
-	Revision   int64                        `json:"expected_revision,omitempty" jsonschema:"Current development App revision for capture/preview; current production App revision for deploy (1 if it does not exist)."`
+	Revision   int64                        `json:"expected_revision,omitempty" jsonschema:"Current development App revision for capture/preview; current production App revision for deploy (1 if it does not exist); the failed deployment's revision for retry."`
 	RequestKey string                       `json:"request_key"`
 }
 
@@ -100,22 +101,34 @@ func (s *Server) toolAgentRelease(ctx context.Context, p access.Principal, raw j
 			return s.Delivery.DeployRelease(ctx, a, in.Release, in.Revision)
 		}
 		permission = "production.deploy"
+	case "retry":
+		call = func(ctx context.Context, a op.Actor) (any, error) {
+			return s.Delivery.RetryDeployment(ctx, a, in.Deployment, in.Revision)
+		}
+		permission = "production.deploy"
 	default:
-		return nil, registry.Bad("action is upload_ticket, capture, preview or deploy.")
+		return nil, registry.Bad("action is upload_ticket, capture, preview, deploy or retry.")
 	}
 	if in.Action != "upload_ticket" && in.Revision < 1 {
 		return nil, registry.Bad("expected_revision is required.")
 	}
+	result := registry.Row{"id": StableID(p, in.RequestKey), "operation": "release." + in.Action}
 	if in.Action == "upload_ticket" || in.Action == "capture" {
 		if e := registry.ID(in.App); e != nil {
 			return nil, e
 		}
+	} else if in.Action == "retry" {
+		if e := registry.ID(in.Deployment); e != nil {
+			return nil, e
+		}
+		// A retry creates nothing: its receipt names the deployment it re-queued.
+		result["id"] = in.Deployment
 	} else {
 		if e := registry.ID(in.Release); e != nil {
 			return nil, e
 		}
 	}
-	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, registry.Row{"id": StableID(p, in.RequestKey), "operation": "release." + in.Action}, in, permission)
+	ctx, e := s.beginAgentWrite(ctx, p, in.RequestKey, result, in, permission)
 	if e != nil {
 		return nil, e
 	}

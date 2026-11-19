@@ -23,8 +23,9 @@ lint:
 	cd web/admin && npm run lint && npm run typecheck
 fmt:
 	$(GOLANGCI_LINT) fmt ./...
+# Database tests run only on a disposable MariaDB (scripts/testdb.py); never the dev data.
 integration:
-	LASTAPP_SECURITY_CONFIG=$(CURDIR)/.local/config.json LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/control
+	python3 scripts/testdb.py -race -count=1 ./...
 	$(MAKE) e2e
 # Browser regressions on a disposable MariaDB/API (scripts/e2e.py); never the dev data.
 # Pass Playwright arguments with ARGS, e.g. make e2e ARGS=tests/security.spec.ts
@@ -33,7 +34,7 @@ e2e:
 
 .PHONY: mcp-test
 mcp-test:
-	LASTAPP_TEST_CONFIG=$(CURDIR)/.local/config.json go test -race -count=1 -v ./internal/agent ./internal/control -run 'TestAgent'
+	python3 scripts/testdb.py -race -count=1 -v ./internal/agent ./internal/control -run 'TestAgent'
 
 .PHONY: client
 client:

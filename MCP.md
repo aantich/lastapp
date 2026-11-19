@@ -13,7 +13,8 @@ Give the agent client the server's MCP URL. For local clients on this machine:
 http://127.0.0.1:8787/mcp
 ```
 
-It is also available in **My account → Agent access → Copy MCP URL**. The client
+It is also available under **Connect agent** in the console's top bar and
+**My account → Agent access → Copy MCP URL**. The client
 discovers the authorization server, identifies/registers itself automatically,
 and opens Lastapp for sign-in and interactive consent. The user chooses one
 Tenant/team/Space/App scope and the allowed actions, then returns to the client.
@@ -37,16 +38,25 @@ operator-configured clients. Registration supplies metadata only and grants no
 user access. Client metadata fetches reject private/local addresses, redirects
 and oversized responses; setup and token validation have bounded admission.
 
-On the consent page the expiry is a date picker bounded by tomorrow and
-`max_days` from that config (with 7/30/90-day quick choices where they fit); the
-grant still records whole `days`. Presets press when the checked permissions
-match them exactly.
+The consent page is one card: the agent's claimed name (not verified), its
+client ID and return address, the scope, the presets as cards with their
+`description`, the checked permission codes (single permissions under **Choose
+individual permissions**), the expiry and **Cancel** (deny) / **Approve
+connection**. A preset that names a permission the client did not request or the
+scope kind does not allow is disabled; presets press when the checked
+permissions match them exactly. The expiry offers the config's `day_choices` and
+a date picker bounded by tomorrow and `max_days`; the grant still records whole
+`days`. `max_connections` is the number of active, unexpired connections one
+person may hold; approving beyond it returns a conflict.
 
-Connections can be edited/revoked under **My account → Agent access**; each
-connection card shows the agent, its owner, scope, permissions, expiry and last
-mutation, and **Revoke access** asks for confirmation first. Tenant
-administrators can inspect/revoke their members' connections under **Tenant
-Settings → Agent access**, but cannot expand someone else's delegation.
+Connections can be edited/revoked under **My account → Agent access** and on the
+**Agents** page (**Agent connections**); each card shows the agent's claimed
+name, its owner, scope, status (Expired once past expiry), the preset its
+permissions match (or Custom), the permission codes, database limits when it may
+provision, expiry and last use. **Revoke** asks for confirmation first. Tenant
+administrators see and can revoke every connection in the Tenant there (and in
+Tenant settings → Agent access), but cannot expand someone else's delegation;
+anyone else sees their own.
 Changes invalidate existing access-token revisions: refresh or reconnect, reload
 tools and reread resource revisions. Browser logout leaves approved agent access
 intact; grant expiry/revocation, password replacement, user disable and Tenant
@@ -105,7 +115,7 @@ intended change.
 | `lastapp_app_access_update` | Update App access settings; Space authority controls origins/ceilings |
 | `lastapp_database_provision` | Allocate managed storage or retry a resource within approved limits |
 | `lastapp_workspace` | Create/archive/retry owned isolated copies; issue PKCE development launch codes |
-| `lastapp_release` | Issue upload tickets, capture releases, activate previews or explicitly deploy |
+| `lastapp_release` | Issue upload tickets, capture releases, activate previews, explicitly deploy or retry a failed deployment |
 
 Authoritative guides are served through `lastapp_describe` and the same
 `lastapp://docs/{hierarchy,entities,access,client,reuse,safety,development}` resources. Describe
@@ -134,7 +144,10 @@ Its simulation uses the shared evaluator and current relationships, but does not
 check live uniqueness, referenced-record existence/readability or real shares.
 Publishing is powerful: it can change schema, rules and access. Poll
 `lastapp_get resource=publication` using both the entity ID and returned job ID;
-a queued result is not completion. Inspect the published App contract before
+a queued result is not completion. The publish result and publication status
+carry the version's per-entity `version_number` (v1, v2, …; a failed version
+keeps its number), and entity inventories and App contracts carry the active
+version's number. Inspect the published App contract before
 generating client code.
 
 Space/App custom roles describe business relationships. Fixed Tenant/team roles
@@ -222,7 +235,7 @@ agent guides. Shared domain operations
 `internal/delivery`), mutation receipts and workers enforce the actual
 operations.
 
-Run `make mcp-test` against the existing local development MariaDB for the
+Run `make mcp-test` (on a disposable test MariaDB, never the development data) for the
 `TestAgent*` protocol, OAuth, delegation, isolation, replay, response-limit and
 agent worker-audit regressions. It does not run the general security suite. Run
 `make integration` for the full backend, security and console browser suite. See
@@ -235,10 +248,16 @@ claim production load testing or additional database-engine support.
 
 `lastapp_get resource=app_deployment`, with `id` equal to a development or
 production App ID, recovers the latest deployment or the current shared Space
-blocker after a lost response. It returns `{deployment: null}` when none exists.
+blocker after a lost response. It returns `{deployment: null}` when none exists. A failed deployment carries
+`failed_state`, the step it had reached.
 App context includes this job automatically. The console uses the same authorized
 `GET /v1/apps/{app}/deployment` operation; no new delegation permission is needed.
 A known job is still inspected with `resource=deployment` and its job ID.
+`lastapp_release action=retry` (`deployment_id`, `expected_revision` = the
+deployment's revision, `production.deploy`) re-runs a failed deployment from its
+first step under the caller's current authority; it is the console's
+`POST /v1/deployments/{id}/retry` operation and is refused once production
+changed after the failure (see WORKSPACES.md).
 
 Release publications reach `prepared` without activating registry authority.
 After all storage is prepared, entity ACLs, role states, App policies and client

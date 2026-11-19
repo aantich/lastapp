@@ -6,7 +6,7 @@ import { Spinner } from "./feedback";
 export function LoadingScreen({ label }: { label: ReactNode }) {
   return (
     <div className="ui-loading-screen">
-      <Spinner label={label} size={22} />
+      <Spinner label={label} size="4xl" />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   FactList,
   Stack,
   StatusBadge,
+  Icon,
 } from "../ui";
 import { AccessControl } from "../access-control";
 import { keyOf, text } from "../api-types";
@@ -105,7 +106,7 @@ export function SpacePage({ t }: { t: TenantScreen }) {
                   <StatusBadge state={space.state} />
                   {scoped("space.manage") && (
                     <Button
-                      icon={<Pencil size={14} aria-hidden />}
+                      icon={<Icon icon={Pencil} size="sm" aria-hidden />}
                       onClick={() =>
                         edit(space, base + "/spaces/" + space.id, "Edit Space")
                       }

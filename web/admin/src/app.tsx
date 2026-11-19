@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, resetSessionRequests, sessionExpiredEvent } from "./api";
 import { useAppearance } from "./appearance";
-import { LoginScreen, PasswordScreen } from "./login";
+import { LoginScreen } from "./login";
+import { PasswordScreen } from "./password-screen";
 import { TenantWorkspace } from "./tenant-workspace";
 import { PlatformWorkspace } from "./platform-workspace";
 import type { Me } from "./api-types";
 import { useConsoleConfig } from "./console-config";
 import { AppLaunch } from "./entity-designer/launch";
-import { AgentConsent } from "./agent-access";
+import { AgentConsent } from "./agent-access/agent-consent";
 import { consoleURL, isConsolePath } from "./console-url";
 import { queryClient } from "./query";
 import { Alert, LoadingScreen } from "./ui";

@@ -3,9 +3,7 @@ package worker
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -13,28 +11,16 @@ import (
 
 	mariadb "github.com/aantich/go-mariadb"
 
-	"github.com/aantich/lastapp/internal/config"
 	"github.com/aantich/lastapp/internal/registry"
+	"github.com/aantich/lastapp/internal/testdb"
 )
 
-// lockFixture opens the local MariaDB named by LASTAPP_TEST_CONFIG and returns
+// lockFixture opens the disposable test server (internal/testdb) and returns
 // a pool plus a lock name no other test uses. The leader touches no tables, so
 // no registry schema is needed.
 func lockFixture(t *testing.T) (*sql.DB, string) {
 	t.Helper()
-	file := os.Getenv("LASTAPP_TEST_CONFIG")
-	if file == "" {
-		t.Skip("set LASTAPP_TEST_CONFIG for the installed local MariaDB")
-	}
-	b, e := os.ReadFile(file)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var c config.Config
-	if e = json.Unmarshal(b, &c); e != nil {
-		t.Fatal(e)
-	}
-	cfg, e := mariadb.ParseDSN(c.RegistryDSN)
+	cfg, e := mariadb.ParseDSN(testdb.Load(t, testdb.ConfigEnv).Config.RegistryDSN)
 	if e != nil {
 		t.Fatal("invalid registry DSN")
 	}
@@ -53,6 +39,7 @@ type fakeStep struct {
 	name    string
 	starter bool
 	busy    bool
+	busyFor int // the first busyFor runs report work even when busy is false
 	fail    func(run int) error
 	rec     *recorder
 	mu      sync.Mutex
@@ -112,7 +99,7 @@ func (f *fakeStep) Run(ctx context.Context, db *sql.DB) (bool, error) {
 			return false, e
 		}
 	}
-	return f.busy, nil
+	return f.busy || run <= f.busyFor, nil
 }
 
 func (f *fakeStep) runCount() int {
@@ -301,5 +288,58 @@ func TestBackoffDoublesToCap(t *testing.T) {
 	}
 	if errors.Is(errLockLost, context.Canceled) {
 		t.Fatal("lock loss must not look like cancellation")
+	}
+}
+
+// Settle leads in the caller: starters run first on the lock connection, then
+// drain runs every step per pass until a whole pass finds no work, and the
+// lock is released afterwards.
+func TestSettleDrainsUntilIdle(t *testing.T) {
+	a := &fakeStep{name: "a", starter: true, busyFor: 3}
+	b := &fakeStep{name: "b"}
+	l, rec, _ := newLeader(t, a, b)
+	led, e := l.Settle(context.Background(), func(drain func() error) error { return drain() })
+	if !led || e != nil {
+		t.Fatal("settle", led, e)
+	}
+	events := rec.snapshot()
+	if events[0] != "start:a" || slices.Contains(events[1:], "start:a") {
+		t.Fatalf("events %v: want one start first", events)
+	}
+	if a.runCount() != 4 || b.runCount() != 4 {
+		t.Fatalf("runs a=%d b=%d, want three busy passes and one idle pass", a.runCount(), b.runCount())
+	}
+	var free int
+	if e = l.DB.QueryRow("SELECT IS_FREE_LOCK(?)", l.Lock).Scan(&free); e != nil || free != 1 {
+		t.Fatal("lock not released after settling", e)
+	}
+}
+
+// Another leader owns the queues: Settle neither starts nor runs anything.
+// A failing step stops the drain with the step's name.
+func TestSettleDefersAndReportsFailures(t *testing.T) {
+	failure := errors.New("boom")
+	a := &fakeStep{name: "a", starter: true, fail: func(int) error { return failure }}
+	l, rec, _ := newLeader(t, a)
+	held, e := l.DB.Conn(context.Background())
+	if e != nil {
+		t.Fatal(e)
+	}
+	var got int
+	if e = held.QueryRowContext(context.Background(), "SELECT GET_LOCK(?,0)", l.Lock).Scan(&got); e != nil || got != 1 {
+		t.Fatal("cannot hold lock", e)
+	}
+	called := false
+	led, e := l.Settle(context.Background(), func(func() error) error { called = true; return nil })
+	if led || e != nil || called || len(rec.snapshot()) != 0 {
+		t.Fatal("follower settled", led, e, called, rec.snapshot())
+	}
+	if _, e = held.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", l.Lock); e != nil {
+		t.Fatal(e)
+	}
+	held.Close()
+	led, e = l.Settle(context.Background(), func(drain func() error) error { return drain() })
+	if !led || !errors.Is(e, failure) || e.Error() != "worker step a: boom" {
+		t.Fatal("failure not reported", led, e)
 	}
 }

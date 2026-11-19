@@ -45,6 +45,8 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
     page.getByRole("heading", { name: "Connect an agent" }),
   ).toBeVisible();
   await expect(page.getByText("Returns to 127.0.0.1:8790")).toBeVisible();
+  // Presets are cards; single permissions are under a disclosure.
+  await page.getByText("Choose individual permissions").click();
   await expect(
     page.getByRole("checkbox", { name: /Create and edit resources/ }),
   ).toBeVisible();
@@ -88,7 +90,7 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
       body: "<h1>Agent connected</h1>",
     }),
   );
-  await page.getByRole("button", { name: "Approve agent access" }).click();
+  await page.getByRole("button", { name: "Approve connection" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent connected" }),
   ).toBeVisible();
@@ -134,9 +136,9 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
   await expect(page.getByRole("alert")).toContainText("Select and copy");
   await expect(grant).toBeVisible();
   await expect(
-    grant.getByRole("button", { name: "Revoke access" }),
+    grant.getByRole("button", { name: "Revoke", exact: true }),
   ).toBeEnabled();
-  await grant.getByRole("button", { name: "Edit access" }).click();
+  await grant.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   const bounds = await dialog.boundingBox();
@@ -184,22 +186,22 @@ test("OAuth consent scopes an agent and account settings edit and revoke it", as
     }
   };
   await page.route("**/v1/agent-access/*", rejectRevoke);
-  await grant.getByRole("button", { name: "Revoke access" }).click();
+  await grant.getByRole("button", { name: "Revoke", exact: true }).click();
   await confirmDialog(page, "Revoke access");
   await expect(page.getByRole("alert")).toContainText("Refresh before saving.");
   await expect(grant).toBeVisible();
   await expect(
-    grant.getByRole("button", { name: "Edit access" }),
+    grant.getByRole("button", { name: "Edit", exact: true }),
   ).toBeEnabled();
   await page.unroute("**/v1/agent-access/*", rejectRevoke);
   await page.getByRole("button", { name: "Refresh connections" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await grant.getByRole("button", { name: "Revoke access" }).click();
+  await grant.getByRole("button", { name: "Revoke", exact: true }).click();
   await confirmDialog(page, "Revoke access");
   await expect(grant).toContainText("revoked");
-  await expect(grant.getByRole("button", { name: "Edit access" })).toHaveCount(
-    0,
-  );
+  await expect(
+    grant.getByRole("button", { name: "Edit", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("agent consent returns after signing in and can be denied", async ({

@@ -75,7 +75,7 @@ func TestScopedRecipientOptions(t *testing.T) {
 	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": joe}, 0, 201)
 	ownerClient.want("POST", base+"/memberships", registry.Row{"user_id": operator}, 0, 201)
 	target, db, space, app, sibling := registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID(), registry.NewID()
-	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Recipients','127.0.0.1',33317,'disabled')", target); e != nil {
+	if _, e := s.DB.Exec("INSERT INTO database_targets(id,display_name,canonical_host,port,tls_mode) VALUES (?,'Recipients','127.0.0.1',3306,'disabled')", target); e != nil {
 		t.Fatal(e)
 	}
 	enc, e := s.sealer.Seal("database", db, tenant, databases.Credentials{Username: "fixture", Password: registry.Token(32)})
@@ -91,6 +91,33 @@ func TestScopedRecipientOptions(t *testing.T) {
 	}
 	ownerClient.want("POST", base+"/apps/"+app+"/role-assignments", registry.Row{"id": registry.NewID(), "user_id": joe, "role_id": "00000000-0000-4000-8000-000000000006"}, 0, 201)
 	manager := platform.as(joe)
+	// App Access lists the App's own assignments, then its Space's, which
+	// apply by inheritance; reading the Space's needs Space authority.
+	listed := ownerClient.want("GET", base+"/apps/"+app+"/role-assignments?include=space", nil, 0, 200)["items"].([]any)
+	kinds := []string{}
+	for _, v := range listed {
+		kinds = append(kinds, registry.Str(v.(map[string]any)["scope_kind"]))
+	}
+	if strings.Join(kinds, ",") != "app,app,space" || listed[0].(map[string]any)["user_id"] != joe || listed[2].(map[string]any)["space_id"] != space {
+		t.Fatal("App access must list its own assignments, then its Space's", listed)
+	}
+	manager.want("GET", base+"/apps/"+app+"/role-assignments?include=space", nil, 0, 403)
+	manager.want("GET", base+"/apps/"+app+"/role-assignments", nil, 0, 200)
+	ownerClient.want("GET", base+"/spaces/"+space+"/role-assignments?include=space", nil, 0, 400)
+	// The account's fixed control roles in the Tenant, broadest first.
+	roleNames := func(c testClient) []string {
+		var out []string
+		for _, r := range c.want("GET", base+"/capabilities", nil, 0, 200)["control_roles"].([]any) {
+			out = append(out, registry.Str(r.(map[string]any)["display_name"]))
+		}
+		return out
+	}
+	if got := roleNames(manager); len(got) != 1 || got[0] != "App manager" {
+		t.Fatal("App manager's control roles", got)
+	}
+	if got := roleNames(ownerClient); len(got) < 2 || got[0] != "Tenant administrator" || got[1] != "Space manager" {
+		t.Fatal("Tenant administrator's control roles", got)
+	}
 	manager.want("GET", base+"/memberships", nil, 0, 403)
 	options := manager.want("GET", base+"/apps/"+app+"/recipients", nil, 0, 200)["items"].([]any)
 	if len(options) != 2 {
@@ -132,7 +159,7 @@ func TestRecommendedSpaceDatabase(t *testing.T) {
 	}
 	create(409) // A missing managed target gives actionable setup feedback, without allocation.
 	target := registry.NewID()
-	platform.want("POST", "/admin/v1/database-targets", registry.Row{"id": target, "display_name": "Recommended", "canonical_host": "127.0.0.1", "port": 33317, "tls_mode": "disabled", "managed_enabled": true, "credentials": registry.Row{"username": "fixture", "password": "Never used: no worker in this test"}}, 0, 201)
+	platform.want("POST", "/admin/v1/database-targets", registry.Row{"id": target, "display_name": "Recommended", "canonical_host": "127.0.0.1", "port": 3306, "tls_mode": "disabled", "managed_enabled": true, "credentials": registry.Row{"username": "fixture", "password": "Never used: no worker in this test"}}, 0, 201)
 	first := create(201)
 	second := create(201)
 	if first["database_resource_id"] != second["database_resource_id"] {

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
@@ -383,7 +383,7 @@ test("local React build uses workspace APIs, then the same files deploy to produ
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator(".sidebar")).toHaveCSS(
       "transform",
-      "matrix(1, 0, 0, 1, -244, 0)",
+      await drawerHidden(page),
     );
     await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
     await page.screenshot({
@@ -399,12 +399,17 @@ test("local React build uses workspace APIs, then the same files deploy to produ
       .getByRole("dialog")
       .getByRole("button", { name: "Deploy to production", exact: true })
       .click();
-    await expect(page.locator(".deployment-status")).toContainText("active", {
-      timeout: 45000,
-    });
+    await expect(page.locator(".deployment-status")).toContainText(
+      "active since",
+      {
+        timeout: 45000,
+      },
+    );
     // A real durable deployment remains visible after leaving/reloading the UI.
     await page.reload();
-    await expect(page.locator(".deployment-status")).toContainText("active");
+    await expect(page.locator(".deployment-status")).toContainText(
+      "active since",
+    );
     const productionURL = await page
       .getByRole("link", { name: "Open production App" })
       .getAttribute("href");
@@ -472,6 +477,7 @@ test("deployment status survives reload and retries a transient failure", async 
     target_app_id: app,
     url: apiOrigin.replace("127.0.0.1", "localhost") + "/",
     error_message: "Storage preparation failed safely.",
+    revision: 3,
   };
   await page.route(`**/v1/apps/${app}/deployment`, async (route) => {
     requests++;
@@ -494,9 +500,11 @@ test("deployment status survives reload and retries a transient failure", async 
     });
   });
   await page.goto(`/console/tenants/${tenant}/apps/${app}/releases`);
-  await expect(page.locator(".deployment-status")).toContainText("queued");
+  // The timeline marks the deployment's current step.
+  const current = page.locator('.deployment-status [aria-current="step"]');
+  await expect(current).toContainText("Queued");
   await page.reload();
-  await expect(page.locator(".deployment-status")).toContainText("queued");
+  await expect(current).toContainText("Queued");
   const before = requests;
   failures = 1;
   state = "active";
@@ -504,9 +512,10 @@ test("deployment status survives reload and retries a transient failure", async 
     timeout: 10000,
   });
   // No click or manual refresh: the same poll loop must recover by itself.
-  await expect(page.locator(".deployment-status")).toContainText("active", {
-    timeout: 15000,
-  });
+  await expect(page.locator(".deployment-status")).toContainText(
+    "active since",
+    { timeout: 15000 },
+  );
   expect(requests).toBeGreaterThanOrEqual(before + 2);
   await expect(page.getByRole("alert")).toHaveCount(0);
   state = "failed";
@@ -521,7 +530,7 @@ test("deployment status survives reload and retries a transient failure", async 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator(".sidebar")).toHaveCSS(
     "transform",
-    "matrix(1, 0, 0, 1, -244, 0)",
+    await drawerHidden(page),
   );
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
   await page.screenshot({
@@ -529,4 +538,127 @@ test("deployment status survives reload and retries a transient failure", async 
     fullPage: true,
     animations: "disabled",
   });
+  // Retry re-queues this same deployment, expecting its revision; the
+  // timeline then follows it from its first step again.
+  const retries: (string | null)[] = [];
+  await page.route(`**/v1/deployments/${job.id}/retry`, async (route) => {
+    retries.push(route.request().headers()["if-match"] ?? null);
+    state = "queued";
+    await route.fulfill({
+      status: 202,
+      json: { id: job.id, state: "queued", attempts: 2 },
+    });
+  });
+  await page
+    .locator(".deployment-status")
+    .getByRole("button", { name: "Retry deploy" })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Retry deploy" })
+    .click();
+  await expect(current).toContainText("Queued");
+  expect(retries).toEqual([String(job.revision)]);
+});
+
+// The closed drawer is translated by its own width, the --ui-sidebar-width
+// token (themes.css).
+async function drawerHidden(page: Page) {
+  const width = await page.evaluate(() =>
+    parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        "--ui-sidebar-width",
+      ),
+    ),
+  );
+  return `matrix(1, 0, 0, 1, -${width}, 0)`;
+}
+
+test("Home and Development show a preparing workspace's step and unpublished entities", async ({
+  page,
+}) => {
+  await login(page);
+  const { tenant, base, owner } = await fixtureTenant(page, "Attention");
+  await logout(page);
+  await login(page, "tenant-admin");
+  const space = crypto.randomUUID(),
+    entity = crypto.randomUUID();
+  expect(
+    (
+      await post(page, base + "/spaces", {
+        id: space,
+        slug: "attention",
+        display_name: "Attention",
+        initial_manager_user_id: owner.id,
+        database: { mode: "managed", layout: "shared" },
+      })
+    ).status,
+  ).toBe(201);
+  // The workspace and entity reads as the server returns them.
+  const workspace = {
+    id: crypto.randomUUID(),
+    display_name: "Pricing experiment",
+    backing_space_id: crypto.randomUUID(),
+    production_space_id: space,
+    owner_agent_grant_id: crypto.randomUUID(),
+    agent_client_name: "Codex",
+    preparation_step: "tables",
+    error_message: null,
+    state: "preparing",
+    revision: 2,
+    created_at: new Date().toISOString(),
+  };
+  await page.route(`**/v1/spaces/${space}/workspaces*`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: { items: [workspace], pagination: { has_more: false } },
+        })
+      : route.fallback(),
+  );
+  await page.route(`**/v1/spaces/${space}/entities`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            items: [
+              {
+                id: entity,
+                entity_key: "deal",
+                label: "Deal",
+                state: "active",
+                revision: 3,
+                active_version_id: crypto.randomUUID(),
+                pending_version_id: null,
+                has_draft_changes: true,
+              },
+            ],
+          },
+        })
+      : route.fallback(),
+  );
+  await page.goto(`/console/tenants/${tenant}/home`);
+  const preparing = page.locator(".ui-attention", {
+    hasText: "Workspace Pricing experiment",
+  });
+  await expect(preparing).toContainText("by Codex · agent");
+  await expect(preparing.getByRole("progressbar")).toHaveAttribute(
+    "aria-valuetext",
+    "Step 2 of 3 · Preparing entity tables",
+  );
+  const draft = page.locator(".ui-attention", {
+    hasText: "Deal · Unpublished changes",
+  });
+  await expect(draft).toContainText("Attention");
+  await draft.getByRole("button", { name: "Open" }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/spaces/${space}/entities\\?entity=${entity}`),
+  );
+  await page.goto(`/console/tenants/${tenant}/spaces/${space}/development`);
+  await expect(page.getByRole("progressbar")).toHaveAttribute(
+    "aria-valuetext",
+    "Step 2 of 3 · Preparing entity tables",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/console/tenants/${tenant}/home`);
+  await expect(preparing.getByRole("progressbar")).toBeVisible();
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
 });

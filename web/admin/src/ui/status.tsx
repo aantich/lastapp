@@ -25,7 +25,10 @@ export function StatusBadge({
       data-state={value || undefined}
     >
       <i aria-hidden />
-      {label ?? value.replace(/_/g, " ")}
+      {label ?? (
+        // The state word itself; its capital is presentation (CSS).
+        <span className="ui-badge-state">{value.replace(/_/g, " ")}</span>
+      )}
     </span>
   );
 }
@@ -37,6 +40,7 @@ export function Badge({
   tone = "neutral",
   mono,
   count,
+  pill,
   className,
   title,
 }: {
@@ -44,6 +48,8 @@ export function Badge({
   tone?: Tone | "inverse";
   mono?: boolean;
   count?: boolean;
+  // The rounder, larger chip of cards (a preset, a permission, a scope).
+  pill?: boolean;
   className?: string;
   title?: string;
 }) {
@@ -54,6 +60,7 @@ export function Badge({
         tone !== "neutral" && "tone-" + tone,
         mono && "ui-mono",
         count && "ui-count",
+        pill && "ui-pill",
         className,
       )}
       title={title}

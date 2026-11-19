@@ -1,0 +1,158 @@
+/* Fact list (labelled values of one record) */
+.ui-facts {
+  display: grid;
+  margin: 0;
+}
+.ui-facts > div {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--ui-space) * 30), 1fr) minmax(0, 2fr);
+  gap: calc(var(--ui-space) * 1) calc(var(--ui-space) * 4);
+  padding: calc(var(--ui-space) * 2.5) 0;
+  border-top: var(--ui-line) solid var(--ui-border);
+  font-size: var(--ui-text-base);
+}
+.ui-facts > div:first-child {
+  border-top: 0;
+}
+.ui-facts dt {
+  color: var(--ui-muted);
+}
+.ui-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-facts dd.ui-mono {
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-text-sm);
+}
+@media (max-width: 520px) {
+  .ui-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Disclosure */
+.ui-disclosure > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 1) calc(var(--ui-space) * 2);
+  padding: calc(var(--ui-space) * 2) 0;
+  font-size: var(--ui-text-base);
+  font-weight: 500;
+  list-style: none;
+}
+.ui-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.ui-disclosure > summary > svg {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  transition: transform var(--ui-duration);
+}
+.ui-disclosure[open] > summary > svg {
+  transform: rotate(90deg);
+}
+.ui-disclosure > summary > small {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+  font-weight: 400;
+}
+.ui-disclosure-body {
+  padding: calc(var(--ui-space) * 1) 0 calc(var(--ui-space) * 2);
+  min-width: 0;
+}
+
+/* Code block */
+.ui-code {
+  margin: 0;
+  max-height: calc(var(--ui-space) * 100);
+  overflow: auto;
+  padding: calc(var(--ui-space) * 3) calc(var(--ui-space) * 3.5);
+  border: var(--ui-line) solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-subtle);
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Pick list (a record list beside its open record) */
+.ui-pick-list {
+  display: grid;
+  gap: calc(var(--ui-space) * 2);
+}
+.ui-pick-list > ul {
+  display: grid;
+  gap: calc(var(--ui-space) * 1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-pick-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(var(--ui-space) * 3);
+  width: 100%;
+  padding: calc(var(--ui-space) * 2.5) calc(var(--ui-space) * 3);
+  border: var(--ui-line) solid transparent;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-text);
+  text-align: left;
+}
+.ui-pick-item > .badge {
+  flex-shrink: 0;
+}
+.ui-pick-item > span:first-child {
+  display: grid;
+  gap: calc(var(--ui-space) * 0.5);
+  min-width: 0;
+}
+.ui-pick-item strong {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ui-pick-item small {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.ui-pick-item:hover {
+  background: var(--ui-hover);
+}
+.ui-pick-item[aria-pressed="true"] {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+}
+.ui-pick-empty {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+
+/* Collection filters and feed (Collection with `filters` / `render`) */
+.toolbar:has(.ui-collection-filters) {
+  flex-wrap: wrap;
+}
+.ui-collection-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2) calc(var(--ui-space) * 3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ui-collection-filters > .select-control {
+  flex: 0 1 calc(var(--ui-space) * 50);
+  min-width: calc(var(--ui-space) * 40);
+}
+.ui-collection-feed {
+  display: grid;
+  gap: calc(var(--ui-space) * 2.5);
+  padding: calc(var(--ui-space) * 5);
+}

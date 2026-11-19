@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { Alert } from "./alert";
 import { Button } from "./button";
@@ -7,6 +7,8 @@ import { EmptyState } from "./empty-state";
 import { Skeleton } from "./feedback";
 import { keyOf, type Item, type Page } from "../api-types";
 import { useApiQuery } from "../query";
+import { Icon } from "./icon";
+import { useDebouncedSearch } from "./hooks";
 // All Tenant collection screens share server search/paging and scope-filtered APIs.
 type CollectionProps = {
   path: string;
@@ -48,13 +50,9 @@ function ScopedCollection({
   poll,
 }: CollectionProps) {
   const [query, setQuery] = useState(""),
-    [search, setSearch] = useState(""),
     [page, setPage] = useState(1);
   // Typing waits briefly before searching so each keystroke is not a request.
-  useEffect(() => {
-    const timer = setTimeout(() => setSearch(query), 150);
-    return () => clearTimeout(timer);
-  }, [query]);
+  const [search] = useDebouncedSearch(query);
   const result = useApiQuery<Page>(
       path +
         (path.includes("?") ? "&" : "?") +
@@ -73,7 +71,7 @@ function ScopedCollection({
       {header}
       <div className="toolbar">
         <label className="search">
-          <Search size={16} />
+          <Icon icon={Search} size="lg" />
           <input
             aria-label="Search records"
             placeholder="Search records…"

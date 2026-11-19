@@ -18,7 +18,9 @@ import (
 )
 
 // deploymentTask is a production deployment as its worker applies it, with
-// the database resource of its Space.
+// the database resource of its Space. CreatedBy is the person whose live
+// authority its current attempt runs under: whoever last retried it, else
+// whoever queued it (AgentGrant is that attempt's delegation).
 type deploymentTask struct {
 	ID, TenantID, SpaceID, ReleaseID, TargetApp, CreatedBy, State, Resource string
 	AgentGrant                                                              string // empty for a person
@@ -28,7 +30,7 @@ type deploymentTask struct {
 
 // deploymentTaskSQL selects a deploymentTask from release_deployments d; the
 // query continues with a WHERE clause.
-const deploymentTaskSQL = "SELECT d.id,d.tenant_id,d.space_id,d.release_id,d.target_app_id,d.created_by,d.state,sp.database_resource_id,COALESCE(d.agent_grant_id,''),COALESCE(d.agent_grant_revision,0),d.plan_json FROM release_deployments d JOIN spaces sp ON sp.id=d.space_id"
+const deploymentTaskSQL = "SELECT d.id,d.tenant_id,d.space_id,d.release_id,d.target_app_id,COALESCE(d.retried_by,d.created_by),d.state,sp.database_resource_id,COALESCE(d.agent_grant_id,''),COALESCE(d.agent_grant_revision,0),d.plan_json FROM release_deployments d JOIN spaces sp ON sp.id=d.space_id"
 
 func (v *deploymentTask) ScanFields() []any {
 	return []any{&v.ID, &v.TenantID, &v.SpaceID, &v.ReleaseID, &v.TargetApp, &v.CreatedBy, &v.State, &v.Resource, &v.AgentGrant, &v.AgentRevision, &v.Plan}
@@ -91,8 +93,9 @@ func DeploymentEntities(ctx context.Context, q registry.Queryer, id string) (map
 
 // deploymentHead selects the oldest unfinished deployment of each Tenant: a
 // Tenant's deployments are applied strictly in the order they were queued
-// (which also keeps every Space's and App's deployments in order).
-const deploymentHead = " WHERE d.state IN ('queued','preparing','publishing') AND d.tenant_id>? AND NOT EXISTS (SELECT 1 FROM release_deployments o WHERE o.tenant_id=d.tenant_id AND o.state IN ('queued','preparing','publishing') AND (o.created_at<d.created_at OR (o.created_at=d.created_at AND o.id<d.id))) ORDER BY d.tenant_id LIMIT 1"
+// (which also keeps every Space's and App's deployments in order). A retried
+// deployment is queued again, behind every deployment queued before it.
+const deploymentHead = " WHERE d.state IN ('queued','preparing','publishing') AND d.tenant_id>? AND NOT EXISTS (SELECT 1 FROM release_deployments o WHERE o.tenant_id=d.tenant_id AND o.state IN ('queued','preparing','publishing') AND (o.queued_at<d.queued_at OR (o.queued_at=d.queued_at AND o.id<d.id))) ORDER BY d.tenant_id LIMIT 1"
 
 // DeploymentJob advances the oldest unfinished deployment of the first Tenant
 // after the given one (Tenant ID order) that has one. It returns that Tenant,
@@ -351,7 +354,14 @@ func (s *Service) failDeployment(ctx context.Context, job deploymentTask, messag
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE release_deployments SET state='failed',error_message=?,finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state IN ('queued','preparing','publishing')", message, job.ID); err != nil {
+	// The production configuration this failure leaves: the Space was fenced
+	// for this deployment until now, so it is the base plus only this
+	// deployment's own staging. A retry is allowed only while it is unchanged.
+	var failedBase any
+	if current, err := s.snapshot(ctx, tx, job.SpaceID); err == nil {
+		failedBase = entity.Hash(current)
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE release_deployments SET failed_state=state,state='failed',error_message=?,failed_base_hash=?,finished_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state IN ('queued','preparing','publishing')", message, failedBase, job.ID); err != nil {
 		return err
 	}
 	if err = op.Audit(ctx, tx, job.TenantID, job.CreatedBy, "release.deployment_failed", "deployment", job.ID, registry.NewID(), registry.Row{"error_message": message}); err != nil {
@@ -362,6 +372,147 @@ func (s *Service) failDeployment(ctx context.Context, job deploymentTask, messag
 	}
 	for _, version := range versions {
 		s.Publisher.RestoreBase(ctx, version)
+	}
+	return nil
+}
+
+// RetryDeployment runs a failed production deployment again: the same
+// record, release and target App, from its first step. Its failure discarded
+// the entity versions it had queued, so no step can resume where it stopped;
+// the retry queues fresh versions through the same worker steps, which recheck
+// live authority, storage fences and the build at every step as before.
+//
+// revision is the deployment's expected revision, so a second retry of the
+// same failure is stale. The retry is refused unless the deployment failed,
+// production's configuration is still exactly what that failure left
+// (failed_base_hash), entity drafts are either published or the ones this
+// deployment staged, and the actor has the deployment authority now. The
+// actor's authority (and delegation) then carries the new attempt, which the
+// audit trail attributes to them.
+func (s *Service) RetryDeployment(ctx context.Context, actor op.Actor, deployment string, revision int64) (registry.Row, error) {
+	p := actor.Principal
+	if revision < 1 {
+		return nil, op.RevisionRequired()
+	}
+	var releaseID string
+	res := access.Resource{}
+	if e := registry.Lookup(ctx, s.DB, "SELECT release_id,tenant_id,space_id FROM release_deployments WHERE id=?", []any{deployment}, &releaseID, &res.Tenant, &res.Space); e != nil {
+		return nil, e
+	}
+	rel, e := s.releaseRow(ctx, s.DB, p, releaseID)
+	if e != nil {
+		return nil, e
+	}
+	if e = s.deploymentAuthority(ctx, s.DB, p, res); e != nil {
+		return nil, e
+	}
+	if e = s.EnsureReleaseBuild(ctx, s.DB, rel.ID); e != nil {
+		return nil, e
+	}
+	var attempts int64
+	ctx = context.WithValue(ctx, access.DeploymentOperationKey{}, deployment)
+	e = s.Run.Mutate(ctx, actor, "production.deploy", res, func(tx *sql.Tx) error {
+		var state string
+		var current int64
+		var failedBase *string
+		var stored registry.JSONValue
+		if e := registry.Lookup(ctx, tx, "SELECT state,revision,attempts,failed_base_hash,plan_json FROM release_deployments WHERE id=? FOR UPDATE", []any{deployment}, &state, &current, &attempts, &failedBase, &stored); e != nil {
+			return e
+		}
+		if e := op.CheckRevision(current, revision); e != nil {
+			return e
+		}
+		if state != DeploymentFailed {
+			return registry.Conflict("Only a failed deployment can be retried.")
+		}
+		if failedBase == nil {
+			return registry.Conflict("This deployment cannot be retried. Create a fresh workspace and deploy a new release.")
+		}
+		if e := s.deploymentAuthority(ctx, tx, p, res); e != nil {
+			return e
+		}
+		a, e := inventory.AppRow(ctx, tx, rel.ProductionApp)
+		if e != nil {
+			return e
+		}
+		if access.Deref(a.ActiveRelease) == rel.ID {
+			return registry.Conflict("This release is already active in production.")
+		}
+		plan, e := decodeDeployment(stored)
+		if e != nil || snapshotContractHash(plan.Snapshot) != rel.SnapshotHash {
+			return registry.Conflict("Release snapshot is invalid.")
+		}
+		if e = s.retryReady(ctx, tx, res.Space, plan.Snapshot); e != nil {
+			return e
+		}
+		now, e := s.snapshot(ctx, tx, res.Space)
+		if e != nil {
+			return e
+		}
+		if entity.Hash(now) != *failedBase {
+			return registry.Conflict("Production changed since this deployment failed. Create a fresh workspace and reconcile its configuration before deploying.")
+		}
+		if s.HostedOrigin(rel.ProductionApp) == "" {
+			return registry.Conflict("Configure the App hosting origin before deployment.")
+		}
+		if e = s.snapshotAppQuota(ctx, tx, res.Tenant, plan.Snapshot); e != nil {
+			return e
+		}
+		// The failed attempt's entity versions stay failed for inspection; this
+		// attempt publishes through new ones.
+		plan.Versions = map[string]string{}
+		for _, d := range plan.Snapshot.Entities {
+			plan.Versions[d.ID] = registry.NewID()
+		}
+		pb, _ := json.Marshal(plan)
+		var grantRev any
+		if p.Agent != nil {
+			grantRev = p.Agent.Revision
+		}
+		attempts++
+		if _, e = tx.ExecContext(ctx, "UPDATE release_deployments SET state='queued',failed_state=NULL,error_message=NULL,failed_base_hash=NULL,finished_at=NULL,plan_json=?,attempts=?,retried_by=?,agent_grant_id=?,agent_grant_revision=?,queued_at=UTC_TIMESTAMP(6),revision=revision+1 WHERE id=? AND state='failed'", pb, attempts, p.ID, agentID(p), grantRev, deployment); e != nil {
+			return e
+		}
+		return op.AuditAs(ctx, tx, actor, res.Tenant, "release.deployment_retried", "deployment", deployment, registry.Row{"release_id": rel.ID, "attempt": attempts})
+	})
+	if e != nil {
+		return nil, e
+	}
+	return registry.Row{"id": deployment, "state": DeploymentSteps[0], "attempts": attempts, "instruction": "Poll deployment status. The retry runs every deployment step again; never assume queued means deployed."}, nil
+}
+
+// stagedDraft is an active entity's draft with its pending publication and
+// active definition hash.
+type stagedDraft struct {
+	ID string
+	publishedDraft
+}
+
+func (v *stagedDraft) ScanFields() []any {
+	return append([]any{&v.ID}, v.publishedDraft.ScanFields()...)
+}
+
+// retryReady is ensureSnapshotReady for a retry: the failed attempt left the
+// drafts it staged, so an active entity's draft may be either its published
+// definition or the one the deployment captured, never anything else.
+func (s *Service) retryReady(ctx context.Context, q registry.Queryer, space string, snap spaceSnapshot) error {
+	staged := map[string]string{}
+	for _, d := range snap.Entities {
+		staged[d.ID] = entity.Hash(d.Definition)
+	}
+	drafts, e := registry.ScanAll[stagedDraft](ctx, q, "SELECT e.id,e.draft_json,e.pending_version_id,COALESCE(ev.definition_hash,'') FROM entity_definitions e LEFT JOIN entity_versions ev ON ev.id=e.active_version_id WHERE e.space_id=? AND e.state='active'", space)
+	if e != nil {
+		return e
+	}
+	for _, draft := range drafts {
+		d, e := entities.DefOf(draft.Draft.Value())
+		if e != nil {
+			return e
+		}
+		hash := entity.Hash(d)
+		if draft.Pending != nil || (hash != draft.ActiveHash && hash != staged[draft.ID]) {
+			return registry.Conflict("An entity draft changed since this deployment failed. Publish or discard it before retrying.")
+		}
 	}
 	return nil
 }

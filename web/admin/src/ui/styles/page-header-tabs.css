@@ -1,0 +1,117 @@
+/* Page header and breadcrumbs */
+/* The mockup's screen heading row: a 28 px title, actions pushed right and
+   centred on it. */
+.ui-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--ui-space) * 3);
+  margin-bottom: calc(var(--ui-space) * 5);
+}
+.ui-page-header-copy {
+  display: grid;
+  gap: calc(var(--ui-space) * 1.5);
+  min-width: 0;
+}
+.ui-page-header h1 {
+  font-size: var(--ui-text-5xl);
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: normal;
+  overflow-wrap: anywhere;
+}
+/* A title-only header centres its actions on the title, as the design does */
+.ui-page-header:has(> .ui-page-header-copy > h1:only-child) {
+  align-items: center;
+}
+.ui-page-header-copy > p {
+  color: var(--ui-muted);
+  font-size: var(--ui-text-md);
+  line-height: normal;
+  max-width: calc(var(--ui-space) * 170);
+}
+.ui-page-header-meta {
+  color: var(--ui-muted);
+  font: var(--ui-text-sm) var(--ui-font-mono);
+}
+.ui-page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 2);
+}
+/* A filter Select beside the title keeps its own width. */
+.ui-page-header-actions > .select-control {
+  flex: none;
+  width: calc(var(--ui-space) * 45);
+  max-width: 100%;
+}
+.ui-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1.5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+}
+.ui-breadcrumbs li {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--ui-space) * 1.5);
+  min-width: 0;
+}
+.ui-breadcrumbs li + li::before {
+  content: "/";
+  color: var(--ui-faint);
+}
+.ui-breadcrumbs a,
+.ui-breadcrumbs button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--ui-muted);
+  font-size: inherit;
+}
+.ui-breadcrumbs a:hover,
+.ui-breadcrumbs button:hover {
+  color: var(--ui-text);
+  text-decoration: underline;
+}
+.ui-breadcrumbs [aria-current="page"] {
+  color: var(--ui-text);
+  font-weight: 500;
+}
+
+/* Tabs (role=tablist): .tabs is the console tab strip (style.css). */
+.tabs [role="tab"] {
+  border: 0;
+  border-bottom: var(--ui-line-thick) solid transparent;
+  padding: calc(var(--ui-space) * 3.5) calc(var(--ui-space) * 0.5)
+    calc(var(--ui-space) * 3);
+  background: none;
+  color: var(--ui-muted);
+  font-size: var(--ui-text-base);
+  white-space: nowrap;
+}
+.tabs [role="tab"]:hover {
+  color: var(--ui-text);
+}
+.tabs [role="tab"][aria-selected="true"] {
+  border-color: var(--ui-primary);
+  color: var(--ui-text);
+  font-weight: 600;
+}
+.tabs [role="tab"]:focus-visible {
+  outline-offset: calc(var(--ui-space) * -0.5);
+}
+.tabs.ui-tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ui-tabpanel:focus-visible {
+  outline-offset: calc(var(--ui-space) * 0.5);
+}

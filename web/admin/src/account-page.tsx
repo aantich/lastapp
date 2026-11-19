@@ -1,5 +1,5 @@
 import { AgentAccess } from "./agent-access";
-import { PasswordScreen } from "./login";
+import { PasswordScreen } from "./password-screen";
 import { Card, CardBody, CardHeader, Columns, FactList, Stack } from "./ui";
 import type { Me } from "./api-types";
 
@@ -15,7 +15,7 @@ export function AccountPage({
   const password = me.auth_method === "password";
   return (
     <Stack>
-      <Columns min={320}>
+      <Columns min="xl">
         <Card>
           <CardHeader title="Profile" />
           <CardBody>

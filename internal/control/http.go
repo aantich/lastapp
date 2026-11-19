@@ -209,7 +209,13 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request, p access.P
 	for code, sc := range scopes {
 		out[code] = registry.Row{"all": sc.All, "available": sc.All || len(sc.Spaces)+len(sc.Apps)+len(sc.Teams) > 0, "spaces": sc.Spaces, "apps": sc.Apps, "teams": sc.Teams}
 	}
-	httpapi.Send(w, 200, registry.Row{"permissions": out})
+	// The account's fixed control roles here, broadest first: the console
+	// names the first under the account's name.
+	held, e := s.ControlRoles(r.Context(), s.DB, p, tenant)
+	if e != nil {
+		return e
+	}
+	httpapi.Send(w, 200, registry.Row{"permissions": out, "control_roles": held})
 	return nil
 }
 
@@ -280,7 +286,7 @@ func result(w http.ResponseWriter, r *http.Request, s *Server, table, tenant, re
 
 func (s *Server) audits(w http.ResponseWriter, r *http.Request, p access.Principal) error {
 	q := r.URL.Query()
-	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(q), roles.AuditFilter{Actor: q.Get("actor"), Kind: q.Get("kind")})
+	v, e := s.authority.Audits(r.Context(), httpapi.Actor(r, p), r.PathValue("tenant"), httpapi.PageRequest(q), roles.AuditFilter{Actor: q.Get("actor"), Kind: q.Get("kind"), Resource: q.Get("resource_id")})
 	return httpapi.Reply(w, 200, v, e)
 }
 

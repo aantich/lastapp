@@ -1,0 +1,113 @@
+/*
+ * Signal colors and elevation in light mode: the default for every page.
+ * `data-mode` on <html> selects the mode (appearance.ts,
+ * public/appearance-init.js); dark.css overrides these per mode.
+ */
+:root {
+  color-scheme: light;
+  --ui-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ui-font-heading: "Inter Tight Variable", var(--ui-font);
+  --ui-font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  /* Surfaces and text */
+  --ui-canvas: #f6f5f2;
+  --ui-surface: #ffffff;
+  --ui-subtle: #fbfaf8;
+  --ui-hover: #f1efea;
+  --ui-text: #111113;
+  --ui-muted: #5c5f66;
+  --ui-faint: #6b6e75;
+  --ui-border: #e6e4df;
+  /* Hairlines inside a card (a card footer's rule) */
+  --ui-divider: #efede8;
+  --ui-overlay: rgb(14 15 18 / 42%);
+
+  /* Actions: the primary button is ink; secondary buttons have a warm rule */
+  --ui-action: #111113;
+  --ui-action-hover: #2a2c31;
+  --ui-on-action: #ffffff;
+  --ui-button-border: #dad7d0;
+  --ui-button-border-hover: #b9b5ac;
+  /* The brand tile ("L") in the sidebar, Signal blue in both modes */
+  --ui-brand: #2f5bea;
+  --ui-on-brand: #ffffff;
+
+  /* Ink sidebar (dark in both modes) */
+  --ui-sidebar: #0e0f12;
+  --ui-sidebar-hover: #1b1d23;
+  --ui-sidebar-active: #23262e;
+  --ui-sidebar-text: #b9bcc4;
+  --ui-sidebar-muted: #8a8e98;
+  --ui-sidebar-active-text: #ffffff;
+  --ui-sidebar-border: #23252b;
+  --ui-sidebar-surface: #16181c;
+  /* Ink fields (search, toggle), section labels and the account avatar */
+  --ui-sidebar-field: #1b1d23;
+  --ui-sidebar-field-border: #2a2d35;
+  --ui-sidebar-field-text: #c9cbd1;
+  --ui-sidebar-kbd-border: #2f323b;
+  --ui-sidebar-label: #9da1ab;
+  --ui-sidebar-rule: #23262e;
+  /* Status dots on the ink sidebar (both modes) */
+  --ui-sidebar-dot-success: #3fb27f;
+  --ui-sidebar-dot-warning: #e3a23b;
+
+  /* Signal blue */
+  --ui-primary: #2f5bea;
+  --ui-primary-hover: #1e3fb8;
+  --ui-on-primary: #ffffff;
+  --ui-primary-soft: #e8eefd;
+  --ui-focus: #2f5bea;
+  /* Info text on info-soft chips ("Draft", "new") */
+  /* The open item of a record list; a new definition row; a dashed call to action */
+  --ui-selected: #edebe5;
+  --ui-highlight: #f4f7ff;
+  --ui-callout: #f8faff;
+  --ui-callout-border: #c9d4f8;
+
+  /*
+   * Status: foreground on its soft background (AA). The three status text
+   * colors differ in lightness (L* 27 / 36 / 45), not hue alone; info is the
+   * Signal hue and neutral is achromatic. StatusBadge adds a distinct mark
+   * shape per tone (ui/status.tsx).
+   */
+  --ui-success: #1a603d;
+  --ui-success-soft: #eaf5ef;
+  --ui-warning: #935e00;
+  --ui-warning-soft: #fdf1dc;
+  --ui-danger: #7d150d;
+  --ui-danger-soft: #fcebe9;
+  --ui-danger-border: #f1c9c4;
+  --ui-info: #2f5bea;
+  --ui-info-soft: #e8eefd;
+  --ui-neutral: #3a3d44;
+  --ui-neutral-soft: #f1efea;
+
+  /* Graphic marks without text (dots, charts): lightness differs per status */
+  --ui-chart-primary: #2f5bea;
+  --ui-chart-success: #2e8b57;
+  --ui-chart-warning: #bc8420;
+  --ui-chart-danger: #a52a1f;
+
+  /* Controls: boundaries of checkboxes, switches and radios need 3:1 */
+  --ui-control-border: #8a8d94;
+  --ui-control-checked: #2f5bea;
+  --ui-on-control-checked: #ffffff;
+  --ui-skeleton: #ebe9e4;
+
+  /* Inverse surface (toasts, tooltips) */
+  --ui-inverse: #111113;
+  --ui-on-inverse: #ffffff;
+  --ui-inverse-muted: #b9bcc4;
+
+  /* Elevation */
+  --ui-card-border: solid;
+  --ui-shadow: none;
+  --ui-button-shadow: 0 1px 2px rgb(17 17 19 / 6%);
+  --ui-shadow-pop: 0 12px 32px rgb(17 17 19 / 18%);
+  /* A dialog over the page (the command palette) */
+  --ui-shadow-dialog: 0 24px 60px rgb(0 0 0 / 25%);
+  /* A modal dialog (forms, confirmations) */
+  --ui-shadow-modal: 0 20px 70px rgb(0 0 0 / 18%);
+}

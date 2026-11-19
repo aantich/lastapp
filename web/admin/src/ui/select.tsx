@@ -1,67 +1,10 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { useListbox, type Listbox, type ListOption } from "./listbox";
+import { useListbox, type ListOption } from "./listbox";
+import { ListboxPopup } from "./listbox-popup";
+import { Icon } from "./icon";
 export type { ListOption } from "./listbox";
-// Opens below the anchor, or above it when the viewport has more room there,
-// and never taller than the space available.
-function place(popup: HTMLElement | null) {
-  const anchor = popup?.parentElement;
-  if (!popup || !anchor) return;
-  const r = anchor.getBoundingClientRect(),
-    below = window.innerHeight - r.bottom - 12,
-    above = r.top - 12,
-    up = below < 200 && above > below;
-  popup.classList.toggle("above", up);
-  popup.style.maxHeight =
-    Math.max(96, Math.min(270, up ? above : below)) + "px";
-}
-export function ListboxPopup<T extends ListOption>({
-  list,
-  label,
-  options,
-  value,
-  choose,
-  children,
-}: {
-  list: Listbox;
-  label?: string;
-  options: T[];
-  value: string;
-  choose: (option: T) => void;
-  children?: ReactNode;
-}) {
-  return (
-    <span
-      className="combobox-popup"
-      ref={place}
-      // Keep focus on the control, and stop an enclosing <label> from
-      // re-dispatching the click to it.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => e.preventDefault()}
-    >
-      <span role="listbox" id={list.id} aria-label={label}>
-        {options.map((o, i) => (
-          <span
-            role="option"
-            id={`${list.id}-${i}`}
-            key={o.value}
-            data-value={o.value}
-            aria-selected={value === o.value}
-            aria-disabled={o.disabled || undefined}
-            className={list.active === i ? "focused" : undefined}
-            onClick={() => {
-              if (!o.disabled) choose(o);
-            }}
-            onMouseMove={() => list.setActive(i)}
-          >
-            {o.label}
-          </span>
-        ))}
-      </span>
-      {children}
-    </span>
-  );
-}
+
 // Text of the <span> that opens the enclosing <label>, the console's labelling
 // convention; used only to name the popup list.
 function labelText(el: HTMLElement | null) {
@@ -193,7 +136,7 @@ export function Select({
         >
           {selected?.label ?? placeholder}
         </span>
-        <ChevronDown size={15} aria-hidden="true" />
+        <Icon icon={ChevronDown} size="md" aria-hidden="true" />
       </button>
       {(required || name) && (
         // Carries the value for constraint validation and form data; the
