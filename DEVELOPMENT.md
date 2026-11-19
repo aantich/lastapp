@@ -611,7 +611,7 @@ database-backed Go test (all packages) runs on a disposable server:
 `scripts/testdb.py` (used by `make integration`, `make mcp-test`, CI,
 `design/validate_schema.py` and the security probe runner) removes any old
 `mariadb-test` container, starts a fresh one from `docker-compose.yaml`
-(profile `test`, same image as development, tmpfs, no volume, port 33319),
+(profile `test`, same image as development, tmpfs, no volume, port 13319),
 creates the marker database `lastapp_disposable_test`, writes per-run
 passwords, encryption key and configs into a new temporary directory
 (`scripts/ci_config.py`), prepares the `lastapp_control` registry and its
@@ -635,7 +635,7 @@ compiles with the console's TypeScript, so run `make web` (or `make dev`) once f
 `make e2e` runs `make client` automatically through the `pretest:e2e` hook. Database fixtures use disposable registries; worker tests clean
 their owned generated resources. Do not point them at production. The browser suite never touches the development stack or its data either: `make e2e`
 (`scripts/e2e.py`, also used by CI) starts a fresh MariaDB from
-the `mariadb-e2e` service of `docker-compose.yaml` (profile `test`, tmpfs, port 33318)
+the `mariadb-e2e` service of `docker-compose.yaml` (profile `test`, tmpfs, port 13318)
 through the same `scripts/testdb.py` preparation,
 builds the current source and runs a separate API on 8797, development issuer on
 8798 and Vite on 5183, then stops them and removes the container. Its disposable

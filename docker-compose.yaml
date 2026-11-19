@@ -47,12 +47,12 @@ services:
   mariadb-test:
     <<: *disposable-mariadb
     ports:
-      - "127.0.0.1:${LASTAPP_TEST_DB_PORT:-33319}:3306"
+      - "127.0.0.1:${LASTAPP_TEST_DB_PORT:-13319}:3306"
 
   mariadb-e2e:
     <<: *disposable-mariadb
     ports:
-      - "127.0.0.1:${LASTAPP_E2E_DB_PORT:-33318}:3306"
+      - "127.0.0.1:${LASTAPP_E2E_DB_PORT:-13318}:3306"
 
 volumes:
   mariadb-data:

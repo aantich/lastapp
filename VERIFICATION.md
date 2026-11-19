@@ -6,7 +6,7 @@ Earlier entries that mention `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` on
 `.local/config.json` ran on the development MariaDB; that is no longer possible.
 
 - `python3 scripts/testdb.py -race -count=1 ./...` (the `make integration`
-  backend half) on a fresh `mariadb-test` container (port 33319, tmpfs,
+  backend half) on a fresh `mariadb-test` container (port 13319, tmpfs,
   per-run secrets in a temp dir): every package **PASS**, control 278.5 s,
   no skipped tests. Container and temp dir are removed afterwards.
 - The first run found tests that had depended on the dev server: the
@@ -23,6 +23,11 @@ Earlier entries that mention `LASTAPP_TEST_CONFIG`/`LASTAPP_SECURITY_CONFIG` on
   385, 46 schemas, 43 MariaDB accounts. No change.
 - `make lint` clean. Browser e2e (now sharing `scripts/testdb.py`) was run
   in CI.
+- A merge-queue run then failed to bind 127.0.0.1:33318 for `mariadb-e2e`
+  although nothing listened there. 33318/33319 lie in the Linux ephemeral
+  range (32768-60999), so any outgoing connection could hold them. The
+  disposable ports moved to 13318/13319, and `up` is retried (container
+  removed in between) up to three times.
 
 ## Entity designer review fixes — 19 November 2026
 
