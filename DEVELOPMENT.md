@@ -103,7 +103,7 @@ exists. The current login and management OAuth server are implemented in Lastapp
 | Static releases, coherent security activation and status recovery | `internal/delivery/releases.go`, `deployments.go`; `GET /v1/apps/{app}/deployment` |
 | Registry schema | Ordered `internal/control/migrations/*.sql`; generated `design/control_plane.sql` |
 | Typed registry reads | `internal/registry`: `ScanAll`/`ScanOne` (and `op.PageScan`) scan hand-written SQL into record structs whose column list is a const beside each type and whose `ScanFields()` returns the scan destinations; `JSONValue` (`*_json` columns), `Bit` (TINYINT 0/1) and pointers (NULL) keep the JSON identical to the former `Row` maps. Plans, Tenant policy, quotas, record locks and the shared `APIError` live there too; `op.Classify` maps MySQL errors. `QueryRow`/`QueryRows` remain only for dynamic business records and their record ACLs; `TestRegistryRecordsMatchUntypedRows` and `TestRegistryRecordKeysAreSorted` guard the shapes |
-| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors; Signal tokens in `themes.css` and the UI library entry `src/ui/` (see [Console UI library](#console-ui-library)); pages under `tenant/`, `platform/`, `entity-designer/` |
+| Console composition and policy consumers | `web/admin/src`; shared shell/forms/collections/selectors; Signal tokens in `themes.css` (`src/theme/`) and the UI library entry `src/ui/` (see [Console UI library](#console-ui-library)); pages under `tenant/`, `platform/`, `entity-designer/` |
 | Console data layer | Reads: `query.ts` (`useApiQuery`, TanStack Query cache, `refetchInterval` polling); mutations: `use-action.ts` (`useAction`, invalidates reads) |
 | Console conventions | `useAction` is the only screen mutation path; confirmations use `confirmAction` (`ui/confirm.ts`, `ui/confirm-dialog.tsx`), never `window.confirm`; every console URL is built and parsed in `console-url.ts`; render and lazy-load failures stay in the shell via `ui/error-boundary.tsx` and `retryable-lazy.ts`; screens use the `src/ui` kit only; choices and numbers use `Select` / `NumberInput` (native `<select>`, date and number inputs are not allowed). No lint suppression file, `//nolint` or inline ESLint disable; the loose `Item` row type in `api-types.ts` is `Record<string, unknown>`, narrowed at use sites (`text`, `num`, `isItem`, `items` or a named shape) |
 
@@ -224,17 +224,21 @@ and system color modes. New console UI follows these rules:
   omitted or shows a real empty state and becomes a backend follow-up; it is
   never filled with sample values. Stories use neutral sample data.
 
-- **Tokens.** `web/admin/src/themes.css` is the only source of colors, fonts,
-  radii and shadows: semantic `--ui-*` variables, redefined for
-  `:root[data-mode="dark"]` and, for the ink sidebar, inside `.sidebar`. Tailwind
-  4 maps them to utilities (`bg-surface`, `text-ink`, `text-muted`,
-  `text-primary`, `border-line`, `rounded-panel`, `font-heading`, `font-mono`,
-  `bg-success-soft`, …). Do not write literal colors in components and do not
-  add theme presets; a new value is a new token in `themes.css`, defined for
+- **Tokens.** `web/admin/src/themes.css` imports the only source of visual
+  values, `src/theme/`: `light.css`/`dark.css` (colors and shadows, redefined
+  for `:root[data-mode="dark"]`), `sidebar.css` (the ink sidebar scope),
+  `scale.css` (the 4px `--ui-space` unit, layout, type sizes, letter spacing,
+  radii, line widths, durations, z-index layers), `sizes.css` (named component
+  sizes: icons, avatars, skeletons, measures, table columns, page widths) and
+  `tailwind.css`, which maps them to utilities (`bg-surface`, `text-ink`,
+  `text-muted`, `text-primary`, `border-line`, `rounded-panel`,
+  `font-heading`, `font-mono`, `bg-success-soft`, …). Do not add theme
+  presets; a new value is a new token there, and a new color is defined for
   both modes with AA contrast (text 4.5:1, marks and focus rings 3:1) and, for
   status colors, a lightness difference rather than hue alone.
 - **Mode.** `data-mode` on `<html>` is set by `public/appearance-init.js` before
-  CSS loads and by `applyMode` in `src/appearance.ts`. The browser preference
+  CSS loads and by `applyMode` in `src/appearance.ts`, which also sets the
+  browser chrome color (`theme-color`) from the computed `--ui-canvas`. The browser preference
   `lastapp-appearance` stores only `{ mode }`; a `theme` saved by the former
   presets is ignored.
 - **Fonts.** Inter is bundled from `src/assets`; Inter Tight (headings) and
@@ -245,7 +249,8 @@ and system color modes. New console UI follows these rules:
   its single entry point (no re-exports from old module paths). Screens are
   built only from kit components and `--ui-*` tokens: a screen that needs a new
   control, layout part or state gets it added to the kit, with stories, rather
-  than hand-written markup. Kit styles live in `src/ui/kit.css`; kit components
+  than hand-written markup. Kit styles live in `src/ui/styles/` (imported in order by
+  `src/ui/kit.css`); kit components
   keep the established class names that screens and e2e tests match on
   (`.primary`, `.secondary`, `.danger`, `.icon`, `.badge`, `.error`,
   `.overlay`/`.modal`, `.tabs`, `.empty`, `.panel`, `.sidebar-collapsed`);
@@ -256,8 +261,38 @@ and system color modes. New console UI follows these rules:
   `.workspace-tabs`, `.workspace-facts`, `.deployment-status`,
   `.release-list`, `.development-banner`, `.login-form`, `.password-welcome`/
   `.welcome-card`, `.profile-menu`, `.company-name`), and no screen has its
-  own stylesheet. `style.css` keeps only the base rules and the legacy class
-  names the kit renders (buttons, panels, fields, modal, tabs, shell).
+  own stylesheet. `style.css` imports Tailwind, the tokens, the kit and
+  `src/styles/`, which keeps only the base rules and the legacy class names the
+  kit renders (buttons, panels, fields, modal, tabs, shell).
+- **UI code rules** (enforced by `npm run lint`, so `make lint` and CI):
+  - *No literal visual values.* Colors, lengths, durations and z-index come
+    from `src/theme/` tokens. `scripts/check-css.mjs` rejects color literals,
+    nonzero lengths/durations and literal z-index in any stylesheet outside
+    `src/theme/` (media query breakpoints excepted: custom properties cannot
+    be used there; the shell reads its breakpoint from
+    `--ui-breakpoint-narrow`). ESLint rejects color literals, CSS lengths and
+    durations in TypeScript strings (table tracks name `--ui-col-*` /
+    `--ui-measure-*` tokens), Tailwind arbitrary values (`w-[13px]`,
+    `[&>svg]:…`) and numeric `size`/`width`/`height`/`strokeWidth` props.
+    Kit props take names: `Icon size="lg"` (`ui/icon.tsx`; use it for every
+    Lucide icon that needs a size), `Avatar size`, `Spinner size`, `Skeleton
+    width="value"|"40%"`/`height`/`circle`, `Columns`/`Stepper min` and
+    `tracks` (`Measure`), `StandalonePage width="narrow"`. Behavioural
+    timings are named once: polling intervals in `polling.ts`, the search
+    debounce in `useDebouncedSearch` (`ui/hooks.ts`), the toast duration in
+    `ui/toast.tsx`.
+  - *Kit components only.* Outside `src/ui`, ESLint rejects raw `<button>`,
+    `<input>`, `<textarea>`, `<select>`, `<table>` and `<dialog>` and any
+    `style` prop; add the missing part to the kit, with a story. Native
+    `<select>`, date inputs and number steppers are never used, in the kit
+    either.
+  - *At most 200 lines per file* (blank and comment lines not counted):
+    ESLint `max-lines` for every `.ts`/`.tsx` under `src` (stories excepted:
+    they show every state of one component) and `check-css.mjs` for every
+    stylesheet. Split by responsibility (component, hook, query helper, form
+    definition, style section) without duplicating logic. Nothing in `src`
+    is generated, so there are no other exceptions; there are no suppression
+    comments.
 - **Inventory.**
   - Primitives: `Button`/`IconButton` (primary, secondary, ghost, danger, link;
     sm/md; loading; the icon button's label is required), `StatusBadge` with
@@ -469,7 +504,7 @@ and system color modes. New console UI follows these rules:
 - **Stories.** Every kit component has stories
   (`src/ui/controls/*.stories.tsx`, grouped as Primitives, Composites and
   Controls) with realistic Northstar data;
-  `src/ui/foundations/` shows the tokens (read from `themes.css`, both modes,
+  `src/ui/foundations/` shows the tokens (read from `src/theme/`, both modes,
   contrast ratios), typography, spacing/radius and the lucide icons in use.
   Stories supply the password policy and mock list APIs (`src/ui/storybook/`);
   they never copy server limits.

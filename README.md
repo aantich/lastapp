@@ -132,7 +132,7 @@ an offcanvas menu and the top bar keeps the current page, search and
 **Connect agent**.
 
 The theme is a set of semantic `--ui-*` CSS variables in
-`web/admin/src/themes.css`, exposed through Tailwind 4 utilities such as
+`web/admin/src/themes.css` (its parts in `src/theme/`), exposed through Tailwind 4 utilities such as
 `bg-surface`, `text-ink`, `text-primary`, `border-line` and `rounded-panel`.
 Browse the tokens and shared controls in the local Storybook; see the UI
 library section of [DEVELOPMENT.md](DEVELOPMENT.md#console-ui-library).
