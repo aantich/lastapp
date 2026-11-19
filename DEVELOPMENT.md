@@ -58,6 +58,21 @@ Server rules protect shared invariants on every write, including bulk operations
 There is no general backend workflow engine or arbitrary backend code runtime.
 Client checks improve UX; they never replace server authorization or validation.
 
+### Go package boundaries
+
+[AGENTS.md](AGENTS.md#engineering-rules) defines separate Go packages for logical
+modules as a rule for future work. Use the package map below to find the owner
+of a change. For example, workspace preparation and release deployment belong
+together in `internal/delivery`, while entity publication belongs in
+`internal/publisher`. Related operations can live in separate files within one
+package.
+
+For a new logical module, give its package a clear responsibility and a small
+typed API. HTTP handlers and MCP tools call the same domain operations through
+that API. Dependencies point down the existing layers, with transport and
+service wiring at the top. Register each new internal package in
+[`TestPackageLayering`](internal/layering_test.go) and add it to the package map.
+
 ## Implemented versus planned
 
 | Implemented | Still planned / unavailable |
